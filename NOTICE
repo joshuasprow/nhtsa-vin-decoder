@@ -1,0 +1,15 @@
+nhtsa-vin-decoder
+
+Data: the vehicle data this decoder ships is NHTSA's vPIC (Vehicle Product
+Information Catalog), published by the U.S. National Highway Traffic Safety
+Administration at https://vpic.nhtsa.dot.gov/ as a work of the United States
+Government. The decoding procedure this project ports, `spVinDecode`, is part
+of that publication. Each release records the vPIC data month it was built
+from.
+
+Reference implementation: the port's structure, its parity method and its
+registry of documented upstream defects follow ultravin
+(https://github.com/blackthorn-interstellar/ultravin, MIT, Bryce Drennan),
+which is also the differential oracle this project tests against. No ultravin
+source is copied; where a design or an evidenced deviation is adopted, the
+file that adopts it says so.
