@@ -131,6 +131,7 @@ export NITROVIN_DATA=nitrovin.artifact
 ./nitrovin decode 1HGCM82633A004352                  # pretty on a terminal
 ./nitrovin decode -o text --model-year 2003 1HGCM82633A004352
 printf '1HGCM82633A004352,2003\n5YJ3E1EA2JF000316\n' | ./nitrovin decode -   # JSON lines
+printf '{"id":1,"vin":"1HGCM82633A004352"}\nnot json\n' | ./nitrovin stdio      # one {id, decode} or {id, error} line per line
 ./nitrovin info
 ```
 

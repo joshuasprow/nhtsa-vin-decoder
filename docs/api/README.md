@@ -181,9 +181,9 @@ JSON lines over stdin and stdout, UTF-8, `\n`-terminated.
   line: `{"id": …, "decode": {…}}` or `{"id": …, "error": <problem>}`. `id` is
   present when the request had one, or could be read from a malformed line.
 - A malformed or refused line gets an error line, and the session continues.
-- Blank lines are skipped and get no reply.
+- Blank lines (nothing but spaces, tabs and a `\r`) are skipped and get no reply.
 - EOF on stdin ends the session after the last reply; exit 0. Exit 1 only when
-  stdout fails.
+  reading stdin or writing stdout fails (or, as for every command, no data loads).
 
 The problem objects are HTTP's, with the same `type` URIs and `status`.
 

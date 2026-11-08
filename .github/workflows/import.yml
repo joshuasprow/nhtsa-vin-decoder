@@ -111,10 +111,11 @@ jobs:
           grep -q -- '--- PASS: TestRefusedLine' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestMCPSession' "$RUNNER_TEMP/engine.log"
           # The answer key is one month's (its manifest says which); on another
-          # month TestEngineAnswerKey, TestDecodeAnswerKey and TestText skip,
+          # month TestEngineAnswerKey, TestDecodeAnswerKey, TestText and TestStdio skip,
           # until the refresh renews the key.
           if [ "${{ steps.fetch.outputs.month }}" = "$(jq -r .month pkg/contract/testdata/oracle/manifest.json)" ]; then
             grep -q -- '--- PASS: TestEngineAnswerKey' "$RUNNER_TEMP/engine.log"
             grep -q -- '--- PASS: TestDecodeAnswerKey' "$RUNNER_TEMP/engine.log"
             grep -q -- '--- PASS: TestText' "$RUNNER_TEMP/engine.log"
+            grep -q -- '--- PASS: TestStdio ' "$RUNNER_TEMP/engine.log"
           fi
