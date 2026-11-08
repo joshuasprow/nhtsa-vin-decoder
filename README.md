@@ -78,3 +78,20 @@ NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/decoder -run 'TestMatcherPostg
 
 `.github/workflows/import.yml` runs these on PRs touching the importer or
 the engine.
+
+## The decode contract
+
+`pkg/contract` is [the API contract](docs/api/README.md) in Go: the request
+every surface parses (`ParseRequest`, `ParseBatch`, `ParseStdio`,
+`ParseQuery`), the RFC 9457 `Problem`s it refuses with, the `Decode`, `Item`
+and `Info` types, and both attribute layouts as pure functions of the items.
+`pkg/nitrovin` is the Go module's entry point (`Open`, `Load`,
+`Decoder.Decode`); it reads the clock, the engine never does. Every decode of
+the oracle's answer key for `testdata/oracle/sample-vins.tsv`, committed under
+`pkg/contract/testdata/oracle`, is checked against `decode.schema.json` in both
+layouts (`.github/workflows/contract.yml`). With an artifact, `go test
+./pkg/contract` also checks the committed element table against it:
+
+```sh
+NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/contract -run TestInfo
+```

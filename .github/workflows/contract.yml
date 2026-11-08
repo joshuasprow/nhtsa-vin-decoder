@@ -1,0 +1,29 @@
+# The decode contract layer without a dump: pkg/contract's request parsing
+# and both layouts, every decode of the committed oracle answer key checked
+# against docs/api/decode.schema.json; pkg/nitrovin vetted.
+name: Contract
+
+on:
+  pull_request:
+    paths:
+      - pkg/contract/**
+      - pkg/nitrovin/**
+      - docs/api/decode.schema.json
+      - go.mod
+      - go.sum
+      - .github/workflows/contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go vet ./pkg/contract/ ./pkg/nitrovin/
+      - run: go test -count=1 ./pkg/contract/ ./pkg/nitrovin/
