@@ -29,8 +29,12 @@ import (
 //     any wmi row with the WMI, through the keys' fValidCharsInKey rows;
 //   - fextract: charset agrees with vpic.fExtractValidCharsPerWmiYear
 //     itself on NITROVIN_CHARSET_CELLS cells (default 1000, evenly spread;
-//     "all" for every cell), run over NITROVIN_CHARSET_WORKERS sessions
-//     (default 4), each call in its own transaction.
+//     "all" for every cell), each call in its own transaction, over
+//     NITROVIN_CHARSET_WORKERS sessions (default 1). One call creates a
+//     temporary table per key and holds its locks to the end of the
+//     transaction, up to 1,192 keys for 1M1, so concurrent sessions share
+//     Postgres's lock table: more than one needs a larger
+//     max_locks_per_transaction than the default 64.
 //
 // It then logs how the dump's wmiyearvalidchars cache differs from the
 // recompute in the cells the cache holds: the cells of the stale-cache
@@ -217,7 +221,7 @@ func checkFExtract(t *testing.T, e *engine, cells []charsetCell) {
 	if len(cells) == 0 {
 		t.Skip("no cells")
 	}
-	n, workers := 1000, 4
+	n, workers := 1000, 1
 	switch s := os.Getenv("NITROVIN_CHARSET_CELLS"); s {
 	case "":
 	case "all":
