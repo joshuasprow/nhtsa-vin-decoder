@@ -1,5 +1,6 @@
 # Exercises the reusable oracle workflow through workflow_call whenever the
-# oracle itself changes: newest month, committed sample VINs.
+# oracle itself changes: newest month, committed sample VINs plus the
+# witnesses in docs/deviations/.
 name: Postgres oracle smoke
 
 on:
@@ -9,6 +10,7 @@ on:
       - .github/workflows/oracle-smoke.yml
       - scripts/oracle.sh
       - testdata/oracle/**
+      - docs/deviations/**
 
 permissions:
   contents: read

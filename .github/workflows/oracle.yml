@@ -1,5 +1,7 @@
 # The Postgres oracle: restore one month of NHTSA's dump into Postgres 17,
-# run its own vpic.spvindecode over a VIN list, and upload the answer key.
+# run its own vpic.spvindecode over a VIN list on the stock dump and on the
+# freshened copy (ADR 0006), and upload both answer keys with the stale-cache
+# list and the witness re-check against live vPIC.
 # Reusable (workflow_call) for the refresh gates; dispatchable by hand.
 # The commands live in scripts/oracle.sh so a workstation runs the same ones.
 name: Postgres oracle
@@ -12,7 +14,7 @@ on:
         type: string
         default: ""
       vins:
-        description: VIN list in the checkout (VIN, optional tab and model-year hint)
+        description: VIN list in the checkout (VIN, optional tab and model-year hint); every deviation witness is added
         type: string
         default: testdata/oracle/sample-vins.tsv
     outputs:
@@ -26,7 +28,9 @@ on:
         description: SHA-256 of vPICList_lite_<month>.custom.zip
         value: ${{ jobs.oracle.outputs.dump-sha256 }}
       artifact:
-        description: Name of the uploaded artifact (answer-key.csv, manifest.json)
+        description: >-
+          Name of the uploaded artifact: corpus.tsv, {stock,freshened}/answer-key.csv
+          and vin-ms.tsv, stale-cache.jsonl, witnesses.jsonl, manifest.json
         value: ${{ jobs.oracle.outputs.artifact }}
   workflow_dispatch:
     inputs:
@@ -35,7 +39,7 @@ on:
         type: string
         default: ""
       vins:
-        description: VIN list in the checkout (VIN, optional tab and model-year hint)
+        description: VIN list in the checkout (VIN, optional tab and model-year hint); every deviation witness is added
         type: string
         default: testdata/oracle/sample-vins.tsv
 
@@ -50,6 +54,9 @@ defaults:
 jobs:
   oracle:
     runs-on: ubuntu-24.04
+    # On this 4-CPU runner, 2026_10 decodes in about 0.11 s per VIN stock and
+    # 0.20 s freshened (manifest.json: timings, keys.*.vin_ms), and the rest
+    # of the job takes about a minute: 30 minutes hold about 5k VINs.
     timeout-minutes: 30
     services:
       postgres:
@@ -72,7 +79,7 @@ jobs:
       month: ${{ steps.fetch.outputs.month }}
       dump-bytes: ${{ steps.fetch.outputs.dump_bytes }}
       dump-sha256: ${{ steps.fetch.outputs.dump_sha256 }}
-      artifact: oracle-answer-key-${{ steps.fetch.outputs.month }}
+      artifact: oracle-${{ steps.fetch.outputs.month }}
     steps:
       - uses: actions/checkout@v7
 
@@ -99,12 +106,28 @@ jobs:
       - name: Restore dump
         run: scripts/oracle.sh restore "${{ steps.fetch.outputs.backup }}"
 
-      - name: Decode VINs
+      - name: Freshen a copy
+        run: scripts/oracle.sh freshen
+
+      - name: Build the corpus
         env:
           VINS: ${{ inputs.vins }}
         run: |
-          mkdir -p "$ORACLE_OUT"
-          scripts/oracle.sh decode "$VINS" "$ORACLE_OUT/answer-key.csv"
+          mkdir -p "$ORACLE_OUT/stock" "$ORACLE_OUT/freshened"
+          scripts/oracle.sh corpus "$VINS" >"$ORACLE_OUT/corpus.tsv"
+
+      - name: Decode, stock
+        run: scripts/oracle.sh decode stock "$ORACLE_OUT/corpus.tsv" "$ORACLE_OUT/stock/answer-key.csv" "$ORACLE_OUT/stock/vin-ms.tsv"
+
+      - name: Decode, freshened
+        run: scripts/oracle.sh decode freshened "$ORACLE_OUT/corpus.tsv" "$ORACLE_OUT/freshened/answer-key.csv" "$ORACLE_OUT/freshened/vin-ms.tsv"
+
+      - name: Detect the stale-cache class
+        run: scripts/oracle.sh stale-cache "$ORACLE_OUT/stock/answer-key.csv" "$ORACLE_OUT/freshened/answer-key.csv" "$ORACLE_OUT/stale-cache.jsonl"
+
+      # Reports; a disagreement or an unreachable vPIC never fails it.
+      - name: Re-check witnesses against live vPIC
+        run: scripts/oracle.sh recheck "$ORACLE_OUT/stock/answer-key.csv" "$ORACLE_OUT/freshened/answer-key.csv" "$ORACLE_OUT/witnesses.jsonl"
 
       - name: Write manifest
         env:
@@ -113,21 +136,40 @@ jobs:
           DUMP_BYTES: ${{ steps.fetch.outputs.dump_bytes }}
           DUMP_SHA256: ${{ steps.fetch.outputs.dump_sha256 }}
         run: |
-          q() { docker exec "$ORACLE_CONTAINER" psql -X -tA -U postgres -d vpic -c "$1"; }
+          q() { docker exec "$ORACLE_CONTAINER" psql -X -tA -U postgres -d "$1" -c "$2"; }
+          sha() { sha256sum "$1" | cut -d' ' -f1; }
+          # One answer key: its mode, its database and its per-VIN cost.
+          key() {
+            jq -n \
+              --arg mode "$1" \
+              --arg database "$2" \
+              --argjson wmiyearvalidchars_rows "$(q "$2" 'select count(*) from vpic.wmiyearvalidchars')" \
+              --argjson answer_rows "$(q "$2" 'select count(*) from oracle.answer_key')" \
+              --arg answer_key_sha256 "$(sha "$ORACLE_OUT/$1/answer-key.csv")" \
+              --argjson vin_ms "$(q "$2" "select json_build_object('mean', round(avg(ms), 1),
+                  'median', round(percentile_cont(0.5) within group (order by ms)::numeric, 1),
+                  'max', max(ms), 'total', round(sum(ms))) from oracle.vin_time")" \
+              '$ARGS.named'
+          }
           jq -n \
             --arg month "$MONTH" \
             --argjson dump_bytes "$DUMP_BYTES" \
             --arg dump_sha256 "$DUMP_SHA256" \
             --arg vins "$VINS" \
-            --arg vins_sha256 "$(sha256sum "$VINS" | cut -d' ' -f1)" \
-            --argjson vin_count "$(q 'select count(*) from oracle.input')" \
-            --argjson answer_rows "$(q 'select count(*) from oracle.answer_key')" \
-            --arg answer_key_sha256 "$(sha256sum "$ORACLE_OUT/answer-key.csv" | cut -d' ' -f1)" \
-            --arg server "$(q 'show server_version')" \
-            --arg collate "$(q "select datcollate from pg_database where datname = 'vpic'")" \
-            --arg ctype "$(q "select datctype from pg_database where datname = 'vpic'")" \
+            --arg vins_sha256 "$(sha "$VINS")" \
+            --arg corpus_sha256 "$(sha "$ORACLE_OUT/corpus.tsv")" \
+            --argjson vin_count "$(q vpic 'select count(*) from oracle.input')" \
+            --argjson keys "$(jq -n --argjson stock "$(key stock vpic)" --argjson freshened "$(key freshened vpic_fresh)" '$ARGS.named')" \
+            --argjson stale_cache "$(jq -n --argjson vins "$(wc -l <"$ORACLE_OUT/stale-cache.jsonl")" \
+                --arg jsonl_sha256 "$(sha "$ORACLE_OUT/stale-cache.jsonl")" '$ARGS.named')" \
+            --argjson witnesses "$(jq -s '{checked: length, agree: (map(select(.agrees == true)) | length),
+                disagree: (map(select(.agrees == false)) | length), unchecked: (map(select(.error)) | length),
+                fields: (map(.fields // 0) | add // 0)}' "$ORACLE_OUT/witnesses.jsonl")" \
+            --arg server "$(q vpic 'show server_version')" \
+            --arg collate "$(q vpic "select datcollate from pg_database where datname = 'vpic'")" \
+            --arg ctype "$(q vpic "select datctype from pg_database where datname = 'vpic'")" \
             --arg pg_restore "$(docker exec "$ORACLE_CONTAINER" pg_restore --version)" \
-            --argjson database_bytes "$(q "select pg_database_size('vpic')")" \
+            --argjson database_bytes "$(q vpic "select pg_database_size('vpic')")" \
             --argjson disk_used_bytes "$(( $(df -B1 --output=used / | tail -n 1) - ORACLE_DISK_BEFORE ))" \
             --argjson wall_seconds "$(( $(date +%s) - ORACLE_STARTED ))" \
             --arg runner "$ImageOS $ImageVersion, $(nproc) CPU" \
@@ -140,14 +182,22 @@ jobs:
             echo
             echo '| Measure | Value |'
             echo '| --- | --- |'
-            jq -r 'del(.timings) | to_entries[] | "| \(.key) | \(.value) |"' "$ORACLE_OUT/manifest.json"
+            jq -r 'del(.keys, .stale_cache, .witnesses, .timings) | to_entries[] | "| \(.key) | \(.value) |"' "$ORACLE_OUT/manifest.json"
             jq -r '.timings | to_entries[] | "| seconds: \(.key) | \(.value) |"' "$ORACLE_OUT/manifest.json"
+            echo
+            echo '| Key | wmiyearvalidchars rows | Answer rows | ms per VIN: mean | median | max | total | SHA-256 |'
+            echo '| --- | --- | --- | --- | --- | --- | --- | --- |'
+            jq -r '.keys[] | "| \(.mode) | \(.wmiyearvalidchars_rows) | \(.answer_rows) | \(.vin_ms.mean) | \(.vin_ms.median) | \(.vin_ms.max) | \(.vin_ms.total) | `\(.answer_key_sha256)` |"' "$ORACLE_OUT/manifest.json"
+            echo
+            jq -r '"**stale-cache**: \(.stale_cache.vins) of \(.vin_count) VINs differ between the stock and freshened keys (`stale-cache.jsonl`)."' "$ORACLE_OUT/manifest.json"
+            echo
+            echo '| Witness | Class | Live vPIC | Fields | Stock ≠ freshened | Disagreeing elements |'
+            echo '| --- | --- | --- | --- | --- | --- |'
+            jq -r '"| `\(.vin)` | \(.class) | \(if .error then "unchecked: \(.error)" elif .agrees then "agrees" else "**disagrees**" end) | \(.fields // "") | \(.disputed // "") | \(.disagree // [] | map("\(.element) \(.code)") | join(", ")) |"' "$ORACLE_OUT/witnesses.jsonl"
           } >>"$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: oracle-answer-key-${{ steps.fetch.outputs.month }}
-          path: |
-            ${{ env.ORACLE_OUT }}/answer-key.csv
-            ${{ env.ORACLE_OUT }}/manifest.json
+          name: oracle-${{ steps.fetch.outputs.month }}
+          path: ${{ env.ORACLE_OUT }}
           if-no-files-found: error

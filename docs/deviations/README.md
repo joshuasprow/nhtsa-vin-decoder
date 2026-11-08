@@ -29,7 +29,9 @@ One file per class, `docs/deviations/<class>.md`, with these sections:
   oracle's.
 - **Witnesses.** VINs that exhibit the class, each with the stock oracle's
   answer, live vPIC's answer (which equals nitrovin's) and the date live vPIC
-  was checked.
+  was checked. A table under this heading whose rows open with the VIN in
+  backquotes: `scripts/oracle.sh` reads the witnesses from there, adds them to
+  the refresh corpus and re-checks them.
 - **Credit.** Who found it first, if it wasn't us (`NOTICE`).
 
 ## When the refresh goes red
@@ -62,7 +64,8 @@ reported as well as a heal. Neither fails the refresh. A class that has stayed
 healed long enough to be uninteresting is retired by a PR that deletes its file
 and its row above.
 
-Every refresh re-queries live vPIC for every witness. A witness on which live
+Every refresh re-queries live vPIC for every witness (`scripts/oracle.sh
+recheck`, `witnesses.jsonl` beside the answer keys). A witness on which live
 vPIC no longer agrees with nitrovin is reported, not gated, because live vPIC
 runs on newer data than any dump. A human decides whether the class still
 stands.
