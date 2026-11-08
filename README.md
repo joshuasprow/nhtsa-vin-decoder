@@ -59,3 +59,20 @@ go test ./cmd/nitrovin-import/` also checks a build against the database:
 row counts, NULL and empty-string counts, sampled rows, and one hash from two
 extracts. `.github/workflows/import.yml` runs that on PRs touching the
 importer.
+
+## The engine
+
+`pkg/decoder` ports `spvindecode` stage by stage, each tested against
+Postgres running the dump's own SQL. Most answer keys are committed under
+`pkg/decoder/testdata` (regenerate with `go test ./pkg/decoder -run <Test>
+-update-oracle` against a restored dump). The pattern matcher is also checked
+on every distinct `pattern.keys` of a month and every VinSchema's index,
+against the database and an artifact built from it:
+
+```sh
+NITROVIN_PSQL='docker exec -i nhtsa-oracle psql -X -q -U postgres -d vpic' \
+NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/decoder -run TestMatcherPostgres
+```
+
+`.github/workflows/import.yml` runs both on PRs touching the importer or
+the engine.
