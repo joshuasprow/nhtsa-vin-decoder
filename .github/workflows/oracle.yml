@@ -54,8 +54,9 @@ defaults:
 jobs:
   oracle:
     runs-on: ubuntu-24.04
-    # Decoding costs about 25 ms per VIN stock and 50 ms freshened on 2026_10
-    # (manifest.json: keys.*.vin_ms), so 30 minutes holds about 20k VINs.
+    # On this 4-CPU runner, 2026_10 decodes in about 0.11 s per VIN stock and
+    # 0.20 s freshened (manifest.json: timings, keys.*.vin_ms), and the rest
+    # of the job takes about a minute: 30 minutes hold about 5k VINs.
     timeout-minutes: 30
     services:
       postgres:
