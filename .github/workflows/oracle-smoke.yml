@@ -1,0 +1,32 @@
+# Exercises the reusable oracle workflow through workflow_call whenever the
+# oracle itself changes: newest month, committed sample VINs.
+name: Postgres oracle smoke
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/oracle.yml
+      - .github/workflows/oracle-smoke.yml
+      - scripts/oracle.sh
+      - testdata/oracle/**
+
+permissions:
+  contents: read
+
+jobs:
+  oracle:
+    uses: ./.github/workflows/oracle.yml
+
+  outputs:
+    needs: oracle
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report outputs
+        env:
+          MONTH: ${{ needs.oracle.outputs.month }}
+          BYTES: ${{ needs.oracle.outputs.dump-bytes }}
+          SHA256: ${{ needs.oracle.outputs.dump-sha256 }}
+          ARTIFACT: ${{ needs.oracle.outputs.artifact }}
+        run: |
+          [[ "$MONTH" =~ ^[0-9]{4}_[0-9]{2}$ && "$SHA256" =~ ^[0-9a-f]{64}$ && "$BYTES" -gt 0 ]]
+          echo "$ARTIFACT: data month $MONTH, $BYTES bytes, sha256 $SHA256"

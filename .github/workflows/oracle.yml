@@ -1,0 +1,147 @@
+# The Postgres oracle: restore one month of NHTSA's dump into Postgres 17,
+# run its own vpic.spvindecode over a VIN list, and upload the answer key.
+# Reusable (workflow_call) for the refresh gates; dispatchable by hand.
+# The commands live in scripts/oracle.sh so a workstation runs the same ones.
+name: Postgres oracle
+
+on:
+  workflow_call:
+    inputs:
+      month:
+        description: Data month YYYY_MM; empty means the newest one NHTSA publishes
+        type: string
+        default: ""
+      vins:
+        description: VIN list in the checkout (VIN, optional tab and model-year hint)
+        type: string
+        default: testdata/oracle/sample-vins.tsv
+    outputs:
+      month:
+        description: Data month decoded
+        value: ${{ jobs.oracle.outputs.month }}
+      dump-bytes:
+        description: Size of vPICList_lite_<month>.custom.zip
+        value: ${{ jobs.oracle.outputs.dump-bytes }}
+      dump-sha256:
+        description: SHA-256 of vPICList_lite_<month>.custom.zip
+        value: ${{ jobs.oracle.outputs.dump-sha256 }}
+      artifact:
+        description: Name of the uploaded artifact (answer-key.csv, manifest.json)
+        value: ${{ jobs.oracle.outputs.artifact }}
+  workflow_dispatch:
+    inputs:
+      month:
+        description: Data month YYYY_MM; empty means the newest one NHTSA publishes
+        type: string
+        default: ""
+      vins:
+        description: VIN list in the checkout (VIN, optional tab and model-year hint)
+        type: string
+        default: testdata/oracle/sample-vins.tsv
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # Explicit bash adds -o pipefail, so `| tee` cannot hide a failed fetch.
+    shell: bash
+
+jobs:
+  oracle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        # The custom dump is archive format 1.16: pg_restore 17 or newer.
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vpic
+        options: >-
+          --shm-size 1g
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    outputs:
+      month: ${{ steps.fetch.outputs.month }}
+      dump-bytes: ${{ steps.fetch.outputs.dump_bytes }}
+      dump-sha256: ${{ steps.fetch.outputs.dump_sha256 }}
+      artifact: oracle-answer-key-${{ steps.fetch.outputs.month }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Prepare
+        run: |
+          {
+            echo "ORACLE_CONTAINER=${{ job.services.postgres.id }}"
+            echo "ORACLE_TIMINGS=$RUNNER_TEMP/timings.tsv"
+            echo "ORACLE_OUT=$RUNNER_TEMP/out"
+            echo "ORACLE_STARTED=$(date +%s)"
+            echo "ORACLE_DISK_BEFORE=$(df -B1 --output=used / | tail -n 1 | tr -d ' ')"
+          } >>"$GITHUB_ENV"
+
+      - name: Resolve data month
+        id: month
+        env:
+          MONTH: ${{ inputs.month }}
+        run: echo "month=${MONTH:-$(scripts/oracle.sh month)}" >>"$GITHUB_OUTPUT"
+
+      - name: Fetch dump
+        id: fetch
+        run: scripts/oracle.sh fetch "${{ steps.month.outputs.month }}" "$RUNNER_TEMP/dump" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Restore dump
+        run: scripts/oracle.sh restore "${{ steps.fetch.outputs.backup }}"
+
+      - name: Decode VINs
+        env:
+          VINS: ${{ inputs.vins }}
+        run: |
+          mkdir -p "$ORACLE_OUT"
+          scripts/oracle.sh decode "$VINS" "$ORACLE_OUT/answer-key.csv"
+
+      - name: Write manifest
+        env:
+          VINS: ${{ inputs.vins }}
+          MONTH: ${{ steps.fetch.outputs.month }}
+          DUMP_BYTES: ${{ steps.fetch.outputs.dump_bytes }}
+          DUMP_SHA256: ${{ steps.fetch.outputs.dump_sha256 }}
+        run: |
+          q() { docker exec "$ORACLE_CONTAINER" psql -X -tA -U postgres -d vpic -c "$1"; }
+          jq -n \
+            --arg month "$MONTH" \
+            --argjson dump_bytes "$DUMP_BYTES" \
+            --arg dump_sha256 "$DUMP_SHA256" \
+            --arg vins "$VINS" \
+            --arg vins_sha256 "$(sha256sum "$VINS" | cut -d' ' -f1)" \
+            --argjson vin_count "$(q 'select count(*) from oracle.input')" \
+            --argjson answer_rows "$(q 'select count(*) from oracle.answer_key')" \
+            --arg answer_key_sha256 "$(sha256sum "$ORACLE_OUT/answer-key.csv" | cut -d' ' -f1)" \
+            --arg server "$(q 'show server_version')" \
+            --arg pg_restore "$(docker exec "$ORACLE_CONTAINER" pg_restore --version)" \
+            --argjson database_bytes "$(q "select pg_database_size('vpic')")" \
+            --argjson disk_used_bytes "$(( $(df -B1 --output=used / | tail -n 1) - ORACLE_DISK_BEFORE ))" \
+            --argjson wall_seconds "$(( $(date +%s) - ORACLE_STARTED ))" \
+            --arg runner "$ImageOS $ImageVersion, $(nproc) CPU" \
+            --rawfile timings "$ORACLE_TIMINGS" \
+            '$ARGS.named | .timings = ($timings | split("\n") | map(select(. != "") | split("\t") | {(.[0]): (.[1] | tonumber)}) | add)' \
+            >"$ORACLE_OUT/manifest.json"
+          cat "$ORACLE_OUT/manifest.json"
+          {
+            echo "### Postgres oracle, data month $MONTH"
+            echo
+            echo '| Measure | Value |'
+            echo '| --- | --- |'
+            jq -r 'del(.timings) | to_entries[] | "| \(.key) | \(.value) |"' "$ORACLE_OUT/manifest.json"
+            jq -r '.timings | to_entries[] | "| seconds: \(.key) | \(.value) |"' "$ORACLE_OUT/manifest.json"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: oracle-answer-key-${{ steps.fetch.outputs.month }}
+          path: |
+            ${{ env.ORACLE_OUT }}/answer-key.csv
+            ${{ env.ORACLE_OUT }}/manifest.json
+          if-no-files-found: error
