@@ -76,9 +76,26 @@ _Avoid_: database, tables, snapshot
 
 **Oracle**:
 An implementation whose answers define correct: NHTSA's `spVinDecode` in
-Postgres (the ground truth, run on refresh) and ultravin (the fast
-differential oracle, run on every PR).
-_Avoid_: reference, golden
+Postgres, run as the freshened oracle (the ground truth, run on refresh), and
+ultravin (the fast differential oracle, run on every PR).
+_Avoid_: reference, golden (and never call live vPIC an oracle)
+
+**Freshened oracle**:
+The Postgres oracle on a copy of the dump whose derived valid-characters cache
+is emptied, so every charset comes from the dump's own pattern rows. Where it
+and the stock oracle disagree, the dump contradicts itself.
+_Avoid_: patched oracle, fixed dump
+
+**Stale cell**:
+A (WMI, model year) cell of the dump's valid-characters cache that disagrees
+with what the same dump's pattern rows allow.
+_Avoid_: bad cache row, cache bug
+
+**Live vPIC**:
+NHTSA's production decode service (`vpic.nhtsa.dot.gov`), running on SQL
+Server at whatever data it holds today. A witness for deviations, never an
+oracle: its month is not a dump's, and its answers cannot be replayed.
+_Avoid_: the API, NHTSA's decoder
 
 **Parity**:
 Byte-for-byte agreement with the oracle on every element of every VIN in a
@@ -86,10 +103,22 @@ corpus, except on registered deviations.
 _Avoid_: accuracy, match rate
 
 **Deviation**:
-A VIN or class of VINs on which the decoder deliberately disagrees with the
-oracle because the oracle's own data or procedure is shown to be defective.
-Each one is registered with its evidence.
-_Avoid_: known issue, exception, bug
+A class of VINs on which the decoder deliberately disagrees with the oracle
+because the oracle's own data or procedure is shown to be defective. Each
+class is registered with its root cause, its detector and its witnesses; it is
+healed in a month its detector finds nothing.
+_Avoid_: known issue, exception, bug, known problem
+
+**Detector**:
+The mechanical test, run on every refresh, that finds which VINs of a corpus
+belong to a deviation, derived from the dump and the oracle and never from the
+decoder's output.
+_Avoid_: excuse rule, classifier
+
+**Witness**:
+A VIN that exhibits a deviation, on which live vPIC was seen answering the way
+the decoder does, on a recorded date.
+_Avoid_: example, repro, test case
 
 **Corpus**:
 A set of VINs with the oracle's answers, used to measure parity.
