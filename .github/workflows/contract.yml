@@ -14,6 +14,7 @@ on:
       - cmd/nitrovin/**
       - docs/api/decode.schema.json
       - docs/api/mcp-tools.json
+      - docs/api/openapi.yaml
       - go.mod
       - go.sum
       - .github/workflows/contract.yml

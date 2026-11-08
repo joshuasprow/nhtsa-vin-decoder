@@ -152,7 +152,7 @@ components:
       description: |
         The request cannot be decoded as asked: malformed JSON, a field of the
         wrong type, an unknown field or query parameter, an empty or
-        over-64-byte VIN, a bad `model_year`, `full`, `shape` or `now`.
+        over-17-character VIN, a bad `model_year`, `full`, `shape` or `now`.
       content:
         application/problem+json:
           schema: { $ref: 'decode.schema.json#/$defs/Problem' }
@@ -160,7 +160,7 @@ components:
             type: https://github.com/joshuasprow/nitrovin/blob/main/docs/api/README.md#invalid-request
             title: Invalid request
             status: 400
-            detail: vin is 70 bytes after trimming; the limit is 64
+            detail: vin is 18 characters after trimming spaces; the limit is 17
             pointer: /3/vin
     NotFound:
       description: No such route.

@@ -110,6 +110,7 @@ jobs:
           grep -q -- '--- PASS: TestDataPrecedence' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestRefusedLine' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestMCPSession' "$RUNNER_TEMP/engine.log"
+          grep -q -- '--- PASS: TestServeContract' "$RUNNER_TEMP/engine.log"
           # The answer key is one month's (its manifest says which); on another
           # month TestEngineAnswerKey, TestDecodeAnswerKey, TestText and TestStdio skip,
           # until the refresh renews the key.
