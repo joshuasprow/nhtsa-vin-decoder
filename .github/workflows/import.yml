@@ -43,8 +43,6 @@ jobs:
           --health-interval 2s
           --health-timeout 5s
           --health-retries 30
-    env:
-      ORACLE_CONTAINER: ${{ job.services.postgres.id }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -62,6 +60,9 @@ jobs:
         run: scripts/oracle.sh fetch "${{ steps.month.outputs.month }}" "$RUNNER_TEMP/dump" | tee -a "$GITHUB_OUTPUT"
 
       - name: Restore dump
+        env:
+          # The job context is not available in job-level env.
+          ORACLE_CONTAINER: ${{ job.services.postgres.id }}
         run: scripts/oracle.sh restore "${{ steps.fetch.outputs.backup }}"
 
       - name: Test the importer against the dump
