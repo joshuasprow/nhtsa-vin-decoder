@@ -77,14 +77,17 @@ importer.
 Postgres running the dump's own SQL. Most answer keys are committed under
 `pkg/decoder/testdata` (regenerate with `go test ./pkg/decoder -run <Test>
 -update-oracle` against a restored dump). The pattern matcher is also checked
-on every distinct `pattern.keys` of a month and every VinSchema's index, and
-the core pass (stage 5) on a VIN corpus against `vpic.spvindecode_core` called
-directly, item for item before value resolution, against the database and an
-artifact built from it:
+on every distinct `pattern.keys` of a month and every VinSchema's index; the
+core pass (stage 5) on a VIN corpus against `vpic.spvindecode_core` called
+directly; and the whole decode (stage 7: the year plan, passes, scoring and
+the QC filter) against `vpic.spvindecode` cut just before it resolves values,
+with and without model-year hints, on the core's corpus and ultravin's
+parity corpus and cover set. Both compare item for item before value
+resolution, against the freshened database and an artifact built from it:
 
 ```sh
 NITROVIN_PSQL='docker exec -i nhtsa-oracle psql -X -q -U postgres -d vpic' \
-NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/decoder -run 'TestMatcherPostgres|TestCorePostgres'
+NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/decoder -run 'TestMatcherPostgres|TestCorePostgres|TestWrapperPostgres'
 ```
 
 `.github/workflows/import.yml` runs these on PRs touching the importer or

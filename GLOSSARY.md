@@ -61,6 +61,12 @@ A model year the caller already knows, which competes with the year the VIN
 encodes and flags error code 12 when they disagree.
 _Avoid_: year override, stated year
 
+**Pass**:
+One attempt at decoding a VIN under one candidate model year: the year the
+VIN encodes, 30 years earlier when that year is ambiguous, or the model-year
+hint. A decode runs one to three passes and keeps the best-scored one.
+_Avoid_: attempt, round, iteration
+
 ### Data
 
 **Dump**:

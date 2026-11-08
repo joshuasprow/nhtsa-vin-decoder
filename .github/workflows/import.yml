@@ -6,7 +6,9 @@
 # per-schema index on every distinct pattern key against Postgres's LIKE and ~;
 # TestCharsetPostgres checks the recomputed (WMI, year) charsets against
 # fExtractValidCharsPerWmiYear and logs the stale-cache cells;
-# TestCorePostgres checks whole passes against the freshened spvindecode_core.
+# TestCorePostgres checks whole passes against the freshened spvindecode_core;
+# TestWrapperPostgres checks whole decodes, before value resolution, against
+# the freshened spvindecode, with and without model-year hints.
 name: Tests against the dump
 
 on:
@@ -95,3 +97,4 @@ jobs:
           grep -q -- '--- PASS: TestMatcherPostgres' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestCorePostgres' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestCharsetPostgres' "$RUNNER_TEMP/engine.log"
+          grep -q -- '--- PASS: TestWrapperPostgres' "$RUNNER_TEMP/engine.log"

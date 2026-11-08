@@ -1,0 +1,13 @@
+# Corpus for TestWrapperPostgres beyond core-vins.tsv and error-vins.tsv.
+# Format as core-vins.tsv; a year here is the call's hint. Chosen against
+# 2026_10; the test reads every answer from Postgres.
+
+# W0: more than 17 characters after trimming raises in Postgres (vin is a
+# varchar(17)); 17 characters decode whatever their bytes, and spaces
+# around the input are trimmed first.
+1HGCM82633A0043521
+1HGCM82633A004352X	2003
+5YJ3E1EA2JF00031日日
+1HGCM82633A004352000000000000000000000000000000000000000000000000
+5YJ3E1EA2JF0003日日
+  1HGCM82633A004352  

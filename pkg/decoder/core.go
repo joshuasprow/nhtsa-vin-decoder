@@ -77,6 +77,7 @@ type engine struct {
 	element struct {
 		row      []int32 // by element id: its row, -1 when there is none
 		datatype artifact.Strings
+		weight   []int32
 	}
 	makeModel          struct{ modelID, makeID []int32 }
 	wmiMake            struct{ wmiID, makeID []int32 }
@@ -186,6 +187,7 @@ func newEngine(a *artifact.Artifact) *engine {
 		e.element.row[id] = int32(r)
 	}
 	e.element.datatype = t.Strings("datatype")
+	e.element.weight = t.Int32s("weight")
 	e.patternElements = patternElements(a)
 
 	t = a.Table("make_model")
