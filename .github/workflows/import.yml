@@ -1,13 +1,16 @@
-# The importer against a real dump: restore one month into Postgres 17, then
-# run cmd/nitrovin-import's tests with NITROVIN_PSQL set, so TestPostgres
-# builds the artifact twice and checks it against the database (row counts,
-# NULL and empty-string counts, sampled rows, one hash).
-name: Importer
+# The importer and the engine against a real dump: restore one month into
+# Postgres 17, then run the tests that need it. cmd/nitrovin-import's
+# TestPostgres builds the artifact twice and checks it against the database
+# (row counts, NULL and empty-string counts, sampled rows, one hash);
+# pkg/decoder's TestMatcherPostgres checks the pattern matcher and the
+# per-schema index on every distinct pattern key against Postgres's LIKE and ~.
+name: Tests against the dump
 
 on:
   pull_request:
     paths:
       - cmd/nitrovin-import/**
+      - pkg/decoder/**
       - go.mod
       - go.sum
       - scripts/oracle.sh
@@ -76,3 +79,14 @@ jobs:
         run: |
           go test -count=1 -v ./cmd/nitrovin-import/ | tee "$RUNNER_TEMP/test.log"
           grep -q -- '--- PASS: TestPostgres' "$RUNNER_TEMP/test.log"
+
+      - name: Test the matcher against the dump
+        env:
+          NITROVIN_PSQL: docker exec -i ${{ job.services.postgres.id }} psql -X -q -U postgres -d vpic
+          NITROVIN_ARTIFACT: ${{ runner.temp }}/nitrovin.artifact
+        run: |
+          go run ./cmd/nitrovin-import sql | $NITROVIN_PSQL |
+            go run ./cmd/nitrovin-import build -month "${{ steps.fetch.outputs.month }}" \
+              -o "$NITROVIN_ARTIFACT" -manifest "$RUNNER_TEMP/nitrovin.json"
+          go test -count=1 -v -run 'TestMatcher' ./pkg/decoder/ | tee "$RUNNER_TEMP/matcher.log"
+          grep -q -- '--- PASS: TestMatcherPostgres' "$RUNNER_TEMP/matcher.log"
