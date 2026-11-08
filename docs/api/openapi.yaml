@@ -1,0 +1,212 @@
+openapi: 3.1.0
+info:
+  title: nitrovin HTTP API
+  version: v1
+  summary: Offline VIN decoding that answers like NHTSA's vPIC.
+  description: |
+    `nitrovin serve`. Every route decodes with the artifact the server loaded
+    at startup; the server is ready when it is alive. Wire types live in
+    `decode.schema.json`; the rules this document cannot express (layouts,
+    item order, the clock, versioning) are in `README.md` beside it.
+
+    Within `/v1` changes are additive only: new fields, routes and optional
+    parameters. Element names and codes change with data months; that is data,
+    not a breaking change. Pin `element_id` for anything long-lived.
+  license:
+    name: MIT
+    identifier: MIT
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+security: []
+servers:
+  - url: http://127.0.0.1:8080
+    description: '`nitrovin serve` default address'
+paths:
+  /v1/decode/{vin}:
+    get:
+      operationId: decodeOne
+      summary: Decode one VIN.
+      description: |
+        Any VIN of 1-64 bytes after trimming decodes, partial (`*`) and
+        mistyped ones included; what is wrong with it is in `error_codes`.
+        A VIN with vPIC error codes is always 200.
+      parameters:
+        - name: vin
+          in: path
+          required: true
+          schema: { type: string, minLength: 1 }
+          example: 1HGCM82633A004352
+        - $ref: '#/components/parameters/model_year'
+        - $ref: '#/components/parameters/full'
+        - $ref: '#/components/parameters/shape'
+        - $ref: '#/components/parameters/now'
+      responses:
+        '200':
+          description: The decode.
+          content:
+            application/json:
+              schema: { $ref: 'decode.schema.json#/$defs/Decode' }
+              examples:
+                nitrovin:
+                  $ref: '#/components/examples/decodeNitrovin'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /v1/decode:
+    post:
+      operationId: decodeBatch
+      summary: Decode up to 1,000 VINs.
+      description: |
+        A JSON array of decode requests in, a JSON array of decodes out, same
+        length and order. The wall clock is read once for the whole request;
+        an item's `now` overrides it for that item. Any invalid item refuses
+        the whole request with 400, its `pointer` naming the item
+        (`/3/vin`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: 'decode.schema.json#/$defs/BatchRequest' }
+            example:
+              - { vin: 1HGCM82633A004352 }
+              - { vin: 1HGCM82633A004352, model_year: 2010, shape: nitrovin }
+              - { vin: 5YJ3E1EA2JF000316, full: true, now: '2026-09-01' }
+      responses:
+        '200':
+          description: One decode per request item, in order.
+          content:
+            application/json:
+              schema: { $ref: 'decode.schema.json#/$defs/BatchResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /v1/info:
+    get:
+      operationId: info
+      summary: Decoder and data identity, and the data month's element table.
+      description: The same object as `nitrovin info`.
+      responses:
+        '200':
+          description: Identity of what answers every decode.
+          content:
+            application/json:
+              schema: { $ref: 'decode.schema.json#/$defs/Info' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /v1/openapi.json:
+    get:
+      operationId: openapi
+      summary: This document, as JSON, with decode.schema.json bundled in.
+      responses:
+        '200':
+          description: The OpenAPI document.
+          content:
+            application/json:
+              schema: { type: object }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+  /healthz:
+    get:
+      operationId: health
+      summary: Liveness; unversioned.
+      responses:
+        '200':
+          description: Serving. The artifact loads before the listener opens.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { const: ok }
+                additionalProperties: false
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+components:
+  parameters:
+    model_year:
+      name: model_year
+      in: query
+      description: The model-year hint (vPIC's `modelyear`); any 32-bit integer.
+      schema: { type: integer, minimum: -2147483648, maximum: 2147483647 }
+    full:
+      name: full
+      in: query
+      description: Add `items` to the decode.
+      schema: { type: string, enum: ['true', 'false'], default: 'false' }
+    shape:
+      name: shape
+      in: query
+      description: Layout of `attributes`.
+      schema: { type: string, enum: [vpic, nitrovin], default: vpic }
+    now:
+      name: now
+      in: query
+      description: |
+        Frozen clock: an RFC 3339 instant, or a date meaning 00:00:00Z that
+        day. Absent: the wall clock, read once per request.
+      schema: { $ref: 'decode.schema.json#/$defs/DecodeRequestFields/properties/now' }
+      example: '2026-09-01T00:00:00Z'
+  responses:
+    BadRequest:
+      description: |
+        The request cannot be decoded as asked: malformed JSON, a field of the
+        wrong type, an unknown field or query parameter, an empty or
+        over-64-byte VIN, a bad `model_year`, `full`, `shape` or `now`.
+      content:
+        application/problem+json:
+          schema: { $ref: 'decode.schema.json#/$defs/Problem' }
+          example:
+            type: https://github.com/joshuasprow/nitrovin/blob/main/docs/api/README.md#invalid-request
+            title: Invalid request
+            status: 400
+            detail: vin is 70 bytes after trimming; the limit is 64
+            pointer: /3/vin
+    NotFound:
+      description: No such route.
+      content:
+        application/problem+json:
+          schema: { $ref: 'decode.schema.json#/$defs/Problem' }
+    MethodNotAllowed:
+      description: The route exists; the method does not.
+      headers:
+        Allow:
+          schema: { type: string }
+      content:
+        application/problem+json:
+          schema: { $ref: 'decode.schema.json#/$defs/Problem' }
+    TooLarge:
+      description: More than 1,000 items, or a body over 1 MiB.
+      content:
+        application/problem+json:
+          schema: { $ref: 'decode.schema.json#/$defs/Problem' }
+    Internal:
+      description: A fault in nitrovin, never a property of the VIN.
+      content:
+        application/problem+json:
+          schema: { $ref: 'decode.schema.json#/$defs/Problem' }
+  examples:
+    decodeNitrovin:
+      summary: '`?shape=nitrovin`, 2026_10, attributes abridged'
+      value:
+        vin: 1HGCM82633A004352
+        wmi: 1HG
+        model_year: 2003
+        error_codes: [0]
+        check_digit_valid: true
+        corrected_vin: null
+        model_year_hint: null
+        now: '2026-11-07T21:00:00Z'
+        data_month: '2026_10'
+        decoder_version: v1.0.0
+        shape: nitrovin
+        attributes:
+          Make: { element_id: 26, value: HONDA, attribute_id: 474 }
+          Model: { element_id: 28, value: Accord, attribute_id: 1861 }
+          Model Year: { element_id: 29, value: '2003' }
+          Displacement (L): { element_id: 13, value: '2.998832712' }
+          Other Restraint System Info:
+            element_id: 121
+            values: [Seat Belt (Rr center position)]
+          Error Code: { element_id: 143, value: '0' }
+          Suggested VIN: { element_id: 142, value: '' }
