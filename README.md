@@ -24,9 +24,11 @@ on.
 
 `scripts/oracle.sh` restores a month of NHTSA's dump into Postgres 17 and
 runs its `spvindecode` over a VIN list, writing an answer key (CSV, every
-row the procedure emits per VIN, in a stable order). CI runs it through the
-reusable workflow `.github/workflows/oracle.yml`; on a workstation with
-Docker:
+row the procedure emits per VIN, in a stable order). The database's
+collation is `C` (ctype `en_US.utf8`), ultravin's oracle contract: `restore`
+and `decode` refuse any other, and CI's `manifest.json` records it beside
+the key. CI runs it through the reusable workflow
+`.github/workflows/oracle.yml`; on a workstation with Docker:
 
 ```sh
 scripts/oracle.sh up

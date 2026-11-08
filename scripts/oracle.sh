@@ -6,7 +6,7 @@
 #   scripts/oracle.sh month                       newest published data month (YYYY_MM)
 #   scripts/oracle.sh fetch <month> <dir>         download and unzip that month's custom dump;
 #                                                 prints month=, dump_bytes=, dump_sha256=, backup=
-#   scripts/oracle.sh up                          workstation only: start a postgres:17 container
+#   scripts/oracle.sh up                          workstation only: start a postgres:17 container, collate C
 #   scripts/oracle.sh restore <backup>            pg_restore the dump into the container's `vpic` db
 #   scripts/oracle.sh decode <vins.tsv> <out.csv> run spvindecode over every VIN, write the answer key
 #   scripts/oracle.sh down                        workstation only: remove the container
@@ -15,6 +15,13 @@
 # `docker exec`, so the client tools always match the server: the dump's
 # archive format 1.16 needs pg_restore 17+, and runner images ship 16.
 # If $ORACLE_TIMINGS names a file, each command appends "<command>\t<seconds>".
+#
+# Collation: the database is initialized with --lc-collate=C and nothing else,
+# ultravin's oracle contract (docs/ACCEPTANCE.md, "Oracle collation"): C
+# reproduces SQL Server's tie-breaks and a locale-aware collation does not
+# (under the image default en_US.utf8, fVinModelYear2's BETWEEN 'A' AND 'H'
+# accepts 'É'). LC_CTYPE stays en_US.utf8: a C ctype makes initdb pick
+# SQL_ASCII and changes upper(). restore and decode refuse any other collation.
 #
 # vins.tsv: one VIN per line, optionally a tab and a model-year hint; blank
 # lines and lines starting with # are skipped. The answer key is CSV with
@@ -37,6 +44,7 @@ usage() {
 }
 
 PSQL=(psql -X -v ON_ERROR_STOP=1 -U postgres -d "$DB")
+INITDB_ARGS=--lc-collate=C
 # No -i: docker exec would otherwise swallow the caller's stdin.
 psql_() { docker exec "$CONTAINER" "${PSQL[@]}" "$@"; }
 
@@ -84,25 +92,36 @@ cmd_fetch() {
 
 cmd_up() {
   docker run -d --name "$CONTAINER" --shm-size 1g \
-    -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB="$DB" \
+    -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB="$DB" -e POSTGRES_INITDB_ARGS="$INITDB_ARGS" \
     --health-cmd 'pg_isready -U postgres' --health-interval 1s "$IMAGE" >/dev/null
   until [ "$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER")" = healthy ]; do sleep 1; done
-  echo "$CONTAINER ready ($IMAGE)"
+  echo "$CONTAINER ready ($IMAGE, $(psql_ -tA -c "select $COLLATION_SQL"))"
+}
+
+# "collate <datcollate>, ctype <datctype>" of the vpic database, as SQL.
+COLLATION_SQL="(select 'collate ' || datcollate || ', ctype ' || datctype from pg_database where datname = '$DB')"
+
+require_collate_c() {
+  local c
+  c=$(psql_ -tA -c "select datcollate from pg_database where datname = '$DB'")
+  [ "$c" = C ] || die "database $DB has collation $c, not C: initialize it with POSTGRES_INITDB_ARGS=$INITDB_ARGS (scripts/oracle.sh up does)"
 }
 
 # Into an empty database only: a second restore over a loaded one fails
 # with hundreds of "already exists" errors, which --exit-on-error surfaces.
 cmd_restore() {
   local backup="${1:?backup}"
+  require_collate_c
   docker cp "$backup" "$CONTAINER:/tmp/dump.backup"
   docker exec "$CONTAINER" sh -c \
     'pg_restore -U postgres -d '"$DB"' --no-owner --no-privileges --exit-on-error -j "$(nproc)" /tmp/dump.backup && rm /tmp/dump.backup'
-  psql_ -tA -c "select 'restored ' || pg_size_pretty(pg_database_size('$DB')) || ', ' || (select count(*) from vpic.pattern) || ' patterns, ' || (select count(*) from vpic.wmi) || ' WMIs';"
+  psql_ -tA -c "select 'restored ' || pg_size_pretty(pg_database_size('$DB')) || ', ' || (select count(*) from vpic.pattern) || ' patterns, ' || (select count(*) from vpic.wmi) || ' WMIs, ' || $COLLATION_SQL"
 }
 
 cmd_decode() {
   local vins="${1:?vins.tsv}" out="${2:?out.csv}"
   [ -r "$vins" ] || die "cannot read $vins"
+  require_collate_c
   psql_ -q -c 'set client_min_messages = warning' \
            -c 'drop schema if exists oracle cascade' \
            -c 'create schema oracle' \
@@ -129,7 +148,7 @@ cmd_decode() {
       where not exists (select from oracle.answer_key k where k.input_row = i.input_row)')
   [ "$missing" -eq 0 ] || die "$missing VINs produced no spvindecode rows"
   psql_ -tA -c "select 'decoded ' || (select count(*) from oracle.input) || ' VINs into '
-      || count(*) || ' rows' from oracle.answer_key"
+      || count(*) || ' rows, ' || $COLLATION_SQL from oracle.answer_key"
 }
 
 cmd_down() { docker rm -f "$CONTAINER" >/dev/null; }
