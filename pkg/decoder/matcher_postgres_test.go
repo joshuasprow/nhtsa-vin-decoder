@@ -34,6 +34,19 @@ import (
 //
 // The test writes scratch tables to the schema matcher_oracle and drops it.
 func TestMatcherPostgres(t *testing.T) {
+	a, psql := dumpUnderTest(t)
+	t.Cleanup(func() { psql("drop schema if exists matcher_oracle cascade;\n") })
+	psql("drop schema if exists matcher_oracle cascade; create schema matcher_oracle;\n")
+
+	t.Run("keys", func(t *testing.T) { checkKeys(t, a, psql) })
+	t.Run("index", func(t *testing.T) { checkIndex(t, a, psql) })
+}
+
+// dumpUnderTest opens $NITROVIN_ARTIFACT and returns it with a function
+// running a psql script through $NITROVIN_PSQL, or skips the test when
+// either is unset.
+func dumpUnderTest(t *testing.T) (*artifact.Artifact, func(script string) string) {
+	t.Helper()
 	psqlCmd, path := os.Getenv("NITROVIN_PSQL"), os.Getenv("NITROVIN_ARTIFACT")
 	if psqlCmd == "" || path == "" {
 		t.Skip("NITROVIN_PSQL or NITROVIN_ARTIFACT not set: no restored dump to check against")
@@ -58,11 +71,7 @@ func TestMatcherPostgres(t *testing.T) {
 		}
 		return string(out)
 	}
-	t.Cleanup(func() { psql("drop schema if exists matcher_oracle cascade;\n") })
-	psql("drop schema if exists matcher_oracle cascade; create schema matcher_oracle;\n")
-
-	t.Run("keys", func(t *testing.T) { checkKeys(t, a, psql) })
-	t.Run("index", func(t *testing.T) { checkIndex(t, a, psql) })
+	return a, psql
 }
 
 // checkKeys compares every distinct key's matcher with Postgres on that

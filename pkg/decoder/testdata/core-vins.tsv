@@ -1,0 +1,69 @@
+# Corpus for TestCorePostgres beyond the oracle's smoke sample. Format as
+# testdata/oracle/sample-vins.tsv: VIN, then optionally a tab and the year
+# the core's first call gets (else fVinModelYear2's); every VIN is also run
+# with a NULL year. Chosen against 2026_10; a later month may decode them
+# differently, which the test reads from Postgres, not from here.
+
+# Non-ASCII input: Postgres keeps the rune, sanitize writes '&'. In a
+# wildcard key position both match; in a literal or bracket position
+# neither does; in the WMI the decode stops at code 7; ı and ſ upper-case
+# into ASCII.
+1HGCM82633A0É4352
+1HGCM826É3A004352
+1HGCM8É633A004352
+1HGCM82633É004352
+ÉHGCM82633A004352
+1HGCM82633A00435ſ
+1hgcm82633a00435ı
+5YJ3E1EA2JF00031日
+1FTFW1ET9DFC1031😀
+KNMAZ2A00É0000000
+1FD0E3B00000É0000	2014
+
+# C8, decided on the third rung, key length without '*' (brackets count):
+# AZ2[AB] (7) beats AZ2[ABCD] (9) for element 13, *D43 beats *D[2345] for
+# the model, D beats [DE].
+KNMAZ2A0000000000
+1B30D430000000000	1982
+SAJD0000000000000	2003
+WBAFH740000000000	1984
+# C8, decided on the fourth rung, keys without brackets in byte order:
+# *F01 < *F14 (element 34, different values), *E13B < *E3BE, N03 < NWY.
+8BUPF1D0000000000
+1FD0E3B0000000000	2014
+1FT8F200000000000	2025
+3GCNW000000000000
+# C8 on CreatedOn, and a Pattern against a Formula Pattern on priority (one
+# VIN with a '#' of its own, which formulaKeys keeps).
+SAJWA010000000000	2008
+SCF00BC0000000000
+JHB006J0000000000
+1F90000#000403000
+# C3: two element-18 items tie on priority and CreatedOn; the later id wins.
+# For 1M1MDA… the two are ISL, an engine model with engine model patterns,
+# and B6.7, which names none, in one order in 2024's schema and the other
+# in 2025's.
+JHLYF6H8000000000	2022
+2BVJ00C0000000000	2023
+1M1MDA00000000000	2024
+1M1MDA00000000000	2025
+
+# C3 engine model patterns, with displacements that feed conversions 4 and
+# 7, and C9's single Wmi_Make make.
+SCF0000F000000000	2011
+SCFEBBAK000000000	2016
+1FTK000R000000000	1990
+1G1ZS008000000000	2006
+# C10 from pattern displacements: conversions 1 and 3 (CC), 5 (CI), 2 (CI).
+ZAM0K000000000000	1981
+WBABF430000000000	1995
+SCA664S0000000000	2014
+# C7 formula patterns whose AttributeId is TBD: the conversions raise, '0'.
+4S9E0000000295000	2012
+5BB0000000A000000	2002
+# C7 formula values: '#' in the input, and a one-digit value.
+1H900##0000333000	2005
+1YJAS701000000000
+# C11 vehicle specs.
+SCF00AA0000000000	2013
+SCF00040000000000	2009
