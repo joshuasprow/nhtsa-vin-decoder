@@ -2,8 +2,31 @@ package decoder
 
 import (
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
+
+// vinText is the wrapper's vin = upper(trim(v)) in the two forms a pass
+// reads, position for position: s, sanitize's byte-indexable form, which
+// every comparison reads, and echo, the characters Postgres holds, which the
+// elements that repeat the input back show (the descriptor, the suggested
+// VIN, the invalid characters). echo[i] is the character s[i] stands for.
+type vinText struct {
+	s    string
+	echo []rune
+}
+
+// newVINText is the wrapper's vin for input v. echo upper-cases with
+// unicode.ToUpper; for ASCII, ı and ſ that is sanitize's mapping, the only
+// runes Go or the dump's en_US.UTF-8 maps into ASCII.
+func newVINText(v string) vinText {
+	trimmed := strings.Trim(v, " ")
+	echo := make([]rune, 0, len(trimmed))
+	for _, r := range trimmed {
+		echo = append(echo, unicode.ToUpper(r))
+	}
+	return vinText{s: sanitize(v), echo: echo}
+}
 
 // sanitize is the wrapper's first step, vin = upper(trim(v))
 // (spvindecode.sql:36), made byte-indexable.
@@ -14,9 +37,8 @@ import (
 // non-ASCII rune becomes one '&', which no VIN character class, LIKE literal
 // or year letter accepts, so positions stay character positions (as in
 // Postgres) and every later stage can index bytes. This is ultravin's
-// substitution (uv:crates/ultravin/src/lib.rs:989); the text the oracle
-// would echo back (descriptor, suggested VIN) shows '&' where it shows the
-// original rune.
+// substitution (uv:crates/ultravin/src/lib.rs:989). Text the oracle echoes
+// back is newVINText's echo, not this.
 func sanitize(input string) string {
 	s := strings.Trim(input, " ")
 	for i := range len(s) {
@@ -56,11 +78,11 @@ func wmi(vin string) string {
 	return vin[:3] + vin[11:14]
 }
 
-// descriptor ports fVinDescriptor (fvindescriptor.sql) on a sanitized VIN:
-// pad to 17 with '*', mask position 9, keep 11 characters, or 14 when
-// position 3 is '9'.
-func descriptor(vin string) string {
-	var d [14]byte
+// descriptor ports fVinDescriptor (fvindescriptor.sql), on the echo, as the
+// Corrections element 196 shows it: pad to 17 with '*', mask position 9,
+// keep 11 characters, or 14 when position 3 is '9'.
+func descriptor(vin []rune) string {
+	var d [14]rune
 	n := 11
 	if len(vin) >= 3 && vin[2] == '9' {
 		n = 14

@@ -1,0 +1,64 @@
+# Corpus for TestCorePostgres's error codes (spvindecode_errorcode and
+# spvindecode_core's codes and Corrections). Format as core-vins.tsv.
+# Chosen against 2026_10; the test reads every answer from Postgres.
+
+# The stale-cache class's witnesses (docs/deviations/stale-cache.md), at the
+# years stock and freshened Postgres pick: the test's oracle is freshened.
+10T2CE2A?LPY1111S	2020
+10T2CE2A?LPY1111S	1990
+10TAK8H20RSAA0000	2024
+10TAK8H20RSAA0000	1994
+1GD67MHFXPA077111
+1GTW7NFH5PA077131
+1GT289EF0P9P77111
+1GD67LHF3RA077111
+2APCDT9R0TC111111
+
+# Code 9: a Glider body class (2NP, key *G).
+2NPKG00000A000000	2010
+# Code 10: off-road body classes; the scan then skips position 9, here a
+# rune. 1A9596 is a 6-character WMI (positions 1-3 and 12-14).
+1A9G00000F0596000	2015
+1A9G0000ÉF0596000	2015
+3CG40000020000000	2002
+# The incomplete-vehicle warning: Vehicle Type 10 (2LJ; 4C9154 also has a
+# 6-character WMI).
+2LJ00000000000000	2015
+4C9000000F0154000	2015
+# Clean: code 0. Without a Model item code 14 follows, and with no unused
+# position its text is NULL, so element 156 is NULL or only later notes.
+1GBDV13L650000000	2005
+9C62RR007M0000000	1991
+1FBAE35B310000000	2001
+2FDAE354X10000000	2001
+9C6DG1908X0000000	1999
+# Possible values listing '_', which sorts first (1FT 2023: *F[1268_______];
+# 2WK: *B[CFJM_______]; 1HD 1999: [X__________] at position 7).
+1FTEFQ00XP0000000	2023
+2WKXBZ0000A000000	2010
+1HD8SG100XX000000	1999
+# A VinException check-digit exemption: no code 1, the note on code 0.
+KMTGE4S1PRU008186
+kmtge4s1pru008186
+# Code 8: an available WMI with no year band.
+ADM00000000000000	2015
+
+# Short input: code 6 from the core; positions past the end are skipped.
+1H
+1HG
+1HGC
+1HGCM826
+1HGCM8263
+1HGCM82633A00
+# Spaces inside: a kept space drops out of the suggested VIN.
+1HGCM8 633A004352
+1HGCM82633A 04352
+1HGCM 2633A0043 2
+# '?' at position 9 equals fVINCheckDigit's '?'; '_' and '*' elsewhere.
+1HGCM826?3A004352
+1HGCM_2633A004352
+1HGCM*2633A004352
+# Non-ASCII where the correction search and the scan echo it back.
+1HGCM82É33A004352
+1HGCM82633AÉ04352
+1HGCM82633A0043日2

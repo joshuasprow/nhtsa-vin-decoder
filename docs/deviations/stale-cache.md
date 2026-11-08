@@ -52,6 +52,11 @@ nitrovin recomputes every charset from the pattern keys and never reads the
 cache, so it answers as the freshened oracle does. The refresh gate compares
 nitrovin with the freshened oracle and allows no differences.
 
+The recompute is `charset` in `pkg/decoder`. `TestCharsetPostgres` checks it
+against `fExtractValidCharsPerWmiYear` on every (WMI, year) cell and logs the
+cache's stale cells; on 2026_10 they are ultravin's 5,706, position for
+position.
+
 ## Witnesses
 
 Data month 2026_10. On 2026-11-08 live vPIC `DecodeVinValues` equalled the

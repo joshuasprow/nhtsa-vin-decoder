@@ -53,16 +53,16 @@ func dedupExempt(id int32) bool {
 	return false
 }
 
-// engine is the decode-time view of one artifact: the columns the core reads
-// and a lazily built pattern index per VinSchema. It is safe for concurrent
-// use.
+// engine is the decode-time view of one artifact: the columns a pass reads,
+// and a pattern index and a charset per VinSchema, each built lazily. It is
+// safe for concurrent use.
 type engine struct {
 	a *artifact.Artifact
 
 	wmi struct {
-		wmi                               artifact.Strings
-		id, manufacturerID, vehicleTypeID []int32
-		availableFrom, changedOn          []int64
+		wmi                                            artifact.Strings
+		id, manufacturerID, vehicleTypeID, truckTypeID []int32
+		availableFrom, changedOn                       []int64
 	}
 	wmiVinSchema struct{ wmiID, vinSchemaID, yearFrom, yearTo []int32 }
 	vinSchema    struct {
@@ -70,9 +70,9 @@ type engine struct {
 		toBeQCed artifact.Bools
 	}
 	pattern struct {
-		id, elementID     []int32
-		keys, attributeID artifact.Strings
-		changedOn         []int64
+		vinSchemaID, id, elementID []int32
+		keys, attributeID          artifact.Strings
+		changedOn                  []int64
 	}
 	element struct {
 		row      []int32 // by element id: its row, -1 when there is none
@@ -109,12 +109,21 @@ type engine struct {
 	}
 	specSchemaModel struct{ modelID, schemaID []int32 }
 	specSchemaYear  struct{ schemaID, year []int32 }
-	makes           lookupTable
-	manufacturers   lookupTable
-	vehicleTypes    lookupTable
+	vinException    struct {
+		vin        artifact.Strings
+		checkDigit artifact.Bools
+	}
+	errorCodes struct {
+		id, weight           []int32
+		name, additionalText artifact.Strings
+	}
+	makes         lookupTable
+	manufacturers lookupTable
+	vehicleTypes  lookupTable
 
 	patternElements []bool
-	schemas         []atomic.Pointer[patternIndex] // by VinSchema id
+	schemas         []atomic.Pointer[patternIndex]  // by VinSchema id
+	charsets        []atomic.Pointer[schemaCharset] // by VinSchema id
 }
 
 // lookupTable is one lookup relation's rows in the artifact's lookup union.
@@ -141,6 +150,7 @@ func newEngine(a *artifact.Artifact) *engine {
 	e.wmi.id = t.Int32s("id")
 	e.wmi.manufacturerID = t.Int32s("manufacturerid")
 	e.wmi.vehicleTypeID = t.Int32s("vehicletypeid")
+	e.wmi.truckTypeID = t.Int32s("trucktypeid")
 	e.wmi.availableFrom = t.Int64s("publicavailabilitydate")
 	e.wmi.changedOn = t.Int64s("changedon")
 
@@ -155,13 +165,15 @@ func newEngine(a *artifact.Artifact) *engine {
 	e.vinSchema.toBeQCed = t.Bools("tobeqced")
 
 	t = a.Table("pattern")
+	e.pattern.vinSchemaID = t.Int32s("vinschemaid")
 	e.pattern.id = t.Int32s("id")
 	e.pattern.elementID = t.Int32s("elementid")
 	e.pattern.keys = t.Strings("keys")
 	e.pattern.attributeID = t.Strings("attributeid")
 	e.pattern.changedOn = t.Int64s("changedon")
 	if n := t.Rows(); n > 0 {
-		e.schemas = make([]atomic.Pointer[patternIndex], t.Int32s("vinschemaid")[n-1]+1)
+		e.schemas = make([]atomic.Pointer[patternIndex], e.pattern.vinSchemaID[n-1]+1)
+		e.charsets = make([]atomic.Pointer[schemaCharset], e.pattern.vinSchemaID[n-1]+1)
 	}
 
 	t = a.Table("element")
@@ -236,6 +248,16 @@ func newEngine(a *artifact.Artifact) *engine {
 	e.specSchemaYear.schemaID = t.Int32s("vehiclespecschemaid")
 	e.specSchemaYear.year = t.Int32s("year")
 
+	t = a.Table("vinexception")
+	e.vinException.vin = t.Strings("vin")
+	e.vinException.checkDigit = t.Bools("checkdigit")
+
+	t = a.Table("errorcode")
+	e.errorCodes.id = t.Int32s("id")
+	e.errorCodes.name = t.Strings("name")
+	e.errorCodes.additionalText = t.Strings("additionalerrortext")
+	e.errorCodes.weight = t.Int32s("weight")
+
 	t = a.Table("lookup")
 	tables, lid, lname := t.Strings("table"), t.Int32s("id"), t.Strings("name")
 	for _, l := range []struct {
@@ -288,12 +310,11 @@ func (e *engine) inBand(r int, modelYear int) bool {
 	return int(e.wmiVinSchema.yearFrom[r]) <= modelYear && modelYear <= int(to)
 }
 
-// core ports one pass of spvindecode_core up to its items (stages C1-C11
-// and the defaults, C16): the WMI row, the pattern pass, engine model, vehicle
-// type, manufacturer and model year items, formula patterns, the per-element
-// dedup, make, conversions, vehicle specs and defaults, in that order. The
-// error codes (C12-C15, C17-C20) are not its concern: no stage between the
-// specs and the defaults adds an item, so the defaults are computed here.
+// core ports spvindecode_core's items up to the error codes (stages
+// C1-C11): the WMI row, the pattern pass, engine model, vehicle type,
+// manufacturer and model year items, formula patterns, the per-element
+// dedup, make, conversions and vehicle specs, in that order. pass runs the
+// rest of the procedure on them.
 //
 // vin is sanitized. modelYear is the pass's year, 0 for NULL;
 // modelYearSource is the text the procedure stores as the year item's keys.
@@ -410,10 +431,7 @@ func (e *engine) core(vin string, modelYear int, modelYearSource string, now int
 	if items, err = e.conversionItems(items); err != nil {
 		return nil, err
 	}
-	if items, err = e.specItems(items, modelID, modelYear, wlo, whi); err != nil {
-		return nil, err
-	}
-	return e.defaultItems(items)
+	return e.specItems(items, modelID, modelYear, wlo, whi)
 }
 
 // patternPass is C2 (:75-104): every pattern of every year-band schema of

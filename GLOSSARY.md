@@ -50,6 +50,12 @@ One of vPIC's numeric codes stating what is wrong with a VIN (0 clean, 1 check
 digit, 11 bad year code, 400 bad character…).
 _Avoid_: validation error, warning
 
+**Charset**:
+The characters a VIN may hold at each position for one WMI and model year, as
+the dump's pattern rows allow. A character outside it is an error the decode
+reports with a suggested VIN and the possible values.
+_Avoid_: valid chars, the valid-characters cache (the dump's stale copy of it)
+
 **Model-year hint**:
 A model year the caller already knows, which competes with the year the VIN
 encodes and flags error code 12 when they disagree.

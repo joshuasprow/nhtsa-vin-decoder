@@ -217,7 +217,11 @@ func TestPrimitivesOracle(t *testing.T) {
 		if want.Raw != inputs[i] {
 			t.Fatalf("%s row %d is %q, input is %q; regenerate it with -update-oracle", primitivesKey, i+1, want.Raw, inputs[i])
 		}
-		vin := sanitize(want.Raw)
+		v := newVINText(want.Raw)
+		vin := v.s
+		if echo := string(v.echo); echo != want.N {
+			t.Errorf("row %d %q: echo %q, upper(trim()) %q", i+1, want.Raw, echo, want.N)
+		}
 		var scan strings.Builder
 		for j := range len(vin) {
 			bits := 0
@@ -232,7 +236,7 @@ func TestPrimitivesOracle(t *testing.T) {
 			Raw:         want.Raw,
 			N:           vin,
 			WMI:         wmi(vin),
-			Descriptor:  descriptor(vin),
+			Descriptor:  descriptor(v.echo),
 			VarKeys:     varKeys(vin),
 			CheckDigit1: digitString(checkDigit1(vin)),
 			CheckDigit2: [2]string{digitString(checkDigit2(vin, false)), digitString(checkDigit2(vin, true))},
@@ -242,10 +246,9 @@ func TestPrimitivesOracle(t *testing.T) {
 		if y, ok := modelYearRaw(vin, want.CarLT, h.NowYear); ok {
 			got.ModelYear = &y
 		}
-		// Text the oracle echoes keeps its non-ASCII runes; sanitize's '&'
-		// is the documented departure. Every computed value must match as is.
-		want.N, want.WMI, want.Descriptor, want.VarKeys =
-			ampersand(want.N), ampersand(want.WMI), ampersand(want.Descriptor), ampersand(want.VarKeys)
+		// sanitize's '&' stands for each rune left outside ASCII; the echo
+		// and the descriptor keep it. Every computed value must match as is.
+		want.N, want.WMI, want.VarKeys = ampersand(want.N), ampersand(want.WMI), ampersand(want.VarKeys)
 		if diff := rowDiff(got, want); diff != "" {
 			t.Errorf("row %d %q: %s", i+1, want.Raw, diff)
 		}
