@@ -1,0 +1,145 @@
+# The C library on all six targets: one ubuntu job builds libnitrovin for
+# linux, darwin and windows on amd64 and arm64 with zig cc
+# (scripts/libnitrovin.sh); each library is then loaded through Python's ctypes
+# on its own OS and architecture, opens a real artifact with nitrovin_open, and
+# must answer every line of cmd/libnitrovin/testdata/requests.jsonl with
+# exactly the reply `nitrovin stdio` gave on the same artifact, in order and
+# from eight threads on one handle (cmd/libnitrovin/testdata/smoke.py).
+# The artifact is built from the dump as import.yml builds it.
+name: C library
+
+on:
+  pull_request:
+    paths:
+      - cmd/libnitrovin/**
+      - cmd/nitrovin/**
+      - cmd/nitrovin-import/**
+      - pkg/**
+      - go.mod
+      - go.sum
+      - scripts/libnitrovin.sh
+      - scripts/oracle.sh
+      - .github/workflows/libnitrovin.yml
+  workflow_dispatch:
+    inputs:
+      month:
+        description: Data month YYYY_MM; empty means the newest one NHTSA publishes
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      - run: scripts/libnitrovin.sh dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: libnitrovin
+          path: dist/
+          if-no-files-found: error
+
+  # The artifact and the replies the libraries must give: `nitrovin stdio`
+  # over the requests, every one with a fixed now.
+  replies:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vpic
+          POSTGRES_INITDB_ARGS: --lc-collate=C
+        options: >-
+          --shm-size 1g
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Resolve data month
+        id: month
+        env:
+          MONTH: ${{ inputs.month }}
+        run: echo "month=${MONTH:-$(scripts/oracle.sh month)}" >>"$GITHUB_OUTPUT"
+
+      - name: Fetch dump
+        id: fetch
+        run: scripts/oracle.sh fetch "${{ steps.month.outputs.month }}" "$RUNNER_TEMP/dump" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Restore dump
+        env:
+          ORACLE_CONTAINER: ${{ job.services.postgres.id }}
+        run: scripts/oracle.sh restore "${{ steps.fetch.outputs.backup }}"
+
+      - name: Build the artifact and stdio's replies
+        env:
+          PSQL: docker exec -i ${{ job.services.postgres.id }} psql -X -q -U postgres -d vpic
+        run: |
+          mkdir smoke
+          go run ./cmd/nitrovin-import sql | $PSQL |
+            go run ./cmd/nitrovin-import build -month "${{ steps.fetch.outputs.month }}" -o smoke/nitrovin.artifact
+          # -buildvcs=false: the libraries report "(devel)" too.
+          go build -buildvcs=false -o "$RUNNER_TEMP/nitrovin" ./cmd/nitrovin
+          "$RUNNER_TEMP/nitrovin" stdio --data smoke/nitrovin.artifact \
+            <cmd/libnitrovin/testdata/requests.jsonl >smoke/replies.jsonl
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: smoke
+          path: smoke/
+          if-no-files-found: error
+
+  smoke:
+    needs: [build, replies]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: linux-amd64, lib: libnitrovin.so, python: x64 }
+          - { os: ubuntu-24.04-arm, target: linux-arm64, lib: libnitrovin.so, python: arm64 }
+          - { os: macos-15-intel, target: darwin-amd64, lib: libnitrovin.dylib, python: x64 }
+          - { os: macos-15, target: darwin-arm64, lib: libnitrovin.dylib, python: arm64 }
+          - { os: windows-2025, target: windows-amd64, lib: libnitrovin.dll, python: x64 }
+          - { os: windows-11-arm, target: windows-arm64, lib: libnitrovin.dll, python: arm64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      # The interpreter must match the library's architecture.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          architecture: ${{ matrix.python }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: libnitrovin
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: smoke
+          path: smoke
+      - run: |
+          python -c 'import platform, struct; print(platform.platform(), platform.machine(), struct.calcsize("P") * 8, "bit")'
+          python cmd/libnitrovin/testdata/smoke.py "dist/${{ matrix.target }}/${{ matrix.lib }}" \
+            smoke/nitrovin.artifact cmd/libnitrovin/testdata/requests.jsonl smoke/replies.jsonl

@@ -1,0 +1,41 @@
+{"id":1,"vin":"1HGCM82633A004352","now":"2026-11-01"}
+{"id":2,"vin":"1FTFW1ET9DFC10312","shape":"nitrovin","now":"2026-11-01"}
+{"id":3,"vin":"5YJ3E1EA2JF000316","full":true,"now":"2026-11-01"}
+{"id":4,"vin":"1G1ZD5STXJF123456","shape":"nitrovin","now":"2026-11-01"}
+{"id":5,"vin":"WBA3A5C53CF256551","now":"2026-11-01"}
+{"id":6,"vin":"JM1BL1SF5A1123456","shape":"nitrovin","full":true,"now":"2026-11-01"}
+{"id":7,"vin":"2T1BURHE8JC123456","now":"2026-11-01"}
+{"id":8,"vin":"3VWDX7AJ6BM123456","shape":"nitrovin","now":"2026-11-01"}
+{"id":9,"vin":"KNDJP3A50H7123456","full":true,"now":"2026-11-01"}
+{"id":10,"vin":"1N4AL3AP0JC123456","shape":"nitrovin","now":"2026-11-01"}
+{"id":11,"vin":"1C4RJFAG6FC123456","now":"2026-11-01"}
+{"id":12,"vin":"4T1BF1FK0CU123456","shape":"nitrovin","full":true,"now":"2026-11-01"}
+{"id":13,"vin":"5NPE24AF1FH123456","now":"2026-11-01"}
+{"id":14,"vin":"1GCVKREC6EZ123456","shape":"nitrovin","now":"2026-11-01"}
+{"id":15,"vin":"2HGFC2F50JH123456","full":true,"now":"2026-11-01"}
+{"id":16,"vin":"JH4KA7653MC123456","shape":"nitrovin","now":"2026-11-01"}
+{"id":17,"vin":"1M8GDM9AXKP042788","now":"2026-11-01"}
+{"id":18,"vin":"JH2PC40066M200001","shape":"nitrovin","full":true,"now":"2026-11-01"}
+{"id":19,"vin":"1FUJGLDR3CLBP8834","now":"2026-11-01"}
+{"id":20,"vin":"5UXWX7C57BA123456","shape":"nitrovin","now":"2026-11-01"}
+{"id":21,"vin":"5UXWX7C5XBA123456","full":true,"now":"2026-11-01"}
+{"id":22,"vin":"1HGCM8263IA004352","shape":"nitrovin","now":"2026-11-01"}
+{"id":23,"vin":"1HGCM82633","now":"2026-11-01"}
+{"id":24,"vin":"ZZZZZZZZZZZZZZZZZ","shape":"nitrovin","full":true,"now":"2026-11-01"}
+{"id":25,"vin":"1hgcm82633a004352","now":"2026-11-01"}
+{"id":26,"vin":"1HGCM82633A00435*","shape":"nitrovin","now":"2026-11-01"}
+{"id":27,"vin":"1HGCM82633A004352","model_year":2003,"full":true,"now":"2026-11-01"}
+{"id":28,"vin":"1HGCM82633A004352","model_year":2010,"shape":"nitrovin","now":"2026-11-01"}
+{"id":"string id <&>","vin":"1HGCM82633A004352","now":"2026-11-01T12:34:56.789+02:00"}
+{"id":{"nested":[1, 2.5, null]},"vin":"  1hgcm82633a00435é  ","model_year":2003,"shape":"nitrovin","now":"2026-11-01"}
+{"vin":"ÅßÇ∂ı","now":"2026-11-01"}
+{"id":null,"vin":"5","now":"2026-11-01","full":true}
+{"id":7,"vin":"1HGCM82633A004352X","now":"2026-11-01"}
+{"id":8,"vin":"","now":"2026-11-01"}
+{"id":9,"vin":"1HGCM82633A004352","colour":"red"}
+{"id":10,"vin":"1HGCM82633A004352","shape":"flat","now":"2026-11-01"}
+{"id":11,"vin":"1HGCM82633A004352","model_year":2147483648,"now":"2026-11-01"}
+{"id":12,"vin":"1HGCM82633A004352","now":"yesterday"}
+{"id":13,"vin":
+[1,2,3]
+not json
