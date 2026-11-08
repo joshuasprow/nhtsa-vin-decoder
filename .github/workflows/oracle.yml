@@ -58,6 +58,10 @@ jobs:
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: vpic
+          # Collate C, ctype left at en_US.utf8: ultravin's oracle contract,
+          # as scripts/oracle.sh up (its header says why). restore and decode
+          # refuse any other collation.
+          POSTGRES_INITDB_ARGS: --lc-collate=C
         options: >-
           --shm-size 1g
           --health-cmd "pg_isready -U postgres"
@@ -120,6 +124,8 @@ jobs:
             --argjson answer_rows "$(q 'select count(*) from oracle.answer_key')" \
             --arg answer_key_sha256 "$(sha256sum "$ORACLE_OUT/answer-key.csv" | cut -d' ' -f1)" \
             --arg server "$(q 'show server_version')" \
+            --arg collate "$(q "select datcollate from pg_database where datname = 'vpic'")" \
+            --arg ctype "$(q "select datctype from pg_database where datname = 'vpic'")" \
             --arg pg_restore "$(docker exec "$ORACLE_CONTAINER" pg_restore --version)" \
             --argjson database_bytes "$(q "select pg_database_size('vpic')")" \
             --argjson disk_used_bytes "$(( $(df -B1 --output=used / | tail -n 1) - ORACLE_DISK_BEFORE ))" \
