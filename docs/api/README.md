@@ -6,7 +6,8 @@ Every surface decodes through one contract. This directory holds it:
 | --- | --- |
 | [`decode.schema.json`](decode.schema.json) | JSON Schema 2020-12 for every wire type: the decode, requests, stdio lines, problems, info |
 | [`openapi.yaml`](openapi.yaml) | OpenAPI 3.1 for `nitrovin serve`, referencing the schema |
-| this file | what neither can express: layouts, item order, the clock, stdio framing, the CLI mapping, the C ABI, versioning |
+| [`mcp-tools.json`](mcp-tools.json) | The tools `nitrovin mcp` lists: `decode_vin`, the description an assistant reads, its bundled schemas |
+| this file | what none of them can express: layouts, item order, the clock, stdio framing, MCP results, the CLI mapping, the C ABI, versioning |
 
 Words are `GLOSSARY.md`'s. The why behind the surprising choices is
 [ADR 0004](../adr/0004-decode-contract.md).
@@ -185,6 +186,35 @@ JSON lines over stdin and stdout, UTF-8, `\n`-terminated.
   stdout fails.
 
 The problem objects are HTTP's, with the same `type` URIs and `status`.
+
+## MCP (`nitrovin mcp`)
+
+An MCP server over stdio, with one tool, `decode_vin`. Its definition (name,
+title, the description an assistant reads, schemas and annotations) is
+[`mcp-tools.json`](mcp-tools.json), whose `tools` array is exactly what
+`tools/list` returns. The why is
+[ADR 0005](../adr/0005-mcp-tool-is-the-decode-contract.md).
+
+- **Arguments** are one request object, with the same fields, defaults and
+  refusal of unknown fields as everywhere else. One VIN per call.
+- **Schemas** are self-contained, because MCP forbids fetching a `$ref` over
+  the network. Each is `{"type": "object", "$ref": …, "$defs": …}`, and every
+  entry in `$defs` equals the same-named definition in
+  [`decode.schema.json`](decode.schema.json): the input bundles
+  `DecodeRequest`, the output bundles `Decode`.
+- **A decode** is the result's `structuredContent`, and the same JSON,
+  compact, is its one text block. Clients differ in which of the two they show
+  the model, so the two must stay identical.
+- **A refusal** is a result with `isError: true` and one text block: the
+  Problem as compact JSON, with stdio's `type` URIs and `status`, and `pointer`
+  into the arguments (`/vin`). It has no `structuredContent`. JSON-RPC errors
+  are only for MCP faults, such as an unknown tool or a malformed request.
+- **Annotations:** read-only, not destructive, idempotent, closed-world.
+- **The description is static.** It does not name the data month, so
+  `--data` never changes `tools/list`; every decode carries `data_month`.
+- **Protocol revisions** are whatever the official Go SDK serves, not part of
+  this contract.
+- stdout carries only MCP messages; diagnostics go to stderr.
 
 ## CLI (`nitrovin decode`)
 
