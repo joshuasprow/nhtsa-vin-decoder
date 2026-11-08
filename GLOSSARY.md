@@ -1,4 +1,4 @@
-# nhtsa-vin-decoder
+# nitrovin
 
 An offline decoder that turns a VIN into the vehicle NHTSA's vPIC says it is,
 shipped as one binary with the data inside.
@@ -96,4 +96,4 @@ _Avoid_: transport, interface, frontend
 **Refresh**:
 The unattended run that notices a new dump, builds its artifact, runs the
 gates, and ships a release.
-_Avoid_: sync, update (that word is the CLI command a user runs)
+_Avoid_: sync, update (that word is `nitrovin update`, the command a user runs)

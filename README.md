@@ -1,9 +1,9 @@
-# nhtsa-vin-decoder
+# nitrovin
 
 An offline VIN decoder that answers like NHTSA's vPIC, as one binary.
 
 Status: **charting**. Nothing decodes yet. The plan is the
-[wayfinder map](https://github.com/joshuasprow/nhtsa-vin-decoder/issues?q=label%3Awayfinder%3Amap)
+[wayfinder map](https://github.com/joshuasprow/nitrovin/issues?q=label%3Awayfinder%3Amap)
 in this repo's issues; decisions already made are indexed there.
 
 What it will be, as decided so far:
