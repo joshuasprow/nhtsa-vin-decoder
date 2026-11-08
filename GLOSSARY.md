@@ -8,7 +8,8 @@ shipped as one binary with the data inside.
 ### Decoding
 
 **VIN**:
-The 17-character vehicle identification number a caller gives us.
+The vehicle identification number a caller gives us: 17 characters when
+whole, though partial (`*`) and mistyped ones decode too, with error codes.
 _Avoid_: serial, chassis number
 
 **WMI**:
@@ -17,9 +18,10 @@ when the third is `9`. The unit vPIC's tables are keyed by.
 _Avoid_: manufacturer code, prefix
 
 **Element**:
-One decodable property of a vehicle, identified by vPIC's numeric element id
-and named by its variable name ("Make", "Body Class"). The id is stable across
-data months; the name is not.
+One decodable property of a vehicle, identified by vPIC's numeric element id,
+named by its variable name ("Body Class") and coded by its element code
+(`BodyClass`), the key of vPIC's flat output. The id is stable across data
+months; the name and code are not.
 _Avoid_: field, variable (as the identity), column
 
 **Attribute**:
@@ -27,9 +29,20 @@ The value an element resolves to for one VIN, carrying vPIC's attribute id
 where the element is a lookup.
 _Avoid_: value (when the id matters)
 
+**Multi-valued element**:
+An element that can resolve to several attributes for one VIN, every one of
+them kept, repeats included (Note, Other Restraint System Info). Every other
+element resolves to at most one.
+_Avoid_: list field, repeating variable
+
+**Item**:
+One row the oracle emits for one VIN: an element, its attribute, and where the
+attribute came from (source, pattern, schema, keys).
+_Avoid_: row, decoding item, provenance entry
+
 **Decode**:
 The full result for one VIN: model year, error codes, check-digit validity,
-one attribute per element, and provenance.
+the attributes of every decoded element, and on request its items.
 _Avoid_: lookup, result object
 
 **Error code**:
