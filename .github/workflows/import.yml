@@ -8,14 +8,18 @@
 # fExtractValidCharsPerWmiYear and logs the stale-cache cells;
 # TestCorePostgres checks whole passes against the freshened spvindecode_core;
 # TestWrapperPostgres checks whole decodes, before value resolution, against
-# the freshened spvindecode, with and without model-year hints.
+# the freshened spvindecode, with and without model-year hints;
+# TestProjectionPostgres checks the projected rows against the whole
+# freshened spvindecode on the same calls, and TestElementAttributeValuePostgres
+# the resolution against fElementAttributeValue. pkg/contract's
+# TestEngineAnswerKey runs the decode contract on the engine's output.
 name: Tests against the dump
 
 on:
   pull_request:
     paths:
       - cmd/nitrovin-import/**
-      - pkg/decoder/**
+      - pkg/**
       - go.mod
       - go.sum
       - scripts/oracle.sh
@@ -93,8 +97,15 @@ jobs:
           go run ./cmd/nitrovin-import sql | $NITROVIN_PSQL |
             go run ./cmd/nitrovin-import build -month "${{ steps.fetch.outputs.month }}" \
               -o "$NITROVIN_ARTIFACT" -manifest "$RUNNER_TEMP/nitrovin.json"
-          go test -count=1 -v ./pkg/decoder/ | tee "$RUNNER_TEMP/engine.log"
+          go test -count=1 -v ./pkg/decoder/ ./pkg/contract/ | tee "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestMatcherPostgres' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestCorePostgres' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestCharsetPostgres' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestWrapperPostgres' "$RUNNER_TEMP/engine.log"
+          grep -q -- '--- PASS: TestProjectionPostgres' "$RUNNER_TEMP/engine.log"
+          grep -q -- '--- PASS: TestElementAttributeValuePostgres' "$RUNNER_TEMP/engine.log"
+          # The answer key is one month's (its manifest says which); on another
+          # month TestEngineAnswerKey skips, until the refresh renews the key.
+          if [ "${{ steps.fetch.outputs.month }}" = "$(jq -r .month pkg/contract/testdata/oracle/manifest.json)" ]; then
+            grep -q -- '--- PASS: TestEngineAnswerKey' "$RUNNER_TEMP/engine.log"
+          fi

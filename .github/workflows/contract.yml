@@ -1,6 +1,7 @@
 # The decode contract layer without a dump: pkg/contract's request parsing
 # and both layouts, every decode of the committed oracle answer key checked
-# against docs/api/decode.schema.json; pkg/nitrovin vetted.
+# against docs/api/decode.schema.json; pkg/nitrovin vetted. The same decodes
+# on the engine's output need the artifact: import.yml runs them.
 name: Contract
 
 on:
@@ -8,6 +9,7 @@ on:
     paths:
       - pkg/contract/**
       - pkg/nitrovin/**
+      - pkg/decoder/**
       - docs/api/decode.schema.json
       - go.mod
       - go.sum

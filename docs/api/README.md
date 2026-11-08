@@ -134,7 +134,7 @@ GET's path and query, a stdio line, `nitrovin_decode`'s argument.
 
 | Field | Type | Default | Rule |
 | --- | --- | --- | --- |
-| `vin` | string | required | 1-64 bytes after trimming. Every such string decodes; the cap is request hygiene, not a VIN rule |
+| `vin` | string | required | 1-17 characters after trimming spaces: `spvindecode` holds the trimmed VIN in a `varchar(17)` and raises on a longer one, so a longer string has no answer. Every string within it decodes |
 | `model_year` | int \| null | none | The model-year hint; any 32-bit integer, as the oracle takes |
 | `full` | bool | `false` | Add `items` |
 | `shape` | `vpic` \| `nitrovin` | `vpic` | Layout of `attributes` |

@@ -30,15 +30,15 @@ func problemOf(t *testing.T, err error, typ ProblemType, pointer string) {
 }
 
 func TestParseRequest(t *testing.T) {
-	vin64 := strings.Repeat("A", 64)
+	vin17 := strings.Repeat("É", 17) // 34 bytes
 	accepted := []struct {
 		in   string
 		want Request
 	}{
 		{`{"vin":"1HGCM82633A004352"}`, Request{VIN: "1HGCM82633A004352"}},
 		{`{"vin":" *1 ","model_year":null,"full":false,"shape":"vpic"}`, Request{VIN: " *1 ", Shape: ShapeVPIC}},
-		{`{"vin":"` + vin64 + `"}`, Request{VIN: vin64}},
-		{`{"vin":"  ` + vin64 + `  "}`, Request{VIN: "  " + vin64 + "  "}}, // 64 after trimming
+		{`{"vin":"` + vin17 + `"}`, Request{VIN: vin17}},
+		{`{"vin":"  1HGCM82633A004352  "}`, Request{VIN: "  1HGCM82633A004352  "}}, // 17 after trimming
 		{`{"vin":"x","model_year":-2147483648}`, Request{VIN: "x", ModelYear: Value[int32](-2147483648)}},
 		{`{"vin":"x","model_year":2147483647}`, Request{VIN: "x", ModelYear: Value[int32](2147483647)}},
 		{`{"vin":"x","model_year":2003.0}`, Request{VIN: "x", ModelYear: Value[int32](2003)}},
@@ -80,7 +80,8 @@ func TestParseRequest(t *testing.T) {
 		{`{"vin":17}`, InvalidRequest, "/vin", false},
 		{`{"vin":""}`, InvalidRequest, "/vin", false},
 		{`{"vin":"   "}`, InvalidRequest, "/vin", true},
-		{`{"vin":"` + vin64 + `A"}`, InvalidRequest, "/vin", true},
+		{`{"vin":"1HGCM82633A004352A"}`, InvalidRequest, "/vin", true},
+		{`{"vin":"` + vin17 + `A"}`, InvalidRequest, "/vin", true},
 		{`{"vin":"x","VIN":"y"}`, InvalidRequest, "/VIN", false},
 		{`{"vin":"x","a/b":1,"z":2}`, InvalidRequest, "/a~1b", false},
 		{`{"vin":"x","id":1}`, InvalidRequest, "/id", false},

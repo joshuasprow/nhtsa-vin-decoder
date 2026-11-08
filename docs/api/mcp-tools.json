@@ -17,7 +17,7 @@
               "vin": {
                 "type": "string",
                 "minLength": 1,
-                "description": "1-64 bytes after trimming whitespace. Any such string decodes; partial ('*') and mistyped VINs return error codes, not a refusal."
+                "description": "1-17 characters after trimming spaces: vPIC's spvindecode holds the trimmed VIN in a varchar(17) and raises on a longer one. Any such string decodes; partial ('*') and mistyped VINs return error codes, not a refusal."
               },
               "model_year": {
                 "type": [
@@ -78,7 +78,7 @@
               "vin": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 64,
+                "maxLength": 17,
                 "description": "The VIN as decoded: the request's vin trimmed, uppercased, with every non-ASCII character replaced by '&'."
               },
               "wmi": {

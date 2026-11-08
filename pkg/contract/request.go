@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Shape is the layout of a decode's attributes.
@@ -28,9 +29,10 @@ const (
 
 // Request limits from docs/api/README.md.
 const (
-	// MaxVINBytes caps a request's VIN after trimming: request hygiene, not a
-	// VIN rule.
-	MaxVINBytes = 64
+	// MaxVINChars caps a request's VIN after trimming: spvindecode stores
+	// the trimmed VIN in a varchar(17) and raises on a longer one, so a
+	// longer VIN has no answer to give.
+	MaxVINChars = 17
 	// MaxBatch caps the requests in one batch.
 	MaxBatch = 1000
 	// MaxBody caps a batch body in bytes.
@@ -42,8 +44,8 @@ const (
 // C ABI call. Its zero values are the contract's defaults, except VIN, which
 // is required.
 type Request struct {
-	// VIN as sent; the decoder trims and sanitizes it. 1 to MaxVINBytes
-	// bytes after trimming spaces.
+	// VIN as sent; the decoder trims and sanitizes it. 1 to MaxVINChars
+	// characters after trimming spaces.
 	VIN string
 	// ModelYear is the model-year hint, vPIC's modelyear.
 	ModelYear Null[int32]
@@ -60,7 +62,7 @@ type Request struct {
 // trimVIN trims a VIN as the decoder does before decoding: spaces only,
 // Postgres's trim() (spvindecode's first statement), not every whitespace.
 // The decode's vin is this string sanitized, which never grows it, so a
-// request within MaxVINBytes decodes to a vin within it too.
+// request within MaxVINChars decodes to a vin within it too.
 func trimVIN(vin string) string { return strings.Trim(vin, " ") }
 
 // Validate checks r against the request rules a Go caller can break: the
@@ -74,11 +76,11 @@ func (r Request) Validate() error {
 }
 
 func (r Request) validate(prefix string) *Problem {
-	switch n := len(trimVIN(r.VIN)); {
+	switch n := utf8.RuneCountInString(trimVIN(r.VIN)); {
 	case n == 0:
 		return NewProblem(InvalidRequest, prefix+"/vin", "vin is empty after trimming spaces")
-	case n > MaxVINBytes:
-		return NewProblem(InvalidRequest, prefix+"/vin", fmt.Sprintf("vin is %d bytes after trimming spaces; the limit is %d", n, MaxVINBytes))
+	case n > MaxVINChars:
+		return NewProblem(InvalidRequest, prefix+"/vin", fmt.Sprintf("vin is %d characters after trimming spaces; the limit is %d", n, MaxVINChars))
 	}
 	switch r.Shape {
 	case "", ShapeVPIC, ShapeNitrovin:

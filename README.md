@@ -74,24 +74,27 @@ importer.
 ## The engine
 
 `pkg/decoder` ports `spvindecode` stage by stage, each tested against
-Postgres running the dump's own SQL. Most answer keys are committed under
+Postgres running the dump's own SQL; `decoder.NewEngine(artifact).Project`
+is the whole procedure. Most answer keys are committed under
 `pkg/decoder/testdata` (regenerate with `go test ./pkg/decoder -run <Test>
 -update-oracle` against a restored dump). The pattern matcher is also checked
 on every distinct `pattern.keys` of a month and every VinSchema's index; the
 core pass (stage 5) on a VIN corpus against `vpic.spvindecode_core` called
-directly; and the whole decode (stage 7: the year plan, passes, scoring and
-the QC filter) against `vpic.spvindecode` cut just before it resolves values,
-with and without model-year hints, on the core's corpus and ultravin's
-parity corpus and cover set. Both compare item for item before value
-resolution, against the freshened database and an artifact built from it:
+directly; the decode up to value resolution (stage 7: the year plan, passes,
+scoring and the QC filter) against `vpic.spvindecode` cut just before it
+resolves values; and the rows `Project` returns (stage 8: value resolution and
+the projection) against the whole `vpic.spvindecode`, field for field. Those
+two run with and without model-year hints, on the core's corpus and
+ultravin's parity corpus and cover set, against the freshened database and an
+artifact built from it:
 
 ```sh
 NITROVIN_PSQL='docker exec -i nhtsa-oracle psql -X -q -U postgres -d vpic' \
-NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/decoder -run 'TestMatcherPostgres|TestCorePostgres|TestWrapperPostgres'
+NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/decoder -run 'TestMatcherPostgres|TestCorePostgres|TestWrapperPostgres|TestProjectionPostgres'
 ```
 
 `.github/workflows/import.yml` runs these on PRs touching the importer or
-the engine.
+`pkg/`.
 
 ## The decode contract
 
@@ -104,8 +107,11 @@ and `Info` types, and both attribute layouts as pure functions of the items.
 the oracle's answer key for `testdata/oracle/sample-vins.tsv`, committed under
 `pkg/contract/testdata/oracle`, is checked against `decode.schema.json` in both
 layouts (`.github/workflows/contract.yml`). With an artifact, `go test
-./pkg/contract` also checks the committed element table against it:
+./pkg/contract` also checks the committed element table against it, and
+decodes the answer key's VINs through `pkg/nitrovin`: the engine's items equal
+the oracle's rows, every decode validates, and a second decoder gives the same
+bytes:
 
 ```sh
-NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/contract -run TestInfo
+NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/contract -run 'TestInfo|TestEngineAnswerKey'
 ```
