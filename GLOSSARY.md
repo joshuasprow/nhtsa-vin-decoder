@@ -82,6 +82,11 @@ _Avoid_: known issue, exception, bug
 A set of VINs with the oracle's answers, used to measure parity.
 _Avoid_: golden set, fixtures
 
+**Answer key**:
+The oracle's answers for a list of VINs on one data month: everything it
+says about each VIN. A corpus's answers are an answer key.
+_Avoid_: golden file, expected output, snapshot
+
 **Gate**:
 A parity check that must pass before a change merges or a data month ships.
 _Avoid_: test (for this specific role), check

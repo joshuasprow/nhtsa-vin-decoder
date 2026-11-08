@@ -19,3 +19,19 @@ What it will be, as decided so far:
 
 MIT licensed. See `NOTICE` for data provenance and the projects this builds
 on.
+
+## The Postgres oracle
+
+`scripts/oracle.sh` restores a month of NHTSA's dump into Postgres 17 and
+runs its `spvindecode` over a VIN list, writing an answer key (CSV, every
+row the procedure emits per VIN, in a stable order). CI runs it through the
+reusable workflow `.github/workflows/oracle.yml`; on a workstation with
+Docker:
+
+```sh
+scripts/oracle.sh up
+scripts/oracle.sh fetch "$(scripts/oracle.sh month)" /tmp/vpic   # prints backup=<path>
+scripts/oracle.sh restore /tmp/vpic/vPICList_lite_<YYYY_MM>.backup
+scripts/oracle.sh decode testdata/oracle/sample-vins.tsv answer-key.csv
+scripts/oracle.sh down
+```
