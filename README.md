@@ -2,7 +2,8 @@
 
 An offline VIN decoder that answers like NHTSA's vPIC, as one binary.
 
-Status: **charting**. Nothing decodes yet. The plan is the
+Status: **charting**. The engine and the CLI decode, but nothing is released
+and no data is embedded yet: build an artifact (below) and pass `--data`. The plan is the
 [wayfinder map](https://github.com/joshuasprow/nitrovin/issues?q=label%3Awayfinder%3Amap)
 in this repo's issues; decisions already made are indexed there.
 
@@ -115,3 +116,30 @@ bytes:
 ```sh
 NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/contract -run 'TestInfo|TestEngineAnswerKey'
 ```
+
+## The CLI
+
+`cmd/nitrovin` is the `nitrovin` binary ([the CLI contract](docs/api/README.md#cli-nitrovin-decode)).
+Its data is `--data <file>`, then `NITROVIN_DATA`, then the artifact embedded
+in the binary; no build embeds one yet, so for now the first two are the
+only ways in.
+
+```sh
+go build -o nitrovin ./cmd/nitrovin
+export NITROVIN_DATA=nitrovin.artifact
+./nitrovin --version                                 # nitrovin v0.0.0-…+dirty (data 2026_10) in a checkout
+./nitrovin decode 1HGCM82633A004352                  # pretty on a terminal
+./nitrovin decode -o text --model-year 2003 1HGCM82633A004352
+printf '1HGCM82633A004352,2003\n5YJ3E1EA2JF000316\n' | ./nitrovin decode -   # JSON lines
+./nitrovin info
+```
+
+Exit 0 when every VIN was decoded, whatever its error codes; 1 when it could
+not answer (no data, a refused stdin line, a write failure); 2 for a mistake on
+the command line, a refused argument VIN included. Each command lives in its
+own file under `cmd/nitrovin` and registers itself from that file's `init`
+(`register(command{…})`), so a new surface adds one file. `go test
+./cmd/nitrovin` runs the built binary: usage, refusal and missing-data cases
+without data; with `NITROVIN_ARTIFACT` also `decode -` over the answer key's
+VINs against the contract layer's bytes, `info`, `--version`, the data
+precedence and the `-o text` transcript (`-update` rewrites it).
