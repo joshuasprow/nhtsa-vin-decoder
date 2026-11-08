@@ -18,7 +18,11 @@ func FuzzPrimitives(f *testing.F) {
 	f.Add(" ı1hgcm82633a00435ſ\xff ")
 	f.Add("1M9AC2BC0RB026001X")
 	f.Fuzz(func(t *testing.T, in string) {
-		vin := sanitize(in)
+		v := newVINText(in)
+		vin := v.s
+		if len(v.echo) != len(vin) {
+			t.Fatalf("newVINText(%q): echo %q has %d characters, sanitize %q %d", in, string(v.echo), len(v.echo), vin, len(vin))
+		}
 		if want := utf8.RuneCountInString(strings.Trim(in, " ")); len(vin) != want {
 			t.Fatalf("sanitize(%q) = %q: %d bytes for %d characters", in, vin, len(vin), want)
 		}
@@ -31,7 +35,7 @@ func FuzzPrimitives(f *testing.F) {
 			t.Fatalf("sanitize(%q) = %q: not trimmed", in, vin)
 		}
 		wmi(vin)
-		descriptor(vin)
+		descriptor(v.echo)
 		varKeys(vin)
 		checkDigit1(vin)
 		checkDigit2(vin, true)

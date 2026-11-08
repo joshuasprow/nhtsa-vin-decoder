@@ -12,7 +12,7 @@ import (
 	"github.com/joshuasprow/nitrovin-data/pkg/artifact"
 )
 
-// TestCorePostgres checks the core against the restored dump it was built
+// TestCorePostgres checks a pass against the restored dump it was built
 // from (NITROVIN_PSQL and NITROVIN_ARTIFACT as in TestMatcherPostgres):
 //
 //   - case: Go's upper and lower agree with Postgres's on every non-ASCII
@@ -22,12 +22,18 @@ import (
 //   - conversion: for every conversion and every distinct AttributeId its
 //     FromElementId has in pattern or enginemodelpattern, convert agrees with
 //     the procedure's own `select (formula)::varchar(500)`, '0' on error;
-//   - items: for every corpus VIN, called with the year fVinModelYear2 gives
-//     it (or the corpus's) and again with a NULL year, core returns the
-//     multiset of rows vpic.spvindecode_core returns, Corrections rows
-//     excepted, compared on every column but the pass number.
+//   - passes: for every corpus VIN, called with the year fVinModelYear2
+//     gives it (or the corpus's), conclusive and without error12, and again
+//     with a NULL year, inconclusive and with error12, pass returns the
+//     multiset of rows vpic.spvindecode_core returns, compared on every
+//     column but the pass number, and its return code; errorValue agrees
+//     with vpic.fErrorValue on element 143; and errorCode, on core's items,
+//     returns what vpic.spvindecode_errorcode does on Postgres's.
 //
-// The test writes scratch tables to the schema core_oracle and drops it.
+// Passes run against the freshened oracle (ADR 0006): one transaction
+// truncates vpic.wmiyearvalidchars and is rolled back, so the procedure
+// recomputes every charset as the engine does. The test writes scratch
+// tables to the schema core_oracle and drops it.
 func TestCorePostgres(t *testing.T) {
 	a, psql := dumpUnderTest(t)
 	t.Cleanup(func() { psql("drop schema if exists core_oracle cascade;\n") })
@@ -35,7 +41,7 @@ func TestCorePostgres(t *testing.T) {
 
 	t.Run("case", func(t *testing.T) { checkCase(t, a, psql) })
 	t.Run("conversion", func(t *testing.T) { checkConversions(t, a, psql) })
-	t.Run("items", func(t *testing.T) { checkItems(t, a, psql) })
+	t.Run("passes", func(t *testing.T) { checkPasses(t, a, psql) })
 }
 
 func checkCase(t *testing.T, a *artifact.Artifact, psql func(string) string) {
@@ -165,9 +171,12 @@ type coreInput struct {
 }
 
 // coreCorpusFiles are the committed parts of the corpus: the oracle's smoke
-// sample, and VINs chosen for this stage (non-ASCII input, the dedup's
-// tie-breaks, conversions, vehicle specs, make paths).
-var coreCorpusFiles = []string{"../../testdata/oracle/sample-vins.tsv", "testdata/core-vins.tsv"}
+// sample, VINs chosen for the core (non-ASCII input, the dedup's
+// tie-breaks, conversions, vehicle specs, make paths) and for the error
+// codes.
+var coreCorpusFiles = []string{
+	"../../testdata/oracle/sample-vins.tsv", "testdata/core-vins.tsv", "testdata/error-vins.tsv",
+}
 
 func loadCorpus(t *testing.T, path string) []coreInput {
 	t.Helper()
@@ -236,12 +245,71 @@ func generatedCorpus(a *artifact.Artifact, n int) []coreInput {
 	return out
 }
 
-func checkItems(t *testing.T, a *artifact.Artifact, psql func(string) string) {
+// mutatedCorpus derives error-path VINs from base, deterministically: each
+// VIN with one position the correction search reads changed (codes 2-4 or
+// 14 when the new character is not valid there), every third with a
+// second one (code 5), and every seventh cut short; the characters cycle
+// through letters, digits, I/O/Q, '_', '*', a space and a non-ASCII rune.
+func mutatedCorpus(base []coreInput) []coreInput {
+	positions := []int{4, 5, 6, 7, 8, 11, 12, 13, 14}
+	chars := []rune("Z0I8A_9Q* É3OK")
+	out := make([]coreInput, 0, len(base))
+	for k, c := range base {
+		vin := []rune(c.raw)
+		vin[positions[k%len(positions)]-1] = chars[k%len(chars)]
+		if k%3 == 0 {
+			vin[positions[(k/3+4)%len(positions)]-1] = chars[(k/3+5)%len(chars)]
+		}
+		if k%7 == 0 {
+			vin = vin[:9+k%8]
+		}
+		out = append(out, coreInput{strings.Trim(string(vin), " "), c.year})
+	}
+	return out
+}
+
+// passSQL runs every call of core_oracle.call inside one transaction that
+// truncates vpic.wmiyearvalidchars, the freshened oracle, and rolls back.
+// Each call is a savepoint rolled back after it, which releases the locks
+// of the procedure's temporary tables (one transaction holding them all
+// exhausts the lock table). Per call: the core's rows (I), its return code
+// and fErrorValue of element 143 (R), and spvindecode_errorcode's OUT
+// parameters (E), called after the core's items, but the Corrections and
+// the defaults, fill the DecodingItems table it reads.
+const passSQL = `begin;
+truncate vpic.wmiyearvalidchars;
+select 'savepoint c',
+	format($$create temp table r as select * from vpic.spvindecode_core(3, %s, %L, '***X*|Y', %L, %L)$$,
+		coalesce(year::text, 'null'), n, conclusive, error12),
+	format($$copy (
+	select 'I', %s, %s, coreelementid, coreattributeid, corevalue, coresource,
+		corepriority, corekeys, corepatternid, corevinschemaid, corewmiid,
+		(extract(epoch from corecreatedon) * 1000000)::bigint, coretobeqced
+	from r) to stdout$$, i, call),
+	format($$copy (
+	select 'R', %s, %s, (select corereturncode from r limit 1),
+		vpic.ferrorvalue((select corevalue from r where coreelementid = 143))
+	) to stdout$$, i, call),
+	'create temp table decodingitems (id serial primary key, decodingitem vpic."tblDecodingItem")',
+	$$insert into decodingitems (decodingitem)
+	select row(null, 3, corecreatedon, corepatternid, corekeys, corevinschemaid, corewmiid,
+		coreelementid, coreattributeid, corevalue, coresource, corepriority, coretobeqced)::vpic."tblDecodingItem"
+	from r where coresource not in ('Corrections', 'Default')$$,
+	format($$copy (select 'E', %s, %s, * from vpic.spvindecode_errorcode(%L, %s)) to stdout$$,
+		i, call, n, coalesce(year::text, 'null')),
+	'rollback to savepoint c'
+from core_oracle.call order by i, call \gexec
+rollback;
+`
+
+func checkPasses(t *testing.T, a *artifact.Artifact, psql func(string) string) {
 	var corpus []coreInput
 	for _, f := range coreCorpusFiles {
 		corpus = append(corpus, loadCorpus(t, f)...)
 	}
-	corpus = append(corpus, generatedCorpus(a, 300)...)
+	generated := generatedCorpus(a, 300)
+	corpus = append(corpus, generated...)
+	corpus = append(corpus, mutatedCorpus(generated)...)
 
 	var in strings.Builder
 	in.WriteString(`create table core_oracle.input (i int primary key, raw varchar, year int);
@@ -256,88 +324,115 @@ copy core_oracle.input from stdin;
 	}
 	in.WriteString(`\.
 create table core_oracle.call as
-	select i, 1 as call, n, coalesce(year, abs(vpic.fvinmodelyear2(n))) as year
+	select i, 1 as call, n, coalesce(year, abs(vpic.fvinmodelyear2(n))) as year, true as conclusive, false as error12
 	from (select i, upper(trim(raw)) as n, year from core_oracle.input) s
 	union all
-	select i, 2, upper(trim(raw)), null from core_oracle.input;
+	select i, 2, upper(trim(raw)), null, false, true from core_oracle.input;
 copy (select 'N', (extract(epoch from now()) * 1000000)::bigint) to stdout;
-copy (select 'C', i, call, year from core_oracle.call order by i, call) to stdout;
--- One statement, so one transaction, per call: the procedure's temporary
--- tables would exhaust the lock table in one.
-select format($$copy (
-	select 'I', %s, %s, coreelementid, coreattributeid, corevalue, coresource,
-		corepriority, corekeys, corepatternid, corevinschemaid, corewmiid,
-		(extract(epoch from corecreatedon) * 1000000)::bigint, coretobeqced
-	from vpic.spvindecode_core(3, %s, %L, '***X*|Y', true, false)
-	where coresource is distinct from 'Corrections'
-) to stdout$$, i, call, coalesce(year::text, 'null'), n)
-from core_oracle.call order by i, call \gexec
+copy (select 'C', i, call, year, conclusive, error12 from core_oracle.call order by i, call) to stdout;
 `)
+	in.WriteString(passSQL)
 	type callKey struct{ i, call int }
+	type callArgs struct {
+		year              int
+		conclusive, err12 bool
+	}
 	var now int64
-	years := map[callKey]int{}
+	calls := map[callKey]callArgs{}
 	sources := map[string]int{}
+	codes := map[string]int{}
 	want := map[callKey][]string{}
+	wantE := map[callKey]string{}
 	for _, l := range lines(psql(in.String())) {
 		f := strings.Split(l, "\t")
+		k := callKey{}
+		if len(f) > 2 {
+			k.i, _ = strconv.Atoi(f[1])
+			k.call, _ = strconv.Atoi(f[2])
+		}
 		switch f[0] {
 		case "N":
 			now, _ = strconv.ParseInt(f[1], 10, 64)
 		case "C":
-			i, _ := strconv.Atoi(f[1])
-			call, _ := strconv.Atoi(f[2])
 			y, _ := strconv.Atoi(f[3]) // \N is 0, NULL
-			years[callKey{i, call}] = y
+			calls[k] = callArgs{y, f[4] == "t", f[5] == "t"}
 		case "I":
-			i, _ := strconv.Atoi(f[1])
-			call, _ := strconv.Atoi(f[2])
 			row := f[3:]
 			if row[3] == "Formula Pattern" {
 				// The value is var_keys text, where sanitize's '&' stands
 				// for each non-ASCII rune (see sanitize).
 				row[2] = ampersand(row[2])
 			}
-			k := callKey{i, call}
 			want[k] = append(want[k], strings.Join(row, "\t"))
 			source := row[3]
 			if strings.HasPrefix(source, "Conversion ") {
 				source, _, _ = strings.Cut(source, ":")
 			}
 			sources[source]++
+		case "R":
+			want[k] = append(want[k], "R\t"+strings.Join(f[3:], "\t"))
+			for _, c := range strings.Fields(f[3]) {
+				codes[c]++
+			}
+		case "E":
+			wantE[k] = strings.Join(f[3:], "\t")
 		}
 	}
-	if len(years) != 2*len(corpus) {
-		t.Fatalf("Postgres answered %d of %d calls", len(years), 2*len(corpus))
+	if len(calls) != 2*len(corpus) || len(wantE) != len(calls) {
+		t.Fatalf("Postgres answered %d and %d of %d calls", len(calls), len(wantE), 2*len(corpus))
 	}
 
 	e := newEngine(a)
-	bad, rows, empty := 0, 0, 0
-	for k, year := range years {
-		c := corpus[k.i]
-		items, err := e.core(sanitize(c.raw), year, "***X*|Y", now)
+	bad, badE, rows := 0, 0, 0
+	for k, c := range calls {
+		input := corpus[k.i]
+		v := newVINText(input.raw)
+		items, rc, err := e.pass(v, c.year, "***X*|Y", c.conclusive, c.err12, now)
 		if err != nil {
-			t.Errorf("%q year %d: %v", c.raw, year, err)
+			t.Errorf("%q year %d: %v", input.raw, c.year, err)
 			continue
 		}
-		got := make([]string, len(items))
+		got := make([]string, 0, len(items)+1)
+		var codes143 sqlText
 		for j := range items {
-			got[j] = itemRow(&items[j])
+			got = append(got, itemRow(&items[j]))
+			if items[j].elementID == 143 {
+				codes143 = items[j].value
+			}
 		}
+		got = append(got, "R\t"+rc+"\t"+strconv.Itoa(e.errorValue(codes143)))
 		w := want[k]
 		slices.Sort(got)
 		slices.Sort(w)
 		rows += len(w)
-		if len(w) == 0 {
-			empty++
-		}
 		if !slices.Equal(got, w) {
 			if bad++; bad <= 10 {
-				t.Errorf("%q year %d:\n%s", c.raw, year, rowsDiff(got, w))
+				t.Errorf("%q year %d: pass:\n%s", input.raw, c.year, rowsDiff(got, w))
+			}
+		}
+
+		pre, err := e.core(v.s, c.year, "***X*|Y", now)
+		if err != nil {
+			t.Fatal(err) // pass returned no error
+		}
+		wlo, whi := e.wmi.wmi.EqualRange(0, len(e.wmi.id), wmi(v.s))
+		res, err := e.errorCode(v, c.year, pre, wlo, whi)
+		if err != nil {
+			t.Errorf("%q year %d: errorCode: %v", input.raw, c.year, err)
+			continue
+		}
+		gotE := strings.Join([]string{
+			escapeCopy(res.returnCode), escapeCopy(res.correctedVIN), escapeCopy(res.errorBytes), copyField(res.unusedPositions),
+		}, "\t")
+		if gotE != wantE[k] {
+			if badE++; badE <= 10 {
+				t.Errorf("%q year %d: errorCode %q, spvindecode_errorcode %q", input.raw, c.year, gotE, wantE[k])
 			}
 		}
 	}
-	t.Logf("%d VINs, %d calls (%d with no items), %d rows: %d calls disagree", len(corpus), len(years), empty, rows, bad)
+	t.Logf("%d VINs, %d calls, %d rows: %d passes and %d errorCode calls disagree", len(corpus), len(calls), rows, bad, badE)
 	t.Logf("Postgres rows by source: %v", sources)
+	t.Logf("Postgres passes by code: %v", codes)
 }
 
 // itemRow is an item as checkItems reads Postgres's rows: element,

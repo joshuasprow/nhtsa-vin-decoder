@@ -4,7 +4,9 @@
 # (row counts, NULL and empty-string counts, sampled rows, one hash);
 # pkg/decoder's TestMatcherPostgres checks the pattern matcher and the
 # per-schema index on every distinct pattern key against Postgres's LIKE and ~;
-# TestCorePostgres checks the core pass's items against spvindecode_core.
+# TestCharsetPostgres checks the recomputed (WMI, year) charsets against
+# fExtractValidCharsPerWmiYear and logs the stale-cache cells;
+# TestCorePostgres checks whole passes against the freshened spvindecode_core.
 name: Tests against the dump
 
 on:
@@ -92,3 +94,4 @@ jobs:
           go test -count=1 -v ./pkg/decoder/ | tee "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestMatcherPostgres' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestCorePostgres' "$RUNNER_TEMP/engine.log"
+          grep -q -- '--- PASS: TestCharsetPostgres' "$RUNNER_TEMP/engine.log"

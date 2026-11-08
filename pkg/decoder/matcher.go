@@ -283,7 +283,14 @@ type byteSet [4]uint64
 var anyByte = byteSet{^uint64(0), ^uint64(0), ^uint64(0), ^uint64(0)}
 
 func (s *byteSet) add(c byte)      { s[c>>6] |= 1 << (c & 63) }
+func (s *byteSet) remove(c byte)   { s[c>>6] &^= 1 << (c & 63) }
 func (s *byteSet) has(c byte) bool { return s[c>>6]&(1<<(c&63)) != 0 }
+
+func (s *byteSet) union(t *byteSet) {
+	for i := range s {
+		s[i] |= t[i]
+	}
+}
 
 // formulaKeys is the formula pass's formulaKeys (spvindecode_core.sql:
 // 151-161): var_keys with every digit replaced by '#'. A formula pattern
