@@ -227,16 +227,32 @@ title, the description an assistant reads, schemas and annotations) is
 
 `nitrovin decode <vin>…` decodes its arguments; `nitrovin decode -` reads one
 VIN per stdin line, optionally followed by a comma or a tab and that VIN's
-model year (`1HGCM82633A004352,2003`). One VIN prints one decode
-(pretty-printed on a terminal); several print JSON lines, in input order.
+model year (`1HGCM82633A004352,2003`). A line's own year beats
+`--model-year`; an empty one (`1HGCM82633A004352,`) is none. A trailing `\r`
+is dropped, and blank lines are skipped but counted. One argument VIN prints
+one decode (pretty-printed on a terminal, one compact line elsewhere); several,
+or `-`, print JSON lines in input order, each the decode's compact JSON
+exactly as the Go module marshals it.
 
 - A refused argument VIN: a problem on stderr, nothing on stdout, exit 2.
+  Arguments are checked before any data is loaded.
 - A refused stdin line: a problem on stderr naming the line, the run stops,
   exit 1. Lines already printed are complete, valid decodes.
-- `-o text` ignores `--shape`: variable name and value per row, one row per
-  value of a multi-valued element, non-empty attributes only.
+- A problem on stderr is one line of compact JSON, stdio's. Its `detail`
+  starts with the input it is about (`argument 2: `, `line 7: `), and its
+  `pointer` points into that request (`/vin`, `/model_year`).
+- No data to load (no `--data`, no `NITROVIN_DATA` and nothing embedded, or a
+  file that will not open): an `#internal` problem naming `--data`, exit 1.
+- A mistake in the command line itself (unknown command or flag, a bad flag
+  value, `-` beside other VINs, `--full` with `-o text`): a message and the
+  usage on stderr, as text, nothing on stdout, exit 2.
+- `-o text` ignores `--shape`: one block per VIN, blank-line separated, of
+  two aligned columns: a `VIN` row with the decode's `vin`, then variable name
+  and value per row, by element id, one row per value of a multi-valued
+  element, non-empty attributes only. `--full` has no text form.
 
-`nitrovin info` prints the `/v1/info` object.
+`--data` is accepted before the command or after it; after wins.
+`nitrovin info` prints the `/v1/info` object, pretty-printed on a terminal.
 
 ## C ABI (`libnitrovin`, `nitrovin.h`)
 

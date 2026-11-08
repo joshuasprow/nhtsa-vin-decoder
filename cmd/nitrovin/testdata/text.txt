@@ -1,0 +1,117 @@
+VIN                                            2T1BURHE8JC123456
+Bed Type                                       Not Applicable
+Cab Type                                       Not Applicable
+Body Class                                     Sedan/Saloon
+Engine Number of Cylinders                     4
+Displacement (CC)                              1798
+Displacement (CI)                              109.8427393705181111
+Displacement (L)                               1.8
+Doors                                          4
+Drive Type                                     4x2
+Engine Stroke Cycles                           4
+Engine Model                                   2ZR-FE
+Fuel Type - Primary                            Gasoline
+Gross Vehicle Weight Rating From               Class 1B: 3,001 - 4,000 lb (1,360 - 1,814 kg)
+Make                                           TOYOTA
+Manufacturer Name                              TOYOTA MOTOR MANUFACTURING CANADA
+Model                                          Corolla
+Model Year                                     2018
+Plant City                                     CAMBRIDGE
+Number of Seats                                5
+Series                                         ZRE172L
+Steering Location                              Left-Hand Drive (LHD)
+Trim                                           L/LE/SE/XLE/XSE
+Vehicle Type                                   PASSENGER CAR
+Axles                                          2
+Brake System Description                       Calipers / Front Vented Discs
+Curb Weight (pounds)                           2885
+Curtain Air Bag Locations                      All Rows
+Seat Cushion Air Bag Locations                 Passenger Seat Only
+Wheelbase Type                                 Standard
+Number of Seat Rows                            2
+Valve Train Design                             Dual Overhead Cam (DOHC)
+Transmission Speeds                            6
+Engine Configuration                           In-Line
+Front Air Bag Locations                        1st Row (Driver and Passenger)
+Fuel Delivery/Fuel Injection Type              Multipoint Fuel Injection (MPFI)
+Knee Air Bag Locations                         Driver Seat Only
+Engine Brake (hp) From                         132
+Plant Country                                  CANADA
+Plant Company Name                             Toyota Motor Manufacturing, Canada, Inc.
+Plant State                                    ONTARIO
+Pretensioner                                   Yes
+Seat Belt Type                                 Manual
+Adaptive Cruise Control (ACC)                  Standard
+Antilock Braking System (ABS)                  Standard
+Crash Imminent Braking (CIB)                   Standard
+Electronic Stability Control (ESC)             Standard
+Traction Control                               Standard
+Forward Collision Warning (FCW)                Standard
+Lane Departure Warning (LDW)                   Standard
+Lane Keeping Assistance (LKA)                  Standard
+Backup Camera                                  Standard
+Side Air Bag Locations                         1st Row (Driver and Passenger)
+Wheelbase (inches) From                        106.3
+Note                                           Curb Weight (lbs): 2840-2885
+Note                                           Manual Transmission / CVT
+Number of Wheels                               4
+Trailer Type Connection                        Not Applicable
+Trailer Body Type                              Not Applicable
+Engine Brake (hp) To                           148
+Other Engine Info                              Sequential MPI  
+Base Price ($)                                 18600.00
+Number of Battery Packs per Vehicle            1
+Top Speed (MPH)                                111
+Error Code                                     0
+Engine Manufacturer                            Toyota
+Bus Floor Configuration Type                   Not Applicable
+Bus Type                                       Not Applicable
+Custom Motorcycle Type                         Not Applicable
+Motorcycle Suspension Type                     Not Applicable
+Motorcycle Chassis Type                        Not Applicable
+Active Safety System Note                      Keyless Ignition: Standard for XLE, SE6MT and XSE trims, Optional for SE trim
+Dynamic Brake Support (DBS)                    Standard
+Pedestrian Automatic Emergency Braking (PAEB)  Standard
+Auto-Reverse System for Windows and Sunroofs   Standard
+Daytime Running Light (DRL)                    Standard
+Semiautomatic Headlamp Beam Switching          Standard
+Adaptive Driving Beam (ADB)                    Standard
+Gross Vehicle Weight Rating To                 Class 1B: 3,001 - 4,000 lb (1,360 - 1,814 kg)
+Error Text                                     0 - VIN decoded clean. Check Digit (9th position) is correct
+Vehicle Descriptor                             2T1BURHE*JC
+
+VIN                                          5UXWX7C5XBA123456
+Body Class                                   Sport Utility Vehicle [SUV]/Multipurpose Vehicle [MPV]
+Engine Number of Cylinders                   6
+Displacement (CC)                            2979.1682352
+Displacement (CI)                            181.8
+Displacement (L)                             3.0
+Doors                                        4
+Drive Type                                   AWD/All-Wheel Drive
+Fuel Type - Primary                          Gasoline
+Gross Vehicle Weight Rating From             Class 1D: 5,001 - 6,000 lb (2,268 - 2,722 kg)
+Make                                         BMW
+Manufacturer Name                            BMW MANUFACTURER CORPORATION / BMW NORTH AMERICA
+Model                                        X3
+Model Year                                   2011
+Plant City                                   MUNICH
+Trim                                         xDrive35i
+Vehicle Type                                 MULTIPURPOSE PASSENGER VEHICLE (MPV)
+Front Air Bag Locations                      1st Row (Driver and Passenger)
+Engine Brake (hp) From                       300
+Plant Country                                GERMANY
+Pretensioner                                 Yes
+Seat Belt Type                               Manual
+Side Air Bag Locations                       1st Row (Driver and Passenger)
+Trailer Type Connection                      Not Applicable
+Trailer Body Type                            Not Applicable
+Other Restraint System Info                  Head Inflatable Restraint for Driver, Front Passenger, Rear Outboard Driver-side and Rear Outboard Passenger-side.  Knee Inflatable Restraint for Driver.  Pretensioners for Driver and Front Passenger.
+Error Code                                   1
+Bus Floor Configuration Type                 Not Applicable
+Bus Type                                     Not Applicable
+Custom Motorcycle Type                       Not Applicable
+Motorcycle Suspension Type                   Not Applicable
+Motorcycle Chassis Type                      Not Applicable
+Tire Pressure Monitoring System (TPMS) Type  Direct
+Error Text                                   1 - Check Digit (9th position) does not calculate properly
+Vehicle Descriptor                           5UXWX7C5*BA
