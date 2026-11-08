@@ -1,0 +1,57 @@
+## host
+Apple M5 Pro go1.27.3 darwin/arm64 *** Zstandard CLI (64-bit) v1.5.7, by Yann Collet ***
+## extract (shared by all candidates)
+extract_s=2.47
+vins=5028
+## build twice (determinism), zstd -19
+format=custom load_tsv_s=0.52 build_s=0.12 bytes=61727325 sha256=1897064b535c53a2d1351abea047b9e479580017c7d5acb92e3e08a6aae70ec8
+format=custom load_tsv_s=0.54 build_s=0.11 bytes=61727325 sha256=1897064b535c53a2d1351abea047b9e479580017c7d5acb92e3e08a6aae70ec8
+custom deterministic=yes
+custom zstd19_bytes=11086202 zstd19_s=7.798050
+format=sqlite load_tsv_s=0.55 build_s=2.33 bytes=71233536 sha256=370a327f90e7fe5aa2955e24d7eb7939eb8049368d2c37e465ec09e0a2f55a09
+format=sqlite load_tsv_s=0.54 build_s=2.29 bytes=71233536 sha256=370a327f90e7fe5aa2955e24d7eb7939eb8049368d2c37e465ec09e0a2f55a09
+sqlite deterministic=yes
+sqlite zstd19_bytes=19804316 zstd19_s=12.923033
+format=fb load_tsv_s=0.53 build_s=0.21 bytes=81047512 sha256=6a3ffb6d8f2d651dfd740a04d08540b5f10cf8000ac5a52922bee624d4e44984
+format=fb load_tsv_s=0.53 build_s=0.20 bytes=81047512 sha256=6a3ffb6d8f2d651dfd740a04d08540b5f10cf8000ac5a52922bee624d4e44984
+fb deterministic=yes
+fb zstd19_bytes=26577807 zstd19_s=16.360095
+## size with wmiyearvalidchars (the bug-for-bug charset table, 8.8M rows)
+format=custom load_tsv_s=2.78 build_s=0.33 bytes=202626211 sha256=05cc7607243b4e4a49047ac6245e28a1302691ede38c5eda15674962745e9549
+custom-wyvc zstd19_bytes=11643907
+format=sqlite load_tsv_s=2.78 build_s=12.70 bytes=441995264 sha256=78fb014450af719db9e28c5e3dd426bf87b5d85f84fe715224221ca41c671ec5
+sqlite-wyvc zstd19_bytes=61764922
+format=fb load_tsv_s=2.88 build_s=0.83 bytes=292395584 sha256=976f911d9d0d2d22d9c1a7078a88f20af156f91cc0e7c8e477582c4a54c9ca70
+fb-wyvc zstd19_bytes=76877105
+## warm decode, one core (GOMAXPROCS=1), 3 s per row
+{"allocs_per_decode":3.0003977724741446,"checksum":"958b1bf8c2059f1b","first_decode_us":4506.458,"format":"custom","heap_mb":17.274816,"matched":4354,"max_us":626,"open_ms":0.448,"p50_us":4.25,"p999_us":37.334,"p99_us":22.833,"scanned_per_decode":566.7414478918059,"verify_ms":6.277,"vin_per_s":170129.0620787853,"vins":5028,"zstd":false}
+{"allocs_per_decode":3.0003977724741446,"checksum":"958b1bf8c2059f1b","first_decode_us":34.583,"format":"custom","heap_mb":103.206824,"matched":4354,"max_us":357.291,"open_ms":50.398,"p50_us":4.292,"p999_us":32.334,"p99_us":21.916,"scanned_per_decode":566.7414478918059,"verify_ms":0.157,"vin_per_s":170067.66227180258,"vins":5028,"zstd":true}
+{"allocs_per_decode":5284.102227525856,"checksum":"958b1bf8c2059f1b","first_decode_us":3073.25,"format":"sqlite","heap_mb":17.722032,"matched":4354,"max_us":12618.292,"open_ms":0.991,"p50_us":173.292,"p999_us":1349.5,"p99_us":1038.208,"scanned_per_decode":566.7414478918059,"verify_ms":0,"vin_per_s":3966.415325396617,"vins":5028,"zstd":false}
+{"allocs_per_decode":5284.102227525856,"checksum":"958b1bf8c2059f1b","first_decode_us":791.125,"format":"sqlite","heap_mb":161.06168,"matched":4354,"max_us":11041.208,"open_ms":68.472,"p50_us":169.5,"p999_us":1314.917,"p99_us":1014.084,"scanned_per_decode":566.7414478918059,"verify_ms":0,"vin_per_s":4100.518010741632,"vins":5028,"zstd":true}
+{"allocs_per_decode":3.0003977724741446,"checksum":"958b1bf8c2059f1b","first_decode_us":9504.084,"format":"fb","heap_mb":16.219832,"matched":4354,"max_us":1099.291,"open_ms":0.821,"p50_us":16.208,"p999_us":93.792,"p99_us":75.542,"scanned_per_decode":566.7414478918059,"verify_ms":0,"vin_per_s":46142.91043292555,"vins":5028,"zstd":false}
+{"allocs_per_decode":3.0003977724741446,"checksum":"958b1bf8c2059f1b","first_decode_us":106.5,"format":"fb","heap_mb":124.382784,"matched":4354,"max_us":1064.875,"open_ms":103.316,"p50_us":16.209,"p999_us":91.334,"p99_us":75.708,"scanned_per_decode":566.7414478918059,"verify_ms":0,"vin_per_s":46076.28222685078,"vins":5028,"zstd":true}
+sqlite_loadall_ms=951.1 rows=2177061 {"allocs_per_decode":733.6799920445505,"checksum":"958b1bf8c2059f1b","first_decode_us":499.708,"format":"sqlite","heap_mb":19.609568,"matched":4354,"max_us":8222,"open_ms":0.47,"p50_us":108.833,"p999_us":743.792,"p99_us":654.083,"scanned_per_decode":66.44828957836118,"verify_ms":0,"vin_per_s":6260.32721898029,"vins":5028,"zstd":false} 
+## cold process: --data <file>, one VIN, 20 runs (page cache warm)
+custom raw  cold_median_ms=3.4 cold_min_ms=3.2 n=20
+custom zstd cold_median_ms=54.6 cold_min_ms=53.9 n=20
+sqlite raw  cold_median_ms=4.5 cold_min_ms=4.2 n=20
+sqlite zstd cold_median_ms=74.1 cold_min_ms=73.2 n=20
+fb raw  cold_median_ms=3.5 cold_min_ms=3.0 n=20
+fb zstd cold_median_ms=108.2 cold_min_ms=107.1 n=20
+## cold process: go:embed binary, one VIN, 20 runs
+custom raw binary_bytes=72764130 go_build_s=.840448 1HGCM82633A004352 items=22 decode_us=1693 kind="custom raw" open_ms=0.11 
+custom raw cold_median_ms=4.8 cold_min_ms=3.8 n=20
+custom zstd binary_bytes=21725538 go_build_s=.305214 1HGCM82633A004352 items=22 decode_us=35 kind="custom zstd" open_ms=66.08 
+custom zstd cold_median_ms=54.0 cold_min_ms=53.4 n=20
+sqlite raw binary_bytes=82357602 go_build_s=.580272 1HGCM82633A004352 items=22 decode_us=1305 kind="sqlite raw" open_ms=1.89 
+sqlite raw cold_median_ms=5.4 cold_min_ms=4.3 n=20
+sqlite zstd binary_bytes=30526434 go_build_s=.341076 1HGCM82633A004352 items=22 decode_us=745 kind="sqlite zstd" open_ms=90.91 
+sqlite zstd cold_median_ms=72.7 cold_min_ms=72.1 n=20
+fb raw binary_bytes=92248290 go_build_s=.615238 1HGCM82633A004352 items=22 decode_us=1892 kind="fb raw" open_ms=0.12 
+fb raw cold_median_ms=4.4 cold_min_ms=3.5 n=20
+fb zstd binary_bytes=37345890 go_build_s=.374369 1HGCM82633A004352 items=22 decode_us=113 kind="fb zstd" open_ms=130.89 
+fb zstd cold_median_ms=106.6 cold_min_ms=106.2 n=20
+## inspectability
+custom: id	wmi	manufacturerid	makeid	vehicletypeid	trucktypeid	pad	created	 2094	1HG	988	474	2	-2147483648	1420070400000000	1427388799737000	 
+sqlite: 12081|CP3F7|5|13 12082|CP2E4|14|4 
+fb: flatc --json ok=yes s=.893039 json_bytes=349918010

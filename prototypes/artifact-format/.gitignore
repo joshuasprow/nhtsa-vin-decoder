@@ -1,0 +1,4 @@
+work/
+cmd/embedded/artifact
+cmd/embedded/kind.txt
+bin/
