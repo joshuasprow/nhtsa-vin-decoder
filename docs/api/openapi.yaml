@@ -26,7 +26,7 @@ paths:
       operationId: decodeOne
       summary: Decode one VIN.
       description: |
-        Any VIN of 1-64 bytes after trimming decodes, partial (`*`) and
+        Any VIN of 1-17 characters after trimming decodes, partial (`*`) and
         mistyped ones included; what is wrong with it is in `error_codes`.
         A VIN with vPIC error codes is always 200.
       parameters:

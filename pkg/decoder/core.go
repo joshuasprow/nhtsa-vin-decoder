@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/joshuasprow/nitrovin-data/pkg/artifact"
+	"github.com/joshuasprow/nitrovin/pkg/contract"
 )
 
 // item is one row of spvindecode_core's DecodingItems (vpic."tblDecodingItem")
@@ -43,16 +44,6 @@ func text(s string) sqlText { return sqlText{s, true} }
 // unresolved is the value of an item whose AttributeId the wrapper resolves.
 var unresolved = text("XXX")
 
-// Dedup-exempt elements (spvindecode_core.sql:193): every item of these
-// survives C8.
-func dedupExempt(id int32) bool {
-	switch id {
-	case 114, 121, 129, 150, 154, 155, 169, 186:
-		return true
-	}
-	return false
-}
-
 // engine is the decode-time view of one artifact: the columns a pass reads,
 // and a pattern index and a charset per VinSchema, each built lazily. It is
 // safe for concurrent use.
@@ -79,6 +70,7 @@ type engine struct {
 		datatype artifact.Strings
 		weight   []int32
 	}
+	out                projection // W10-W11's view of the element table
 	makeModel          struct{ modelID, makeID []int32 }
 	wmiMake            struct{ wmiID, makeID []int32 }
 	engineModels       map[string][]int32 // lower(trim(name)) → ids
@@ -261,15 +253,22 @@ func newEngine(a *artifact.Artifact) *engine {
 	e.errorCodes.weight = t.Int32s("weight")
 
 	t = a.Table("lookup")
-	tables, lid, lname := t.Strings("table"), t.Int32s("id"), t.Strings("name")
+	tables := t.Strings("table")
 	for _, l := range []struct {
 		dst  *lookupTable
 		name string
 	}{{&e.makes, "make"}, {&e.manufacturers, "manufacturer"}, {&e.vehicleTypes, "vehicletype"}} {
-		lo, hi := tables.EqualRange(0, t.Rows(), l.name)
-		*l.dst = lookupTable{id: lid, name: lname, lo: lo, hi: hi}
+		*l.dst = newLookupTable(t, tables, l.name)
 	}
+	e.out = newProjection(a, t, tables)
 	return e
+}
+
+// newLookupTable is lookup relation name's rows in the lookup union t,
+// whose table column is tables.
+func newLookupTable(t *artifact.Table, tables artifact.Strings, name string) lookupTable {
+	lo, hi := tables.EqualRange(0, t.Rows(), name)
+	return lookupTable{id: t.Int32s("id"), name: t.Strings("name"), lo: lo, hi: hi}
 }
 
 var emptyPatternIndex = &patternIndex{}
@@ -586,6 +585,10 @@ func (e *engine) formulaItems(items []item, vk string, wlo, whi, modelYear int) 
 
 // formulaValue is SUBSTRING(var_keys, STRPOS(keys, '#'), last - first + 1)
 // with first and last the 1-based positions of the key's first and last '#'.
+// A '#' matches only a digit (formulaKeys), and no 2026_10 key has another
+// token between two '#', so the value is digits. A key that had one could
+// cut a sanitize '&' where Postgres holds the input's character, which
+// TestProjectionPostgres compares exactly.
 func formulaValue(vk, keys string) string {
 	first, last := strings.IndexByte(keys, '#'), strings.LastIndexByte(keys, '#')
 	if first < 0 || first >= len(vk) {
@@ -594,16 +597,17 @@ func formulaValue(vk, keys string) string {
 	return vk[first:min(last+1, len(vk))]
 }
 
-// dedup is C8 (:176-196): per element outside dedupExempt, only the item
-// ranked first by RANK() over (Priority DESC, CreatedOn DESC, length of keys
-// without '*' ASC, keys without '[' and ']' ASC, id ASC) survives. CreatedOn
-// DESC puts NULL first, Postgres's default for DESC; keys compare by bytes,
-// the C collation; a NULL key is the empty string.
+// dedup is C8 (:176-196): per element outside contract.MultiValued (the
+// procedure's dedup-exempt elements, :193), only the item ranked first by
+// RANK() over (Priority DESC, CreatedOn DESC, length of keys without '*'
+// ASC, keys without '[' and ']' ASC, id ASC) survives. CreatedOn DESC puts
+// NULL first, Postgres's default for DESC; keys compare by bytes, the C
+// collation; a NULL key is the empty string.
 func dedup(items []item) []item {
 	best := map[int32]int{}
 	for i := range items {
 		el := items[i].elementID
-		if dedupExempt(el) {
+		if contract.MultiValued(el) {
 			continue
 		}
 		if b, ok := best[el]; !ok || dedupCompare(&items[i], &items[b]) < 0 {
@@ -612,7 +616,7 @@ func dedup(items []item) []item {
 	}
 	out := items[:0]
 	for i, it := range items {
-		if dedupExempt(it.elementID) || best[it.elementID] == i {
+		if contract.MultiValued(it.elementID) || best[it.elementID] == i {
 			out = append(out, it)
 		}
 	}

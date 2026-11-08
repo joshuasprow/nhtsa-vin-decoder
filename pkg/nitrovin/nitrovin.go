@@ -11,7 +11,6 @@
 package nitrovin
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/joshuasprow/nitrovin-data/pkg/artifact"
 	"github.com/joshuasprow/nitrovin/pkg/contract"
+	"github.com/joshuasprow/nitrovin/pkg/decoder"
 )
 
 // modulePath is this module's path, as build info records it.
@@ -29,25 +29,8 @@ const modulePath = "github.com/joshuasprow/nitrovin"
 // concurrent use; two Decoders may hold two data months in one process.
 type Decoder struct {
 	info   contract.Info
-	engine engine
+	engine *decoder.Engine
 }
-
-// engine is the seam where the decoder plugs in: package decoder's
-// projection, "Build value resolution and projection into the output row
-// (W10-W11)" (joshuasprow/nitrovin#38). Project decodes one VIN as
-// spvindecode(vin, modelYear) would at instant now, and returns the winning
-// pass's projected items with the header fields only the engine computes.
-type engine interface {
-	Project(vin string, modelYear contract.Null[int32], now time.Time) (contract.Projection, error)
-}
-
-// errNoEngine is what Load returns until package decoder exports its
-// projection (#38).
-var errNoEngine = errors.New("nitrovin: the decoder's projection is not built yet (joshuasprow/nitrovin#38)")
-
-// newEngine builds the engine over artifact a; #38 replaces its body with
-// package decoder's constructor.
-func newEngine(*artifact.Artifact) (engine, error) { return nil, errNoEngine }
 
 // Open loads the artifact at path, as --data and NITROVIN_DATA do. Info's
 // DataSource is its absolute path.
@@ -75,11 +58,7 @@ func Load(data []byte, source string) (*Decoder, error) {
 	if err != nil {
 		return nil, err
 	}
-	eng, err := newEngine(a)
-	if err != nil {
-		return nil, err
-	}
-	return &Decoder{info: info, engine: eng}, nil
+	return &Decoder{info: info, engine: decoder.NewEngine(a)}, nil
 }
 
 // Info describes the decoder's build and data, GET /v1/info.

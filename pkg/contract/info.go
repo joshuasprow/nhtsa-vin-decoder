@@ -92,7 +92,7 @@ func PublicElements(a *artifact.Artifact) (Elements, error) {
 		if p, _ := private.At(i); p {
 			continue
 		}
-		e := Element{ElementID: id, MultiValued: multiValued(id)}
+		e := Element{ElementID: id, MultiValued: MultiValued(id)}
 		var ok [3]bool
 		e.Variable, ok[0] = name.At(i)
 		e.Code, ok[1] = code.At(i)
@@ -109,12 +109,12 @@ func PublicElements(a *artifact.Artifact) (Elements, error) {
 	return es, nil
 }
 
-// multiValued reports whether element id can resolve to several attributes
+// MultiValued reports whether element id can resolve to several attributes
 // for one VIN: the elements spvindecode_core exempts from its per-element
-// dedup (spvindecode_core.sql:193; pkg/decoder's dedupExempt is the same
-// set). It is the procedure's, not the data's; the data month decides which
+// dedup (spvindecode_core.sql:193), which package decoder's dedup reads from
+// here. It is the procedure's, not the data's; the data month decides which
 // of them are public (2026_10: all but 186).
-func multiValued(id int32) bool {
+func MultiValued(id int32) bool {
 	switch id {
 	case 114, 121, 129, 150, 154, 155, 169, 186:
 		return true

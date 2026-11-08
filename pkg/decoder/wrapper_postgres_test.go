@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/joshuasprow/nitrovin-data/pkg/artifact"
 )
 
 // TestWrapperPostgres checks decode against the restored dump it was built
@@ -28,13 +30,43 @@ func TestWrapperPostgres(t *testing.T) {
 	t.Cleanup(func() { psql("drop schema if exists wrapper_oracle cascade;\n") })
 	psql("drop schema if exists wrapper_oracle cascade; create schema wrapper_oracle;\n")
 	psql(wrapperFunction(t, psql) + wrapperCall)
+	corpus := loadCallInputs(t, psql, "wrapper_oracle")
 
+	t.Run("hints", func(t *testing.T) {
+		checkDecodes(t, newEngine(a), corpus, psql, "", hintCalls("wrapper_oracle"))
+	})
+	t.Run("qc", func(t *testing.T) {
+		checkDecodes(t, qcEngine(a), corpus, psql, qcSetup, "select i, 1 as call, raw, null::int as year from wrapper_oracle.input")
+	})
+}
+
+// qcSetup marks every third VinSchema QC'd in the oracle's transaction, as
+// qcEngine does in the engine: the dump has none.
+const qcSetup = "update vpic.vinschema set tobeqced = true where id % 3 = 0;\n"
+
+func qcEngine(a *artifact.Artifact) *engine {
+	e := newEngine(a)
+	qc := slices.Clone(e.vinSchema.toBeQCed)
+	for r, id := range e.vinSchema.id {
+		if id%3 == 0 {
+			qc[r] = 1
+		}
+	}
+	e.vinSchema.toBeQCed = qc
+	return e
+}
+
+// loadCallInputs reads the decode corpus (the core files, wrapper-vins.tsv
+// and ultravin-vins.tsv) into the table schema.input (i, raw, year), i
+// being the input's index in the result.
+func loadCallInputs(t *testing.T, psql func(string) string, schema string) []coreInput {
+	t.Helper()
 	var corpus []coreInput
 	for _, f := range append(coreCorpusFiles, "testdata/wrapper-vins.tsv", "testdata/ultravin-vins.tsv") {
 		corpus = append(corpus, loadCorpus(t, f)...)
 	}
 	var in strings.Builder
-	in.WriteString("create table wrapper_oracle.input (i int primary key, raw varchar, year int);\ncopy wrapper_oracle.input from stdin;\n")
+	fmt.Fprintf(&in, "create table %s.input (i int primary key, raw varchar, year int);\ncopy %[1]s.input from stdin;\n", schema)
 	for i, c := range corpus {
 		year := `\N`
 		if c.year != 0 {
@@ -44,38 +76,25 @@ func TestWrapperPostgres(t *testing.T) {
 	}
 	in.WriteString("\\.\n")
 	psql(in.String())
-
-	t.Run("hints", func(t *testing.T) {
-		checkDecodes(t, newEngine(a), corpus, psql, "", wrapperHints)
-	})
-	t.Run("qc", func(t *testing.T) {
-		e := newEngine(a)
-		qc := slices.Clone(e.vinSchema.toBeQCed)
-		for r, id := range e.vinSchema.id {
-			if id%3 == 0 {
-				qc[r] = 1
-			}
-		}
-		e.vinSchema.toBeQCed = qc
-		checkDecodes(t, e, corpus, psql, "update vpic.vinschema set tobeqced = true where id % 3 = 0;\n",
-			"select i, 1 as call, raw, null::int as year from wrapper_oracle.input")
-	})
+	return corpus
 }
 
-// wrapperHints is each input's calls: without a hint, and with the
-// corpus's year or else one derived from fVinModelYear2's y, cycling
-// through a year past it (pass 2), 30 years before it (omy when
+// hintCalls is each input of schema.input's calls: without a hint, and
+// with the corpus's year or else one derived from fVinModelYear2's y,
+// cycling through a year past it (pass 2), 30 years before it (omy when
 // inconclusive), 1979 and three past NOW()'s (out of range: passes 3 and 4
 // with code 12), and |y| itself (rmy, unless altMY replaced it).
-const wrapperHints = `select i, 1 as call, raw, null::int as year from wrapper_oracle.input
+func hintCalls(schema string) string {
+	return fmt.Sprintf(`select i, 1 as call, raw, null::int as year from %[1]s.input
 union all
-select i, 2, raw, coalesce(year, case i % 5
+select i, 2, raw, coalesce(year, case i %% 5
 		when 0 then coalesce(abs(y) + 1, 2015)
 		when 1 then coalesce(abs(y) - 30, 1990)
 		when 2 then 1979
 		when 3 then extract(year from now())::int + 3
 		else coalesce(abs(y), 2026) end)
-	from (select *, vpic.fvinmodelyear2(upper(trim(raw))) as y from wrapper_oracle.input) s`
+	from (select *, vpic.fvinmodelyear2(upper(trim(raw))) as y from %[1]s.input) s`, schema)
+}
 
 // wrapperFunction is vpic.spvindecode as wrapper_oracle.items: the dump's
 // definition up to the resolution (:204), then the winning pass as a row

@@ -16,14 +16,15 @@ import (
 // answerKey is the Postgres oracle's answer key for testdata/oracle/
 // sample-vins.tsv on 2026_10: every row spvindecode emitted for 28 VINs,
 // from the oracle smoke run on main (manifest.json beside it records the
-// dump, the VIN list's hash and the collation). It stands in for the engine
-// until the engine projects items itself.
+// dump, the VIN list's hash and the collation). TestAnswerKey runs the
+// contract layer on its rows, with no artifact; TestEngineAnswerKey runs it
+// on the engine's decodes of the same VINs.
 const answerKey = "testdata/oracle/answer-key.csv"
 
 type keyedVIN struct {
-	vin   string
-	hint  Null[int32]
-	items []Item
+	VIN   string
+	Hint  Null[int32]
+	Items []Item
 }
 
 // loadAnswerKey reads the answer key, one entry per input row in order.
@@ -49,10 +50,10 @@ func loadAnswerKey(t *testing.T) []keyedVIN {
 		}
 		row, _ := strconv.Atoi(r[0].s)
 		if row == len(vins)+1 {
-			vins = append(vins, keyedVIN{vin: r[1].s, hint: r[2].int(t)})
+			vins = append(vins, keyedVIN{VIN: r[1].s, Hint: r[2].int(t)})
 		}
 		v := &vins[row-1]
-		v.items = append(v.items, Item{
+		v.Items = append(v.Items, Item{
 			GroupName:   r[3].text(),
 			Variable:    r[4].s,
 			Value:       r[5].text(),
@@ -152,20 +153,20 @@ func parseCSV(data string) [][]csvField {
 // projectionOf stands in for the engine's header fields: the oracle's rows
 // do not carry them, and the contract only passes them through.
 func projectionOf(v keyedVIN) Projection {
-	vin := strings.ToUpper(strings.Trim(v.vin, " "))
+	vin := strings.ToUpper(strings.Trim(v.VIN, " "))
 	wmi := vin[:min(3, len(vin))]
 	if len(vin) >= 14 && vin[2] == '9' {
 		wmi += vin[11:14]
 	}
-	return Projection{VIN: vin, WMI: wmi, Items: slices.Clone(v.items)}
+	return Projection{VIN: vin, WMI: wmi, Items: slices.Clone(v.Items)}
 }
 
 var testNow = time.Date(2026, 11, 8, 12, 30, 45, 0, time.UTC)
 
-// TestAnswerKey decodes every VIN of the oracle's answer key in both layouts
-// with and without items, and checks every decode against the contract's
-// schema; then that the bytes do not depend on the items' order, which the
-// procedure does not keep stable.
+// TestAnswerKey decodes every VIN of the oracle's answer key, from the
+// oracle's own rows, in both layouts with and without items, and checks
+// every decode against the contract's schema; then that the bytes do not
+// depend on the items' order, which the procedure does not keep stable.
 func TestAnswerKey(t *testing.T) {
 	info := &Info{DecoderVersion: "(devel)", DataMonth: "2026_10", Elements: loadElements(t)}
 	vins := loadAnswerKey(t)
@@ -177,7 +178,7 @@ func TestAnswerKey(t *testing.T) {
 	for i, v := range vins {
 		for _, shape := range []Shape{ShapeVPIC, ShapeNitrovin} {
 			for _, full := range []bool{false, true} {
-				req := Request{VIN: v.vin, ModelYear: v.hint, Full: full, Shape: shape, Now: testNow}
+				req := Request{VIN: v.VIN, ModelYear: v.Hint, Full: full, Shape: shape, Now: testNow}
 				d, err := NewDecode(projectionOf(v), req, info)
 				if err != nil {
 					t.Fatalf("row %d %s %v: %v", i+1, shape, full, err)
@@ -187,10 +188,10 @@ func TestAnswerKey(t *testing.T) {
 					t.Fatal(err)
 				}
 				if err := validate(schema, b); err != nil {
-					t.Errorf("row %d (%s) shape %s full %v does not validate: %v", i+1, v.vin, shape, full, err)
+					t.Errorf("row %d (%s) shape %s full %v does not validate: %v", i+1, v.VIN, shape, full, err)
 				}
-				if full && len(d.Items) != len(v.items) {
-					t.Errorf("row %d: %d items, the oracle has %d", i+1, len(d.Items), len(v.items))
+				if full && len(d.Items) != len(v.Items) {
+					t.Errorf("row %d: %d items, the oracle has %d", i+1, len(d.Items), len(v.Items))
 				}
 
 				p := projectionOf(v)
@@ -214,7 +215,7 @@ func TestLayouts(t *testing.T) {
 	vins := loadAnswerKey(t)
 	decode := func(row int, shape Shape) Decode {
 		t.Helper()
-		d, err := NewDecode(projectionOf(vins[row-1]), Request{VIN: vins[row-1].vin, Shape: shape, Now: testNow}, info)
+		d, err := NewDecode(projectionOf(vins[row-1]), Request{VIN: vins[row-1].VIN, Shape: shape, Now: testNow}, info)
 		if err != nil {
 			t.Fatal(err)
 		}

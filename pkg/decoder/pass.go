@@ -96,10 +96,7 @@ func (e *engine) pass(v vinText, modelYear int, modelYearSource string, conclusi
 
 	// C14, C15. The wmi row is the first with the WMI, available or not.
 	exempt := e.checkDigitExempt(string(v.echo))
-	carMpvLT := false
-	if wlo < whi {
-		carMpvLT = isCarMpvLT(int(e.wmi.vehicleTypeID[wlo]), int(e.wmi.truckTypeID[wlo]))
-	}
+	carMpvLT := e.carMpvLT(wlo, whi)
 	startPos, checkDigitCarMpvLT := scanStart(vin, carMpvLT)
 	suggested := []rune(corrected)
 	var invalid strings.Builder
@@ -215,6 +212,13 @@ func (e *engine) pass(v vinText, modelYear int, modelYearSource string, conclusi
 		})
 	}
 	return items, rc, nil
+}
+
+// carMpvLT is isCarMpvLT of the first wmi row in [wlo, whi), available or
+// not, false when there is none: what the invalid-character scan and C17's
+// check digit read.
+func (e *engine) carMpvLT(wlo, whi int) bool {
+	return wlo < whi && isCarMpvLT(int(e.wmi.vehicleTypeID[wlo]), int(e.wmi.truckTypeID[wlo]))
 }
 
 // errorValue ports fErrorValue (ferrorvalue.sql), the wrapper's score of a
