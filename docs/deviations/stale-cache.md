@@ -39,12 +39,15 @@ The refresh decodes its corpus twice: on the stock dump, and on a copy with
 `TRUNCATE vpic.wmiyearvalidchars`. `spvindecode_errorcode` is the table's
 only reader, so emptying it only sends every charset read to the dump's own
 fallback. Every VIN whose two answers differ belongs to this class. The list
-goes in the refresh report and as a release asset. Implementation:
-[Freshened oracle](https://github.com/joshuasprow/nitrovin/issues/53).
+goes in the refresh report and as a release asset. `scripts/oracle.sh
+stale-cache` implements the diff, and `.github/workflows/oracle.yml` uploads
+the list as `stale-cache.jsonl`.
 
 On 2026_10 the freshened oracle reproduced ultravin's answer on 100 of 100
 VINs that ultravin excuses as this class, and changed nothing on 100 VINs it
-does not excuse.
+does not excuse. The detector flagged all of a random 100 of the 5,215 VINs
+ultravin's answer key marks `~` (this class) and none of a random 100 it
+leaves unmarked.
 
 ## What nitrovin does
 
@@ -58,7 +61,9 @@ Data month 2026_10. On 2026-11-08 live vPIC `DecodeVinValues` equalled the
 freshened oracle on every VIN, on the four fields below and on Make
 (element 26). Make is left out of the table because it differs only on
 `10T2CE2A?LPY1111S`, where stock gives none and freshened and live give
-OSHKOSH.
+OSHKOSH. `scripts/oracle.sh recheck`, run by every refresh, compares each
+witness with live vPIC on every element either oracle decodes: on the same
+day, all 253 such fields agreed.
 
 | VIN | answer | model year | error codes | suggested VIN | possible values |
 |---|---|---|---|---|---|

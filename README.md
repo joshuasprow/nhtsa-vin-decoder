@@ -24,17 +24,28 @@ on.
 
 `scripts/oracle.sh` restores a month of NHTSA's dump into Postgres 17 and
 runs its `spvindecode` over a VIN list, writing an answer key (CSV, every
-row the procedure emits per VIN, in a stable order). The database's
-collation is `C` (ctype `en_US.utf8`), ultravin's oracle contract: `restore`
-and `decode` refuse any other, and CI's `manifest.json` records it beside
-the key. CI runs it through the reusable workflow
-`.github/workflows/oracle.yml`; on a workstation with Docker:
+row the procedure emits per VIN, in a stable order). It decodes in two
+modes (ADR 0006): `stock`, the dump as restored, and `freshened`, a copy
+with `vpic.wmiyearvalidchars` emptied, which the refresh gates against.
+The VINs whose two keys differ are the
+[`stale-cache`](docs/deviations/stale-cache.md) class; `stale-cache` lists
+them, and `recheck` compares every deviation witness with live vPIC, for
+the report only. The database's collation is `C` (ctype `en_US.utf8`),
+ultravin's oracle contract: `restore` and `decode` refuse any other, and
+CI's `manifest.json` records it beside the keys. CI runs it through the
+reusable workflow `.github/workflows/oracle.yml`; on a workstation with
+Docker:
 
 ```sh
 scripts/oracle.sh up
 scripts/oracle.sh fetch "$(scripts/oracle.sh month)" /tmp/vpic   # prints backup=<path>
 scripts/oracle.sh restore /tmp/vpic/vPICList_lite_<YYYY_MM>.backup
-scripts/oracle.sh decode testdata/oracle/sample-vins.tsv answer-key.csv
+scripts/oracle.sh freshen
+scripts/oracle.sh corpus testdata/oracle/sample-vins.tsv >corpus.tsv   # adds the witnesses
+scripts/oracle.sh decode stock corpus.tsv stock.csv
+scripts/oracle.sh decode freshened corpus.tsv freshened.csv
+scripts/oracle.sh stale-cache stock.csv freshened.csv stale-cache.jsonl
+scripts/oracle.sh recheck stock.csv freshened.csv witnesses.jsonl
 scripts/oracle.sh down
 ```
 
