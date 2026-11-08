@@ -1,0 +1,1130 @@
+[
+  {
+    "element_id": 1,
+    "variable": "Other Battery Info",
+    "code": "BatteryInfo",
+    "group_name": "Mechanical/Battery",
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 2,
+    "variable": "Battery Type",
+    "code": "BatteryType",
+    "group_name": "Mechanical/Battery",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 3,
+    "variable": "Bed Type",
+    "code": "BedType",
+    "group_name": "Exterior/Truck",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 4,
+    "variable": "Cab Type",
+    "code": "BodyCabType",
+    "group_name": "Exterior/Truck",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 5,
+    "variable": "Body Class",
+    "code": "BodyClass",
+    "group_name": "Exterior/Body",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 9,
+    "variable": "Engine Number of Cylinders",
+    "code": "EngineCylinders",
+    "group_name": "Engine",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 10,
+    "variable": "Destination Market",
+    "code": "DestinationMarket",
+    "group_name": "General",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 11,
+    "variable": "Displacement (CC)",
+    "code": "DisplacementCC",
+    "group_name": "Engine",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 12,
+    "variable": "Displacement (CI)",
+    "code": "DisplacementCI",
+    "group_name": "Engine",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 13,
+    "variable": "Displacement (L)",
+    "code": "DisplacementL",
+    "group_name": "Engine",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 14,
+    "variable": "Doors",
+    "code": "Doors",
+    "group_name": "Exterior/Body",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 15,
+    "variable": "Drive Type",
+    "code": "DriveType",
+    "group_name": "Mechanical/Drivetrain",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 17,
+    "variable": "Engine Stroke Cycles",
+    "code": "EngineCycles",
+    "group_name": "Engine",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 18,
+    "variable": "Engine Model",
+    "code": "EngineModel",
+    "group_name": "Engine",
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 21,
+    "variable": "Engine Power (KW)",
+    "code": "EngineKW",
+    "group_name": "Engine",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 23,
+    "variable": "Entertainment System",
+    "code": "EntertainmentSystem",
+    "group_name": "Interior",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 24,
+    "variable": "Fuel Type - Primary",
+    "code": "FuelTypePrimary",
+    "group_name": "Engine",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 25,
+    "variable": "Gross Vehicle Weight Rating From",
+    "code": "GVWR",
+    "group_name": "Exterior/Dimension",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 26,
+    "variable": "Make",
+    "code": "Make",
+    "group_name": "General",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 27,
+    "variable": "Manufacturer Name",
+    "code": "Manufacturer",
+    "group_name": "General",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 28,
+    "variable": "Model",
+    "code": "Model",
+    "group_name": "General",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 29,
+    "variable": "Model Year",
+    "code": "ModelYear",
+    "group_name": "General",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 31,
+    "variable": "Plant City",
+    "code": "PlantCity",
+    "group_name": "General",
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 33,
+    "variable": "Number of Seats",
+    "code": "Seats",
+    "group_name": "Interior/Seat",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 34,
+    "variable": "Series",
+    "code": "Series",
+    "group_name": "General",
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 36,
+    "variable": "Steering Location",
+    "code": "SteeringLocation",
+    "group_name": "Interior",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 37,
+    "variable": "Transmission Style",
+    "code": "TransmissionStyle",
+    "group_name": "Mechanical/Transmission",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 38,
+    "variable": "Trim",
+    "code": "Trim",
+    "group_name": "General",
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 39,
+    "variable": "Vehicle Type",
+    "code": "VehicleType",
+    "group_name": "General",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 40,
+    "variable": "Windows",
+    "code": "Windows",
+    "group_name": "Exterior/Body",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 41,
+    "variable": "Axles",
+    "code": "Axles",
+    "group_name": "Mechanical/Drivetrain",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 42,
+    "variable": "Brake System Type",
+    "code": "BrakeSystemType",
+    "group_name": "Mechanical/Brake",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 48,
+    "variable": "Number of Battery Cells per Module",
+    "code": "BatteryCells",
+    "group_name": "Mechanical/Battery",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 49,
+    "variable": "Bed Length (inches)",
+    "code": "BedLengthIN",
+    "group_name": "Exterior/Dimension",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 52,
+    "variable": "Brake System Description",
+    "code": "BrakeSystemDesc",
+    "group_name": "Mechanical/Brake",
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 54,
+    "variable": "Curb Weight (pounds)",
+    "code": "CurbWeightLB",
+    "group_name": "Exterior/Dimension",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 55,
+    "variable": "Curtain Air Bag Locations",
+    "code": "AirBagLocCurtain",
+    "group_name": "Passive Safety System/Air Bag Location",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 56,
+    "variable": "Seat Cushion Air Bag Locations",
+    "code": "AirBagLocSeatCushion",
+    "group_name": "Passive Safety System/Air Bag Location",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 57,
+    "variable": "Battery Current (Amps) From",
+    "code": "BatteryA",
+    "group_name": "Mechanical/Battery",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 58,
+    "variable": "Battery Voltage (Volts) From",
+    "code": "BatteryV",
+    "group_name": "Mechanical/Battery",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 59,
+    "variable": "Battery Energy (KWh) From",
+    "code": "BatteryKWh",
+    "group_name": "Mechanical/Battery",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 60,
+    "variable": "Wheelbase Type",
+    "code": "WheelBaseType",
+    "group_name": "Exterior/Body",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 61,
+    "variable": "Number of Seat Rows",
+    "code": "SeatRows",
+    "group_name": "Interior/Seat",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 62,
+    "variable": "Valve Train Design",
+    "code": "ValveTrainDesign",
+    "group_name": "Engine",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 63,
+    "variable": "Transmission Speeds",
+    "code": "TransmissionSpeeds",
+    "group_name": "Mechanical/Transmission",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 64,
+    "variable": "Engine Configuration",
+    "code": "EngineConfiguration",
+    "group_name": "Engine",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 65,
+    "variable": "Front Air Bag Locations",
+    "code": "AirBagLocFront",
+    "group_name": "Passive Safety System/Air Bag Location",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 66,
+    "variable": "Fuel Type - Secondary",
+    "code": "FuelTypeSecondary",
+    "group_name": "Engine",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 67,
+    "variable": "Fuel Delivery/Fuel Injection Type",
+    "code": "FuelInjectionType",
+    "group_name": "Engine",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 69,
+    "variable": "Knee Air Bag Locations",
+    "code": "AirBagLocKnee",
+    "group_name": "Passive Safety System/Air Bag Location",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 71,
+    "variable": "Engine Brake (hp) From",
+    "code": "EngineHP",
+    "group_name": "Engine",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 72,
+    "variable": "EV Drive Unit",
+    "code": "EVDriveUnit",
+    "group_name": "Mechanical/Battery",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 75,
+    "variable": "Plant Country",
+    "code": "PlantCountry",
+    "group_name": "General",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 76,
+    "variable": "Plant Company Name",
+    "code": "PlantCompanyName",
+    "group_name": "General",
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 77,
+    "variable": "Plant State",
+    "code": "PlantState",
+    "group_name": "General",
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 78,
+    "variable": "Pretensioner",
+    "code": "Pretensioner",
+    "group_name": "Passive Safety System",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 79,
+    "variable": "Seat Belt Type",
+    "code": "SeatBeltsAll",
+    "group_name": "Passive Safety System",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 81,
+    "variable": "Adaptive Cruise Control (ACC)",
+    "code": "AdaptiveCruiseControl",
+    "group_name": "Active Safety System/Maintaining Safe Distance",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 86,
+    "variable": "Antilock Braking System (ABS)",
+    "code": "ABS",
+    "group_name": "Active Safety System",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 87,
+    "variable": "Crash Imminent Braking (CIB)",
+    "code": "CIB",
+    "group_name": "Active Safety System/Forward Collision Prevention",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 88,
+    "variable": "Blind Spot Warning (BSW)",
+    "code": "BlindSpotMon",
+    "group_name": "Active Safety System/Lane and Side Assist",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 99,
+    "variable": "Electronic Stability Control (ESC)",
+    "code": "ESC",
+    "group_name": "Active Safety System",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 100,
+    "variable": "Traction Control",
+    "code": "TractionControl",
+    "group_name": "Active Safety System",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 101,
+    "variable": "Forward Collision Warning (FCW)",
+    "code": "ForwardCollisionWarning",
+    "group_name": "Active Safety System/Forward Collision Prevention",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 102,
+    "variable": "Lane Departure Warning (LDW)",
+    "code": "LaneDepartureWarning",
+    "group_name": "Active Safety System/Lane and Side Assist",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 103,
+    "variable": "Lane Keeping Assistance (LKA)",
+    "code": "LaneKeepSystem",
+    "group_name": "Active Safety System/Lane and Side Assist",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 104,
+    "variable": "Backup Camera",
+    "code": "RearVisibilitySystem",
+    "group_name": "Active Safety System/Backing Up and Parking",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 105,
+    "variable": "Parking Assist",
+    "code": "ParkAssist",
+    "group_name": "Active Safety System/Backing Up and Parking",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 107,
+    "variable": "Side Air Bag Locations",
+    "code": "AirBagLocSide",
+    "group_name": "Passive Safety System/Air Bag Location",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 109,
+    "variable": "Trim2",
+    "code": "Trim2",
+    "group_name": "General",
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 110,
+    "variable": "Series2",
+    "code": "Series2",
+    "group_name": "General",
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 111,
+    "variable": "Wheelbase (inches) From",
+    "code": "WheelBaseShort",
+    "group_name": "Exterior/Dimension",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 112,
+    "variable": "Wheelbase (inches) To",
+    "code": "WheelBaseLong",
+    "group_name": "Exterior/Dimension",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 114,
+    "variable": "Note",
+    "code": "Note",
+    "group_name": "General",
+    "data_type": "string",
+    "multi_valued": true
+  },
+  {
+    "element_id": 115,
+    "variable": "Number of Wheels",
+    "code": "Wheels",
+    "group_name": "Exterior/Wheel Tire",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 116,
+    "variable": "Trailer Type Connection",
+    "code": "TrailerType",
+    "group_name": "Exterior/Trailer",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 117,
+    "variable": "Trailer Body Type",
+    "code": "TrailerBodyType",
+    "group_name": "Exterior/Trailer",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 118,
+    "variable": "Trailer Length (feet)",
+    "code": "TrailerLength",
+    "group_name": "Exterior/Trailer",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 119,
+    "variable": "Wheel Size Front (inches)",
+    "code": "WheelSizeFront",
+    "group_name": "Exterior/Wheel Tire",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 120,
+    "variable": "Wheel Size Rear (inches)",
+    "code": "WheelSizeRear",
+    "group_name": "Exterior/Wheel Tire",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 121,
+    "variable": "Other Restraint System Info",
+    "code": "OtherRestraintSystemInfo",
+    "group_name": "Passive Safety System",
+    "data_type": "string",
+    "multi_valued": true
+  },
+  {
+    "element_id": 122,
+    "variable": "Cooling Type",
+    "code": "CoolingType",
+    "group_name": "Engine",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 125,
+    "variable": "Engine Brake (hp) To",
+    "code": "EngineHP_to",
+    "group_name": "Engine",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 126,
+    "variable": "Electrification Level",
+    "code": "ElectrificationLevel",
+    "group_name": "Engine",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 127,
+    "variable": "Charger Level",
+    "code": "ChargerLevel",
+    "group_name": "Mechanical/Battery/Charger",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 128,
+    "variable": "Charger Power (KW)",
+    "code": "ChargerPowerKW",
+    "group_name": "Mechanical/Battery/Charger",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 129,
+    "variable": "Other Engine Info",
+    "code": "OtherEngineInfo",
+    "group_name": "Engine",
+    "data_type": "string",
+    "multi_valued": true
+  },
+  {
+    "element_id": 132,
+    "variable": "Battery Current (Amps) To",
+    "code": "BatteryA_to",
+    "group_name": "Mechanical/Battery",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 133,
+    "variable": "Battery Voltage (Volts) To",
+    "code": "BatteryV_to",
+    "group_name": "Mechanical/Battery",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 134,
+    "variable": "Battery Energy (KWh) To",
+    "code": "BatteryKWh_to",
+    "group_name": "Mechanical/Battery",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 135,
+    "variable": "Turbo",
+    "code": "Turbo",
+    "group_name": "Engine",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 136,
+    "variable": "Base Price ($)",
+    "code": "BasePrice",
+    "group_name": "General",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 137,
+    "variable": "Number of Battery Modules per Pack",
+    "code": "BatteryModules",
+    "group_name": "Mechanical/Battery",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 138,
+    "variable": "Number of Battery Packs per Vehicle",
+    "code": "BatteryPacks",
+    "group_name": "Mechanical/Battery",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 139,
+    "variable": "Top Speed (MPH)",
+    "code": "TopSpeedMPH",
+    "group_name": "Engine",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 142,
+    "variable": "Suggested VIN",
+    "code": "SuggestedVIN",
+    "group_name": null,
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 143,
+    "variable": "Error Code",
+    "code": "ErrorCode",
+    "group_name": null,
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 144,
+    "variable": "Possible Values",
+    "code": "PossibleValues",
+    "group_name": null,
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 145,
+    "variable": "Axle Configuration",
+    "code": "AxleConfiguration",
+    "group_name": "Mechanical/Drivetrain",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 146,
+    "variable": "Engine Manufacturer",
+    "code": "EngineManufacturer",
+    "group_name": "Engine",
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 147,
+    "variable": "Bus Length (feet)",
+    "code": "BusLength",
+    "group_name": "Exterior/Bus",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 148,
+    "variable": "Bus Floor Configuration Type",
+    "code": "BusFloorConfigType",
+    "group_name": "Exterior/Bus",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 149,
+    "variable": "Bus Type",
+    "code": "BusType",
+    "group_name": "Exterior/Bus",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 150,
+    "variable": "Other Bus Info",
+    "code": "OtherBusInfo",
+    "group_name": "Exterior/Bus",
+    "data_type": "string",
+    "multi_valued": true
+  },
+  {
+    "element_id": 151,
+    "variable": "Custom Motorcycle Type",
+    "code": "CustomMotorcycleType",
+    "group_name": "Exterior/Motorcycle",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 152,
+    "variable": "Motorcycle Suspension Type",
+    "code": "MotorcycleSuspensionType",
+    "group_name": "Exterior/Motorcycle",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 153,
+    "variable": "Motorcycle Chassis Type",
+    "code": "MotorcycleChassisType",
+    "group_name": "Exterior/Motorcycle",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 154,
+    "variable": "Other Motorcycle Info",
+    "code": "OtherMotorcycleInfo",
+    "group_name": "Exterior/Motorcycle",
+    "data_type": "string",
+    "multi_valued": true
+  },
+  {
+    "element_id": 155,
+    "variable": "Other Trailer Info",
+    "code": "OtherTrailerInfo",
+    "group_name": "Exterior/Trailer",
+    "data_type": "string",
+    "multi_valued": true
+  },
+  {
+    "element_id": 156,
+    "variable": "Additional Error Text",
+    "code": "AdditionalErrorText",
+    "group_name": null,
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 159,
+    "variable": "Track Width (inches)",
+    "code": "TrackWidth",
+    "group_name": "Exterior/Body",
+    "data_type": "decimal",
+    "multi_valued": false
+  },
+  {
+    "element_id": 168,
+    "variable": "Tire Pressure Monitoring System (TPMS) Type",
+    "code": "TPMS",
+    "group_name": "Active Safety System",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 169,
+    "variable": "Active Safety System Note",
+    "code": "ActiveSafetySysNote",
+    "group_name": "Active Safety System",
+    "data_type": "string",
+    "multi_valued": true
+  },
+  {
+    "element_id": 170,
+    "variable": "Dynamic Brake Support (DBS)",
+    "code": "DynamicBrakeSupport",
+    "group_name": "Active Safety System/Forward Collision Prevention",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 171,
+    "variable": "Pedestrian Automatic Emergency Braking (PAEB)",
+    "code": "PedestrianAutomaticEmergencyBraking",
+    "group_name": "Active Safety System/Forward Collision Prevention",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 172,
+    "variable": "Auto-Reverse System for Windows and Sunroofs",
+    "code": "AutoReverseSystem",
+    "group_name": "Active Safety System",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 173,
+    "variable": "Automatic Pedestrian Alerting Sound (for Hybrid and EV only)",
+    "code": "AutomaticPedestrianAlertingSound",
+    "group_name": "Active Safety System",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 174,
+    "variable": "Automatic Crash Notification (ACN)/Advanced Automatic Crash Notification (AACN)",
+    "code": "CAN_AACN",
+    "group_name": "Active Safety System/911 Notification",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 175,
+    "variable": "Event Data Recorder (EDR)",
+    "code": "EDR",
+    "group_name": "Active Safety System",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 176,
+    "variable": "Keyless Ignition",
+    "code": "KeylessIgnition",
+    "group_name": "Active Safety System",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 177,
+    "variable": "Daytime Running Light (DRL)",
+    "code": "DaytimeRunningLight",
+    "group_name": "Active Safety System/Lighting Technologies",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 178,
+    "variable": "Headlamp Light Source",
+    "code": "LowerBeamHeadlampLightSource",
+    "group_name": "Active Safety System/Lighting Technologies",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 179,
+    "variable": "Semiautomatic Headlamp Beam Switching",
+    "code": "SemiautomaticHeadlampBeamSwitching",
+    "group_name": "Active Safety System/Lighting Technologies",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 180,
+    "variable": "Adaptive Driving Beam (ADB)",
+    "code": "AdaptiveDrivingBeam",
+    "group_name": "Active Safety System/Lighting Technologies",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 181,
+    "variable": "SAE Automation Level From",
+    "code": "SAEAutomationLevel",
+    "group_name": "Active Safety System",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 182,
+    "variable": "SAE Automation Level To",
+    "code": "SAEAutomationLevel_to",
+    "group_name": "Active Safety System",
+    "data_type": "int",
+    "multi_valued": false
+  },
+  {
+    "element_id": 183,
+    "variable": "Rear Cross Traffic Alert",
+    "code": "RearCrossTrafficAlert",
+    "group_name": "Active Safety System/Backing Up and Parking",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 184,
+    "variable": "Gross Combination Weight Rating From",
+    "code": "GCWR",
+    "group_name": "Exterior/Dimension",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 185,
+    "variable": "Gross Combination Weight Rating To",
+    "code": "GCWR_to",
+    "group_name": "Exterior/Dimension",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 190,
+    "variable": "Gross Vehicle Weight Rating To",
+    "code": "GVWR_to",
+    "group_name": "Exterior/Dimension",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 191,
+    "variable": "Error Text",
+    "code": "ErrorText",
+    "group_name": null,
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 192,
+    "variable": "Rear Automatic Emergency Braking",
+    "code": "RearAutomaticEmergencyBraking",
+    "group_name": "Active Safety System/Backing Up and Parking",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 193,
+    "variable": "Blind Spot Intervention (BSI)",
+    "code": "BlindSpotIntervention",
+    "group_name": "Active Safety System/Lane and Side Assist",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 194,
+    "variable": "Lane Centering Assistance",
+    "code": "LaneCenteringAssistance",
+    "group_name": "Active Safety System/Lane and Side Assist",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 195,
+    "variable": "Non-Land Use",
+    "code": "NonLandUse",
+    "group_name": "General",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 196,
+    "variable": "Vehicle Descriptor",
+    "code": "VehicleDescriptor",
+    "group_name": null,
+    "data_type": "string",
+    "multi_valued": false
+  },
+  {
+    "element_id": 200,
+    "variable": "Fuel-Tank Type",
+    "code": "FuelTankType",
+    "group_name": "Exterior/Motorcycle",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 201,
+    "variable": "Fuel-Tank Material",
+    "code": "FuelTankMaterial",
+    "group_name": "Exterior/Motorcycle",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 202,
+    "variable": "Combined Braking System (CBS)",
+    "code": "CombinedBrakingSystem",
+    "group_name": "Exterior/Motorcycle",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 203,
+    "variable": "Wheelie Mitigation",
+    "code": "WheelieMitigation",
+    "group_name": "Exterior/Motorcycle",
+    "data_type": "lookup",
+    "multi_valued": false
+  },
+  {
+    "element_id": 204,
+    "variable": "Plant Address",
+    "code": "PlantAddress",
+    "group_name": "General",
+    "data_type": "string",
+    "multi_valued": false
+  }
+]
