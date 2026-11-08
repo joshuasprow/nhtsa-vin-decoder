@@ -1,0 +1,74 @@
+# The importer against a real dump: restore one month into Postgres 17, then
+# run cmd/nitrovin-import's tests with NITROVIN_PSQL set, so TestPostgres
+# builds the artifact twice and checks it against the database (row counts,
+# NULL and empty-string counts, sampled rows, one hash).
+name: Importer
+
+on:
+  pull_request:
+    paths:
+      - cmd/nitrovin-import/**
+      - go.mod
+      - go.sum
+      - scripts/oracle.sh
+      - .github/workflows/import.yml
+  workflow_dispatch:
+    inputs:
+      month:
+        description: Data month YYYY_MM; empty means the newest one NHTSA publishes
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  import:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        # The custom dump is archive format 1.16: pg_restore 17 or newer.
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vpic
+        options: >-
+          --shm-size 1g
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      ORACLE_CONTAINER: ${{ job.services.postgres.id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Resolve data month
+        id: month
+        env:
+          MONTH: ${{ inputs.month }}
+        run: echo "month=${MONTH:-$(scripts/oracle.sh month)}" >>"$GITHUB_OUTPUT"
+
+      - name: Fetch dump
+        id: fetch
+        run: scripts/oracle.sh fetch "${{ steps.month.outputs.month }}" "$RUNNER_TEMP/dump" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Restore dump
+        run: scripts/oracle.sh restore "${{ steps.fetch.outputs.backup }}"
+
+      - name: Test the importer against the dump
+        env:
+          NITROVIN_PSQL: docker exec -i ${{ job.services.postgres.id }} psql -X -q -U postgres -d vpic
+          NITROVIN_MONTH: ${{ steps.fetch.outputs.month }}
+        # A skipped TestPostgres would pass silently: require that it ran.
+        run: |
+          go test -count=1 -v ./cmd/nitrovin-import/ | tee "$RUNNER_TEMP/test.log"
+          grep -q -- '--- PASS: TestPostgres' "$RUNNER_TEMP/test.log"

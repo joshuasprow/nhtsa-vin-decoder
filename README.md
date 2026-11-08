@@ -37,3 +37,25 @@ scripts/oracle.sh restore /tmp/vpic/vPICList_lite_<YYYY_MM>.backup
 scripts/oracle.sh decode testdata/oracle/sample-vins.tsv answer-key.csv
 scripts/oracle.sh down
 ```
+
+## The importer
+
+`cmd/nitrovin-import` turns a restored dump into the artifact the decoder
+reads (format: `github.com/joshuasprow/nitrovin-data/pkg/artifact`, ADR
+0003). It prints a psql script that extracts every table as one COPY stream,
+then builds the artifact and a manifest (format, data month, size, blake3,
+rows per table) from that stream. The same dump always gives the same bytes.
+
+```sh
+go run ./cmd/nitrovin-import sql |
+  docker exec -i nhtsa-oracle psql -X -q -U postgres -d vpic |
+  go run ./cmd/nitrovin-import build -month 2026_10   # nitrovin.artifact, nitrovin.json
+go run ./cmd/nitrovin-import inspect nitrovin.artifact            # header and tables
+go run ./cmd/nitrovin-import inspect nitrovin.artifact wmi wmi=5YJ
+```
+
+`NITROVIN_PSQL='docker exec -i nhtsa-oracle psql -X -q -U postgres -d vpic'
+go test ./cmd/nitrovin-import/` also checks a build against the database:
+row counts, NULL and empty-string counts, sampled rows, and one hash from two
+extracts. `.github/workflows/import.yml` runs that on PRs touching the
+importer.
