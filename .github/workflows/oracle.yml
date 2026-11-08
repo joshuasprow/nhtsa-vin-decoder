@@ -161,9 +161,9 @@ jobs:
             --argjson keys "$(jq -n --argjson stock "$(key stock vpic)" --argjson freshened "$(key freshened vpic_fresh)" '$ARGS.named')" \
             --argjson stale_cache "$(jq -n --argjson vins "$(wc -l <"$ORACLE_OUT/stale-cache.jsonl")" \
                 --arg jsonl_sha256 "$(sha "$ORACLE_OUT/stale-cache.jsonl")" '$ARGS.named')" \
-            --argjson witnesses "$(jq -s '{checked: length, agree: map(select(.agrees == true)) | length,
-                disagree: map(select(.agrees == false)) | length, unchecked: map(select(.error)) | length,
-                fields: map(.fields // 0) | add // 0}' "$ORACLE_OUT/witnesses.jsonl")" \
+            --argjson witnesses "$(jq -s '{checked: length, agree: (map(select(.agrees == true)) | length),
+                disagree: (map(select(.agrees == false)) | length), unchecked: (map(select(.error)) | length),
+                fields: (map(.fields // 0) | add // 0)}' "$ORACLE_OUT/witnesses.jsonl")" \
             --arg server "$(q vpic 'show server_version')" \
             --arg collate "$(q vpic "select datcollate from pg_database where datname = 'vpic'")" \
             --arg ctype "$(q vpic "select datctype from pg_database where datname = 'vpic'")" \
