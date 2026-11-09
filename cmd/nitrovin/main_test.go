@@ -26,8 +26,8 @@ import (
 // The cases that decode need NITROVIN_ARTIFACT, the 2026_10 artifact; the
 // usage, refusal, unloadable-data and embedded-data cases need nothing.
 //
-//	NITROVIN_ARTIFACT=nitrovin.artifact go test ./cmd/nitrovin
-//	NITROVIN_ARTIFACT=nitrovin.artifact go test ./cmd/nitrovin -run TestText -update
+//	NITROVIN_ARTIFACT=$PWD/nitrovin.artifact go test ./cmd/nitrovin
+//	NITROVIN_ARTIFACT=$PWD/nitrovin.artifact go test ./cmd/nitrovin -run TestText -update
 
 var update = flag.Bool("update", false, "rewrite testdata/*.txt from the binary's output")
 

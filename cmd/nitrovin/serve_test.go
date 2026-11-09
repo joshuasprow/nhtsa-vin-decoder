@@ -35,7 +35,7 @@ import (
 // in-process API. Without NITROVIN_ARTIFACT, TestServeRefusals runs the
 // cases that need no data in-process.
 //
-//	NITROVIN_ARTIFACT=nitrovin.artifact go test ./cmd/nitrovin -run TestServe
+//	NITROVIN_ARTIFACT=$PWD/nitrovin.artifact go test ./cmd/nitrovin -run TestServe
 
 var updateOpenAPI = flag.Bool("update-openapi", false, "rewrite openapi.json from docs/api/openapi.yaml and decode.schema.json")
 

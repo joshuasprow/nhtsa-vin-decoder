@@ -88,8 +88,8 @@ _Avoid_: database, tables, snapshot
 
 **Oracle**:
 An implementation whose answers define correct: NHTSA's `spVinDecode` in
-Postgres, run as the freshened oracle (the ground truth, run on refresh), and
-ultravin (the fast differential oracle, run on every PR).
+Postgres, run as the freshened oracle, on every PR and every refresh.
+ultravin is the reference implementation, not an oracle.
 _Avoid_: reference, golden (and never call live vPIC an oracle)
 
 **Freshened oracle**:

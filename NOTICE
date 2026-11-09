@@ -5,14 +5,15 @@ Information Catalog), published by the U.S. National Highway Traffic Safety
 Administration at https://vpic.nhtsa.dot.gov/ as a work of the United States
 Government. The decoding procedure this project ports, `spVinDecode`, is part
 of that publication. Each release records the vPIC data month it was built
-from.
+from. NHTSA's terms of use (https://www.nhtsa.gov/about-nhtsa/terms-use) say
+the information "may be distributed or copied"; NHTSA does not endorse this
+project.
 
 Reference implementation: the port's structure, its parity method and its
 registry of documented upstream defects follow ultravin
-(https://github.com/blackthorn-interstellar/ultravin, MIT, Bryce Drennan),
-which is also the differential oracle this project tests against. No ultravin
-source is copied; where a design or an evidenced deviation is adopted, the
-file that adopts it says so.
+(https://github.com/blackthorn-interstellar/ultravin, MIT, Bryce Drennan).
+No ultravin source is copied; where a design or an evidenced deviation is
+adopted, the file that adopts it says so.
 
 Corpus: the committed parity corpus includes the VINs of ultravin's
 `tests/parity_corpus.json` and its cover set (MIT). Only the VINs are taken;

@@ -1,225 +1,424 @@
 # nitrovin
 
-An offline VIN decoder that answers like NHTSA's vPIC, as one binary.
+An offline VIN decoder that answers like NHTSA's
+[vPIC](https://vpic.nhtsa.dot.gov/). It is a Go port of `spVinDecode`, the
+decoding procedure NHTSA publishes inside its monthly vPIC database, and it
+ships as one binary with a month of vPIC data inside. No network, no
+database, no API key.
 
-Status: **v0.x prereleases** (ADR 0007: v0 means the release pipeline is not
-yet proven, not that the API may change). The plan is the
-[wayfinder map](https://github.com/joshuasprow/nitrovin/issues?q=label%3Awayfinder%3Amap)
-in this repo's issues; decisions already made are indexed there.
+Every data month is checked against NHTSA's own procedure running in
+Postgres before it ships: every row of every VIN in an 18,318-VIN corpus
+must match, byte for byte, or the month does not ship
+([what parity means](docs/parity.md)).
 
-What it will be, as decided so far:
+```console
+$ nitrovin decode -o text 1HGCM82633A004352 | grep -E '^(VIN|Make|Manufacturer Name|Model|Model Year|Body Class|Plant City|Error Code) '
+VIN                               1HGCM82633A004352
+Body Class                        Coupe
+Make                              HONDA
+Manufacturer Name                 AMERICAN HONDA MOTOR CO., INC.
+Model                             Accord
+Model Year                        2003
+Plant City                        MARYSVILLE
+Error Code                        0
+```
 
-- A Go port of NHTSA's `spVinDecode` procedure, proven against two oracles:
-  [ultravin](https://github.com/blackthorn-interstellar/ultravin) on every PR
-  and NHTSA's own procedure in Postgres on every monthly data refresh.
-- The vPIC data embedded in the binary (`--data <file>` to load another
-  month), rebuilt from NHTSA's monthly dump by an unattended pipeline.
-- Surfaces: CLI, HTTP, stdio JSON lines, MCP over stdio, a Go module, and a
-  C-shared library.
-- Released per OS/arch on GitHub Releases, Homebrew, Docker, winget/scoop.
+Those are 7 of the 43 elements this VIN decodes to (`--shape nitrovin`
+lists them).
 
-MIT licensed. See `NOTICE` for data provenance and the projects this builds
-on.
+The same decode is reachable six ways: a CLI, an HTTP server, JSON lines
+over stdio, an MCP server for AI assistants, a Go module and a C library.
+
+**Status: v0.x prereleases.** v0 means the release pipeline is not yet
+signed off, not that the API may change: the contract is frozen at `/v1`.
+v1.0.0 waits on the gates in
+[ADR 0007](docs/adr/0007-release-and-versioning.md#before-v100).
+nitrovin is not affiliated with or endorsed by NHTSA.
+
+- [Install](#install)
+- [Use it](#use-it): [CLI](#cli), [HTTP](#http), [stdio](#stdio-json-lines), [MCP](#mcp), [Go](#go-module), [C](#c-library)
+- [Verify a release](#verify-a-release)
+- [The data](#the-data)
+- [Parity](#parity)
+- [Known limits](#known-limits)
+- [Performance](#performance)
+- [Contributing](#contributing)
+- [Credits and licence](#credits-and-licence)
 
 ## Install
 
-Every release carries the vPIC data month it embeds (`nitrovin --version`).
+Every release embeds one vPIC data month; `nitrovin --version` names it.
 
-```sh
-brew install joshuasprow/tap/nitrovin                    # macOS, Linux
-scoop bucket add joshuasprow https://github.com/joshuasprow/scoop-bucket
-scoop install nitrovin                                    # Windows
-go install github.com/joshuasprow/nitrovin/cmd/nitrovin@latest
-docker run --rm -p 8080:8080 ghcr.io/joshuasprow/nitrovin # serve on :8080
+| Channel | Command | Platforms |
+| --- | --- | --- |
+| Homebrew | `brew install joshuasprow/tap/nitrovin` | macOS, Linux |
+| Scoop | `scoop bucket add joshuasprow https://github.com/joshuasprow/scoop-bucket` then `scoop install nitrovin` | Windows amd64, arm64 |
+| winget | `JoshuaSprow.Nitrovin`, not yet submitted ([#78](https://github.com/joshuasprow/nitrovin/issues/78)) | Windows |
+| Docker | `docker run --rm -p 8080:8080 ghcr.io/joshuasprow/nitrovin` | linux/amd64, linux/arm64 |
+| Go 1.27+ | `go install github.com/joshuasprow/nitrovin/cmd/nitrovin@latest` | anywhere Go builds |
+| Archives | [GitHub Releases](https://github.com/joshuasprow/nitrovin/releases): `nitrovin_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) | linux, darwin, windows × amd64, arm64 |
+| C library | the same releases: `libnitrovin_<version>_<os>_<arch>` | linux, darwin, windows × amd64, arm64 |
+
+```console
+$ nitrovin --version
+nitrovin v0.1.2 (data 2026_10)
 ```
 
-[GitHub Releases](https://github.com/joshuasprow/nitrovin/releases) has the
-binaries and the C library (`libnitrovin` and `nitrovin.h`, no data:
-`nitrovin_open` loads an artifact) for linux, darwin and windows on amd64 and
-arm64, with `checksums.txt` and a cosign keyless bundle per asset; the release
-notes show how to verify them. winget (`JoshuaSprow.Nitrovin`) follows.
-`.goreleaser.yaml` builds all of it from a `v*` tag
-(`.github/workflows/release.yml`).
+The binary is about 70 MB, most of it the data; an archive is about 21 MB.
+The Docker image runs `nitrovin serve --addr :8080` by default, as a
+non-root user, and takes any other command in its place
+(`docker run --rm ghcr.io/joshuasprow/nitrovin decode 1HGCM82633A004352`).
+Its tags are `vX.Y.Z`, `vX.Y`, `vX`, `latest` and `data-<YYYY_MM>`.
 
-## The Postgres oracle
-
-`scripts/oracle.sh` restores a month of NHTSA's dump into Postgres 17 and
-runs its `spvindecode` over a VIN list, writing an answer key (CSV, every
-row the procedure emits per VIN, in a stable order). It decodes in two
-modes (ADR 0006): `stock`, the dump as restored, and `freshened`, a copy
-with `vpic.wmiyearvalidchars` emptied, which the refresh gates against.
-The VINs whose two keys differ are the
-[`stale-cache`](docs/deviations/stale-cache.md) class; `stale-cache` lists
-them, and `recheck` compares every deviation witness with live vPIC, for
-the report only. The database's collation is `C` (ctype `en_US.utf8`),
-ultravin's oracle contract: `restore` and `decode` refuse any other, and
-CI's `manifest.json` records it beside the keys. CI runs it through the
-reusable workflow `.github/workflows/oracle.yml`; on a workstation with
-Docker:
+The binaries are not notarized by Apple. Homebrew removes the quarantine
+flag for you. A macOS binary downloaded with a browser is killed on launch
+until you remove it:
 
 ```sh
-scripts/oracle.sh up
-scripts/oracle.sh fetch "$(scripts/oracle.sh month)" /tmp/vpic   # prints backup=<path>
-scripts/oracle.sh restore /tmp/vpic/vPICList_lite_<YYYY_MM>.backup
-scripts/oracle.sh freshen
-scripts/oracle.sh corpus testdata/oracle/sample-vins.tsv >corpus.tsv   # adds the witnesses
-scripts/oracle.sh decode stock corpus.tsv stock.csv
-scripts/oracle.sh decode freshened corpus.tsv freshened.csv
-scripts/oracle.sh stale-cache stock.csv freshened.csv stale-cache.jsonl
-scripts/oracle.sh recheck stock.csv freshened.csv witnesses.jsonl
-scripts/oracle.sh down
+xattr -d com.apple.quarantine nitrovin
 ```
 
-## The importer
+## Use it
 
-`cmd/nitrovin-import` turns a restored dump into the artifact the decoder
-reads (format: `github.com/joshuasprow/nitrovin-data/pkg/artifact`, ADR
-0003). It prints a psql script that extracts every table as one COPY stream,
-then builds the artifact and a manifest (format, data month, size, blake3,
-rows per table) from that stream. The same dump always gives the same bytes.
+Every surface takes the same request and returns the same decode
+([the API contract](docs/api/README.md)):
+
+| Request field | Default | Meaning |
+| --- | --- | --- |
+| `vin` | required | 1–17 characters; partial (`*`) and mistyped VINs decode too |
+| `model_year` | none | a model year you already know, a hint |
+| `shape` | `vpic` | `vpic`: vPIC's `DecodeVinValues` keys (`Make`, `BodyClass`); `nitrovin`: keyed by variable name, with element and attribute ids |
+| `full` | `false` | add `items`, every row NHTSA's procedure emits, with its source and pattern |
+| `now` | the clock | the instant the decode is as of; fix it for reproducible output |
+
+A VIN is never an error: what is wrong with it is in `error_codes` (vPIC's
+codes, `[0]` is clean), with `corrected_vin` and the possible values when
+the procedure suggests them. Every decode carries its `data_month` and
+`decoder_version`.
+
+### CLI
 
 ```sh
-go run ./cmd/nitrovin-import sql |
-  docker exec -i nhtsa-oracle psql -X -q -U postgres -d vpic |
-  go run ./cmd/nitrovin-import build -month 2026_10   # nitrovin.artifact, nitrovin.json
-go run ./cmd/nitrovin-import inspect nitrovin.artifact            # header and tables
-go run ./cmd/nitrovin-import inspect nitrovin.artifact wmi wmi=5YJ
+nitrovin decode 1HGCM82633A004352                           # JSON, pretty on a terminal
+nitrovin decode -o text --model-year 2003 1HGCM82633A004352  # two columns
+nitrovin decode --shape nitrovin --full 1HGCM82633A004352    # by variable name, with items
+printf '1HGCM82633A004352,2003\n5YJ3E1EA2JF000316\n' | nitrovin decode -   # one JSON line per VIN
+nitrovin info                                                # version, data month, artifact hash, elements
 ```
 
-`NITROVIN_PSQL='docker exec -i nhtsa-oracle psql -X -q -U postgres -d vpic'
-go test ./cmd/nitrovin-import/` also checks a build against the database:
-row counts, NULL and empty-string counts, sampled rows, and one hash from two
-extracts. `.github/workflows/import.yml` runs that on PRs touching the
-importer.
+`decode -` reads one VIN per line, optionally followed by a comma or a tab
+and its model year. Exit status is 0 when every VIN was decoded, whatever
+its error codes; 1 when nitrovin could not answer (data that will not load,
+a refused input line); 2 for a mistake on the command line, such as an
+argument VIN over 17 characters. Problems go to stderr as one JSON line.
+[CLI contract](docs/api/README.md#cli-nitrovin-decode).
 
-`nitrovin-import vins` writes the refresh's VIN list (ADR 0008) from an
-artifact and the committed corpus. The first file opens with the corpus as
-given, byte for byte, which is the prefix `TestParity`'s `-update-parity`
-freezes. Next comes one one-character mutation of each 17-character corpus
-VIN, chosen among 24 draws so the mutations spread over the error codes. Then
-come VINs synthesized from the month's pattern keys until every WMI and
-VinSchema the month links appears in some decode's items. A few of those carry
-a model-year hint, where only a hint gets the decode to an old schema's year.
-Each candidate is decoded by the engine before it is kept: a VIN goes in only
-if it reaches something nothing else reached, and never if the procedure would
-raise on it. The list is split into files of at most 5,000 VINs, one
-`oracle.yml` job each. A month needs more than one file, because each VIN
-reaches a single WMI: 2026_10 has 13,014 WMIs and needs 18,318 VINs, so it gets
-four files. The coverage summary goes to stderr, and `-report` writes the full
-report, including what the corpus alone misses.
+### HTTP
 
 ```sh
-scripts/oracle.sh corpus testdata/parity/2026_10/corpus.tsv >corpus.tsv   # adds any new witness
-go run ./cmd/nitrovin-import vins -o run -report coverage.json nitrovin.artifact corpus.tsv   # prints run-1.tsv …
+nitrovin serve        # 127.0.0.1:8080; --addr, or $PORT, to change
 ```
-
-## The engine
-
-`pkg/decoder` ports `spvindecode` stage by stage, each tested against
-Postgres running the dump's own SQL; `decoder.NewEngine(artifact).Project`
-is the whole procedure. Most answer keys are committed under
-`pkg/decoder/testdata` (regenerate with `go test ./pkg/decoder -run <Test>
--update-oracle` against a restored dump). The pattern matcher is also checked
-on every distinct `pattern.keys` of a month and every VinSchema's index; the
-core pass (stage 5) on a VIN corpus against `vpic.spvindecode_core` called
-directly; the decode up to value resolution (stage 7: the year plan, passes,
-scoring and the QC filter) against `vpic.spvindecode` cut just before it
-resolves values; and the rows `Project` returns (stage 8: value resolution and
-the projection) against the whole `vpic.spvindecode`, field for field. Those
-two run with and without model-year hints, on the core's corpus and
-ultravin's parity corpus and cover set, against the freshened database and an
-artifact built from it:
 
 ```sh
-NITROVIN_PSQL='docker exec -i nhtsa-oracle psql -X -q -U postgres -d vpic' \
-NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/decoder -run 'TestMatcherPostgres|TestCorePostgres|TestWrapperPostgres|TestProjectionPostgres'
+curl localhost:8080/v1/decode/1HGCM82633A004352
+curl 'localhost:8080/v1/decode/1HGCM82633A004352?model_year=2003&shape=nitrovin'
+curl localhost:8080/v1/decode -d '[{"vin":"1HGCM82633A004352"},{"vin":"5YJ3E1EA2JF000316","shape":"nitrovin"}]'
+curl localhost:8080/v1/info
 ```
 
-`.github/workflows/import.yml` runs these on PRs touching the importer or
-`pkg/`.
+`POST /v1/decode` takes up to 1,000 requests and returns an array of
+decodes in order. Refusals are `application/problem+json` (RFC 9457) with a
+`pointer` to the offending value. `GET /v1/openapi.json` serves the
+[OpenAPI 3.1 document](docs/api/openapi.yaml); `GET /healthz` is the probe.
+There are no CORS headers. SIGINT or SIGTERM drains requests in flight and
+exits 0.
 
-## The decode contract
-
-`pkg/contract` is [the API contract](docs/api/README.md) in Go: the request
-every surface parses (`ParseRequest`, `ParseBatch`, `ParseStdio`,
-`ParseQuery`), the RFC 9457 `Problem`s it refuses with, the `Decode`, `Item`
-and `Info` types, and both attribute layouts as pure functions of the items.
-`pkg/nitrovin` is the Go module's entry point (`Embedded`, `Open`, `Load`,
-`Decoder.Decode`); it reads the clock, the engine never does. Every decode of
-the oracle's answer key for `testdata/oracle/sample-vins.tsv`, committed under
-`pkg/contract/testdata/oracle`, is checked against `decode.schema.json` in both
-layouts (`.github/workflows/contract.yml`). With an artifact, `go test
-./pkg/contract` also checks the committed element table against it, and
-decodes the answer key's VINs through `pkg/nitrovin`: the engine's items equal
-the oracle's rows, every decode validates, and a second decoder gives the same
-bytes:
+### stdio (JSON lines)
 
 ```sh
-NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/contract -run 'TestInfo|TestEngineAnswerKey'
+printf '{"id":1,"vin":"1HGCM82633A004352"}\n{"id":2,"vin":"5YJ3E1EA2JF000316","shape":"nitrovin"}\nnot json\n' | nitrovin stdio
 ```
 
-## The CLI
+One request per line in, one line out per request, in order and flushed per
+line: `{"id": …, "decode": {…}}` or `{"id": …, "error": {…}}`. A bad line
+gets an error line and the session goes on; EOF ends it. This is the
+easiest way to keep one decoder process open from another language
+(`docker run --rm -i ghcr.io/joshuasprow/nitrovin stdio` works too).
+[stdio contract](docs/api/README.md#stdio-nitrovin-stdio).
 
-`cmd/nitrovin` is the `nitrovin` binary ([the CLI contract](docs/api/README.md#cli-nitrovin-decode)).
-Its data is `--data <file>`, then `NITROVIN_DATA`, then the artifact embedded
-in the binary: `github.com/joshuasprow/nitrovin-data/pkg/embedded`, the
-month `go.mod` pins (ADR 0007). A data month moves only by bumping that pin,
-which the monthly refresh does.
+### MCP
+
+`nitrovin mcp` is an MCP server over stdio with one tool, `decode_vin`,
+whose arguments are the request above
+([tool definition](docs/api/mcp-tools.json)). For Claude Desktop
+(`~/Library/Application Support/Claude/claude_desktop_config.json` on
+macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows) and Cursor
+(`~/.cursor/mcp.json`) the entry is the same:
+
+```json
+{
+  "mcpServers": {
+    "nitrovin": {
+      "command": "/opt/homebrew/bin/nitrovin",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Use the absolute path `which nitrovin` prints: desktop apps do not see your
+shell's `PATH`. With Docker instead, `"command": "docker"` and
+`"args": ["run", "--rm", "-i", "ghcr.io/joshuasprow/nitrovin", "mcp"]`.
+To try it without a client, save the snippet as `claude_desktop_config.json`
+and call the tool with the MCP Inspector:
 
 ```sh
-go build -o nitrovin ./cmd/nitrovin
-./nitrovin --version                                 # nitrovin v0.0.0-…+dirty (data 2026_10) in a checkout
-./nitrovin decode 1HGCM82633A004352                  # pretty on a terminal
-./nitrovin decode -o text --model-year 2003 1HGCM82633A004352
-printf '1HGCM82633A004352,2003\n5YJ3E1EA2JF000316\n' | ./nitrovin decode -   # JSON lines
-printf '{"id":1,"vin":"1HGCM82633A004352"}\nnot json\n' | ./nitrovin stdio      # one {id, decode} or {id, error} line per line
-./nitrovin info                                      # data_source "embedded"
-./nitrovin --data nitrovin.artifact info             # another month: data_source is its path
+npx @modelcontextprotocol/inspector --cli --config claude_desktop_config.json --server nitrovin \
+  --method tools/call --tool-name decode_vin --tool-arg vin=1HGCM82633A004352
 ```
 
-Exit 0 when every VIN was decoded, whatever its error codes; 1 when it could
-not answer (data that will not load, a refused stdin line, a write failure); 2
-for a mistake on the command line, a refused argument VIN included. Each
-command lives in its own file under `cmd/nitrovin` and registers itself from
-that file's `init` (`register(command{…})`), so a new surface adds one file.
-`go test ./cmd/nitrovin` runs the built binary: usage, refusal and
-unloadable-data cases, and `info`, `--version` and a decode on the embedded
-data; with `NITROVIN_ARTIFACT` also `decode -` over the answer key's VINs
-against the contract layer's bytes, the data precedence and the `-o text`
-transcript (`-update` rewrites it).
+### Go module
 
-## The monthly refresh
+```sh
+go get github.com/joshuasprow/nitrovin/pkg/nitrovin@latest
+```
 
-`.github/workflows/refresh.yml` runs every day and on dispatch (ADR 0006,
-0007, 0008). `scripts/refresh.sh detect` compares NHTSA's newest month with
-the one `go.mod` pins: a newer month, or the pinned month's dump re-touched
-(another size or SHA-256), is built; otherwise the run stops there. Then:
+```go
+package main
 
-1. nitrovin-data's `scripts/build.sh` builds the artifact, and
-   `nitrovin-import vins` writes the VIN list from it: the committed corpus
-   with every witness, mutations, and generated VINs until every WMI and
-   VinSchema is reached, in files of at most 5,000.
-2. One `oracle.yml` job per file decodes it on stock and freshened Postgres;
-   `TestParity -parity-run` gates each file, zero tolerance.
-3. `scripts/refresh.sh report` writes the report: per-file parity, coverage
-   of `pkg/decoder`, what the list reaches (`coverage.json`), the stale-cache
-   class and the witnesses against live vPIC.
-4. Green: `TestParity -update-parity` re-freezes `testdata/parity/<month>`
-   from file 1, `scripts/refresh.sh contract-key` cuts
-   `pkg/contract/testdata/oracle` from it, and `TestText -update` rewrites
-   the transcript. The month is pushed to nitrovin-data's `main`, whose
-   `release.yml` rebuilds it, requires the same bytes and publishes
-   `v<format>.<YYYYMM>.<n>` with the stale-cache list and the frozen key.
-5. Once proxy.golang.org serves that tag, a PR bumps `go.mod` with the new
-   keys and the report as its body; it is squash-merged when every check on
-   it passes, and the next patch tag starts `release.yml`, which the refresh
-   waits for.
+import (
+	"encoding/json"
+	"fmt"
+	"log"
 
-Red anywhere publishes nothing: the pinned month stays, and the report goes
-to the issue "Refresh <month> is red", which the next green run closes.
-`gh workflow run refresh.yml -f month=2026_10` rebuilds a month whatever its
-dump; `-f dry-run=true` stops before anything is published. It needs the
-secrets `NITROVIN_DATA_DEPLOY_KEY` and `NITROVIN_DEPLOY_KEY` (write deploy
-keys of nitrovin-data and of this repo: a push or tag made with
-`GITHUB_TOKEN` starts no workflow) and Actions allowed to create pull
-requests.
+	"github.com/joshuasprow/nitrovin/pkg/contract"
+	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
+)
+
+func main() {
+	d, err := nitrovin.Embedded() // or nitrovin.Open("nitrovin-2026_10.artifact")
+	if err != nil {
+		log.Fatal(err)
+	}
+	req, err := contract.ParseRequest([]byte(`{"vin": "1HGCM82633A004352"}`))
+	if err != nil {
+		log.Fatal(err)
+	}
+	dec, err := d.Decode(req) // a VIN is never an error: see dec.ErrorCodes
+	if err != nil {
+		log.Fatal(err)
+	}
+	out, err := json.Marshal(dec)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(string(out))
+}
+```
+
+A `Decoder` is safe for concurrent use. `nitrovin.Embedded` links the data,
+about 61 MB, into your binary, and the module download includes it (a
+20 MB zip of `github.com/joshuasprow/nitrovin-data`); `nitrovin.Open` loads
+an artifact file instead, and a binary that never calls `Embedded` does not
+carry the data. Every `pkg/` package is public API:
+[pkg.go.dev](https://pkg.go.dev/github.com/joshuasprow/nitrovin/pkg/nitrovin).
+
+### C library
+
+`libnitrovin` (`.so`, `.dylib`, `.dll`) and `nitrovin.h` carry no data:
+`nitrovin_open` loads an artifact, the same file `--data` takes, from a
+[nitrovin-data release](https://github.com/joshuasprow/nitrovin-data/releases).
+`nitrovin_decode` takes one stdio request line and returns exactly the
+reply line `nitrovin stdio` would write.
+
+```c
+#include <stdio.h>
+#include "nitrovin.h"
+
+int main(void) {
+  char *err = NULL;
+  nitrovin_t *h = nitrovin_open("nitrovin-2026_10.artifact", &err);
+  if (h == NULL) {
+    fprintf(stderr, "%s\n", err);
+    nitrovin_free(err);
+    return 1;
+  }
+  char *reply = nitrovin_decode(h, "{\"id\":1,\"vin\":\"1HGCM82633A004352\"}");
+  puts(reply); /* {"id":1,"decode":{...}}, as `nitrovin stdio` writes it */
+  nitrovin_free(reply);
+  nitrovin_close(h);
+  return 0;
+}
+```
+
+```sh
+cc -o decode decode.c -L. -lnitrovin -Wl,-rpath,. && ./decode
+```
+
+Free every returned string with `nitrovin_free`, never `free()`, and never
+unload the library. [docs/c-library.md](docs/c-library.md) has the
+downloads, Python through ctypes, and the rules;
+[the C ABI contract](docs/api/README.md#c-abi-libnitrovin-nitrovinh) is
+authoritative.
+
+## Verify a release
+
+Releases are signed with [cosign](https://github.com/sigstore/cosign)
+keyless signatures from GitHub Actions: no key to fetch, the certificate
+names the workflow that built the release. Every asset has a
+`<asset>.sigstore.json` bundle and a line in `checksums.txt`.
+
+nitrovin, from the directory you downloaded the assets to:
+
+```sh
+TAG=v0.1.2
+cosign verify-blob --bundle checksums.txt.sigstore.json \
+  --certificate-identity https://github.com/joshuasprow/nitrovin/.github/workflows/release.yml@refs/tags/$TAG \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+sha256sum --check --ignore-missing checksums.txt
+cosign verify ghcr.io/joshuasprow/nitrovin:$TAG \
+  --certificate-identity https://github.com/joshuasprow/nitrovin/.github/workflows/release.yml@refs/tags/$TAG \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+nitrovin-data, the data releases (signed from `main`, not from a tag):
+
+```sh
+cosign verify-blob --bundle checksums.txt.sigstore.json \
+  --certificate-identity https://github.com/joshuasprow/nitrovin-data/.github/workflows/release.yml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+sha256sum --check checksums.txt
+```
+
+`cosign verify-blob --bundle <asset>.sigstore.json … <asset>` checks one
+asset directly. A signature from any other workflow or tag is rejected.
+
+## The data
+
+The data is NHTSA's [vPIC](https://vpic.nhtsa.dot.gov/) (Vehicle Product
+Information Catalog). NHTSA publishes it once a month as a Postgres dump on
+[its downloads page](https://vpic.nhtsa.dot.gov/downloads/), and the
+decoding procedure this project ports ships inside that dump. NHTSA's
+[terms of use](https://www.nhtsa.gov/about-nhtsa/terms-use) say the
+information "is considered public information and may be distributed or
+copied", and NHTSA disclaims any warranty on it; as a work of the U.S.
+Government it has no copyright (17 U.S.C. § 105). The reading behind this is
+[the dump research](https://github.com/joshuasprow/nitrovin/blob/research/nhtsa-dump/docs/research/nhtsa-dump.md#6-terms-of-use).
+See [`NOTICE`](NOTICE).
+
+A **data month** (`YYYY_MM`) names one dump. nitrovin converts a dump into
+an **artifact**, a 61 MB indexed file that is the same bytes whenever the
+same dump is converted, and
+[nitrovin-data](https://github.com/joshuasprow/nitrovin-data/releases)
+releases it as `v<format>.<YYYYMM>.<rebuild>` (`v1.202610.1`). Each data
+release keeps, forever: the artifact, NHTSA's dump zip (so a month can be
+re-checked after NHTSA stops hosting it), `manifest.json` (the dump's URL,
+size and SHA-256, the artifact's blake3, row counts, the importer commit),
+the month's frozen parity key and its stale-cache list.
+
+```console
+$ nitrovin info | jq '{decoder_version, data_month, data_source, artifact_hash}'
+{
+  "decoder_version": "v0.1.2",
+  "data_month": "2026_10",
+  "data_source": "embedded",
+  "artifact_hash": "blake3:7518c5b46c4264fe94a8e5158cb1949b000e50803b36d388fec9ebe914a780cb"
+}
+```
+
+To decode against another month, download its artifact and pass it with
+`--data` (any command) or `NITROVIN_DATA`; `--data` wins, then
+`NITROVIN_DATA`, then the embedded data:
+
+```sh
+nitrovin --data nitrovin-2026_10.artifact info
+NITROVIN_DATA=nitrovin-2026_10.artifact nitrovin serve
+```
+
+An artifact loads when its format major matches the binary's (format 1
+today); a mismatch is an error naming both. When NHTSA publishes a month,
+an unattended refresh builds it, gates it and, if it passes, cuts a patch
+release of nitrovin with it through every channel, so updating nitrovin is
+how you get new data. A month that fails ships nothing and the previous
+month stays current. There is no `nitrovin update`.
+
+A decode is a function of the VIN, the model-year hint, `now`, the data
+month and the decoder version, and it carries all five; the same five give
+the same bytes. Live vPIC runs on newer data than any monthly dump, so it
+can answer differently from nitrovin on the same day.
+
+## Parity
+
+nitrovin's answer for a VIN is NHTSA's procedure's answer, not an
+approximation of it: every row the procedure emits, all 15 columns, exact
+strings, compared as a multiset per VIN. There is no tolerance and no
+per-VIN excuse list. The oracle is NHTSA's own `spvindecode` run in Postgres
+17 on the month's dump, with one stale cache table emptied: the dump's
+cache of valid characters contradicts the dump's own pattern rows, and live
+vPIC answers the way the recomputation does. That is the one registered
+[deviation](docs/deviations/README.md), [`stale-cache`](docs/deviations/stale-cache.md),
+and the corpus VINs it touches are listed with each data release.
+
+The 2026_10 data in v0.1.2 passed
+[refresh run 42662006323](https://github.com/joshuasprow/nitrovin/actions/runs/42662006323):
+18,339 calls and 966,232 rows, 0 disagreements; every one of the month's
+13,014 WMIs and 25,283 of its 25,293 VinSchemas reached; 52 stale-cache
+calls; all 7 deviation witnesses agree with live vPIC on 253 fields. Its
+report is the body of
+[the refresh PR](https://github.com/joshuasprow/nitrovin/pull/80).
+
+[docs/parity.md](docs/parity.md) explains the corpus and the gates, where
+each month's report lives, and how to re-run a release's parity check
+yourself in a second.
+
+## Known limits
+
+- **10 VinSchemas are never exercised.** In 2026_10, schemas 4329, 5046,
+  6173, 11117, 11146, 11395, 11396, 13555, 15597 and 21187 lose to another
+  schema on the same WMI and years on every VIN tried, so no gated VIN
+  reaches them ([run 42662006323](https://github.com/joshuasprow/nitrovin/actions/runs/42662006323),
+  [#72](https://github.com/joshuasprow/nitrovin/issues/72)).
+- **Deviations are classes, never VINs.** Where nitrovin disagrees with
+  NHTSA's procedure, it is a bug unless a registered class proves a defect
+  in NHTSA's data, with a mechanical detector and a VIN on which live vPIC
+  agrees with nitrovin ([ADR 0006](docs/adr/0006-deviations-are-detected-classes.md),
+  [the registry](docs/deviations/README.md)). There is one class.
+- **The `vpic` layout is not live `DecodeVinValues` byte for byte.** It has
+  no `VIN` key, has `PlantAddress`, lacks vPIC's ten always-empty legacy
+  keys, and joins multi-valued elements in byte order where vPIC's order is
+  unstable ([details](docs/api/README.md#layout-vpic-the-default)). Parity
+  is gated on the items both layouts are built from.
+- **Element names and codes are data, not API.** NHTSA renames them between
+  months; pin `element_id` and `attribute_id` for anything long-lived.
+- **Over 17 characters is refused.** NHTSA's procedure raises on it, so
+  there is no answer to match.
+- **Not drop-in for vPIC's URLs.** `serve` has its own `/v1` routes, not
+  vPIC's `/api/vehicles/...`.
+- **winget** is not live yet ([#78](https://github.com/joshuasprow/nitrovin/issues/78)).
+  **macOS binaries are not notarized** (see [Install](#install)).
+- **The C library** cannot be unloaded, needs glibc 2.17+ on Linux (no
+  musl), and macOS 11+.
+
+## Performance
+
+On one core of an Apple M5 Pro, v0.1.2 decodes about 17,600 VINs a second
+through `nitrovin decode -` with JSON output (25,000 corpus VINs in 1.42 s
+under `GOMAXPROCS=1`), and a one-VIN `nitrovin decode` process takes about
+6 ms and 22 MB of memory.
+
+## Contributing
+
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md)
+covers building, the tests, the Postgres oracle on your own machine, and the
+rules for a change that touches decoding. Decisions live in
+[`docs/adr/`](docs/adr), words in [`GLOSSARY.md`](GLOSSARY.md), and the plan
+in the [wayfinder map](https://github.com/joshuasprow/nitrovin/issues?q=label%3Awayfinder%3Amap).
+
+## Credits and licence
+
+MIT, see [`LICENSE`](LICENSE). The data is NHTSA's. The port's structure,
+its parity method and its deviation registry follow
+[ultravin](https://github.com/blackthorn-interstellar/ultravin) by Bryce
+Drennan (MIT), the reference implementation; no ultravin source is copied,
+and the committed parity corpus includes ultravin's VIN lists. Details in
+[`NOTICE`](NOTICE).
