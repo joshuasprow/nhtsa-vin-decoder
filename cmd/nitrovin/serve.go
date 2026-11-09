@@ -36,7 +36,7 @@ func init() {
 	register(command{
 		name:     "serve",
 		synopsis: "[--addr ADDR]",
-		summary:  "Serve the HTTP API (docs/api/openapi.yaml) on --addr, then :$PORT, then 127.0.0.1:8080, once the data has loaded.",
+		summary:  "Serve the HTTP API (docs/api/openapi.yaml) and a decode form at / on --addr, then :$PORT, then 127.0.0.1:8080, once the data has loaded.",
 		setup: func(fs *flag.FlagSet) func(*env, []string) error {
 			addr := fs.String("addr", "", "listen on `address` (default :$PORT when PORT is set, else 127.0.0.1:8080)")
 			return func(e *env, args []string) error {
@@ -104,8 +104,9 @@ type decodeService interface {
 	DecodeBatch([]contract.Request) ([]contract.Decode, error)
 }
 
-// api serves the routes of docs/api/openapi.yaml. Every refusal is an RFC
-// 9457 problem; it sets no CORS headers.
+// api serves the routes of docs/api/openapi.yaml, and the decode form at /
+// (form.go). Every refusal but the form's own is an RFC 9457 problem; it
+// sets no CORS headers.
 type api struct {
 	d   decodeService
 	log *log.Logger
@@ -122,23 +123,36 @@ func (a *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	path := r.URL.EscapedPath()
-	method, handle := a.route(path)
+	allow, handle := a.route(path)
 	switch {
 	case handle == nil:
 		a.problem(w, contract.NewProblem(contract.NotFound, "", "no route "+path))
-	case r.Method != method:
-		w.Header().Set("Allow", method)
-		a.problem(w, contract.NewProblem(contract.MethodNotAllowed, "", fmt.Sprintf("%s takes %s, not %s", path, method, r.Method)))
+	case !allows(allow, r.Method):
+		w.Header().Set("Allow", allow)
+		a.problem(w, contract.NewProblem(contract.MethodNotAllowed, "", fmt.Sprintf("%s takes %s, not %s", path, allow, r.Method)))
 	default:
 		handle(w, r)
 	}
 }
 
-// route maps an escaped path to its one method and handler; a nil handler
-// is no route. A VIN is one path segment, so a VIN holding "/" is sent as
-// %2F.
+// allows reports whether allow, a list as the Allow header gives it, holds
+// method.
+func allows(allow, method string) bool {
+	for m := range strings.SplitSeq(allow, ", ") {
+		if m == method {
+			return true
+		}
+	}
+	return false
+}
+
+// route maps an escaped path to the methods it takes, as the Allow header
+// lists them, and its handler; a nil handler is no route. A VIN is one path
+// segment, so a VIN holding "/" is sent as %2F.
 func (a *api) route(path string) (string, http.HandlerFunc) {
 	switch path {
+	case "/":
+		return "GET, HEAD", a.form
 	case "/v1/decode":
 		return http.MethodPost, a.decodeBatch
 	case "/v1/info":

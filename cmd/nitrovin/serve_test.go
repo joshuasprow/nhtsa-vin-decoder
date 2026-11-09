@@ -471,7 +471,7 @@ func refusalCases() []apiCase {
 		post(overlong, 413, contract.TooLarge, ""),
 		chunked,
 
-		notFound(opDecodeOne, "GET", "/"),
+		notFound(opDecodeOne, "GET", "/index.html"),
 		notFound(opDecodeOne, "GET", "/v1/decode/"+vin+"/extra"),
 		notFound(opDecodeOne, "GET", "/v1/info/"),
 		notFound(opDecodeOne, "GET", "/v2/decode/"+vin),

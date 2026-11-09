@@ -194,7 +194,8 @@ monthly refresh does.
 
 `go test ./cmd/nitrovin` runs the built binary: usage, refusal and
 unloadable-data cases, and `info`, `--version` and a decode on the embedded
-data. With `NITROVIN_ARTIFACT` it adds `decode -` over the answer key's VINs
+data; `TestForm` drives the browser form at `/` on the embedded data. With
+`NITROVIN_ARTIFACT` it adds `decode -` over the answer key's VINs
 against the contract layer's bytes, the data precedence, the `-o text`
 transcript (`-update` rewrites it), every HTTP operation and status in
 `openapi.json` (`TestServeContract`), a scripted stdio session, and MCP

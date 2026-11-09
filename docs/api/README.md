@@ -154,6 +154,8 @@ that crosses midnight on 31 December keeps its starting instant.
 Routes, bodies and status codes are in [`openapi.yaml`](openapi.yaml):
 `GET /v1/decode/{vin}`, `POST /v1/decode` (≤ 1,000 items, ≤ 1 MiB),
 `GET /v1/info`, `GET /v1/openapi.json`, `GET /healthz`. No CORS headers in v1.0.
+`GET /` is a decode form for browsers (HTML, `HEAD` allowed too); it is outside
+the contract, not in `openapi.yaml`, and may change.
 
 A VIN is never an error: whatever is wrong with it is in `error_codes`, and the
 status is 200. A refusal is an RFC 9457 `application/problem+json` body whose
