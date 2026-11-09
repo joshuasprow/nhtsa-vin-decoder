@@ -1,0 +1,263 @@
+# The nitrovin release (ADR 0007, names per ADR 0002), run by
+# .github/workflows/release.yml on a v* tag:
+#
+# - nitrovin_<version>_<os>_<arch>.{tar.gz,zip}: cmd/nitrovin with the data
+#   pinned in go.mod embedded, linux/darwin/windows on amd64/arm64.
+# - libnitrovin_<version>_<os>_<arch>.{tar.gz,zip}: the lean C library and
+#   nitrovin.h for the same six targets, built by scripts/libnitrovin.sh
+#   (zig cc) in the before hook and packed as meta archives.
+# - checksums.txt, and a cosign keyless bundle <asset>.sigstore.json for every
+#   archive and for checksums.txt (the workflow's GitHub OIDC identity).
+# - ghcr.io/joshuasprow/nitrovin, one linux/amd64+arm64 manifest tagged
+#   v<x.y.z>, v<x.y>, v<x>, latest and data-<month> ($DATA_MONTH, which the
+#   workflow reads from the built binary), running `serve --addr :8080`.
+#   The workflow signs it once, by digest.
+# - The Homebrew cask (joshuasprow/homebrew-tap), the Scoop manifest
+#   (joshuasprow/scoop-bucket), both pushed with a deploy key, and the winget
+#   manifest JoshuaSprow.Nitrovin, submitted to microsoft/winget-pkgs only
+#   when WINGET_GITHUB_TOKEN is set.
+#
+# The version every binary and library reports is Go's VCS stamp of the tagged
+# checkout, not an -X flag: `nitrovin --version` says v0.1.0 at v0.1.0, as
+# `go install …@v0.1.0` does.
+version: 2
+
+project_name: nitrovin
+
+before:
+  hooks:
+    - rm -rf build/libnitrovin
+    - scripts/libnitrovin.sh build/libnitrovin
+
+builds:
+  - id: nitrovin
+    main: ./cmd/nitrovin
+    binary: nitrovin
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: nitrovin
+    ids: [nitrovin]
+    name_template: "nitrovin_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, NOTICE, README.md]
+  # One meta archive per C library target: scripts/libnitrovin.sh's
+  # <goos>-<goarch> directory, flattened, with the licence files.
+  - id: libnitrovin-linux-amd64
+    meta: true
+    name_template: "libnitrovin_{{ .Version }}_linux_amd64"
+    formats: [tar.gz]
+    files:
+      - src: build/libnitrovin/linux-amd64/*
+        strip_parent: true
+      - LICENSE
+      - NOTICE
+  - id: libnitrovin-linux-arm64
+    meta: true
+    name_template: "libnitrovin_{{ .Version }}_linux_arm64"
+    formats: [tar.gz]
+    files:
+      - src: build/libnitrovin/linux-arm64/*
+        strip_parent: true
+      - LICENSE
+      - NOTICE
+  - id: libnitrovin-darwin-amd64
+    meta: true
+    name_template: "libnitrovin_{{ .Version }}_darwin_amd64"
+    formats: [tar.gz]
+    files:
+      - src: build/libnitrovin/darwin-amd64/*
+        strip_parent: true
+      - LICENSE
+      - NOTICE
+  - id: libnitrovin-darwin-arm64
+    meta: true
+    name_template: "libnitrovin_{{ .Version }}_darwin_arm64"
+    formats: [tar.gz]
+    files:
+      - src: build/libnitrovin/darwin-arm64/*
+        strip_parent: true
+      - LICENSE
+      - NOTICE
+  - id: libnitrovin-windows-amd64
+    meta: true
+    name_template: "libnitrovin_{{ .Version }}_windows_amd64"
+    formats: [zip]
+    files:
+      - src: build/libnitrovin/windows-amd64/*
+        strip_parent: true
+      - LICENSE
+      - NOTICE
+  - id: libnitrovin-windows-arm64
+    meta: true
+    name_template: "libnitrovin_{{ .Version }}_windows_arm64"
+    formats: [zip]
+    files:
+      - src: build/libnitrovin/windows-arm64/*
+        strip_parent: true
+      - LICENSE
+      - NOTICE
+
+checksum:
+  name_template: checksums.txt
+
+signs:
+  - cmd: cosign
+    artifacts: all
+    signature: "${artifact}.sigstore.json"
+    args: [sign-blob, --yes, "--bundle=${signature}", "${artifact}"]
+
+dockers_v2:
+  - id: nitrovin
+    ids: [nitrovin]
+    images: [ghcr.io/joshuasprow/nitrovin]
+    tags:
+      - "v{{ .Version }}"
+      - "v{{ .Major }}.{{ .Minor }}"
+      - "v{{ .Major }}"
+      - latest
+      - "data-{{ .Env.DATA_MONTH }}"
+    platforms: [linux/amd64, linux/arm64]
+    extra_files: [LICENSE, NOTICE]
+    # No SBOM or provenance attestations yet (ADR 0007): the index holds the
+    # two platform images only.
+    sbom: false
+    flags: [--provenance=false]
+    labels:
+      org.opencontainers.image.title: nitrovin
+      org.opencontainers.image.description: &description "An offline VIN decoder that answers like NHTSA's vPIC; serves the HTTP API on :8080."
+      org.opencontainers.image.source: https://github.com/joshuasprow/nitrovin
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: MIT
+    # ghcr.io reads a multi-platform image's description, source and licence
+    # from the index. A snapshot builds one image per platform, which takes no
+    # index annotations: an empty key is skipped.
+    annotations:
+      '{{ if not .IsSnapshot }}index:org.opencontainers.image.description{{ end }}': *description
+      '{{ if not .IsSnapshot }}index:org.opencontainers.image.source{{ end }}': https://github.com/joshuasprow/nitrovin
+      '{{ if not .IsSnapshot }}index:org.opencontainers.image.licenses{{ end }}': MIT
+
+homebrew_casks:
+  - name: nitrovin
+    ids: [nitrovin]
+    binaries: [nitrovin]
+    homepage: https://github.com/joshuasprow/nitrovin
+    description: "Offline VIN decoder that answers like NHTSA's vPIC"
+    license: MIT
+    repository:
+      owner: joshuasprow
+      name: homebrew-tap
+      branch: main
+      git:
+        url: git@github.com:joshuasprow/homebrew-tap.git
+        private_key: "{{ .Env.HOMEBREW_TAP_DEPLOY_KEY }}"
+    commit_author: &bot
+      name: github-actions[bot]
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    commit_msg_template: "nitrovin {{ .Tag }}"
+    # The binary is not notarized: without this, macOS refuses to run the
+    # quarantined download.
+    hooks:
+      post:
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/nitrovin"]
+          end
+
+scoops:
+  - name: nitrovin
+    ids: [nitrovin]
+    homepage: https://github.com/joshuasprow/nitrovin
+    description: "Offline VIN decoder that answers like NHTSA's vPIC"
+    license: MIT
+    directory: bucket
+    repository:
+      owner: joshuasprow
+      name: scoop-bucket
+      branch: main
+      git:
+        url: git@github.com:joshuasprow/scoop-bucket.git
+        private_key: "{{ .Env.SCOOP_BUCKET_DEPLOY_KEY }}"
+    commit_author: *bot
+    commit_msg_template: "nitrovin {{ .Tag }}"
+
+# Generated on every release (dist/winget); committed to the
+# joshuasprow/winget-pkgs fork and proposed to microsoft/winget-pkgs only when
+# WINGET_GITHUB_TOKEN (a classic token with public_repo) is set, since the
+# workflow's own token cannot write to either repository.
+winget:
+  - name: nitrovin
+    ids: [nitrovin]
+    package_identifier: JoshuaSprow.Nitrovin
+    package_name: nitrovin
+    publisher: Joshua Sprow
+    publisher_url: https://github.com/joshuasprow
+    publisher_support_url: https://github.com/joshuasprow/nitrovin/issues
+    author: Joshua Sprow
+    short_description: "Offline VIN decoder that answers like NHTSA's vPIC"
+    description: >-
+      nitrovin decodes vehicle identification numbers offline, answering like
+      NHTSA's vPIC: a Go port of its spVinDecode procedure with the month's
+      vPIC data embedded. A CLI, an HTTP server, stdio JSON lines and an MCP
+      server in one binary.
+    homepage: https://github.com/joshuasprow/nitrovin
+    license: MIT
+    license_url: https://github.com/joshuasprow/nitrovin/blob/main/LICENSE
+    release_notes_url: "https://github.com/joshuasprow/nitrovin/releases/tag/{{ .Tag }}"
+    tags: [vin, nhtsa, vpic, vehicle, decoder, cli]
+    commit_author: *bot
+    commit_msg_template: "New version: JoshuaSprow.Nitrovin {{ .Version }}"
+    skip_upload: '{{ if index .Env "WINGET_GITHUB_TOKEN" }}false{{ else }}true{{ end }}'
+    repository:
+      owner: joshuasprow
+      name: winget-pkgs
+      branch: "JoshuaSprow.Nitrovin-{{ .Version }}"
+      token: '{{ index .Env "WINGET_GITHUB_TOKEN" }}'
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
+
+release:
+  # ADR 0007: every v0.x is a prerelease. release.yml refuses a tag whose
+  # major disagrees with this line; v1.0.0 sets it to auto.
+  prerelease: "true"
+  header: |
+    nitrovin {{ .Tag }} with NHTSA vPIC data month **{{ .Env.DATA_MONTH }}** embedded.
+
+    ```sh
+    brew install joshuasprow/tap/nitrovin
+    scoop bucket add joshuasprow https://github.com/joshuasprow/scoop-bucket && scoop install nitrovin
+    go install github.com/joshuasprow/nitrovin/cmd/nitrovin@{{ .Tag }}
+    docker run --rm -p 8080:8080 ghcr.io/joshuasprow/nitrovin:{{ .Tag }}
+    ```
+
+    Every asset has a cosign keyless bundle. To verify one:
+
+    ```sh
+    cosign verify-blob --bundle checksums.txt.sigstore.json \
+      --certificate-identity https://github.com/joshuasprow/nitrovin/.github/workflows/release.yml@refs/tags/{{ .Tag }} \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+    sha256sum --check --ignore-missing checksums.txt
+    cosign verify ghcr.io/joshuasprow/nitrovin:{{ .Tag }} \
+      --certificate-identity https://github.com/joshuasprow/nitrovin/.github/workflows/release.yml@refs/tags/{{ .Tag }} \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    ```
+
+changelog:
+  sort: asc
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"

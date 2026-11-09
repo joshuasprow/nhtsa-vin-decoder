@@ -14,7 +14,8 @@
 # Pinned floors: glibc 2.17 (an accidental newer libc call cannot raise it
 # silently) and macOS 11.0 (minos; zig signs the dylib ad hoc, which macOS
 # arm64 requires). Windows links the UCRT. The library carries no data; the
-# version it reports is the module's, "(devel)" untagged (-buildvcs=false).
+# version it reports is Go's VCS stamp of the checkout (v0.1.0 at that tag,
+# as the release builds it), or "(devel)" under GOFLAGS=-buildvcs=false.
 set -euo pipefail
 
 dir="${1:?usage: scripts/libnitrovin.sh <dir> [<goos>/<goarch>...]}"
@@ -57,7 +58,7 @@ for target in "${targets[@]}"; do
   mkdir -p "$out"
   start=$SECONDS
   CGO_ENABLED=1 GOOS="$goos" GOARCH="$goarch" CC="zig cc -target $triple" CGO_LDFLAGS="$ldflags" \
-    go build -buildvcs=false -trimpath -ldflags='-s -w' -buildmode=c-shared \
+    go build -trimpath -ldflags='-s -w' -buildmode=c-shared \
     -o "$out/libnitrovin.$ext" ./cmd/libnitrovin
   mv "$out/libnitrovin.h" "$out/nitrovin.h"
   echo "$out/libnitrovin.$ext: $(wc -c <"$out/libnitrovin.$ext" | tr -d ' ') bytes, $((SECONDS - start)) s ($triple)"

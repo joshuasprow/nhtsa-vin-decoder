@@ -2,8 +2,8 @@
 
 An offline VIN decoder that answers like NHTSA's vPIC, as one binary.
 
-Status: **charting**. The engine and the CLI decode against the embedded
-2026_10 data, but no binary is released yet. The plan is the
+Status: **v0.x prereleases** (ADR 0007: v0 means the release pipeline is not
+yet proven, not that the API may change). The plan is the
 [wayfinder map](https://github.com/joshuasprow/nitrovin/issues?q=label%3Awayfinder%3Amap)
 in this repo's issues; decisions already made are indexed there.
 
@@ -20,6 +20,26 @@ What it will be, as decided so far:
 
 MIT licensed. See `NOTICE` for data provenance and the projects this builds
 on.
+
+## Install
+
+Every release carries the vPIC data month it embeds (`nitrovin --version`).
+
+```sh
+brew install joshuasprow/tap/nitrovin                    # macOS, Linux
+scoop bucket add joshuasprow https://github.com/joshuasprow/scoop-bucket
+scoop install nitrovin                                    # Windows
+go install github.com/joshuasprow/nitrovin/cmd/nitrovin@latest
+docker run --rm -p 8080:8080 ghcr.io/joshuasprow/nitrovin # serve on :8080
+```
+
+[GitHub Releases](https://github.com/joshuasprow/nitrovin/releases) has the
+binaries and the C library (`libnitrovin` and `nitrovin.h`, no data:
+`nitrovin_open` loads an artifact) for linux, darwin and windows on amd64 and
+arm64, with `checksums.txt` and a cosign keyless bundle per asset; the release
+notes show how to verify them. winget (`JoshuaSprow.Nitrovin`) follows.
+`.goreleaser.yaml` builds all of it from a `v*` tag
+(`.github/workflows/release.yml`).
 
 ## The Postgres oracle
 

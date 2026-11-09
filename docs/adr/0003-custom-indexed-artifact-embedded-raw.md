@@ -42,3 +42,16 @@ warning on every monthly push to `nitrovin-data`, since 62 MB is over the
   linux, darwin and windows on amd64 and arm64.
 - Strings are `unsafe.String` views into the arena, checked once at load:
   offsets in range and the arena valid UTF-8.
+
+## Amendment: go:embed does not align the artifact
+
+Embedding found that "read in place from the embedded `[]byte`" assumed an
+alignment go:embed never promises: `cmd/compile` gives embedded data
+`Align = 1`, as a `[]byte` or a `string`, and in one build the artifact sat at
+`0x1007ff812`. The reader then copied it to an aligned buffer on every start
+(59 MB of heap, a 138 MB peak for one decode). Since
+[Embed the artifact in nitrovin-data](https://github.com/joshuasprow/nitrovin/issues/67),
+`artifact.Open` reads the column arrays unaligned, in place, on amd64 and
+arm64 (every target we ship; checkptr allows it for pointer-free element
+types, golang/go#37298), and copies once only on other hosts. One embedded
+decode peaks at 21.6 MB. The decision stands; only the reader changed.
