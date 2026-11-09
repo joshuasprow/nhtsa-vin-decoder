@@ -1,0 +1,5 @@
+# goreleaser's output and the C libraries its before hook builds
+# (.goreleaser.yaml). Ignored, so a release build's tree stays clean and Go
+# stamps the tag, not "+dirty", as the version.
+/dist/
+/build/

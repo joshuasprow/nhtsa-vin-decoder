@@ -46,7 +46,10 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
+      # (devel), as the nitrovin that writes the replies below reports.
       - run: scripts/libnitrovin.sh dist
+        env:
+          GOFLAGS: -buildvcs=false
       - uses: actions/upload-artifact@v7
         with:
           name: libnitrovin
