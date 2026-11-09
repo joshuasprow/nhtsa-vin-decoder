@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -718,12 +719,13 @@ func TestServeAddress(t *testing.T) {
 	srv.stop(t)
 }
 
-// TestServeNoData: with no data, serve never listens: an internal problem
-// naming --data, exit 1.
+// TestServeNoData: with data that will not load, serve never listens: an
+// internal problem naming --data, exit 1.
 func TestServeNoData(t *testing.T) {
-	r := cli(t, nil, "", "serve", "--addr", "127.0.0.1:0")
-	if p := problem(t, r); r.exit != 1 || r.stdout != "" || p.Type != contract.Internal || !strings.Contains(p.Detail, "--data") {
-		t.Errorf("serve with no data: exit %d, stdout %q, problem %+v; want exit 1 and an internal problem naming --data", r.exit, r.stdout, p)
+	missing := filepath.Join(t.TempDir(), "missing.artifact")
+	r := cli(t, nil, "", "serve", "--data", missing, "--addr", "127.0.0.1:0")
+	if p := problem(t, r); r.exit != 1 || r.stdout != "" || p.Type != contract.Internal || !strings.Contains(p.Detail, "--data "+missing) {
+		t.Errorf("serve with missing data: exit %d, stdout %q, problem %+v; want exit 1 and an internal problem naming --data", r.exit, r.stdout, p)
 	}
 	r = cli(t, nil, "", "serve", "extra")
 	if r.exit != 2 || r.stdout != "" || !strings.Contains(r.stderr, "\nusage: nitrovin serve") {

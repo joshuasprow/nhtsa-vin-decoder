@@ -2,12 +2,15 @@
 // of its data: the Go module's entry point, and the one every surface (CLI,
 // HTTP, stdio, MCP, C library) decodes through.
 //
-//	d, err := nitrovin.Open("vpic-2026_10.nitrovin")
+//	d, err := nitrovin.Embedded() // or nitrovin.Open("nitrovin-2026_09.artifact")
 //	req, err := contract.ParseRequest([]byte(`{"vin": "1HGCM82633A004352"}`))
 //	dec, err := d.Decode(req)
 //	out, err := json.Marshal(dec) // a Decode of docs/api/decode.schema.json
 //
 // The wire types, request parsing and layouts are package contract's.
+// The embedded data is the month this module's go.mod pins
+// github.com/joshuasprow/nitrovin-data to; only a binary that calls Embedded
+// links it, about 61 MB.
 package nitrovin
 
 import (
@@ -18,6 +21,7 @@ import (
 	"time"
 
 	"github.com/joshuasprow/nitrovin-data/pkg/artifact"
+	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/decoder"
 )
@@ -30,6 +34,13 @@ const modulePath = "github.com/joshuasprow/nitrovin"
 type Decoder struct {
 	info   contract.Info
 	engine *decoder.Engine
+}
+
+// Embedded loads the artifact built into the binary, nitrovin-data's
+// pkg/embedded: the data every surface but the C library decodes against
+// when given no --data. Info's DataSource is contract.DataSourceEmbedded.
+func Embedded() (*Decoder, error) {
+	return Load(embedded.Artifact(), contract.DataSourceEmbedded)
 }
 
 // Open loads the artifact at path, as --data and NITROVIN_DATA do. Info's

@@ -10,9 +10,10 @@
 // docs/api/README.md is the contract they follow.
 //
 // Exit codes: 0 when every request was answered, whatever error codes the
-// VINs decode to; 1 when nitrovin could not answer (no data, a refused stdin
-// line, a write failure), with a problem on stderr; 2 for a mistake on the
-// command line, a refused argument VIN included, with nothing on stdout.
+// VINs decode to; 1 when nitrovin could not answer (data that will not load,
+// a refused stdin line, a write failure), with a problem on stderr; 2 for a
+// mistake on the command line, a refused argument VIN included, with nothing
+// on stdout.
 package main
 
 import (
@@ -225,8 +226,11 @@ func (e *env) decoder() (*nitrovin.Decoder, error) {
 		path, from = e.getenv("NITROVIN_DATA"), "NITROVIN_DATA"
 	}
 	if path == "" {
-		return nil, contract.NewProblem(contract.Internal, "",
-			"this build embeds no data artifact: load one with --data FILE or NITROVIN_DATA=FILE")
+		d, err := nitrovin.Embedded()
+		if err != nil {
+			return nil, contract.NewProblem(contract.Internal, "", fmt.Sprintf("embedded data: %v", err))
+		}
+		return d, nil
 	}
 	d, err := nitrovin.Open(path)
 	if err != nil {

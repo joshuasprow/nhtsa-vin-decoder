@@ -1,8 +1,9 @@
 # The decode contract layer without a dump: pkg/contract's request parsing
 # and both layouts, every decode of the committed oracle answer key checked
 # against docs/api/decode.schema.json; pkg/nitrovin vetted; the CLI's usage,
-# refusal and missing-data cases. The same decodes on the engine's output,
-# and the CLI's decodes, need the artifact: import.yml runs them.
+# refusal and unloadable-data cases, and a decode on its embedded data. The
+# same decodes on the engine's output, and the CLI's decodes of the answer
+# key, need an artifact built from the dump: import.yml runs them.
 name: Contract
 
 on:

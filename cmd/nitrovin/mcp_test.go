@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -117,12 +118,13 @@ type noLoader struct{}
 
 func (noLoader) Load(url string) (any, error) { return nil, fmt.Errorf("%s: not bundled", url) }
 
-// TestMCPCommandLine: no data is an #internal problem before anything is
-// served; an argument is a usage error.
+// TestMCPCommandLine: data that will not load is an #internal problem before
+// anything is served; an argument is a usage error.
 func TestMCPCommandLine(t *testing.T) {
-	r := cli(t, nil, "", "mcp")
-	if p := problem(t, r); r.exit != 1 || r.stdout != "" || p.Type != contract.Internal || !strings.Contains(p.Detail, "--data") {
-		t.Errorf("mcp without data: exit %d, stdout %q, problem %+v", r.exit, r.stdout, p)
+	missing := filepath.Join(t.TempDir(), "missing.artifact")
+	r := cli(t, nil, "", "mcp", "--data", missing)
+	if p := problem(t, r); r.exit != 1 || r.stdout != "" || p.Type != contract.Internal || !strings.Contains(p.Detail, "--data "+missing) {
+		t.Errorf("mcp with missing data: exit %d, stdout %q, problem %+v", r.exit, r.stdout, p)
 	}
 	r = cli(t, nil, "", "mcp", "1HGCM82633A004352")
 	if r.exit != 2 || r.stdout != "" || !strings.Contains(r.stderr, "usage: nitrovin mcp") {
