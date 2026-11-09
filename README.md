@@ -97,13 +97,15 @@ artifact and the committed corpus. The list holds every corpus VIN, then one
 one-character mutation of each 17-character corpus VIN, chosen among 24 draws
 so the mutations spread over the error codes. Then come VINs synthesized from
 the month's pattern keys until every WMI and VinSchema the month links appears
-in some decode's items. Each candidate is decoded by the engine before it is
-kept: a VIN goes in only if it reaches something nothing else reached, and
-never if the procedure would raise on it. The list is split into files of at
-most 5,000 VINs, one `oracle.yml` job each. A month needs more than one file,
-because each VIN reaches a single WMI: 2026_10 has 13,014 WMIs and needs
-18,239 VINs, so it gets four files. The coverage summary goes to stderr, and
-`-report` writes the full report, including what the corpus alone misses.
+in some decode's items. A few of those carry a model-year hint, where only a
+hint gets the decode to an old schema's year. Each candidate is decoded by the
+engine before it is kept: a VIN goes in only if it reaches something nothing
+else reached, and never if the procedure would raise on it. The list is split
+into files of at most 5,000 VINs, one `oracle.yml` job each. A month needs more
+than one file, because each VIN reaches a single WMI: 2026_10 has 13,014 WMIs
+and needs 18,258 VINs, so it gets four files. The coverage summary goes to
+stderr, and `-report` writes the full report, including what the corpus alone
+misses.
 
 ```sh
 go run ./cmd/nitrovin-import vins -o run -report coverage.json nitrovin.artifact corpus.tsv   # prints run-1.tsv …

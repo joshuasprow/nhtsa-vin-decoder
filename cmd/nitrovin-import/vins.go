@@ -349,15 +349,16 @@ func splitmix(x uint64) uint64 {
 // candidates for the WMI's unreached schemas, the one that reaches the
 // most schemas nothing reached yet, until none adds one. Then, for each of
 // its schemas still unreached, the first candidate of more of its keys
-// that reaches it. Then one VIN for the WMI itself if nothing reached it.
+// that reaches it, also with the year as the model-year hint. Then one
+// VIN for the WMI itself if nothing reached it.
 func (g *vinsGen) sweepWMI(run *[]vinLine, r int) {
 	id := g.wmiID[r]
 	lo, hi := artifact.EqualRange(g.link.wmi, 0, len(g.link.wmi), id)
-	tried := map[string]bool{}
+	tried := map[vinLine]bool{}
 	var cands []candidate
 	for j := lo; j < hi; j++ {
 		if g.unreachedSchema(g.link.schema[j]) {
-			cands = g.candidates(cands, tried, r, j, keySample)
+			cands = g.candidates(cands, tried, r, j, keySample, false)
 		}
 	}
 	for {
@@ -377,7 +378,7 @@ func (g *vinsGen) sweepWMI(run *[]vinLine, r int) {
 		if !g.unreachedSchema(s) {
 			continue
 		}
-		for _, c := range g.candidates(nil, tried, r, j, keyRetry) {
+		for _, c := range g.candidates(nil, tried, r, j, keyRetry, true) {
 			if slices.Contains(c.d.schemas, s) {
 				g.addCandidate(run, c)
 				break
@@ -391,7 +392,7 @@ func (g *vinsGen) sweepWMI(run *[]vinLine, r int) {
 	if lo < hi {
 		j = lo
 	}
-	for _, c := range g.candidates(nil, map[string]bool{}, r, j, 1) {
+	for _, c := range g.candidates(nil, map[vinLine]bool{}, r, j, 1, false) {
 		if slices.Contains(c.d.wmis, id) {
 			g.addCandidate(run, c)
 			return
@@ -399,9 +400,10 @@ func (g *vinsGen) sweepWMI(run *[]vinLine, r int) {
 	}
 }
 
-// candidate is a synthesized VIN, decoded.
+// candidate is a synthesized VIN and hint, decoded.
 type candidate struct {
 	vin, note string
+	hint      int32
 	d         decoded
 }
 
@@ -427,14 +429,17 @@ func (g *vinsGen) addCandidate(run *[]vinLine, c candidate) {
 		slices.Sort(s)
 		reached = "schemas " + strings.Trim(fmt.Sprint(s), "[]")
 	}
-	g.add(run, vinLine{vin: c.vin, kind: fromGenerated, note: reached + ": " + c.note}, c.d)
+	g.add(run, vinLine{vin: c.vin, hint: c.hint, kind: fromGenerated, note: reached + ": " + c.note}, c.d)
 }
 
 // candidates appends to dst the decoded candidates of WMI row r and link j
 // (-1: no link, the WMI alone): up to nKeys of the schema's keys, each at
-// every year pickYears gives the band, skipping VINs in tried (which it
-// extends) or listed, and those the procedure raises on.
-func (g *vinsGen) candidates(dst []candidate, tried map[string]bool, r, j, nKeys int) []candidate {
+// every year pickYears gives the band, and with hinted also with that year
+// as the model-year hint: a vehicle type whose model year is inconclusive
+// otherwise decodes as the year 30 later when the WMI has a schema there.
+// It skips what tried holds (and extends it) or the list holds, and
+// candidates the procedure raises on.
+func (g *vinsGen) candidates(dst []candidate, tried map[vinLine]bool, r, j, nKeys int, hinted bool) []candidate {
 	keys := []string{""}
 	years := []yearChoice{g.pickYears(0, artifact.NullInt32)[0], nullYear}
 	if j >= 0 {
@@ -444,19 +449,29 @@ func (g *vinsGen) candidates(dst []candidate, tried map[string]bool, r, j, nKeys
 	for _, k := range keys {
 		for _, y := range years {
 			vin, ok := buildVIN(g.wmiText[r], k, y)
-			if !ok || tried[vin] || g.seen[vinLine{vin: vin}] {
-				continue
-			}
-			tried[vin] = true
-			d, ok := g.decode(vin, 0)
 			if !ok {
 				continue
 			}
-			note := "WMI " + g.wmiText[r]
-			if k != "" {
-				note += ", keys " + k
+			hints := []int32{0}
+			if hinted && y.year != 0 {
+				hints = append(hints, int32(y.year))
 			}
-			dst = append(dst, candidate{vin, note + ", " + y.String() + ", codes " + d.codes, d})
+			for _, h := range hints {
+				key := vinLine{vin: vin, hint: h}
+				if tried[key] || g.seen[key] {
+					continue
+				}
+				tried[key] = true
+				d, ok := g.decode(vin, h)
+				if !ok {
+					continue
+				}
+				note := "WMI " + g.wmiText[r]
+				if k != "" {
+					note += ", keys " + k
+				}
+				dst = append(dst, candidate{vin, note + ", " + y.String() + ", codes " + d.codes, h, d})
+			}
 		}
 	}
 	return dst
