@@ -2,6 +2,8 @@
   "month": "2026_10",
   "dump_bytes": 71394797,
   "dump_sha256": "373e6a8701f60a38e9fab9079d83c8947a75753e76720c116d8ba329ee03d2c1",
+  "oracle": "freshened",
+  "now": "2026-11-09T17:12:22Z",
   "vins": "testdata/oracle/sample-vins.tsv",
   "vins_sha256": "e0fc857f61099c117c905a750cb4958559194e7948a341748380bb5fc461799d",
   "vin_count": 28,
@@ -10,15 +12,5 @@
   "server": "17.11 (Debian 17.11-1.pgdg13+2)",
   "collate": "C",
   "ctype": "en_US.utf8",
-  "pg_restore": "pg_restore (PostgreSQL) 17.11 (Debian 17.11-1.pgdg13+2)",
-  "database_bytes": 1402074803,
-  "disk_used_bytes": 2600390656,
-  "wall_seconds": 26,
-  "runner": "ubuntu24 20261101.360.1, 4 CPU",
-  "timings": {
-    "month": 0.3,
-    "fetch": 0.7,
-    "restore": 18.9,
-    "decode": 4.6
-  }
+  "cut_from": "testdata/parity/2026_10/answer-key.csv"
 }
