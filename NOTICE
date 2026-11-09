@@ -13,3 +13,8 @@ registry of documented upstream defects follow ultravin
 which is also the differential oracle this project tests against. No ultravin
 source is copied; where a design or an evidenced deviation is adopted, the
 file that adopts it says so.
+
+Corpus: the committed parity corpus includes the VINs of ultravin's
+`tests/parity_corpus.json` and its cover set (MIT). Only the VINs are taken;
+every answer in this repository is produced by NHTSA's procedure in Postgres.
+The corpus file's header names the source file and commit.
