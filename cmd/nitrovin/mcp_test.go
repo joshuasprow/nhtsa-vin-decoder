@@ -25,7 +25,7 @@ import (
 // The MCP surface: the tool definition's drift checks need nothing; the
 // session needs NITROVIN_ARTIFACT, as the decode tests do.
 //
-//	NITROVIN_ARTIFACT=nitrovin.artifact go test ./cmd/nitrovin -run MCP
+//	NITROVIN_ARTIFACT=$PWD/nitrovin.artifact go test ./cmd/nitrovin -run MCP
 
 const decodeSchemaPath = "../../docs/api/decode.schema.json"
 

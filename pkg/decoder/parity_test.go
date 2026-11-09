@@ -37,7 +37,7 @@ import (
 // NITROVIN_ARTIFACT is the artifact of the key's month. On another month the
 // test skips, as TestEngineAnswerKey does, until the refresh re-freezes:
 //
-//	NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/decoder -run TestParity
+//	NITROVIN_ARTIFACT=$PWD/nitrovin.artifact go test ./pkg/decoder -run TestParity
 //
 // Three flags serve the refresh. Each takes a scripts/oracle.sh run directory
 // laid out as oracle.yml's artifact: corpus.tsv, freshened/answer-key.csv,
