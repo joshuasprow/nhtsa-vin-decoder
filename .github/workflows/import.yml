@@ -15,7 +15,9 @@
 # engine to the frozen answer key of testdata/parity/<month>/ offline.
 # pkg/contract's TestEngineAnswerKey runs the decode contract on the engine's
 # output, and cmd/nitrovin's tests run the built CLI on it: `decode -` over
-# the answer key's VINs gives the contract layer's bytes.
+# the answer key's VINs gives the contract layer's bytes. cmd/nitrovin-import's
+# TestVinsCoversTheMonth generates the refresh's VIN list from that artifact:
+# every WMI reached, no file over 5,000 VINs, nothing added that raises.
 name: Tests against the dump
 
 on:
@@ -103,6 +105,7 @@ jobs:
             go run ./cmd/nitrovin-import build -month "${{ steps.fetch.outputs.month }}" \
               -o "$NITROVIN_ARTIFACT" -manifest "$RUNNER_TEMP/nitrovin.json"
           go test -count=1 -v -timeout 30m ./pkg/decoder/ ./pkg/contract/ ./cmd/nitrovin/ | tee "$RUNNER_TEMP/engine.log"
+          go test -count=1 -v -run TestVinsCoversTheMonth ./cmd/nitrovin-import/ | tee -a "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestMatcherPostgres' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestCorePostgres' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestCharsetPostgres' "$RUNNER_TEMP/engine.log"
@@ -113,6 +116,7 @@ jobs:
           grep -q -- '--- PASS: TestRefusedLine' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestMCPSession' "$RUNNER_TEMP/engine.log"
           grep -q -- '--- PASS: TestServeContract' "$RUNNER_TEMP/engine.log"
+          grep -q -- '--- PASS: TestVinsCoversTheMonth' "$RUNNER_TEMP/engine.log"
           # The answer key is one month's (its manifest says which); on another
           # month TestEngineAnswerKey, TestDecodeAnswerKey, TestText and TestStdio skip,
           # until the refresh renews the key.

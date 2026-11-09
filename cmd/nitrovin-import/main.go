@@ -11,6 +11,13 @@
 //	    Print an artifact's header and table directory, or the rows of one
 //	    table matching every COLUMN=VALUE, in COPY text format (\N is NULL,
 //	    timestamps are microseconds).
+//	nitrovin-import vins [-now RFC3339] [-max N] [-o PREFIX] [-report FILE] ARTIFACT CORPUS...
+//	    Write the refresh's VIN list (ADR 0008) as PREFIX-1.tsv, PREFIX-2.tsv,
+//	    … of at most N VINs each (default 5000) and print their names: every
+//	    VIN of the CORPUS files, one one-character mutation of each for the
+//	    error paths, then VINs synthesized from the artifact's patterns until
+//	    every WMI and VinSchema the month links is reached. The coverage
+//	    summary goes to stderr; -report writes it in full as JSON.
 //
 // With the dump restored by scripts/oracle.sh, from a checkout:
 //
@@ -42,7 +49,8 @@ func main() {
 const usage = `usage:
   nitrovin-import sql
   nitrovin-import build -month YYYY_MM [-o FILE] [-manifest FILE] [-in FILE]
-  nitrovin-import inspect [-verify] FILE [TABLE [COLUMN=VALUE ...]]`
+  nitrovin-import inspect [-verify] FILE [TABLE [COLUMN=VALUE ...]]
+  ` + vinsUsage
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
@@ -55,6 +63,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return build(args[1:], stdin, stderr)
 	case "inspect":
 		return inspectCmd(args[1:], stdout)
+	case "vins":
+		return vinsCmd(args[1:], stdout, stderr)
 	}
 	return fmt.Errorf("unknown command %q\n%s", args[0], usage)
 }
