@@ -38,13 +38,13 @@ const vinsUsage = `nitrovin-import vins [-now RFC3339] [-max N] [-o PREFIX] [-re
 func vinsCmd(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("vins", flag.ContinueOnError)
 	nowFlag := fs.String("now", "", "the decodes' clock, RFC 3339 (default: now); the oracle's NOW() should fall in the same year")
-	max := fs.Int("max", 5000, "VINs per file: what one oracle.yml job decodes in both modes")
+	perFile := fs.Int("max", 5000, "VINs per file: what one oracle.yml job decodes in both modes")
 	prefix := fs.String("o", "vins", "write PREFIX-1.tsv, PREFIX-2.tsv, …")
 	report := fs.String("report", "", "write the coverage report (JSON) here")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() < 2 || *max < 1 {
+	if fs.NArg() < 2 || *perFile < 1 {
 		return fmt.Errorf("vins needs an artifact, at least one corpus file and -max ≥ 1\n%s", usage)
 	}
 	now := time.Now().UTC()
@@ -75,14 +75,14 @@ func vinsCmd(args []string, stdout, stderr io.Writer) error {
 	g := newVinsGen(a, now)
 	run := g.generate(corpus)
 
-	files, err := writeShards(*prefix, *max, run)
+	files, err := writeShards(*prefix, *perFile, run)
 	if err != nil {
 		return err
 	}
 	for _, f := range files {
 		fmt.Fprintln(stdout, f)
 	}
-	rep := g.report(a.Month(), now, *max, files, run)
+	rep := g.report(a.Month(), now, *perFile, files, run)
 	fmt.Fprint(stderr, rep.summary())
 	if *report != "" {
 		j, err := json.MarshalIndent(rep, "", "  ")
@@ -708,16 +708,16 @@ func transliterate(c byte) (int, bool) {
 	return 0, false
 }
 
-// writeShards writes run as PREFIX-1.tsv, PREFIX-2.tsv, … of at most max
-// VINs each, every VIN after its note, and returns their names.
-func writeShards(prefix string, max int, run []vinLine) ([]string, error) {
+// writeShards writes run as PREFIX-1.tsv, PREFIX-2.tsv, … of at most
+// perFile VINs each, every VIN after its note, and returns their names.
+func writeShards(prefix string, perFile int, run []vinLine) ([]string, error) {
 	var files []string
-	for start := 0; start < len(run); start += max {
+	for start := 0; start < len(run); start += perFile {
 		var b strings.Builder
 		b.WriteString("# The refresh's VIN list (ADR 0008), written by nitrovin-import vins.\n")
 		b.WriteString("# VIN, then optionally a tab and a model-year hint; each comment says why the VIN after it is here.\n")
 		kind := unreached
-		for _, v := range run[start:min(start+max, len(run))] {
+		for _, v := range run[start:min(start+perFile, len(run))] {
 			if v.kind != kind {
 				kind = v.kind
 				fmt.Fprintf(&b, "\n# %s\n", sourceNames[kind])
@@ -770,9 +770,9 @@ type targetReport struct {
 	Unreached []string `json:"unreached"`
 }
 
-func (g *vinsGen) report(month string, now time.Time, max int, files []string, run []vinLine) vinsReport {
+func (g *vinsGen) report(month string, now time.Time, perFile int, files []string, run []vinLine) vinsReport {
 	var r vinsReport
-	r.Month, r.Now, r.Max, r.Files = month, now, max, files
+	r.Month, r.Now, r.Max, r.Files = month, now, perFile, files
 	for _, v := range run {
 		switch v.kind {
 		case fromCorpus:

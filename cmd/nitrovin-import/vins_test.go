@@ -73,7 +73,7 @@ func TestVinsCoversTheMonth(t *testing.T) {
 	if path == "" {
 		t.Skip("NITROVIN_ARTIFACT not set: no artifact to generate from")
 	}
-	const max = 5000
+	const perFile = 5000
 	now := time.Now().UTC().Format(time.RFC3339) // the month's WMIs are published by then
 	corpus := "../../testdata/oracle/sample-vins.tsv"
 	var first []string
@@ -81,7 +81,7 @@ func TestVinsCoversTheMonth(t *testing.T) {
 		dir := t.TempDir()
 		report := filepath.Join(dir, "report.json")
 		var stdout, stderr bytes.Buffer
-		args := []string{"vins", "-now", now, "-max", strconv.Itoa(max), "-o", filepath.Join(dir, "vins"), "-report", report, path, corpus}
+		args := []string{"vins", "-now", now, "-max", strconv.Itoa(perFile), "-o", filepath.Join(dir, "vins"), "-report", report, path, corpus}
 		if err := run(args, nil, &stdout, &stderr); err != nil {
 			t.Fatal(err)
 		}
@@ -149,8 +149,8 @@ func TestVinsCoversTheMonth(t *testing.T) {
 					t.Errorf("%s: %s %q raises: %v", files[f], section, vin, err)
 				}
 			}
-			if n > max {
-				t.Errorf("%s holds %d VINs, more than %d", files[f], n, max)
+			if n > perFile {
+				t.Errorf("%s holds %d VINs, more than %d", files[f], n, perFile)
 			}
 		}
 	}
