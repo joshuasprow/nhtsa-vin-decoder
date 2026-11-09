@@ -2,7 +2,8 @@
 # run its own vpic.spvindecode over a VIN list on the stock dump and on the
 # freshened copy (ADR 0006), and upload both answer keys with the stale-cache
 # list and the witness re-check against live vPIC.
-# Reusable (workflow_call) for the refresh gates; dispatchable by hand.
+# Reusable (workflow_call) for the refresh gates, which run it once per file
+# of a generated VIN list (refresh.yml); dispatchable by hand.
 # The commands live in scripts/oracle.sh so a workstation runs the same ones.
 name: Postgres oracle
 
@@ -17,6 +18,16 @@ on:
         description: VIN list in the checkout (VIN, optional tab and model-year hint); every deviation witness is added
         type: string
         default: testdata/oracle/sample-vins.tsv
+      vins-artifact:
+        description: >-
+          Name of an artifact of the calling run to download into the checkout,
+          under a directory of that name, before reading vins: a list the run generated
+        type: string
+        default: ""
+      artifact:
+        description: Name to upload the results under; empty means oracle-<month>
+        type: string
+        default: ""
     outputs:
       month:
         description: Data month decoded
@@ -56,8 +67,10 @@ jobs:
     runs-on: ubuntu-24.04
     # On this 4-CPU runner, 2026_10 decodes in about 0.11 s per VIN stock and
     # 0.20 s freshened (manifest.json: timings, keys.*.vin_ms), and the rest
-    # of the job takes about a minute: 30 minutes hold about 5k VINs.
-    timeout-minutes: 30
+    # of the job takes about a minute: about 27 minutes for the 5,007 VINs of
+    # a refresh shard (ADR 0008's bound per job), so 45 leaves room for a
+    # month or a list that decodes slower.
+    timeout-minutes: 45
     services:
       postgres:
         # The custom dump is archive format 1.16: pg_restore 17 or newer.
@@ -79,9 +92,16 @@ jobs:
       month: ${{ steps.fetch.outputs.month }}
       dump-bytes: ${{ steps.fetch.outputs.dump_bytes }}
       dump-sha256: ${{ steps.fetch.outputs.dump_sha256 }}
-      artifact: oracle-${{ steps.fetch.outputs.month }}
+      artifact: ${{ inputs.artifact || format('oracle-{0}', steps.fetch.outputs.month) }}
     steps:
       - uses: actions/checkout@v7
+
+      - name: Download the VIN list
+        if: inputs.vins-artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.vins-artifact }}
+          path: ${{ inputs.vins-artifact }}
 
       - name: Prepare
         run: |
@@ -201,6 +221,6 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: oracle-${{ steps.fetch.outputs.month }}
+          name: ${{ inputs.artifact || format('oracle-{0}', steps.fetch.outputs.month) }}
           path: ${{ env.ORACLE_OUT }}
           if-no-files-found: error

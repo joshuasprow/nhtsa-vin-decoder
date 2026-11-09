@@ -13,12 +13,13 @@ import (
 	"time"
 )
 
-// answerKey is the Postgres oracle's answer key for testdata/oracle/
-// sample-vins.tsv on 2026_10: every row spvindecode emitted for 28 VINs,
-// from the oracle smoke run on main (manifest.json beside it records the
-// dump, the VIN list's hash and the collation). TestAnswerKey runs the
-// contract layer on its rows, with no artifact; TestEngineAnswerKey runs it
-// on the engine's decodes of the same VINs.
+// answerKey is the freshened Postgres oracle's answer key for
+// testdata/oracle/sample-vins.tsv: every row spvindecode emitted for 28
+// VINs, in the month manifest.json beside it names. The monthly refresh cuts
+// it from the frozen parity key (scripts/refresh.sh contract-key), whose
+// corpus opens with those VINs. TestAnswerKey runs the contract layer on its
+// rows, with no artifact; TestEngineAnswerKey runs it on the engine's
+// decodes of the same VINs.
 const answerKey = "testdata/oracle/answer-key.csv"
 
 type keyedVIN struct {
