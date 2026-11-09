@@ -62,6 +62,10 @@ jobs:
       - name: Check the snapshot
         run: |
           ls -l dist
+          # Built from an unmodified tree, or a tag would report vX.Y.Z+dirty.
+          for f in dist/nitrovin_*/nitrovin* build/libnitrovin/*/libnitrovin.*; do
+            go version -m "$f" | grep -q 'vcs.modified=false' || { echo "release: $f was built from a modified tree" >&2; exit 1; }
+          done
           tar -xzf dist/nitrovin_*_linux_amd64.tar.gz -C "$RUNNER_TEMP" nitrovin
           "$RUNNER_TEMP/nitrovin" decode 1HGCM82633A004352 | jq -e '.attributes.Make == "HONDA"'
           diff <(tar -tzf dist/libnitrovin_*_linux_amd64.tar.gz | LC_ALL=C sort) <(printf '%s\n' LICENSE NOTICE libnitrovin.so nitrovin.h)
@@ -134,6 +138,12 @@ jobs:
           done
           echo "$n bundles verified"
           sha256sum --check checksums.txt
+          # Every binary and library reports the tag itself (not +dirty).
+          cd ..
+          for f in dist/nitrovin_*/nitrovin* build/libnitrovin/*/libnitrovin.*; do
+            v=$(go version -m "$f" | awk '$1 == "mod" {print $3}')
+            [[ $v == "$TAG" ]] || { echo "release: $f reports $v, not $TAG" >&2; exit 1; }
+          done
 
       - name: Sign the image
         run: |
