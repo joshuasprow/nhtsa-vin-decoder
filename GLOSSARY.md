@@ -155,4 +155,4 @@ _Avoid_: transport, interface, frontend
 **Refresh**:
 The unattended run that notices a new dump, builds its artifact, runs the
 gates, and ships a release.
-_Avoid_: sync, update (that word is `nitrovin update`, the command a user runs)
+_Avoid_: sync, update
