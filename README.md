@@ -163,8 +163,8 @@ NITROVIN_ARTIFACT=nitrovin.artifact go test ./pkg/contract -run 'TestInfo|TestEn
 `cmd/nitrovin` is the `nitrovin` binary ([the CLI contract](docs/api/README.md#cli-nitrovin-decode)).
 Its data is `--data <file>`, then `NITROVIN_DATA`, then the artifact embedded
 in the binary: `github.com/joshuasprow/nitrovin-data/pkg/embedded`, the
-month `go.mod` pins ([`v1.202610.0`](https://github.com/joshuasprow/nitrovin-data/releases/tag/v1.202610.0),
-ADR 0007). A data month moves only by bumping that pin.
+month `go.mod` pins (ADR 0007). A data month moves only by bumping that pin,
+which the monthly refresh does.
 
 ```sh
 go build -o nitrovin ./cmd/nitrovin
@@ -187,3 +187,39 @@ unloadable-data cases, and `info`, `--version` and a decode on the embedded
 data; with `NITROVIN_ARTIFACT` also `decode -` over the answer key's VINs
 against the contract layer's bytes, the data precedence and the `-o text`
 transcript (`-update` rewrites it).
+
+## The monthly refresh
+
+`.github/workflows/refresh.yml` runs every day and on dispatch (ADR 0006,
+0007, 0008). `scripts/refresh.sh detect` compares NHTSA's newest month with
+the one `go.mod` pins: a newer month, or the pinned month's dump re-touched
+(another size or SHA-256), is built; otherwise the run stops there. Then:
+
+1. nitrovin-data's `scripts/build.sh` builds the artifact, and
+   `nitrovin-import vins` writes the VIN list from it: the committed corpus
+   with every witness, mutations, and generated VINs until every WMI and
+   VinSchema is reached, in files of at most 5,000.
+2. One `oracle.yml` job per file decodes it on stock and freshened Postgres;
+   `TestParity -parity-run` gates each file, zero tolerance.
+3. `scripts/refresh.sh report` writes the report: per-file parity, coverage
+   of `pkg/decoder`, what the list reaches (`coverage.json`), the stale-cache
+   class and the witnesses against live vPIC.
+4. Green: `TestParity -update-parity` re-freezes `testdata/parity/<month>`
+   from file 1, `scripts/refresh.sh contract-key` cuts
+   `pkg/contract/testdata/oracle` from it, and `TestText -update` rewrites
+   the transcript. The month is pushed to nitrovin-data's `main`, whose
+   `release.yml` rebuilds it, requires the same bytes and publishes
+   `v<format>.<YYYYMM>.<n>` with the stale-cache list and the frozen key.
+5. Once proxy.golang.org serves that tag, a PR bumps `go.mod` with the new
+   keys and the report as its body; it is squash-merged when every check on
+   it passes, and the next patch tag starts `release.yml`, which the refresh
+   waits for.
+
+Red anywhere publishes nothing: the pinned month stays, and the report goes
+to the issue "Refresh <month> is red", which the next green run closes.
+`gh workflow run refresh.yml -f month=2026_10` rebuilds a month whatever its
+dump; `-f dry-run=true` stops before anything is published. It needs the
+secrets `NITROVIN_DATA_DEPLOY_KEY` and `NITROVIN_DEPLOY_KEY` (write deploy
+keys of nitrovin-data and of this repo: a push or tag made with
+`GITHUB_TOKEN` starts no workflow) and Actions allowed to create pull
+requests.

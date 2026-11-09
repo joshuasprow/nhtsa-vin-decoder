@@ -1,0 +1,599 @@
+# The monthly refresh, unattended (ADR 0006, 0007, 0008): detect a new or
+# re-touched dump, build the artifact, gate it against the freshened Postgres
+# oracle on every WMI (one oracle.yml job per file of the generated VIN list),
+# report, and on green publish the nitrovin-data release, bump go.mod in a PR
+# that merges once its checks pass, and tag the patch release that
+# release.yml (goreleaser) ships through every channel. Red publishes
+# nothing: no data release, the pinned month stays, and the report goes to
+# an issue named "Refresh <month> is red" (a comment there on each red run;
+# the next green run closes it).
+#
+# Credentials, beside this run's GITHUB_TOKEN:
+#   NITROVIN_DATA_DEPLOY_KEY  write deploy key of joshuasprow/nitrovin-data: pushes
+#                             the month to its main, which starts its release.yml
+#   NITROVIN_DEPLOY_KEY       write deploy key of this repo: a push with GITHUB_TOKEN
+#                             starts no workflow, so the bump PR's second commit and
+#                             the release tag go up with this key
+# and the repository setting that lets GitHub Actions create pull requests.
+#
+# Dispatch with a month to rebuild it whatever its dump (nitrovin-data
+# v<format>.<YYYYMM>.<n+1>), and with dry-run to stop before anything is
+# published: detect, build, gates, report and the re-frozen keys all run.
+name: Refresh
+
+on:
+  schedule:
+    # NHTSA lands a month on a weekday between the 9th and the 16th, and has
+    # re-touched a published month once: look every day.
+    - cron: "41 13 * * *"
+  workflow_dispatch:
+    inputs:
+      month:
+        description: Data month YYYY_MM to build even if go.mod already pins its dump; empty means detect
+        type: string
+        default: ""
+      dry-run:
+        description: Stop before publishing anything (no data release, PR, merge or tag)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    # Explicit bash adds -o pipefail, so a pipe cannot hide a failure.
+    shell: bash
+
+env:
+  DATA_REPO: joshuasprow/nitrovin-data
+  DATA_MODULE: github.com/joshuasprow/nitrovin-data
+
+jobs:
+  detect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      month: ${{ steps.detect.outputs.month }}
+      pinned: ${{ steps.detect.outputs.pinned }}
+      reason: ${{ steps.detect.outputs.reason }}
+      build: ${{ steps.detect.outputs.build }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - id: detect
+        env:
+          MONTH: ${{ inputs.month }}
+        run: scripts/refresh.sh detect "$MONTH" | tee -a "$GITHUB_OUTPUT"
+
+  build:
+    needs: detect
+    if: needs.detect.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        # As oracle.yml: pg_restore 17+, collate C.
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vpic
+          POSTGRES_INITDB_ARGS: --lc-collate=C
+        options: >-
+          --shm-size 1g
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    outputs:
+      shards: ${{ steps.vins.outputs.shards }}
+    env:
+      MONTH: ${{ needs.detect.outputs.month }}
+    steps:
+      # build.sh names this commit as the importer in manifest.json, and
+      # nitrovin-data's release.yml rebuilds with it.
+      - uses: actions/checkout@v7
+        with:
+          path: nitrovin
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ env.DATA_REPO }}
+          path: data
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: nitrovin/go.mod
+          cache-dependency-path: nitrovin/go.sum
+
+      - name: Build the artifact
+        env:
+          ORACLE_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          data/scripts/build.sh nitrovin "$MONTH" "$RUNNER_TEMP/data"
+          # nitrovin-data's release.yml fetches the dump itself.
+          rm "$RUNNER_TEMP/data/vPICList_lite_$MONTH.custom.zip"
+
+      # ADR 0008's list: the committed corpus and every witness, mutations,
+      # then generated VINs until every WMI and VinSchema is reached, in files
+      # of at most 5,000 VINs, one oracle.yml job each.
+      - name: Generate the VIN list
+        id: vins
+        working-directory: nitrovin
+        run: |
+          out="$RUNNER_TEMP/vins"
+          mkdir -p "$out"
+          frozen=(testdata/parity/*/)
+          [ "${#frozen[@]}" -eq 1 ] || { echo "refresh: expected one month under testdata/parity, got ${frozen[*]}" >&2; exit 1; }
+          scripts/oracle.sh corpus "${frozen[0]}corpus.tsv" >"$out/corpus.tsv"
+          go build -o "$RUNNER_TEMP/nitrovin-import" ./cmd/nitrovin-import
+          (cd "$out" && "$RUNNER_TEMP/nitrovin-import" vins -o run -report coverage.json \
+            "$RUNNER_TEMP/data/nitrovin-$MONTH.artifact" corpus.tsv) >"$out/files.txt"
+          jq -R . "$out/files.txt" | jq -sc 'to_entries | map({shard: (.key + 1), vins: .value})' >"$out/shards.json"
+          echo "shards=$(cat "$out/shards.json")" | tee -a "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: refresh-data
+          path: ${{ runner.temp }}/data
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: refresh-vins
+          path: ${{ runner.temp }}/vins
+          if-no-files-found: error
+
+  oracle:
+    needs: [detect, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.build.outputs.shards) }}
+    uses: ./.github/workflows/oracle.yml
+    with:
+      month: ${{ needs.detect.outputs.month }}
+      vins: refresh-vins/${{ matrix.vins }}
+      vins-artifact: refresh-vins
+      artifact: oracle-${{ needs.detect.outputs.month }}-${{ matrix.shard }}
+
+  # Zero tolerance, per file: TestParity -parity-run fails on any differing
+  # row and writes the report either way.
+  gate:
+    needs: [detect, build, oracle]
+    if: always() && needs.build.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.build.outputs.shards) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      MONTH: ${{ needs.detect.outputs.month }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v8
+        with:
+          name: refresh-data
+          path: ${{ runner.temp }}/data
+      - uses: actions/download-artifact@v8
+        with:
+          name: oracle-${{ env.MONTH }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/run
+      - name: Parity against the freshened oracle
+        env:
+          NITROVIN_ARTIFACT: ${{ runner.temp }}/data/nitrovin-${{ env.MONTH }}.artifact
+        run: |
+          out="$RUNNER_TEMP/parity"
+          mkdir -p "$out"
+          result=fail
+          if go test -count=1 -v -timeout 30m ./pkg/decoder -run 'TestParity$' \
+               -parity-run="$RUNNER_TEMP/run" -parity-report="$out" -coverprofile="$out/cover.out" | tee "$RUNNER_TEMP/test.log" &&
+             grep -q -- '--- PASS: TestParity' "$RUNNER_TEMP/test.log"; then
+            result=pass
+          fi
+          echo "$result" >"$out/result"
+          cat "$out/report.md" >>"$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          [ "$result" = pass ]
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: parity-${{ env.MONTH }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/parity
+
+  report:
+    needs: [detect, build, oracle, gate]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      green: ${{ steps.report.outputs.green }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # Every artifact of the run, each in a directory of its name.
+      - uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/refresh
+      - name: The pinned release's stale-cache list
+        env:
+          PINNED: ${{ needs.detect.outputs.pinned }}
+        run: |
+          gh release download "$PINNED" -R "$DATA_REPO" -p stale-cache.jsonl -D "$RUNNER_TEMP/refresh/previous" ||
+            echo "$PINNED has no stale-cache.jsonl"
+      - name: Report
+        id: report
+        env:
+          REFRESH_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REFRESH_REASON: ${{ needs.detect.outputs.reason }}
+          REFRESH_PINNED: ${{ needs.detect.outputs.pinned }}
+        run: |
+          scripts/refresh.sh report "$RUNNER_TEMP/refresh" | tee -a "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/refresh/report.md" >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: refresh-report
+          path: |
+            ${{ runner.temp }}/refresh/report.md
+            ${{ runner.temp }}/refresh/stale-cache.jsonl
+            ${{ runner.temp }}/refresh/cover.out
+          if-no-files-found: error
+
+  # Re-freeze from file 1's run, whose list opens with the committed corpus
+  # (TestParity -update-parity), cut the contract key from it, and rewrite
+  # the -o text transcript; then run what the bump PR's checks will run on
+  # them. The diff goes to the bump PR; the frozen key and the stale-cache
+  # list go to the data release.
+  freeze:
+    needs: [detect, build, report]
+    if: always() && needs.report.outputs.green == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      MONTH: ${{ needs.detect.outputs.month }}
+    steps:
+      - name: Prepare
+        run: echo "NITROVIN_ARTIFACT=$RUNNER_TEMP/data/nitrovin-$MONTH.artifact" >>"$GITHUB_ENV"
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v8
+        with:
+          name: refresh-data
+          path: ${{ runner.temp }}/data
+      - uses: actions/download-artifact@v8
+        with:
+          name: oracle-${{ env.MONTH }}-${{ fromJSON(needs.build.outputs.shards)[0].shard }}
+          path: ${{ runner.temp }}/run
+      - uses: actions/download-artifact@v8
+        with:
+          name: refresh-report
+          path: ${{ runner.temp }}/report
+      - name: Freeze the keys
+        run: |
+          go test -count=1 -v ./pkg/decoder -run 'TestParity$' -update-parity="$RUNNER_TEMP/run" | tee "$RUNNER_TEMP/freeze.log"
+          grep -q -- '--- PASS: TestParity' "$RUNNER_TEMP/freeze.log"
+          scripts/refresh.sh contract-key "testdata/parity/$MONTH"
+          go test -count=1 ./cmd/nitrovin -run 'TestText$' -update
+      - name: Test on the new keys
+        run: |
+          go test -count=1 -v ./pkg/decoder ./pkg/contract ./cmd/nitrovin \
+            -run 'TestParity$|TestEngineAnswerKey$|TestDecodeAnswerKey$|TestText$|TestStdio$' | tee "$RUNNER_TEMP/test.log"
+          for t in TestParity TestEngineAnswerKey TestDecodeAnswerKey TestText TestStdio; do
+            grep -q -- "--- PASS: $t " "$RUNNER_TEMP/test.log" || { echo "refresh: $t did not pass" >&2; exit 1; }
+          done
+      - name: The diff and the release's assets
+        run: |
+          mkdir -p "$RUNNER_TEMP/freeze" "$RUNNER_TEMP/extras"
+          git add -A testdata/parity pkg/contract/testdata/oracle cmd/nitrovin/testdata
+          git diff --cached --stat | tee -a "$GITHUB_STEP_SUMMARY"
+          git diff --cached --binary >"$RUNNER_TEMP/freeze/freeze.patch"
+          # ADR 0008: a month's frozen key lives on as an asset of its release.
+          tar -C testdata/parity -czf "$RUNNER_TEMP/extras/parity-$MONTH.tar.gz" "$MONTH"
+          cp "$RUNNER_TEMP/report/stale-cache.jsonl" "$RUNNER_TEMP/extras/"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: refresh-freeze
+          path: ${{ runner.temp }}/freeze
+          if-no-files-found: error
+      # nitrovin-data's release.yml downloads this by the run id its commit names.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: data-release-extras
+          path: ${{ runner.temp }}/extras
+          if-no-files-found: error
+
+  publish-data:
+    needs: [detect, freeze]
+    if: always() && needs.freeze.result == 'success' && !inputs.dry-run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+    env:
+      MONTH: ${{ needs.detect.outputs.month }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ env.DATA_REPO }}
+          ssh-key: ${{ secrets.NITROVIN_DATA_DEPLOY_KEY }}
+          path: data
+      - uses: actions/download-artifact@v8
+        with:
+          name: refresh-data
+          path: ${{ runner.temp }}/data
+
+      # The commit replaces the embedded month as a month PR would; pushed to
+      # main with the deploy key, it starts nitrovin-data's release.yml, which
+      # rebuilds it from the dump, requires the same bytes, tags and publishes.
+      - name: Push the month to nitrovin-data
+        id: push
+        working-directory: data
+        env:
+          REASON: ${{ needs.detect.outputs.reason }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          cp "$RUNNER_TEMP/data/nitrovin-$MONTH.artifact" pkg/embedded/nitrovin.artifact
+          cp "$RUNNER_TEMP/data/manifest.json" pkg/embedded/manifest.json
+          blake3=$(jq -r .blake3 pkg/embedded/manifest.json)
+          sed -i -e "s/^const Month = \".*\"$/const Month = \"$MONTH\"/" \
+                 -e "s/^const BLAKE3 = \".*\"$/const BLAKE3 = \"$blake3\"/" pkg/embedded/embedded.go
+          grep -qx "const Month = \"$MONTH\"" pkg/embedded/embedded.go
+          grep -qx "const BLAKE3 = \"$blake3\"" pkg/embedded/embedded.go
+          if git diff --quiet; then
+            echo "refresh: nitrovin-data's main already embeds this build"
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -qam "pkg/embedded: data month $MONTH ($REASON)" -m "Built and gated by $RUN_URL" --trailer "Refresh-Run: $GITHUB_RUN_ID"
+            git push origin HEAD:main
+          fi
+          echo "sha=$(git rev-parse HEAD)" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Wait for the data release
+        id: release
+        env:
+          SHA: ${{ steps.push.outputs.sha }}
+        run: |
+          prefix="v$(jq -r .format "$RUNNER_TEMP/data/manifest.json").${MONTH/_/}."
+          for _ in $(seq 100); do
+            tag=$(gh api "repos/$DATA_REPO/git/matching-refs/tags/$prefix" |
+              jq -r --arg sha "$SHA" 'map(select(.object.sha == $sha))[0].ref // "" | sub("^refs/tags/"; "")')
+            if [ -n "$tag" ]; then
+              echo "tag=$tag" | tee -a "$GITHUB_OUTPUT"
+              gh release view "$tag" -R "$DATA_REPO"
+              exit 0
+            fi
+            run=$(gh run list -R "$DATA_REPO" --workflow release.yml --commit "$SHA" -L 1 --json status,conclusion,url)
+            if jq -e '.[0] | .status == "completed" and .conclusion != "success"' <<<"$run" >/dev/null; then
+              echo "refresh: nitrovin-data's release.yml did not release $SHA: $(jq -r '.[0].url' <<<"$run")" >&2
+              exit 1
+            fi
+            sleep 30
+          done
+          echo "refresh: no nitrovin-data release of $SHA after 50 minutes" >&2
+          exit 1
+
+      - name: Wait for proxy.golang.org
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          for _ in $(seq 60); do
+            curl -fsS "https://proxy.golang.org/$DATA_MODULE/@v/$TAG.info" && exit 0
+            sleep 15
+          done
+          echo "refresh: proxy.golang.org does not serve $DATA_MODULE@$TAG after 15 minutes" >&2
+          exit 1
+
+  # The go.mod bump PR, merged once every check on it passes. A PR opened and
+  # pushed with GITHUB_TOKEN starts no workflow, so the second commit, the
+  # re-frozen keys, goes up with the deploy key: that push is what runs the
+  # PR's checks, exactly those a person's PR would get.
+  bump:
+    needs: [detect, publish-data]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      pr: ${{ steps.pr.outputs.pr }}
+      sha: ${{ steps.merge.outputs.sha }}
+    env:
+      MONTH: ${{ needs.detect.outputs.month }}
+      TAG: ${{ needs.publish-data.outputs.tag }}
+      BRANCH: refresh/${{ needs.detect.outputs.month }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v8
+        with:
+          name: refresh-freeze
+          path: ${{ runner.temp }}/freeze
+      - uses: actions/download-artifact@v8
+        with:
+          name: refresh-report
+          path: ${{ runner.temp }}/report
+      - name: Git identity and the deploy key
+        env:
+          KEY: ${{ secrets.NITROVIN_DEPLOY_KEY }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KEY" >~/.ssh/nitrovin && chmod 600 ~/.ssh/nitrovin
+          curl -fsS https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com \(.)"' >>~/.ssh/known_hosts
+
+      - name: Bump go.mod
+        run: |
+          go get "$DATA_MODULE@$TAG"
+          go mod tidy
+          git commit -qam "go.mod: nitrovin-data $TAG, data month $MONTH"
+          git push --force origin "HEAD:refs/heads/$BRANCH"
+
+      - name: Open the PR
+        id: pr
+        run: |
+          {
+            echo "The monthly refresh: \`go.mod\` pins [nitrovin-data \`$TAG\`](https://github.com/$DATA_REPO/releases/tag/$TAG); \`testdata/parity/$MONTH\` is re-frozen, and the contract key and the \`-o text\` transcript are renewed from it. Merged by the refresh once every check passes, then tagged."
+            echo
+            cat "$RUNNER_TEMP/report/report.md"
+          } | awk -v max=60000 '{ n += length($0) + 1 } n > max { print "\n(Cut at 60,000 characters: the run summary has the rest.)"; exit } { print }' >"$RUNNER_TEMP/body.md"
+          pr=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // ""')
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --base main --head "$BRANCH" --title "Refresh: data month $MONTH (nitrovin-data $TAG)" --body-file "$RUNNER_TEMP/body.md"
+            pr=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')
+          fi
+          echo "pr=$pr" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Push the frozen keys with the deploy key
+        id: head
+        run: |
+          git apply --index "$RUNNER_TEMP/freeze/freeze.patch"
+          git commit -q --allow-empty -m "testdata: freeze $MONTH's parity key; renew the contract key and the -o text transcript"
+          GIT_SSH_COMMAND='ssh -i ~/.ssh/nitrovin -o IdentitiesOnly=yes' \
+            git push "git@github.com:$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$BRANCH"
+          echo "sha=$(git rev-parse HEAD)" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Wait for the PR's checks
+        env:
+          PR: ${{ steps.pr.outputs.pr }}
+          HEAD: ${{ steps.head.outputs.sha }}
+        run: |
+          for _ in $(seq 40); do
+            n=$(gh pr view "$PR" --json headRefOid,statusCheckRollup \
+              --jq "if .headRefOid == \"$HEAD\" then .statusCheckRollup | length else 0 end")
+            [ "$n" -gt 0 ] && break
+            sleep 30
+          done
+          [ "$n" -gt 0 ] || { echo "refresh: no check started on PR #$PR after 20 minutes" >&2; exit 1; }
+          # Workflows register their checks one by one.
+          sleep 60
+          gh pr checks "$PR" --watch --interval 30
+
+      - name: Merge
+        id: merge
+        env:
+          PR: ${{ steps.pr.outputs.pr }}
+          HEAD: ${{ steps.head.outputs.sha }}
+        run: |
+          gh pr merge "$PR" --squash --match-head-commit "$HEAD"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH" || true
+          echo "sha=$(gh pr view "$PR" --json mergeCommit --jq .mergeCommit.oid)" | tee -a "$GITHUB_OUTPUT"
+
+  # The patch tag goes up with the deploy key, so release.yml runs on it.
+  release:
+    needs: [detect, publish-data, bump]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    env:
+      MONTH: ${{ needs.detect.outputs.month }}
+      DATA_TAG: ${{ needs.publish-data.outputs.tag }}
+      SHA: ${{ needs.bump.outputs.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.bump.outputs.sha }}
+          fetch-depth: 0
+      - name: Git identity and the deploy key
+        env:
+          KEY: ${{ secrets.NITROVIN_DEPLOY_KEY }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KEY" >~/.ssh/nitrovin && chmod 600 ~/.ssh/nitrovin
+          curl -fsS https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com \(.)"' >>~/.ssh/known_hosts
+
+      - name: Tag the patch
+        id: tag
+        run: |
+          last=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | awk 'NR == 1')
+          [[ $last =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || { echo "refresh: no vX.Y.Z tag to follow" >&2; exit 1; }
+          tag="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+          git tag -a "$tag" -m "nitrovin $tag: data month $MONTH (nitrovin-data $DATA_TAG)" "$SHA"
+          GIT_SSH_COMMAND='ssh -i ~/.ssh/nitrovin -o IdentitiesOnly=yes' \
+            git push "git@github.com:$GITHUB_REPOSITORY.git" "refs/tags/$tag"
+          echo "tag=$tag" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Wait for release.yml
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          for _ in $(seq 40); do
+            id=$(gh run list --workflow release.yml --event push --branch "$TAG" -L 1 --json databaseId --jq '.[0].databaseId // ""')
+            [ -n "$id" ] && break
+            sleep 15
+          done
+          [ -n "$id" ] || { echo "refresh: release.yml did not start on $TAG" >&2; exit 1; }
+          gh run watch "$id" --exit-status --interval 30
+          gh release view "$TAG"
+
+  # Red anywhere after detect: comment the report on the month's issue,
+  # opening it if need be. Green: close it.
+  notify:
+    needs: [detect, build, oracle, gate, report, freeze, publish-data, bump, release]
+    if: always() && needs.detect.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      issues: write
+    env:
+      NEEDS: ${{ toJSON(needs) }}
+      MONTH: ${{ needs.detect.outputs.month }}
+      DRY_RUN: ${{ inputs.dry-run }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: refresh-report
+          path: ${{ runner.temp }}/report
+      - name: Post
+        env:
+          DATA_TAG: ${{ needs.publish-data.outputs.tag }}
+          TAG: ${{ needs.release.outputs.tag }}
+          PR: ${{ needs.bump.outputs.pr }}
+        run: |
+          failed=$(jq -r 'to_entries | map(select(.value.result == "failure" or .value.result == "cancelled") | .key) | join(", ")' <<<"$NEEDS")
+          title="Refresh $MONTH is red"
+          issue=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --json number,title -L 100 |
+            jq -r --arg t "$title" 'map(select(.title == $t))[0].number // ""')
+          if [ -n "$failed" ]; then
+            {
+              echo "The [refresh run]($RUN_URL)$([ "$DRY_RUN" = true ] && echo ', a dry run,') failed in: $failed."
+              echo
+              cat "$RUNNER_TEMP/report/report.md" 2>/dev/null || echo 'No report: the run failed before the gates.'
+            } | awk -v max=60000 '{ n += length($0) + 1 } n > max { print "\n(Cut at 60,000 characters: the run summary has the rest.)"; exit } { print }' >"$RUNNER_TEMP/body.md"
+            if [ -n "$issue" ]; then
+              gh issue comment "$issue" -R "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/body.md"
+            else
+              gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+            fi
+          elif [ -n "$issue" ] && [ "$DRY_RUN" != true ]; then
+            gh issue close "$issue" -R "$GITHUB_REPOSITORY" --comment "Green in $RUN_URL: nitrovin-data $DATA_TAG, #$PR, nitrovin $TAG."
+          fi
