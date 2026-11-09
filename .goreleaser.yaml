@@ -222,7 +222,7 @@ winget:
       owner: joshuasprow
       name: winget-pkgs
       branch: "JoshuaSprow.Nitrovin-{{ .Version }}"
-      token: '{{ index .Env "WINGET_GITHUB_TOKEN" }}'
+      token: "{{ .Env.WINGET_GITHUB_TOKEN }}"
       pull_request:
         enabled: true
         base:
