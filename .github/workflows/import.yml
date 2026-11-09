@@ -11,10 +11,11 @@
 # the freshened spvindecode, with and without model-year hints;
 # TestProjectionPostgres checks the projected rows against the whole
 # freshened spvindecode on the same calls, and TestElementAttributeValuePostgres
-# the resolution against fElementAttributeValue. pkg/contract's
-# TestEngineAnswerKey runs the decode contract on the engine's output, and
-# cmd/nitrovin's tests run the built CLI on it: `decode -` over the answer
-# key's VINs gives the contract layer's bytes.
+# the resolution against fElementAttributeValue; TestParity holds the
+# engine to the frozen answer key of testdata/parity/<month>/ offline.
+# pkg/contract's TestEngineAnswerKey runs the decode contract on the engine's
+# output, and cmd/nitrovin's tests run the built CLI on it: `decode -` over
+# the answer key's VINs gives the contract layer's bytes.
 name: Tests against the dump
 
 on:
@@ -25,6 +26,7 @@ on:
       - pkg/**
       - go.mod
       - go.sum
+      - testdata/parity/**
       - scripts/oracle.sh
       - .github/workflows/import.yml
   workflow_dispatch:
@@ -119,4 +121,8 @@ jobs:
             grep -q -- '--- PASS: TestDecodeAnswerKey' "$RUNNER_TEMP/engine.log"
             grep -q -- '--- PASS: TestText' "$RUNNER_TEMP/engine.log"
             grep -q -- '--- PASS: TestStdio ' "$RUNNER_TEMP/engine.log"
+          fi
+          # Likewise the frozen parity key, whose manifest names its month.
+          if [ "${{ steps.fetch.outputs.month }}" = "$(jq -r .month testdata/parity/*/manifest.json)" ]; then
+            grep -q -- '--- PASS: TestParity' "$RUNNER_TEMP/engine.log"
           fi

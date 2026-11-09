@@ -151,10 +151,13 @@ jobs:
                   'max', max(ms), 'total', round(sum(ms))) from oracle.vin_time")" \
               '$ARGS.named'
           }
+          # started_at: the job's start, the instant pkg/decoder's TestParity
+          # decodes this run's key at (-parity-run, -update-parity).
           jq -n \
             --arg month "$MONTH" \
             --argjson dump_bytes "$DUMP_BYTES" \
             --arg dump_sha256 "$DUMP_SHA256" \
+            --arg started_at "$(date -u -d "@$ORACLE_STARTED" +%Y-%m-%dT%H:%M:%SZ)" \
             --arg vins "$VINS" \
             --arg vins_sha256 "$(sha "$VINS")" \
             --arg corpus_sha256 "$(sha "$ORACLE_OUT/corpus.tsv")" \
