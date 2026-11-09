@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{if .Decode}}{{.Decode.VIN}} · {{end}}nitrovin</title>
+<style>
+:root { color-scheme: light dark; --muted: #6b7280; --line: #d1d5db; --bad: #b91c1c; --ok: #15803d; }
+body { font: 15px/1.5 system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }
+h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+h2 { font-size: 1.1rem; margin: 2rem 0 .5rem; }
+form { display: grid; gap: .75rem; padding: 1rem; border: 1px solid var(--line); border-radius: 6px; }
+label, legend { font-weight: 600; }
+fieldset { border: 0; padding: 0; margin: 0; }
+fieldset label, label.check { font-weight: 400; margin-right: 1rem; }
+input[type=text] { font: inherit; padding: .3rem .5rem; width: 100%; max-width: 22rem; box-sizing: border-box; display: block; }
+input#vin { font-family: ui-monospace, monospace; }
+input[aria-invalid=true] { border: 2px solid var(--bad); }
+.error { color: var(--bad); margin: .2rem 0 0; }
+.hint { color: var(--muted); font-weight: 400; }
+button { font: inherit; padding: .35rem 1.2rem; justify-self: start; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; vertical-align: top; padding: .25rem .75rem .25rem 0; border-bottom: 1px solid var(--line); }
+td ul { margin: 0; padding-left: 1.1rem; }
+.mono { font-family: ui-monospace, monospace; }
+.codes-clean { color: var(--ok); }
+.codes-flagged { color: var(--bad); }
+.null { color: var(--muted); font-style: italic; }
+.wide { overflow-x: auto; }
+.wide table { font-size: 13px; }
+footer { margin-top: 2.5rem; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>nitrovin: decode a VIN</h1>
+
+<form method="get" action="/">
+{{with index .Errors ""}}<p class="error" role="alert">{{.}}</p>{{end}}
+<div>
+<label for="vin">VIN</label>
+<input type="text" id="vin" name="vin" value="{{.VIN}}" autocomplete="off" spellcheck="false" autofocus{{with index .Errors "vin"}} aria-invalid="true" aria-describedby="vin-error"{{end}}>
+{{with index .Errors "vin"}}<p class="error" id="vin-error">{{.}}</p>{{end}}
+</div>
+<div>
+<label for="model_year">Model year <span class="hint">(optional hint)</span></label>
+<input type="text" id="model_year" name="model_year" value="{{.ModelYear}}" inputmode="numeric" autocomplete="off"{{with index .Errors "model_year"}} aria-invalid="true" aria-describedby="model_year-error"{{end}}>
+{{with index .Errors "model_year"}}<p class="error" id="model_year-error">{{.}}</p>{{end}}
+</div>
+<fieldset{{with index .Errors "shape"}} aria-describedby="shape-error"{{end}}>
+<legend>Shape</legend>
+<label><input type="radio" name="shape" value="vpic"{{if eq .Shape "vpic"}} checked{{end}}> vpic <span class="hint">(vPIC's element codes)</span></label>
+<label><input type="radio" name="shape" value="nitrovin"{{if eq .Shape "nitrovin"}} checked{{end}}> nitrovin <span class="hint">(variable names, lists)</span></label>
+{{with index .Errors "shape"}}<p class="error" id="shape-error">{{.}}</p>{{end}}
+</fieldset>
+<div>
+<label class="check"><input type="checkbox" name="full" value="true"{{if .Full}} checked{{end}}{{with index .Errors "full"}} aria-describedby="full-error"{{end}}> full <span class="hint">(every row the decoder emitted)</span></label>
+{{with index .Errors "full"}}<p class="error" id="full-error">{{.}}</p>{{end}}
+</div>
+<button type="submit">Decode</button>
+</form>
+
+{{with .Decode}}
+<h2>Result <a href="{{.JSON}}">JSON</a></h2>
+<p>Error codes:
+<span class="mono {{if .Clean}}codes-clean{{else}}codes-flagged{{end}}">{{range $i, $c := .ErrorCodes}}{{if $i}}, {{end}}{{$c}}{{end}}</span>
+· check digit {{if .CheckDigitValid}}valid{{else}}invalid{{end}}</p>
+<table>
+<tbody>
+<tr><th scope="row">VIN</th><td class="mono">{{.VIN}}</td></tr>
+{{range .Rows}}<tr><th scope="row">{{.Name}}</th><td>{{if .List}}<ul>{{range .Values}}<li>{{.}}</li>{{end}}</ul>{{else}}{{index .Values 0}}{{end}}</td></tr>
+{{end}}</tbody>
+</table>
+{{if .Items}}
+<h2>Items</h2>
+<div class="wide">
+<table>
+<thead><tr><th>Element</th><th>Variable</th><th>Value</th><th>Attribute</th><th>Source</th><th>Pattern</th><th>VIN schema</th><th>Keys</th></tr></thead>
+<tbody>
+{{range .Items}}<tr><td>{{.ElementID}}</td><td>{{.Variable}}</td><td>{{template "null" .Value}}</td><td>{{template "null" .AttributeID}}</td><td>{{template "null" .Source}}</td><td>{{template "null" .PatternID}}</td><td>{{template "null" .VinSchemaID}}</td><td class="mono">{{template "null" .Keys}}</td></tr>
+{{end}}</tbody>
+</table>
+</div>
+{{end}}
+{{end}}
+
+<footer>
+data {{.DataMonth}} · decoder {{.DecoderVersion}} ·
+<a href="https://github.com/joshuasprow/nitrovin/blob/main/docs/parity.md">parity report</a> ·
+<a href="https://github.com/joshuasprow/nitrovin">source</a> ·
+the API is <a href="/v1/openapi.json">/v1</a>
+</footer>
+</body>
+</html>
+{{define "null"}}{{if .Valid}}{{.V}}{{else}}<span class="null">NULL</span>{{end}}{{end}}

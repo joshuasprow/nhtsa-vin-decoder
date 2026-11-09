@@ -126,6 +126,12 @@ curl localhost:8080/v1/decode -d '[{"vin":"1HGCM82633A004352"},{"vin":"5YJ3E1EA2
 curl localhost:8080/v1/info
 ```
 
+Open the address in a browser for a decode form: a VIN, an optional model
+year, the shape and `full`, rendered on the server with no JavaScript, each
+decode a shareable URL (`/?vin=1HGCM82633A004352`) with a link to the same
+request on `/v1`. The form is not part of the API: it is not in the OpenAPI
+document and may change.
+
 `POST /v1/decode` takes up to 1,000 requests and returns an array of
 decodes in order. Refusals are `application/problem+json` (RFC 9457) with a
 `pointer` to the offending value. `GET /v1/openapi.json` serves the
