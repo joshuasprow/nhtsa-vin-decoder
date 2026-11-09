@@ -64,10 +64,12 @@ func TestBuildVIN(t *testing.T) {
 	}
 }
 
-// With an artifact (NITROVIN_ARTIFACT): the list reaches every WMI of the
-// month, no file holds more than -max VINs, nothing it adds to the corpus
-// makes the procedure raise (scripts/oracle.sh decode would stop there),
-// and the same inputs give the same files.
+// With an artifact (NITROVIN_ARTIFACT), on the committed parity corpus: the
+// first file opens with the corpus byte for byte (what -update-parity
+// freezes), the list reaches every WMI of the month, no file holds more
+// than -max VINs, nothing it adds to the corpus makes the procedure raise
+// (scripts/oracle.sh decode would stop there), and the same inputs give
+// the same files.
 func TestVinsCoversTheMonth(t *testing.T) {
 	path := os.Getenv("NITROVIN_ARTIFACT")
 	if path == "" {
@@ -75,7 +77,11 @@ func TestVinsCoversTheMonth(t *testing.T) {
 	}
 	const perFile = 5000
 	now := time.Now().UTC().Format(time.RFC3339) // the month's WMIs are published by then
-	corpus := "../../testdata/oracle/sample-vins.tsv"
+	corpora, err := filepath.Glob("../../testdata/parity/*/corpus.tsv")
+	if err != nil || len(corpora) != 1 {
+		t.Fatalf("committed corpus: %v %v, want one", corpora, err)
+	}
+	corpus := corpora[0]
 	var first []string
 	for i := range 2 {
 		dir := t.TempDir()
@@ -123,11 +129,21 @@ func TestVinsCoversTheMonth(t *testing.T) {
 		}
 		e := decoder.NewEngine(a)
 		at, _ := time.Parse(time.RFC3339, now)
+		corpusText, err := os.ReadFile(corpus)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(contents[0], string(corpusText)) {
+			t.Errorf("%s does not open with %s byte for byte", files[0], corpus)
+		}
 		for f, content := range contents {
 			n, section := 0, ""
+			if f == 0 {
+				section = "corpus"
+			}
 			for _, l := range strings.Split(content, "\n") {
 				if l == "" || l[0] == '#' {
-					if l == "# corpus" || l == "# mutations" || l == "# generated" {
+					if l == "# mutations" || l == "# generated" {
 						section = l[2:]
 					}
 					continue

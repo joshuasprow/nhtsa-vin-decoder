@@ -13,11 +13,12 @@
 //	    timestamps are microseconds).
 //	nitrovin-import vins [-now RFC3339] [-max N] [-o PREFIX] [-report FILE] ARTIFACT CORPUS...
 //	    Write the refresh's VIN list (ADR 0008) as PREFIX-1.tsv, PREFIX-2.tsv,
-//	    … of at most N VINs each (default 5000) and print their names: every
-//	    VIN of the CORPUS files, one one-character mutation of each for the
-//	    error paths, then VINs synthesized from the artifact's patterns until
-//	    every WMI and VinSchema the month links is reached. The coverage
-//	    summary goes to stderr; -report writes it in full as JSON.
+//	    … of at most N VINs each (default 5000) and print their names: the
+//	    CORPUS files as given, opening the first file; one one-character
+//	    mutation of each corpus VIN for the error paths; then VINs synthesized
+//	    from the artifact's patterns until every WMI and VinSchema the month
+//	    links is reached. The coverage summary goes to stderr; -report writes
+//	    it in full as JSON.
 //
 // With the dump restored by scripts/oracle.sh, from a checkout:
 //

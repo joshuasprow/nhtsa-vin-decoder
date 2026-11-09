@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -63,26 +64,40 @@ func vinsCmd(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// The corpus opens the first file byte for byte: TestParity's
+	// -update-parity freezes a run whose list begins with it.
 	var corpus []vinLine
+	var corpusText strings.Builder
 	for _, path := range fs.Args()[1:] {
-		lines, err := readVINs(path)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		lines, err := readVINs(path, data)
 		if err != nil {
 			return err
 		}
 		corpus = append(corpus, lines...)
+		corpusText.Write(data)
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			corpusText.WriteByte('\n')
+		}
+	}
+	if len(corpus) > *perFile {
+		return fmt.Errorf("the corpus holds %d VINs, more than -max %d: it must fit the first file", len(corpus), *perFile)
 	}
 
 	g := newVinsGen(a, now)
 	run := g.generate(corpus)
 
-	files, err := writeShards(*prefix, *perFile, run)
+	files, err := writeShards(*prefix, *perFile, corpusText.String(), len(corpus), run)
 	if err != nil {
 		return err
 	}
 	for _, f := range files {
 		fmt.Fprintln(stdout, f)
 	}
-	rep := g.report(a.Month(), now, *perFile, files, run)
+	rep := g.report(a.Month(), now, *perFile, files, len(corpus), run)
 	fmt.Fprint(stderr, rep.summary())
 	if *report != "" {
 		j, err := json.MarshalIndent(rep, "", "  ")
@@ -117,17 +132,13 @@ const (
 
 var sourceNames = [...]string{"unreached", "corpus", "mutations", "generated"}
 
-// readVINs reads a VIN list as scripts/oracle.sh decode does: blank lines
-// and lines whose first non-space is '#' skipped, a VIN, then optionally a
-// tab and a model-year hint. The VIN is kept byte for byte.
-func readVINs(path string) ([]vinLine, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
+// readVINs reads a VIN list, the contents data of path, as
+// scripts/oracle.sh decode does: blank lines and lines whose first
+// non-space is '#' skipped, a VIN, then optionally a tab and a model-year
+// hint. The VIN is kept byte for byte.
+func readVINs(path string, data []byte) ([]vinLine, error) {
 	var out []vinLine
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(bytes.NewReader(data))
 	for n := 1; sc.Scan(); n++ {
 		l := strings.TrimSuffix(sc.Text(), "\r")
 		if t := strings.TrimLeft(l, " \t\v\f"); t == "" || t[0] == '#' {
@@ -708,34 +719,62 @@ func transliterate(c byte) (int, bool) {
 	return 0, false
 }
 
-// writeShards writes run as PREFIX-1.tsv, PREFIX-2.tsv, … of at most
-// perFile VINs each, every VIN after its note, and returns their names.
-func writeShards(prefix string, perFile int, run []vinLine) ([]string, error) {
+// listHeader opens what nitrovin-import vins adds to the corpus.
+const listHeader = "# The refresh's VIN list (ADR 0008) from here on is nitrovin-import vins':\n" +
+	"# VIN, then optionally a tab and a model-year hint; each comment says why the VIN after it is here.\n"
+
+// writeShards writes the list as PREFIX-1.tsv, PREFIX-2.tsv, … of at most
+// perFile VINs each and returns their names. The first file opens with
+// corpusText, the corpus's corpusVINs VINs as given; then come run's
+// mutations and generated VINs, each after its note.
+func writeShards(prefix string, perFile int, corpusText string, corpusVINs int, run []vinLine) ([]string, error) {
 	var files []string
-	for start := 0; start < len(run); start += perFile {
-		var b strings.Builder
-		b.WriteString("# The refresh's VIN list (ADR 0008), written by nitrovin-import vins.\n")
-		b.WriteString("# VIN, then optionally a tab and a model-year hint; each comment says why the VIN after it is here.\n")
-		kind := unreached
-		for _, v := range run[start:min(start+perFile, len(run))] {
-			if v.kind != kind {
-				kind = v.kind
-				fmt.Fprintf(&b, "\n# %s\n", sourceNames[kind])
-			}
-			if v.note != "" {
-				fmt.Fprintf(&b, "# %s\n", v.note)
-			}
-			b.WriteString(v.vin)
-			if v.hint != 0 {
-				fmt.Fprintf(&b, "\t%d", v.hint)
-			}
-			b.WriteByte('\n')
-		}
+	var b strings.Builder
+	b.WriteString(corpusText)
+	n, kind := corpusVINs, fromCorpus
+	flush := func() error {
 		name := fmt.Sprintf("%s-%d.tsv", prefix, len(files)+1)
 		if err := writeFile(name, []byte(b.String())); err != nil {
-			return nil, err
+			return err
 		}
 		files = append(files, name)
+		b.Reset()
+		n, kind = 0, unreached
+		return nil
+	}
+	for _, v := range run {
+		if v.kind == fromCorpus {
+			continue
+		}
+		if n == perFile {
+			if err := flush(); err != nil {
+				return nil, err
+			}
+		}
+		if kind == fromCorpus || b.Len() == 0 {
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(listHeader)
+		}
+		if v.kind != kind {
+			kind = v.kind
+			fmt.Fprintf(&b, "\n# %s\n", sourceNames[kind])
+		}
+		if v.note != "" {
+			fmt.Fprintf(&b, "# %s\n", v.note)
+		}
+		b.WriteString(v.vin)
+		if v.hint != 0 {
+			fmt.Fprintf(&b, "\t%d", v.hint)
+		}
+		b.WriteByte('\n')
+		n++
+	}
+	if n > 0 || len(files) == 0 {
+		if err := flush(); err != nil {
+			return nil, err
+		}
 	}
 	return files, nil
 }
@@ -770,20 +809,19 @@ type targetReport struct {
 	Unreached []string `json:"unreached"`
 }
 
-func (g *vinsGen) report(month string, now time.Time, perFile int, files []string, run []vinLine) vinsReport {
+func (g *vinsGen) report(month string, now time.Time, perFile int, files []string, corpusVINs int, run []vinLine) vinsReport {
 	var r vinsReport
 	r.Month, r.Now, r.Max, r.Files = month, now, perFile, files
+	r.VINs.Corpus = corpusVINs
 	for _, v := range run {
 		switch v.kind {
-		case fromCorpus:
-			r.VINs.Corpus++
 		case fromMutation:
 			r.VINs.Mutations++
 		case fromGenerated:
 			r.VINs.Generated++
 		}
 	}
-	r.VINs.Total = len(run)
+	r.VINs.Total = r.VINs.Corpus + r.VINs.Mutations + r.VINs.Generated
 	wmiText := map[int32]string{}
 	for i, id := range g.wmiID {
 		wmiText[id] = g.wmiText[i]
