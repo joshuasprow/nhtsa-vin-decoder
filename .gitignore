@@ -3,3 +3,6 @@
 # stamps the tag, not "+dirty", as the version.
 /dist/
 /build/
+# mlugg/setup-zig points Zig's caches at $GITHUB_WORKSPACE/.zig-cache; left
+# untracked, it made every build after the first one "+dirty" in v0.1.0.
+/.zig-cache/
