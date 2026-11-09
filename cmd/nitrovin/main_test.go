@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
 )
@@ -23,7 +24,7 @@ import (
 // The tests run the binary `go build` makes, as a user does; only the
 // terminal case runs in-process, since a test has no terminal to give it.
 // The cases that decode need NITROVIN_ARTIFACT, the 2026_10 artifact; the
-// usage, refusal and missing-data cases need nothing.
+// usage, refusal, unloadable-data and embedded-data cases need nothing.
 //
 //	NITROVIN_ARTIFACT=nitrovin.artifact go test ./cmd/nitrovin
 //	NITROVIN_ARTIFACT=nitrovin.artifact go test ./cmd/nitrovin -run TestText -update
@@ -142,6 +143,8 @@ func TestRefusedArgument(t *testing.T) {
 	}
 }
 
+// TestNoData: data that will not load is an internal problem naming where
+// it came from, exit 1.
 func TestNoData(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing.artifact")
 	for _, tc := range []struct {
@@ -149,9 +152,8 @@ func TestNoData(t *testing.T) {
 		args   []string
 		detail string
 	}{
-		{nil, []string{"decode", "1HGCM82633A004352"}, "--data"}, // nothing is embedded yet
-		{nil, []string{"--version"}, "--data"},
-		{nil, []string{"--data", missing, "info"}, missing},
+		{nil, []string{"--data", missing, "info"}, "--data " + missing},
+		{nil, []string{"--data", missing, "--version"}, "--data " + missing},
 		{[]string{"NITROVIN_DATA=" + missing}, []string{"decode", "-"}, "NITROVIN_DATA " + missing},
 	} {
 		r := cli(t, tc.env, "1HGCM82633A004352\n", tc.args...)
@@ -159,6 +161,36 @@ func TestNoData(t *testing.T) {
 		if r.exit != 1 || r.stdout != "" || p.Type != contract.Internal || !strings.Contains(p.Detail, tc.detail) {
 			t.Errorf("%q nitrovin %q: exit %d, stdout %q, problem %+v; want exit 1 and an internal problem naming %q", tc.env, tc.args, r.exit, r.stdout, p, tc.detail)
 		}
+	}
+}
+
+// TestEmbeddedData: with no --data and no NITROVIN_DATA, the binary decodes
+// against the artifact it embeds, the month go.mod pins, and says so.
+func TestEmbeddedData(t *testing.T) {
+	d, err := nitrovin.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := d.Info().DataSource; got != contract.DataSourceEmbedded {
+		t.Fatalf("embedded data source %q, want %q", got, contract.DataSourceEmbedded)
+	}
+	if got := d.Info().DataMonth; got != embedded.Month {
+		t.Fatalf("embedded data month %q, want %q", got, embedded.Month)
+	}
+	info, err := json.Marshal(d.Info())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := cli(t, nil, "", "info"); r.exit != 0 || r.stderr != "" || r.stdout != string(info)+"\n" {
+		t.Errorf("nitrovin info: exit %d, stderr %q, stdout %q, want %q", r.exit, r.stderr, r.stdout, info)
+	}
+	if r, w := cli(t, nil, "", "--version"), "nitrovin (devel) (data "+embedded.Month+")\n"; r.exit != 0 || r.stderr != "" || r.stdout != w {
+		t.Errorf("nitrovin --version: exit %d, stderr %q, stdout %q, want %q", r.exit, r.stderr, r.stdout, w)
+	}
+	clock, _ := contract.ParseNow(now)
+	req := contract.Request{VIN: "1HGCM82633A004352", Now: clock}
+	if r, w := cli(t, nil, "", "decode", "--now", now, req.VIN), want(t, d, []contract.Request{req}); r.exit != 0 || r.stderr != "" || r.stdout != w {
+		t.Errorf("nitrovin decode %s: exit %d, stderr %q, stdout %q, want %q", req.VIN, r.exit, r.stderr, r.stdout, w)
 	}
 }
 

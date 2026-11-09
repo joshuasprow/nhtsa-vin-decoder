@@ -241,8 +241,9 @@ exactly as the Go module marshals it.
 - A problem on stderr is one line of compact JSON, stdio's. Its `detail`
   starts with the input it is about (`argument 2: `, `line 7: `), and its
   `pointer` points into that request (`/vin`, `/model_year`).
-- No data to load (no `--data`, no `NITROVIN_DATA` and nothing embedded, or a
-  file that will not open): an `#internal` problem naming `--data`, exit 1.
+- Data that will not load (a `--data` or `NITROVIN_DATA` file that will not
+  open): an `#internal` problem naming the flag or variable and the file,
+  exit 1. With neither, the binary's embedded artifact is the data.
 - A mistake in the command line itself (unknown command or flag, a bad flag
   value, `-` beside other VINs, `--full` with `-o text`): a message and the
   usage on stderr, as text, nothing on stdout, exit 2.

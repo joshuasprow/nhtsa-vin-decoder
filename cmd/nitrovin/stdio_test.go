@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,16 +16,17 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// TestStdioUsage: stdio takes no arguments, and with no data it answers
-// nothing.
+// TestStdioUsage: stdio takes no arguments, and with data that will not load
+// it answers nothing.
 func TestStdioUsage(t *testing.T) {
 	r := cli(t, nil, "", "stdio", "1HGCM82633A004352")
 	if r.exit != 2 || r.stdout != "" || !strings.Contains(r.stderr, "\nusage: nitrovin stdio") {
 		t.Errorf("stdio <vin>: exit %d, stdout %q, stderr %q; want exit 2 and the usage", r.exit, r.stdout, r.stderr)
 	}
-	r = cli(t, nil, `{"vin":"1HGCM82633A004352"}`+"\n", "stdio")
-	if p := problem(t, r); r.exit != 1 || r.stdout != "" || p.Type != contract.Internal || !strings.Contains(p.Detail, "--data") {
-		t.Errorf("stdio with no data: exit %d, stdout %q, problem %+v; want exit 1 and an internal problem naming --data", r.exit, r.stdout, p)
+	missing := filepath.Join(t.TempDir(), "missing.artifact")
+	r = cli(t, []string{"NITROVIN_DATA=" + missing}, `{"vin":"1HGCM82633A004352"}`+"\n", "stdio")
+	if p := problem(t, r); r.exit != 1 || r.stdout != "" || p.Type != contract.Internal || !strings.Contains(p.Detail, "NITROVIN_DATA "+missing) {
+		t.Errorf("stdio with missing data: exit %d, stdout %q, problem %+v; want exit 1 and an internal problem naming NITROVIN_DATA", r.exit, r.stdout, p)
 	}
 }
 
