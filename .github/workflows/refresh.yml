@@ -579,7 +579,9 @@ jobs:
           TAG: ${{ needs.release.outputs.tag }}
           PR: ${{ needs.bump.outputs.pr }}
         run: |
-          failed=$(jq -r 'to_entries | map(select(.value.result == "failure" or .value.result == "cancelled") | .key) | join(", ")' <<<"$NEEDS")
+          # Red is any result but success or skipped: failure, cancelled, and
+          # jobs Actions never ran (an incident leaves them "abandoned").
+          failed=$(jq -r 'to_entries | map(select(.value.result != "success" and .value.result != "skipped") | "\(.key) (\(.value.result))") | join(", ")' <<<"$NEEDS")
           title="Refresh $MONTH is red"
           issue=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --json number,title -L 100 |
             jq -r --arg t "$title" 'map(select(.title == $t))[0].number // ""')
