@@ -10,5 +10,6 @@
   "corpus_sha256": "b47bf4e172b5c6d11738086dcbdd685e4177946944d7d5e164c13a1401040569",
   "vin_count": 641,
   "answer_rows": 26747,
-  "answer_key_sha256": "1ae0f885fcc6dc6921a59879332826b3301870673e3e01c77bae837b40d1d83a"
+  "answer_key_sha256": "1ae0f885fcc6dc6921a59879332826b3301870673e3e01c77bae837b40d1d83a",
+  "ci_matrix_probe": true
 }
