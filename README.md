@@ -28,6 +28,9 @@ lists them).
 
 The same decode is reachable six ways: a CLI, an HTTP server, JSON lines
 over stdio, an MCP server for AI assistants, a Go module and a C library.
+[nitrovin.app](https://nitrovin.app) runs the latest release's server for
+anyone: the form, the `/v1` API (CORS open) and MCP at
+`https://nitrovin.app/mcp`, rate-limited per IP.
 
 **Status: v0.x prereleases.** v0 means the release pipeline is not yet
 signed off, not that the API may change: the contract is frozen at `/v1`.
@@ -219,6 +222,8 @@ command (`"url": "http://127.0.0.1:8080/mcp"`):
 npx @modelcontextprotocol/inspector --cli http://127.0.0.1:8080/mcp --transport http \
   --method tools/call --tool-name decode_vin --tool-arg vin=1HGCM82633A004352
 ```
+
+Or use the hosted one, `https://nitrovin.app/mcp`, with no install.
 
 ### Go module
 

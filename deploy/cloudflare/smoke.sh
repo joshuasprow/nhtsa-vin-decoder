@@ -47,6 +47,15 @@ header() { awk -v h="$2" 'BEGIN{FS=": "} $1==h {sub(/^[^:]*: /, ""); v=$0} END{p
 
 docker_run() { docker run --rm --platform linux/amd64 "$image" "$@"; }
 
+# Wait until the host answers: a first deploy's custom domain (DNS and
+# certificate), or a rollout's new container, takes a few minutes.
+for i in $(seq 30); do
+	curl -fsS --max-time 10 -o /dev/null "$base/healthz" 2>/dev/null && break
+	((i < 30)) || fail "GET /healthz: no answer in 5 minutes"
+	sleep 10
+done
+pass "GET /healthz: answering"
+
 # The release: decoder version, data month and artifact hash.
 docker_run info >"$tmp/want-info.json"
 identity() { jq -c '{decoder_version, data_month, artifact_hash}' "$1"; }
