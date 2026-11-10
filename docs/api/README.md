@@ -153,10 +153,18 @@ that crosses midnight on 31 December keeps its starting instant.
 
 Routes, bodies and status codes are in [`openapi.yaml`](openapi.yaml):
 `GET /v1/decode/{vin}`, `POST /v1/decode` (≤ 1,000 items, ≤ 1 MiB),
-`GET /v1/info`, `GET /v1/openapi.json`, `GET /healthz`. No CORS headers in v1.0.
-`GET /` is a decode form for browsers (HTML, `HEAD` allowed too), with its one
-script at `GET /copy.js`; both are outside the contract, not in `openapi.yaml`,
-and may change.
+`GET /v1/info`, `GET /v1/openapi.json`, `GET /healthz`, and `POST /mcp`,
+the MCP server below over Streamable HTTP. `GET /` is a decode form for
+browsers (HTML, `HEAD` allowed too), with its one script at `GET /copy.js`;
+both are outside the contract, not in `openapi.yaml`, and may change.
+
+**CORS** is off unless `serve --cors <origin>` (or `*`) turns it on. Then
+every response under `/v1/` and on `/mcp`, refusals included, carries
+`Access-Control-Allow-Origin: <origin>`, and `OPTIONS` there is a preflight:
+`204` with `Access-Control-Allow-Methods` (the route's methods),
+`Access-Control-Allow-Headers` (`Accept, Content-Type, Last-Event-ID,
+Mcp-Protocol-Version, Mcp-Session-Id`) and `Access-Control-Max-Age: 86400`.
+The form, `/copy.js` and `/healthz` never carry CORS headers.
 
 A VIN is never an error: whatever is wrong with it is in `error_codes`, and the
 status is 200. A refusal is an RFC 9457 `application/problem+json` body whose
@@ -190,14 +198,19 @@ JSON lines over stdin and stdout, UTF-8, `\n`-terminated.
 
 The problem objects are HTTP's, with the same `type` URIs and `status`.
 
-## MCP (`nitrovin mcp`)
+## MCP (`nitrovin mcp`, `POST /mcp`)
 
-An MCP server over stdio, with one tool, `decode_vin`. Its definition (name,
+An MCP server with one tool, `decode_vin`, over stdio (`nitrovin mcp`) and
+over Streamable HTTP (`nitrovin serve`'s `/mcp`). Its definition (name,
 title, the description an assistant reads, schemas and annotations) is
 [`mcp-tools.json`](mcp-tools.json), whose `tools` array is exactly what
-`tools/list` returns. The why is
+`tools/list` returns on both. The why is
 [ADR 0005](../adr/0005-mcp-tool-is-the-decode-contract.md).
 
+- **Streamable HTTP is stateless**: every POST is a session of its own, no
+  `Mcp-Session-Id` is issued or read, and every response is one
+  `application/json` message, never an event stream (`GET` and `DELETE`
+  are 405). Any instance answers any request.
 - **Arguments** are one request object, with the same fields, defaults and
   refusal of unknown fields as everywhere else. One VIN per call.
 - **Schemas** are self-contained, because MCP forbids fetching a `$ref` over

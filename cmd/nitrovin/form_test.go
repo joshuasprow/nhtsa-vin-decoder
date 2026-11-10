@@ -47,7 +47,11 @@ func formServer(t *testing.T, version string) (*httptest.Server, *nitrovin.Decod
 	if version != "" {
 		svc = versioned{d, version}
 	}
-	srv := httptest.NewServer(&api{d: svc, log: log.New(io.Discard, "", 0), errorTexts: texts})
+	a, err := newAPI(svc, log.New(io.Discard, "", 0), io.Discard, texts, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(a)
 	t.Cleanup(srv.Close)
 	return srv, d
 }

@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 )
 
@@ -35,18 +37,37 @@ var openAPI []byte
 func init() {
 	register(command{
 		name:     "serve",
-		synopsis: "[--addr ADDR]",
-		summary:  "Serve the HTTP API (docs/api/openapi.yaml) and a decode form at / on --addr, then :$PORT, then 127.0.0.1:8080, once the data has loaded.",
+		synopsis: "[--addr ADDR] [--cors ORIGIN]",
+		summary:  "Serve the HTTP API (docs/api/openapi.yaml), MCP over Streamable HTTP at /mcp and a decode form at / on --addr, then :$PORT, then 127.0.0.1:8080, once the data has loaded.",
 		setup: func(fs *flag.FlagSet) func(*env, []string) error {
 			addr := fs.String("addr", "", "listen on `address` (default :$PORT when PORT is set, else 127.0.0.1:8080)")
+			cors := fs.String("cors", "", "let browsers on `origin` (scheme://host[:port], or * for any) call /v1 and /mcp (default none)")
 			return func(e *env, args []string) error {
 				if len(args) > 0 {
 					return usageError("serve takes no arguments")
 				}
-				return serve(e, listenAddr(*addr, e.getenv))
+				if err := checkOrigin(*cors); err != nil {
+					return usageError(err.Error())
+				}
+				return serve(e, listenAddr(*addr, e.getenv), *cors)
 			}
 		},
 	})
+}
+
+// checkOrigin accepts --cors's value: empty (no CORS), *, or one origin as
+// a browser sends it in Origin, scheme://host[:port] and nothing more.
+func checkOrigin(origin string) error {
+	if origin == "" || origin == "*" {
+		return nil
+	}
+	// An origin is exactly scheme://host[:port]: anything else (a path, a
+	// trailing slash, a query, user info) fails the round trip.
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Scheme+"://"+u.Host != origin {
+		return fmt.Errorf("--cors %q: want * or an origin, scheme://host[:port]", origin)
+	}
+	return nil
 }
 
 // listenAddr is the address serve listens on: --addr, then :$PORT, then
@@ -63,8 +84,8 @@ func listenAddr(addr string, getenv func(string) string) string {
 
 // serve loads the data, then listens on addr and serves the API until
 // SIGINT or SIGTERM, when it stops accepting and lets requests in flight
-// finish.
-func serve(e *env, addr string) error {
+// finish. A cors origin other than "" lets browsers there call /v1 and /mcp.
+func serve(e *env, addr, cors string) error {
 	d, data, err := e.load()
 	if err != nil {
 		return err
@@ -73,13 +94,17 @@ func serve(e *env, addr string) error {
 	if err != nil {
 		return err
 	}
+	logger := log.New(e.stderr, "nitrovin: ", 0)
+	handler, err := newAPI(d, logger, e.stderr, texts, cors)
+	if err != nil {
+		return err
+	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
-	logger := log.New(e.stderr, "nitrovin: ", 0)
 	srv := &http.Server{
-		Handler:           &api{d: d, log: logger, errorTexts: texts},
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		ErrorLog:          logger,
@@ -108,16 +133,44 @@ type decodeService interface {
 	DecodeBatch([]contract.Request) ([]contract.Decode, error)
 }
 
-// api serves the routes of docs/api/openapi.yaml, and the decode form at /
-// with its script at /copy.js (form.go). Every refusal but the form's own
-// is an RFC 9457 problem; it sets no CORS headers.
+// api serves the routes of docs/api/openapi.yaml, /mcp among them, and the
+// decode form at / with its script at /copy.js (form.go). Every refusal but
+// the form's own and the MCP transport's is an RFC 9457 problem. CORS
+// headers are set only with a cors origin, and only under /v1/ and on /mcp.
 type api struct {
 	d   decodeService
 	log *log.Logger
+	// mcp is `nitrovin mcp`'s server over Streamable HTTP, stateless.
+	mcp http.Handler
+	// cors is the origin browsers may call /v1 and /mcp from, * for any;
+	// "" sets no CORS header.
+	cors string
 	// errorTexts is the data's error-code table, each code's text by id,
 	// for the form; nil shows the codes alone.
 	errorTexts map[int]string
 }
+
+// newAPI is the API answering with d. The MCP server's diagnostics go to
+// stderr; cors is checkOrigin's.
+func newAPI(d decodeService, log *log.Logger, stderr io.Writer, errorTexts map[int]string, cors string) (*api, error) {
+	server, err := newMCPServer(d, stderr)
+	if err != nil {
+		return nil, err
+	}
+	// Stateless: every POST is a session of its own, so any instance
+	// answers any request and no session outlives its request. JSON
+	// responses: a decode is one message, never worth an event stream.
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{
+		Stateless:           true,
+		JSONResponse:        true,
+		MaxRequestBodyBytes: contract.MaxBody,
+	})
+	return &api{d: d, log: log, mcp: handler, cors: cors, errorTexts: errorTexts}, nil
+}
+
+// corsAllowHeaders are the request headers a preflight allows: a POST's
+// Content-Type, and the ones the MCP transport reads.
+const corsAllowHeaders = "Accept, Content-Type, Last-Event-ID, Mcp-Protocol-Version, Mcp-Session-Id"
 
 func (a *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer func() {
@@ -130,10 +183,21 @@ func (a *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	path := r.URL.EscapedPath()
+	cors := a.cors != "" && (path == "/mcp" || strings.HasPrefix(path, "/v1/"))
+	if cors {
+		w.Header().Set("Access-Control-Allow-Origin", a.cors)
+	}
 	allow, handle := a.route(path)
 	switch {
 	case handle == nil:
 		a.problem(w, contract.NewProblem(contract.NotFound, "", "no route "+path))
+	case cors && r.Method == http.MethodOptions:
+		// A preflight: what a cross-origin request may carry here.
+		h := w.Header()
+		h.Set("Access-Control-Allow-Methods", allow)
+		h.Set("Access-Control-Allow-Headers", corsAllowHeaders)
+		h.Set("Access-Control-Max-Age", "86400")
+		w.WriteHeader(http.StatusNoContent)
 	case !allows(allow, r.Method):
 		w.Header().Set("Allow", allow)
 		a.problem(w, contract.NewProblem(contract.MethodNotAllowed, "", fmt.Sprintf("%s takes %s, not %s", path, allow, r.Method)))
@@ -170,6 +234,8 @@ func (a *api) route(path string) (string, http.HandlerFunc) {
 		return http.MethodGet, a.openAPI
 	case "/healthz":
 		return http.MethodGet, a.health
+	case "/mcp":
+		return http.MethodPost, a.mcp.ServeHTTP
 	}
 	if vin, ok := strings.CutPrefix(path, "/v1/decode/"); ok && !strings.Contains(vin, "/") {
 		return http.MethodGet, func(w http.ResponseWriter, r *http.Request) { a.decodeOne(w, r, vin) }

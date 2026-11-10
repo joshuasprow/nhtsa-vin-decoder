@@ -96,8 +96,9 @@ func (nopWriteCloser) Close() error { return nil }
 
 // newMCPServer returns the MCP server of docs/api/README.md's MCP section:
 // one tool, decode_vin, decoding with d, on every protocol revision the SDK
-// serves. The SDK's diagnostics go to stderr.
-func newMCPServer(d *nitrovin.Decoder, stderr io.Writer) (*mcp.Server, error) {
+// serves. The SDK's diagnostics go to stderr. `nitrovin mcp` serves it over
+// stdio, `nitrovin serve` over Streamable HTTP at /mcp.
+func newMCPServer(d decodeService, stderr io.Writer) (*mcp.Server, error) {
 	tools, wire, err := parseTools(mcpTools)
 	if err != nil {
 		return nil, fmt.Errorf("mcp-tools.json: %w", err)
@@ -169,7 +170,7 @@ func (l *toolsList) MarshalJSON() ([]byte, error) {
 // structuredContent and, as the same compact JSON, its one text block.
 // A refused request (or a fault in nitrovin) is an isError result whose
 // one text block is the Problem, as compact JSON.
-func decodeVIN(d *nitrovin.Decoder) mcp.ToolHandler {
+func decodeVIN(d decodeService) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := req.Params.Arguments
 		if len(args) == 0 { // arguments are optional in MCP: none is {}
@@ -192,7 +193,7 @@ func decodeVIN(d *nitrovin.Decoder) mcp.ToolHandler {
 
 // decodeJSON decodes one request object, args, to the decode's compact JSON,
 // the bytes `nitrovin decode` prints for it. The error is a *contract.Problem.
-func decodeJSON(d *nitrovin.Decoder, args []byte) ([]byte, error) {
+func decodeJSON(d decodeService, args []byte) ([]byte, error) {
 	r, err := contract.ParseRequest(args)
 	if err != nil {
 		return nil, err
