@@ -1,0 +1,121 @@
+# Throwaway (#106), removed before merge: release.yml's snapshot built twice
+# on one commit, once with the per-tool actions it used before (setup-go,
+# setup-zig, goreleaser-action "~> v2") and once with the mise step, then
+# every file under dist/ and build/ compared byte for byte. Both jobs set
+# every tracked file's mtime to the commit's, so the archives do not carry
+# two checkout times.
+name: Repro 106
+
+on:
+  push:
+    branches: [task/mise-106]
+    paths: [.github/workflows/repro-106.yml]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  old:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      - uses: docker/setup-buildx-action@v4
+      - name: Commit-time mtimes
+        run: git ls-files -z | xargs -0 touch -h -d "@$(git log -1 --format=%ct)"
+      - name: Read the embedded data month
+        run: echo "DATA_MONTH=$(go run ./cmd/nitrovin info | jq -r .data_month)" | tee -a "$GITHUB_ENV"
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=sign
+        env:
+          HOMEBREW_TAP_DEPLOY_KEY: unused
+          SCOOP_BUCKET_DEPLOY_KEY: unused
+      - name: Tools and hashes
+        run: |
+          mkdir out
+          {
+            echo "go: $(go version)"
+            echo "zig: $(zig version)"
+            echo "goreleaser: $( (command -v goreleaser >/dev/null && goreleaser --version || "$(find "$RUNNER_TOOL_CACHE" -name goreleaser -type f | head -n 1)" --version) | grep GitVersion)"
+            echo "jq: $(jq --version)"
+            echo "commit: $(git rev-parse HEAD)"
+          } | tee out/tools.txt
+          find dist build -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum >out/hashes.txt
+          wc -l out/hashes.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: old
+          path: out/
+
+  mise:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/mise
+        with:
+          tools: go zig goreleaser jq github:modelcontextprotocol/registry
+      - uses: docker/setup-buildx-action@v4
+      - name: Commit-time mtimes
+        run: git ls-files -z | xargs -0 touch -h -d "@$(git log -1 --format=%ct)"
+      - name: Read the embedded data month
+        run: echo "DATA_MONTH=$(go run ./cmd/nitrovin info | jq -r .data_month)" | tee -a "$GITHUB_ENV"
+      - name: goreleaser
+        env:
+          HOMEBREW_TAP_DEPLOY_KEY: unused
+          SCOOP_BUCKET_DEPLOY_KEY: unused
+        run: goreleaser release --snapshot --clean --skip=sign
+      - name: Tools and hashes
+        run: |
+          mkdir out
+          {
+            echo "go: $(go version)"
+            echo "zig: $(zig version)"
+            echo "goreleaser: $(goreleaser --version | grep GitVersion)"
+            echo "jq: $(jq --version)"
+            echo "commit: $(git rev-parse HEAD)"
+          } | tee out/tools.txt
+          find dist build -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum >out/hashes.txt
+          wc -l out/hashes.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mise
+          path: out/
+
+  compare:
+    needs: [old, mise]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v8
+      - name: Byte-compare
+        run: |
+          {
+            echo '### Tools'
+            echo '```'
+            sed 's/^/old   /' old/tools.txt
+            sed 's/^/mise  /' mise/tools.txt
+            echo '```'
+            same=$(comm -12 old/hashes.txt mise/hashes.txt | wc -l)
+            echo "### Files: $(wc -l <old/hashes.txt) old, $(wc -l <mise/hashes.txt) mise, $same byte-identical"
+            echo '```'
+            diff old/hashes.txt mise/hashes.txt || true
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          diff -q old/hashes.txt mise/hashes.txt
