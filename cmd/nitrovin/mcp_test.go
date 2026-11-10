@@ -8,10 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -181,17 +185,45 @@ func mcpCalls(t *testing.T) []mcpCall {
 	}
 }
 
-// session is one run of the scripted session: the bytes each side wrote.
+// session is one run of the scripted session: the bytes each side wrote,
+// one JSON-RPC message per line.
 type session struct {
 	stdin, stdout string
+}
+
+// runSession runs the scripted session over transport with the SDK's
+// client speaking protocol revision version: tools/list, then calls.
+func runSession(t *testing.T, transport mcp.Transport, version string, calls []mcpCall) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	client := mcp.NewClient(&mcp.Implementation{Name: "nitrovin-test", Version: "v0.0.0"}, nil)
+	cs, err := client.Connect(ctx, transport, &mcp.ClientSessionOptions{ProtocolVersion: version})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cs.InitializeResult().ProtocolVersion; got != version {
+		t.Errorf("negotiated protocol %s, want %s", got, version)
+	}
+	if _, err := cs.ListTools(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range calls {
+		name := cmp.Or(c.tool, "decode_vin")
+		_, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: json.RawMessage(c.args)})
+		if (err != nil) != (name != "decode_vin") {
+			t.Errorf("call %s %s: error %v", name, c.args, err)
+		}
+	}
+	if err := cs.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // mcpSession runs the scripted session against `nitrovin mcp` with the
 // SDK's client speaking protocol revision version.
 func mcpSession(t *testing.T, path, version string, calls []mcpCall) session {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
 	cmd := exec.Command(binary, "mcp")
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "NITROVIN_DATA=") {
@@ -212,34 +244,88 @@ func mcpSession(t *testing.T, path, version string, calls []mcpCall) session {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "nitrovin-test", Version: "v0.0.0"}, nil)
-	cs, err := client.Connect(ctx, &mcp.IOTransport{
+	runSession(t, &mcp.IOTransport{
 		Reader: readCloser{io.TeeReader(stdout, &out), stdout},
 		Writer: writeCloser{io.MultiWriter(stdin, &in), stdin},
-	}, &mcp.ClientSessionOptions{ProtocolVersion: version})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := cs.InitializeResult().ProtocolVersion; got != version {
-		t.Errorf("negotiated protocol %s, want %s", got, version)
-	}
-	if _, err := cs.ListTools(ctx, nil); err != nil {
-		t.Fatal(err)
-	}
-	for _, c := range calls {
-		name := cmp.Or(c.tool, "decode_vin")
-		_, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: json.RawMessage(c.args)})
-		if (err != nil) != (name != "decode_vin") {
-			t.Errorf("call %s %s: error %v", name, c.args, err)
-		}
-	}
-	if err := cs.Close(); err != nil {
-		t.Fatal(err)
-	}
+	}, version, calls)
 	if err := cmd.Wait(); err != nil || stderr.Len() > 0 {
 		t.Fatalf("nitrovin mcp: %v, stderr %q", err, stderr.String())
 	}
 	return session{in.String(), out.String()}
+}
+
+// mcpHTTPSession runs the scripted session against serve's /mcp, the API
+// on d in-process, with the SDK's Streamable HTTP client speaking protocol
+// revision version. The session's bytes are every POST's body and the body
+// of its response, when it has one; the client's GET for a server stream
+// is refused with 405, which it takes as none.
+func mcpHTTPSession(t *testing.T, d decodeService, version string, calls []mcpCall) session {
+	t.Helper()
+	var stderr bytes.Buffer
+	a, err := newAPI(d, log.New(&stderr, "", 0), &stderr, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(a)
+	defer srv.Close()
+	rec := &recorder{next: http.DefaultTransport}
+	runSession(t, &mcp.StreamableClientTransport{
+		Endpoint:   srv.URL + "/mcp",
+		HTTPClient: &http.Client{Transport: rec},
+		MaxRetries: -1,
+	}, version, calls)
+	if stderr.Len() > 0 {
+		t.Fatalf("serve /mcp: stderr %q", stderr.String())
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	return session{rec.in.String(), rec.out.String()}
+}
+
+// recorder is an http.RoundTripper writing each POST's body, and its
+// response's, to in and out as a line.
+type recorder struct {
+	next    http.RoundTripper
+	mu      sync.Mutex
+	in, out bytes.Buffer
+}
+
+func (r *recorder) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method != http.MethodPost {
+		return r.next.RoundTrip(req)
+	}
+	body, err := io.ReadAll(req.Body)
+	req.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	resp, err := r.next.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	got, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(got))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	line(&r.in, body)
+	if len(got) > 0 {
+		if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+			return nil, fmt.Errorf("POST /mcp: %d, Content-Type %q; want application/json", resp.StatusCode, ct)
+		}
+		line(&r.out, got)
+	}
+	return resp, nil
+}
+
+// line writes msg to b as one line.
+func line(b *bytes.Buffer, msg []byte) {
+	b.Write(bytes.TrimRight(msg, "\n"))
+	b.WriteByte('\n')
 }
 
 type readCloser struct {
@@ -279,65 +365,79 @@ func messages(t *testing.T, stream string) []message {
 }
 
 // TestMCPSession runs the scripted session twice with a 2026-07-28 client
-// and twice with a 2025-11-25 one. Both runs of a revision write the same
-// bytes. tools/list sends mcp-tools.json's tools array byte for byte; a
-// decode is the contract layer's decode as structuredContent and as the
-// one text block, valid against the bundled outputSchema; a refusal is an
-// isError Problem with its pointer; an unknown tool is a JSON-RPC error.
+// and twice with a 2025-11-25 one, over stdio against `nitrovin mcp` and
+// over Streamable HTTP against serve's /mcp. Both runs of a revision on a
+// transport write the same bytes. tools/list sends mcp-tools.json's tools
+// array byte for byte; a decode is the contract layer's decode as
+// structuredContent and as the one text block, valid against the bundled
+// outputSchema; a refusal is an isError Problem with its pointer; an
+// unknown tool is a JSON-RPC error.
 func TestMCPSession(t *testing.T) {
 	path, d := artifact(t)
 	calls := mcpCalls(t)
-	_, wantTools, err := parseTools(mcpTools)
+	for _, transport := range []struct {
+		name string
+		run  func(t *testing.T, version string) session
+	}{
+		{"stdio", func(t *testing.T, version string) session { return mcpSession(t, path, version, calls) }},
+		{"http", func(t *testing.T, version string) session { return mcpHTTPSession(t, d, version, calls) }},
+	} {
+		for _, version := range []string{"2026-07-28", "2025-11-25"} {
+			t.Run(transport.name+"/"+version, func(t *testing.T) {
+				first := transport.run(t, version)
+				if second := transport.run(t, version); second != first {
+					t.Errorf("two runs differ:\n%s\n---\n%s", first.stdout, second.stdout)
+				}
+				checkSession(t, d, calls, first)
+			})
+		}
+	}
+}
+
+// checkSession checks the responses of a run of the scripted session.
+func checkSession(t *testing.T, d *nitrovin.Decoder, calls []mcpCall, s session) {
+	t.Helper()
+	tools, wantTools, err := parseTools(mcpTools)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tools, _, _ := parseTools(mcpTools)
 	output := compileBundled(t, tools[0].OutputSchema)
 	problemSchema := problemSchema(t)
 
-	for _, version := range []string{"2026-07-28", "2025-11-25"} {
-		t.Run(version, func(t *testing.T) {
-			first := mcpSession(t, path, version, calls)
-			if second := mcpSession(t, path, version, calls); second != first {
-				t.Errorf("two runs differ:\n%s\n---\n%s", first.stdout, second.stdout)
+	responses := map[string]message{}
+	for _, m := range messages(t, s.stdout) {
+		if m.Method != "" {
+			t.Errorf("the server sent %s", m.Method)
+		}
+		responses[string(m.ID)] = m
+	}
+	var listed bool
+	k := 0
+	for _, req := range messages(t, s.stdin) {
+		if req.ID == nil {
+			continue // a notification
+		}
+		resp, ok := responses[string(req.ID)]
+		if !ok {
+			t.Fatalf("no response to %s %s", req.Method, req.ID)
+		}
+		switch req.Method {
+		case "tools/list":
+			var res struct{ Tools json.RawMessage }
+			if err := json.Unmarshal(resp.Result, &res); err != nil {
+				t.Fatal(err)
 			}
-
-			responses := map[string]message{}
-			for _, m := range messages(t, first.stdout) {
-				if m.Method != "" {
-					t.Errorf("the server sent %s", m.Method)
-				}
-				responses[string(m.ID)] = m
+			if !bytes.Equal(res.Tools, wantTools) {
+				t.Errorf("tools/list sent\n%s\nwant mcp-tools.json's tools\n%s", res.Tools, wantTools)
 			}
-			var listed bool
-			k := 0
-			for _, req := range messages(t, first.stdin) {
-				if req.ID == nil {
-					continue // a notification
-				}
-				resp, ok := responses[string(req.ID)]
-				if !ok {
-					t.Fatalf("no response to %s %s", req.Method, req.ID)
-				}
-				switch req.Method {
-				case "tools/list":
-					var res struct{ Tools json.RawMessage }
-					if err := json.Unmarshal(resp.Result, &res); err != nil {
-						t.Fatal(err)
-					}
-					if !bytes.Equal(res.Tools, wantTools) {
-						t.Errorf("tools/list sent\n%s\nwant mcp-tools.json's tools\n%s", res.Tools, wantTools)
-					}
-					listed = true
-				case "tools/call":
-					checkCall(t, d, calls[k], resp, output, problemSchema)
-					k++
-				}
-			}
-			if !listed || k != len(calls) {
-				t.Errorf("the session listed tools %t and made %d of %d calls", listed, k, len(calls))
-			}
-		})
+			listed = true
+		case "tools/call":
+			checkCall(t, d, calls[k], resp, output, problemSchema)
+			k++
+		}
+	}
+	if !listed || k != len(calls) {
+		t.Errorf("the session listed tools %t and made %d of %d calls", listed, k, len(calls))
 	}
 }
 

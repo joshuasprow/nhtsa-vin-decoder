@@ -225,12 +225,14 @@ monthly refresh does.
 
 `go test ./cmd/nitrovin` runs the built binary: usage, refusal and
 unloadable-data cases, and `info`, `--version` and a decode on the embedded
-data; `TestForm` drives the browser form at `/` on the embedded data. With
+data; `TestForm` drives the browser form at `/` on the embedded data, and
+`TestServeCORS` `serve --cors` on it. With
 `NITROVIN_ARTIFACT` it adds `decode -` over the answer key's VINs
 against the contract layer's bytes, the data precedence, the `-o text`
 transcript (`-update` rewrites it), every HTTP operation and status in
-`openapi.json` (`TestServeContract`), a scripted stdio session, and MCP
-sessions on two protocol revisions (`TestMCPSession`). `cmd/nitrovin/openapi.json`
+`openapi.json` (`TestServeContract`, `/mcp` included), a scripted stdio
+session, and MCP sessions on two protocol revisions over stdio and over
+serve's Streamable HTTP `/mcp` (`TestMCPSession`). `cmd/nitrovin/openapi.json`
 and `cmd/nitrovin/mcp-tools.json` are generated copies of the files in
 `docs/api/`; tests fail when they drift (`-update-openapi`,
 `go generate ./cmd/nitrovin`).

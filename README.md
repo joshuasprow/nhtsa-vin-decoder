@@ -160,8 +160,9 @@ change.
 decodes in order. Refusals are `application/problem+json` (RFC 9457) with a
 `pointer` to the offending value. `GET /v1/openapi.json` serves the
 [OpenAPI 3.1 document](docs/api/openapi.yaml); `GET /healthz` is the probe.
-There are no CORS headers. SIGINT or SIGTERM drains requests in flight and
-exits 0.
+There are no CORS headers unless `--cors <origin>` (or `--cors '*'`) names
+the browsers that may call `/v1` and `/mcp`. SIGINT or SIGTERM drains
+requests in flight and exits 0.
 
 ### stdio (JSON lines)
 
@@ -207,6 +208,15 @@ and call the tool with the MCP Inspector:
 
 ```sh
 npx @modelcontextprotocol/inspector --cli --config claude_desktop_config.json --server nitrovin \
+  --method tools/call --tool-name decode_vin --tool-arg vin=1HGCM82633A004352
+```
+
+`nitrovin serve` serves the same server over Streamable HTTP at `/mcp`,
+stateless and with JSON responses, for clients that take a URL instead of a
+command (`"url": "http://127.0.0.1:8080/mcp"`):
+
+```sh
+npx @modelcontextprotocol/inspector --cli http://127.0.0.1:8080/mcp --transport http \
   --method tools/call --tool-name decode_vin --tool-arg vin=1HGCM82633A004352
 ```
 

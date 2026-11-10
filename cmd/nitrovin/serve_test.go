@@ -360,23 +360,29 @@ func (s *apiSpec) run(t *testing.T, client *http.Client, base string, c apiCase)
 
 	ptr, declared := s.response(t, c.op, c.status)
 	content, _ := declared["content"].(map[string]any)
-	if len(content) != 1 {
-		t.Fatalf("%s: %s declares %d media types; the test expects one", c.name(), ptr, len(content))
-	}
-	var mediaType string
-	for mediaType = range content {
-	}
-	if ct := resp.Header.Get("Content-Type"); ct != mediaType {
-		t.Errorf("%s: Content-Type %q; %s declares %q", c.name(), ct, ptr, mediaType)
-	}
-	sch, err := s.compiler.Compile(specURL + "#" + ptr + "/content/" + escapeToken(mediaType) + "/schema")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v, err := jsonschema.UnmarshalJSON(bytes.NewReader(got)); err != nil {
-		t.Errorf("%s: body is not JSON: %v: %s", c.name(), err, got)
-	} else if err := sch.Validate(v); err != nil {
-		t.Errorf("%s: body breaks %s's schema: %v\n%s", c.name(), ptr, err, got)
+	switch len(content) {
+	case 0: // a response without a body: 202
+		if len(got) != 0 {
+			t.Errorf("%s: body %q; %s declares none", c.name(), got, ptr)
+		}
+	case 1:
+		var mediaType string
+		for mediaType = range content {
+		}
+		if ct := resp.Header.Get("Content-Type"); ct != mediaType {
+			t.Errorf("%s: Content-Type %q; %s declares %q", c.name(), ct, ptr, mediaType)
+		}
+		sch, err := s.compiler.Compile(specURL + "#" + ptr + "/content/" + escapeToken(mediaType) + "/schema")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v, err := jsonschema.UnmarshalJSON(bytes.NewReader(got)); err != nil {
+			t.Errorf("%s: body is not JSON: %v: %s", c.name(), err, got)
+		} else if err := sch.Validate(v); err != nil {
+			t.Errorf("%s: body breaks %s's schema: %v\n%s", c.name(), ptr, err, got)
+		}
+	default:
+		t.Fatalf("%s: %s declares %d media types; the test expects one at most", c.name(), ptr, len(content))
 	}
 
 	if headers, _ := declared["headers"].(map[string]any); headers["Allow"] != nil {
@@ -413,6 +419,7 @@ const (
 	opInfo        = "GET /v1/info"
 	opOpenAPI     = "GET /v1/openapi.json"
 	opHealth      = "GET /healthz"
+	opMCP         = "POST /mcp"
 )
 
 // batchOf is a batch body of n copies of item.
@@ -420,7 +427,11 @@ func batchOf(n int, item string) string {
 	return "[" + strings.TrimSuffix(strings.Repeat(item+",", n), ",") + "]"
 }
 
-// refusalCases need no data: every refusal, /healthz and /v1/openapi.json.
+// mcpHeader is what a Streamable HTTP POST carries.
+var mcpHeader = http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json, text/event-stream"}}
+
+// refusalCases need no data: every refusal, /healthz, /v1/openapi.json
+// and the MCP transport, whose tools/list reads no data.
 func refusalCases() []apiCase {
 	const vin = "1HGCM82633A004352"
 	bad := func(target, pointer string) apiCase {
@@ -483,6 +494,23 @@ func refusalCases() []apiCase {
 		notAllowed(opInfo, "PUT", "/v1/info"),
 		notAllowed(opOpenAPI, "DELETE", "/v1/openapi.json"),
 		notAllowed(opHealth, "POST", "/healthz"),
+
+		{op: opMCP, method: "POST", target: "/mcp", header: mcpHeader, body: `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, status: 200,
+			check: func(t *testing.T, body []byte) {
+				_, want, err := parseTools(mcpTools)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var res struct {
+					Result struct{ Tools json.RawMessage }
+				}
+				if err := json.Unmarshal(body, &res); err != nil || !bytes.Equal(res.Result.Tools, want) {
+					t.Errorf("POST /mcp tools/list: %s; want mcp-tools.json's tools %s", body, want)
+				}
+			}},
+		{op: opMCP, method: "POST", target: "/mcp", header: mcpHeader, body: `{"jsonrpc":"2.0","method":"notifications/initialized"}`, status: 202},
+		notAllowed(opMCP, "GET", "/mcp"),
+		notAllowed(opMCP, "DELETE", "/mcp"),
 	}
 }
 
@@ -575,9 +603,13 @@ func faultCases() []apiCase {
 	}
 }
 
-// faultyServer is the API on faulty, in-process.
-func faultyServer(t *testing.T) string {
-	srv := httptest.NewServer(&api{d: faulty{}, log: log.New(io.Discard, "", 0)})
+// faultyServer is the API on faulty, in-process, its CORS origin cors.
+func faultyServer(t *testing.T, cors string) string {
+	a, err := newAPI(faulty{}, log.New(io.Discard, "", 0), io.Discard, nil, cors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(a)
 	t.Cleanup(srv.Close)
 	return srv.URL
 }
@@ -587,7 +619,7 @@ var client = &http.Client{Timeout: time.Minute}
 // TestServeRefusals: without data, the cases that need none.
 func TestServeRefusals(t *testing.T) {
 	s := loadSpec(t)
-	base := faultyServer(t)
+	base := faultyServer(t, "")
 	for _, c := range append(refusalCases(), faultCases()...) {
 		s.run(t, client, base, c)
 	}
@@ -667,7 +699,7 @@ func TestServeContract(t *testing.T) {
 		s.run(t, client, base, c)
 		covered[fmt.Sprintf("%s %d", c.op, c.status)] = true
 	}
-	faults := faultyServer(t)
+	faults := faultyServer(t, "")
 	for _, c := range faultCases() {
 		s.run(t, client, faults, c)
 		covered[fmt.Sprintf("%s %d", c.op, c.status)] = true
@@ -730,5 +762,106 @@ func TestServeNoData(t *testing.T) {
 	r = cli(t, nil, "", "serve", "extra")
 	if r.exit != 2 || r.stdout != "" || !strings.Contains(r.stderr, "\nusage: nitrovin serve") {
 		t.Errorf("serve extra: exit %d, stdout %q, stderr %q; want exit 2 and the usage", r.exit, r.stdout, r.stderr)
+	}
+}
+
+// TestServeCORS: with --cors, every response under /v1/ and on /mcp allows
+// the origin, refusals included, and OPTIONS there is a preflight; the form,
+// /healthz and anything else carry no CORS header. A --cors that is not an
+// origin is a usage error. On the embedded data: no artifact needed.
+func TestServeCORS(t *testing.T) {
+	for _, origin := range []string{"https://yard.example/", "yard.example", "https://yard.example/app", "https://user@yard.example", "ftp://yard.example"} {
+		r := cli(t, nil, "", "serve", "--cors", origin, "--addr", "127.0.0.1:0")
+		if r.exit != 2 || r.stdout != "" || !strings.Contains(r.stderr, "\nusage: nitrovin serve") {
+			t.Errorf("serve --cors %q: exit %d, stdout %q, stderr %q; want exit 2 and the usage", origin, r.exit, r.stdout, r.stderr)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("stops the server with SIGINT")
+	}
+
+	const origin = "https://yard.example:8443"
+	srv := startServe(t, nil, "--cors", origin, "--addr", "127.0.0.1:0")
+	base := "http://127.0.0.1:" + srv.port
+	preflight := http.Header{"Origin": {origin}, "Access-Control-Request-Method": {"POST"}, "Access-Control-Request-Headers": {"content-type"}}
+	for _, c := range []struct {
+		method, target string
+		header         http.Header
+		body           string
+		status         int
+		// cors: the response allows origin; methods: a preflight's
+		// Access-Control-Allow-Methods, "" when it is not one.
+		cors    bool
+		methods string
+	}{
+		{method: "GET", target: "/v1/info", status: 200, cors: true},
+		{method: "GET", target: "/v1/decode/1HGCM82633A004352", status: 200, cors: true},
+		{method: "GET", target: "/v1/decode/1HGCM82633A0043521", status: 400, cors: true},
+		{method: "POST", target: "/v1/decode", header: http.Header{"Content-Type": {"application/json"}}, body: `[{"vin":"1HGCM82633A004352"}]`, status: 200, cors: true},
+		{method: "GET", target: "/v1/openapi.json", status: 200, cors: true},
+		{method: "GET", target: "/v1/nothing", status: 404, cors: true},
+		{method: "PUT", target: "/v1/info", status: 405, cors: true},
+		{method: "POST", target: "/mcp", header: mcpHeader, body: `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, status: 200, cors: true},
+		{method: "GET", target: "/mcp", status: 405, cors: true},
+		{method: "OPTIONS", target: "/v1/decode", header: preflight, status: 204, cors: true, methods: "POST"},
+		{method: "OPTIONS", target: "/v1/decode/1HGCM82633A004352", header: preflight, status: 204, cors: true, methods: "GET"},
+		{method: "OPTIONS", target: "/mcp", header: preflight, status: 204, cors: true, methods: "POST"},
+		{method: "OPTIONS", target: "/v1/nothing", header: preflight, status: 404, cors: true},
+
+		{method: "GET", target: "/", status: 200},
+		{method: "GET", target: "/copy.js", status: 200},
+		{method: "GET", target: "/healthz", status: 200},
+		{method: "OPTIONS", target: "/healthz", header: preflight, status: 405},
+		{method: "GET", target: "/v2/info", status: 404},
+		{method: "GET", target: "/mcp/", status: 404},
+	} {
+		name := c.method + " " + c.target
+		req, err := http.NewRequest(c.method, base+c.target, strings.NewReader(c.body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for k, vs := range c.header {
+			req.Header[k] = vs
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != c.status {
+			t.Errorf("%s: %d; want %d", name, resp.StatusCode, c.status)
+		}
+		want := map[string]string{}
+		if c.cors {
+			want["Access-Control-Allow-Origin"] = origin
+		}
+		if c.methods != "" {
+			want["Access-Control-Allow-Methods"] = c.methods
+			want["Access-Control-Allow-Headers"] = corsAllowHeaders
+			want["Access-Control-Max-Age"] = "86400"
+		}
+		for k := range resp.Header {
+			if strings.HasPrefix(k, "Access-Control-") && want[k] == "" {
+				t.Errorf("%s: unexpected %s: %q", name, k, resp.Header.Get(k))
+			}
+		}
+		for k, v := range want {
+			if got := resp.Header.Get(k); got != v {
+				t.Errorf("%s: %s %q; want %q", name, k, got, v)
+			}
+		}
+	}
+	srv.stop(t)
+
+	// * allows any origin, on the same routes.
+	star := faultyServer(t, "*")
+	resp, err := client.Get(star + "/v1/info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); resp.StatusCode != 500 || got != "*" {
+		t.Errorf("--cors *: GET /v1/info %d, Access-Control-Allow-Origin %q; want 500 (faulty) and *", resp.StatusCode, got)
 	}
 }
