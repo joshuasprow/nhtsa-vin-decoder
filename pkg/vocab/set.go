@@ -17,8 +17,14 @@ type Set struct {
 	// sorted holds, per vocabulary, its entries in list order: by their
 	// normalized fields.
 	sorted map[*File][]sortedEntry
+	// lists holds, per declared spine and extension set, its entries in
+	// list order, built on first use.
+	lists map[*File]func() []row
 	// makes is vPIC's makes in list order, built on first use.
 	makes func() []row
+	// modelRows holds, per vPIC make id, its models in list order, built
+	// on first use. It holds only makes that have models.
+	modelRows sync.Map
 }
 
 // sortedEntry is a vocabulary entry with its normalized fields, its list
@@ -34,18 +40,38 @@ func NewSet(m Month, files []*File) (*Set, error) {
 	if err := Link(files); err != nil {
 		return nil, err
 	}
-	s := &Set{month: m, files: files, byName: map[string]*File{}, sorted: map[*File][]sortedEntry{}}
+	s := &Set{month: m, files: files, byName: map[string]*File{}, sorted: map[*File][]sortedEntry{}, lists: map[*File]func() []row{}}
 	for _, f := range files {
 		s.byName[f.Name] = f
-		if f.Kind != KindVocabulary {
-			continue
+		switch f.Kind {
+		case KindVocabulary:
+			es := make([]sortedEntry, len(f.Entries))
+			for i := range f.Entries {
+				es[i] = sortedEntry{&f.Entries[i], normalized(f.Entries[i].Fields)}
+			}
+			slices.SortFunc(es, func(a, b sortedEntry) int { return compareKeys(a.key, b.key) })
+			s.sorted[f] = es
+		case KindSpine:
+			s.lists[f] = sync.OnceValue(func() []row {
+				var rows []row
+				for _, e := range f.SpineEntries {
+					rows = append(rows, row{key: []string{e.ID}, spine: Reached{Ref: Ref{Spine: f.Name, Target: Target{ID: e.ID}}, Name: e.Name}})
+				}
+				sortRows(rows)
+				return rows
+			})
+		case KindExtensionSet:
+			s.lists[f] = sync.OnceValue(func() []row {
+				var rows []row
+				for _, x := range f.Extensions {
+					it := Reached{Ref: Ref{Target: Target{Ext: "ext:" + f.Name + "/" + x.ID}}}
+					s.describe(&it)
+					rows = append(rows, row{key: []string{x.ID}, spine: it})
+				}
+				sortRows(rows)
+				return rows
+			})
 		}
-		es := make([]sortedEntry, len(f.Entries))
-		for i := range f.Entries {
-			es[i] = sortedEntry{&f.Entries[i], normalized(f.Entries[i].Fields)}
-		}
-		slices.SortFunc(es, func(a, b sortedEntry) int { return compareKeys(a.key, b.key) })
-		s.sorted[f] = es
 	}
 	s.makes = sync.OnceValue(func() []row {
 		var rows []row
@@ -56,6 +82,24 @@ func NewSet(m Month, files []*File) (*Set, error) {
 		return rows
 	})
 	return s, nil
+}
+
+// models is vPIC make mk's models in list order.
+func (s *Set) models(mk int32) []row {
+	if rows, ok := s.modelRows.Load(mk); ok {
+		return rows.([]row)
+	}
+	under := &Ref{Target: Target{Make: mk}}
+	var rows []row
+	for id, name := range s.month.Models(mk) {
+		rows = append(rows, vpicRow(Ref{Target: Target{Model: id}}, id, name, under))
+	}
+	if rows == nil {
+		return nil
+	}
+	sortRows(rows)
+	got, _ := s.modelRows.LoadOrStore(mk, rows)
+	return got.([]row)
 }
 
 // Month is the data month the files are indexed beside.

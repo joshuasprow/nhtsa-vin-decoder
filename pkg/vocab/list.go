@@ -105,29 +105,19 @@ func (s *Set) List(q ListQuery) (*Listing, error) {
 		l.Catalog = s.catalog()
 		return l, nil
 	}
-	rows, keyLen, err := s.rows(q, l)
+	pager, keyLen, err := s.pager(q, l)
 	if err != nil {
 		return nil, err
 	}
-	start := 0
+	var after []string
 	if q.After != "" {
 		key, ok := decodeCursor(q.After)
 		if !ok || len(key) != keyLen {
 			return nil, refuse("/after", "%q is not a cursor of this list", q.After)
 		}
-		start = sort.Search(len(rows), func(i int) bool { return compareKeys(rows[i].key, key) > 0 })
+		after = key
 	}
-	end := min(start+limit, len(rows))
-	for _, r := range rows[start:end] {
-		if r.entry != nil {
-			l.Entries = append(l.Entries, r.entry)
-		} else {
-			l.Spine = append(l.Spine, r.spine)
-		}
-	}
-	if end < len(rows) {
-		l.Next = encodeCursor(rows[end-1].key)
-	}
+	l.Next = pager(after, limit)
 	return l, nil
 }
 
@@ -149,10 +139,16 @@ func (s *Set) catalog() []CatalogEntry {
 	return out
 }
 
-// rows is every entry q's Of and Where select, in list order, and the
-// length of their keys. It sets l.File.
-func (s *Set) rows(q ListQuery, l *Listing) ([]row, int, error) {
+// A pager adds to a listing the page after cursor key after (nil: the
+// first page), of at most limit rows, and is the Next of that page.
+type pager func(after []string, limit int) string
+
+// pager pages through what q's Of and Where select, into l, and is the
+// length of its list keys. It sets l.File. Every list is already in list
+// order, so a page costs its cursor's binary search and its own rows.
+func (s *Set) pager(q ListQuery, l *Listing) (pager, int, error) {
 	where := slices.Sorted(maps.Keys(q.Where))
+	addSpine := func(r *row) { l.Spine = append(l.Spine, r.spine) }
 	if q.Of == Reserved {
 		for _, k := range where {
 			if k != "make" {
@@ -161,19 +157,13 @@ func (s *Set) rows(q ListQuery, l *Listing) ([]row, int, error) {
 		}
 		v, ok := q.Where["make"]
 		if !ok {
-			return s.makes(), 2, nil
+			return rowPager(s.makes(), addSpine), 2, nil
 		}
 		mk, err := strconv.ParseInt(v, 10, 32)
 		if err != nil || mk < 1 {
 			return nil, 0, refuse("/where/make", "%q is not a vPIC make id", v)
 		}
-		under := &Ref{Target: Target{Make: int32(mk)}}
-		var rows []row
-		for id, name := range s.month.Models(int32(mk)) {
-			rows = append(rows, vpicRow(Ref{Target: Target{Model: id}}, id, name, under))
-		}
-		sortRows(rows)
-		return rows, 2, nil
+		return rowPager(s.models(int32(mk)), addSpine), 2, nil
 	}
 	f := s.byName[q.Of]
 	if f == nil {
@@ -183,40 +173,75 @@ func (s *Set) rows(q ListQuery, l *Listing) ([]row, int, error) {
 	if f.Kind != KindVocabulary && len(where) > 0 {
 		return nil, 0, refuse("/where/"+pointerToken(where[0]), "%q is %s, which takes no where", f.Name, f.Kind.noun())
 	}
-	var rows []row
-	switch f.Kind {
-	case KindVocabulary:
-		idx := make([]int, len(where))
-		values := make([]string, len(where))
-		for i, k := range where {
-			if idx[i] = slices.Index(f.Fields, k); idx[i] < 0 {
-				return nil, 0, refuse("/where/"+pointerToken(k), "vocabulary %q has no field %q: its fields are %s", f.Name, k, quoted(f.Fields))
-			}
-			values[i] = Normalize(q.Where[k])
-		}
-	entries:
-		for _, se := range s.sorted[f] {
-			for i, j := range idx {
-				if se.key[j] != values[i] {
-					continue entries
-				}
-			}
-			rows = append(rows, row{key: se.key, entry: se.entry})
-		}
-		return rows, len(f.Fields), nil
-	case KindSpine:
-		for _, e := range f.SpineEntries {
-			rows = append(rows, row{key: []string{e.ID}, spine: Reached{Ref: Ref{Spine: f.Name, Target: Target{ID: e.ID}}, Name: e.Name}})
-		}
-	case KindExtensionSet:
-		for _, x := range f.Extensions {
-			it := Reached{Ref: Ref{Target: Target{Ext: "ext:" + f.Name + "/" + x.ID}}}
-			s.describe(&it)
-			rows = append(rows, row{key: []string{x.ID}, spine: it})
-		}
+	if f.Kind != KindVocabulary {
+		return rowPager(s.lists[f](), addSpine), 1, nil
 	}
-	sortRows(rows)
-	return rows, 1, nil
+	idx := make([]int, len(where))
+	values := make([]string, len(where))
+	for i, k := range where {
+		if idx[i] = slices.Index(f.Fields, k); idx[i] < 0 {
+			return nil, 0, refuse("/where/"+pointerToken(k), "vocabulary %q has no field %q: its fields are %s", f.Name, k, quoted(f.Fields))
+		}
+		values[i] = Normalize(q.Where[k])
+	}
+	es := s.sorted[f]
+	// The entries a where on leading fields selects are one run of the
+	// sorted entries: narrow to it, and filter by the other fields.
+	var prefix []string
+	for j := range f.Fields {
+		i := slices.Index(idx, j)
+		if i < 0 {
+			break
+		}
+		prefix = append(prefix, values[i])
+	}
+	if p := len(prefix); p > 0 {
+		lo := sort.Search(len(es), func(i int) bool { return compareKeys(es[i].key[:p], prefix) >= 0 })
+		hi := lo + sort.Search(len(es)-lo, func(i int) bool { return compareKeys(es[lo+i].key[:p], prefix) > 0 })
+		es = es[lo:hi]
+	}
+	keep := func(se *sortedEntry) bool {
+		for i, j := range idx[len(prefix):] {
+			if se.key[j] != values[len(prefix)+i] {
+				return false
+			}
+		}
+		return true
+	}
+	return func(after []string, limit int) string {
+		return page(es, func(se *sortedEntry) []string { return se.key }, keep, after, limit, func(se *sortedEntry) { l.Entries = append(l.Entries, se.entry) })
+	}, len(f.Fields), nil
+}
+
+// rowPager pages through rows, every one, by add.
+func rowPager(rows []row, add func(*row)) pager {
+	return func(after []string, limit int) string {
+		return page(rows, func(r *row) []string { return r.key }, func(*row) bool { return true }, after, limit, add)
+	}
+}
+
+// page adds, by add, up to limit of rows that keep takes, from the first
+// whose key is after after (nil: from the first), and is the cursor of the
+// next page: the last added row's key, or "" when keep takes no later row.
+// rows are in list order.
+func page[T any](rows []T, key func(*T) []string, keep func(*T) bool, after []string, limit int, add func(*T)) string {
+	i := 0
+	if after != nil {
+		i = sort.Search(len(rows), func(i int) bool { return compareKeys(key(&rows[i]), after) > 0 })
+	}
+	var last *T
+	for n := 0; i < len(rows); i++ {
+		r := &rows[i]
+		if !keep(r) {
+			continue
+		}
+		if n == limit {
+			return encodeCursor(key(last))
+		}
+		add(r)
+		last, n = r, n+1
+	}
+	return ""
 }
 
 // encodeCursor makes a list key a cursor: opaque to clients, its JSON in
