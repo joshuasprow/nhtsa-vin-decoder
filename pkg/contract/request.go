@@ -115,7 +115,7 @@ func ParseRequest(data []byte) (Request, error) {
 	if !json.Valid(data) {
 		return Request{}, NewProblem(MalformedJSON, "", "the request is not JSON")
 	}
-	r, _, p := parseObject(data, "", false)
+	r, p := parseObject(data, "")
 	if p != nil {
 		return Request{}, p
 	}
@@ -147,7 +147,7 @@ func ParseBatch(data []byte) ([]Request, error) {
 	}
 	reqs := make([]Request, len(raw))
 	for i, item := range raw {
-		r, _, p := parseObject(item, "/"+strconv.Itoa(i), false)
+		r, p := parseObject(item, "/"+strconv.Itoa(i))
 		if p != nil {
 			return nil, p
 		}
@@ -156,17 +156,65 @@ func ParseBatch(data []byte) ([]Request, error) {
 	return reqs, nil
 }
 
-// ParseStdio parses one line of `nitrovin stdio`, a StdioRequest: a request
-// object plus an optional id, any JSON value. id is the line's id whenever
-// it can be read, refused lines included, so the error line can echo it;
-// nil when the line has none or is not JSON. The error is a *Problem.
-func ParseStdio(line []byte) (id json.RawMessage, r Request, err error) {
+// Op is what a StdioRequest asks for (ADR 0012).
+type Op string
+
+// The ops of a StdioRequest.
+const (
+	OpDecode    Op = "decode"
+	OpTranslate Op = "translate"
+	OpList      Op = "list"
+)
+
+// StdioRequest is one line of `nitrovin stdio`, and the request_json of
+// nitrovin_decode: its op and that op's request, the other two zero.
+type StdioRequest struct {
+	Op        Op
+	Decode    Request
+	Translate TranslateRequest
+	List      ListRequest
+}
+
+// ParseStdio parses one line of `nitrovin stdio`, a StdioRequest: an
+// optional op, OpDecode when absent, and an optional id, any JSON value,
+// beside that op's request object. id is the line's id whenever it can be
+// read, refused lines included, so the error line can echo it; nil when the
+// line has none or is not JSON. The error is a *Problem.
+func ParseStdio(line []byte) (id json.RawMessage, r StdioRequest, err error) {
 	if !json.Valid(line) {
-		return nil, Request{}, NewProblem(MalformedJSON, "", "the line is not JSON")
+		return nil, StdioRequest{}, NewProblem(MalformedJSON, "", "the line is not JSON")
 	}
-	r, id, p := parseObject(line, "", true)
+	fields, p := objectFields(line, "", "a request", nil)
 	if p != nil {
-		return id, Request{}, p
+		return nil, StdioRequest{}, p
+	}
+	id = fields["id"]
+	delete(fields, "id")
+	r.Op = OpDecode
+	if raw, ok := fields["op"]; ok {
+		delete(fields, "op")
+		var s string
+		if !jsonString(raw, &s) || (Op(s) != OpDecode && Op(s) != OpTranslate && Op(s) != OpList) {
+			return id, StdioRequest{}, NewProblem(InvalidRequest, "/op", fmt.Sprintf("op must be %q, %q or %q", OpDecode, OpTranslate, OpList))
+		}
+		r.Op = Op(s)
+	}
+	switch r.Op {
+	case OpTranslate:
+		if p = unknownField(fields, "", translateFields); p == nil {
+			r.Translate, p = readTranslate(fields, "")
+		}
+	case OpList:
+		if p = unknownField(fields, "", listFields); p == nil {
+			r.List, p = readList(fields)
+		}
+	default:
+		if p = unknownField(fields, "", requestFields); p == nil {
+			r.Decode, p = readRequest(fields, "")
+		}
+	}
+	if p != nil {
+		return id, StdioRequest{}, p
 	}
 	return id, r, nil
 }
@@ -222,40 +270,30 @@ func ParseQuery(vin string, query url.Values) (Request, error) {
 var requestFields = []string{"vin", "model_year", "full", "shape", "now"}
 
 // parseObject parses one valid JSON value as a request object. prefix is
-// the JSON Pointer to it. With stdio, an "id" member is allowed and
-// returned; it is returned even when the request is refused.
-func parseObject(data []byte, prefix string, stdio bool) (Request, json.RawMessage, *Problem) {
-	if firstByte(data) != '{' {
-		return Request{}, nil, NewProblem(InvalidRequest, prefix, "a request is a JSON object")
+// the JSON Pointer to it.
+func parseObject(data []byte, prefix string) (Request, *Problem) {
+	fields, p := objectFields(data, prefix, "a request", requestFields)
+	if p != nil {
+		return Request{}, p
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return Request{}, nil, NewProblem(InvalidRequest, prefix, err.Error())
-	}
-	var id json.RawMessage
-	if stdio {
-		id = fields["id"]
-		delete(fields, "id")
-	}
-	// Unknown fields first, in byte order, so the refusal is deterministic.
-	for _, name := range slices.Sorted(maps.Keys(fields)) {
-		if !slices.Contains(requestFields, name) {
-			return Request{}, id, NewProblem(InvalidRequest, pointerTo(prefix, name), "unknown field "+strconv.Quote(name))
-		}
-	}
+	return readRequest(fields, prefix)
+}
 
+// readRequest reads a request object's fields, unknown ones already
+// refused; prefix is the JSON Pointer to the object.
+func readRequest(fields map[string]json.RawMessage, prefix string) (Request, *Problem) {
 	var r Request
 	raw, ok := fields["vin"]
 	if !ok {
-		return Request{}, id, NewProblem(InvalidRequest, prefix+"/vin", "vin is required")
+		return Request{}, NewProblem(InvalidRequest, prefix+"/vin", "vin is required")
 	}
 	if !jsonString(raw, &r.VIN) {
-		return Request{}, id, NewProblem(InvalidRequest, prefix+"/vin", "vin must be a string")
+		return Request{}, NewProblem(InvalidRequest, prefix+"/vin", "vin must be a string")
 	}
 	if raw, ok := fields["model_year"]; ok && !bytes.Equal(raw, []byte("null")) {
 		y, ok := jsonInt32(raw)
 		if !ok {
-			return Request{}, id, NewProblem(InvalidRequest, prefix+"/model_year", "model_year must be a 32-bit integer or null")
+			return Request{}, NewProblem(InvalidRequest, prefix+"/model_year", "model_year must be a 32-bit integer or null")
 		}
 		r.ModelYear = Value(y)
 	}
@@ -265,31 +303,31 @@ func parseObject(data []byte, prefix string, stdio bool) (Request, json.RawMessa
 			r.Full = true
 		case "false":
 		default:
-			return Request{}, id, NewProblem(InvalidRequest, prefix+"/full", "full must be true or false")
+			return Request{}, NewProblem(InvalidRequest, prefix+"/full", "full must be true or false")
 		}
 	}
 	if raw, ok := fields["shape"]; ok {
 		var s string
 		if !jsonString(raw, &s) || (Shape(s) != ShapeVPIC && Shape(s) != ShapeNitrovin) {
-			return Request{}, id, NewProblem(InvalidRequest, prefix+"/shape", fmt.Sprintf("shape must be %q or %q", ShapeVPIC, ShapeNitrovin))
+			return Request{}, NewProblem(InvalidRequest, prefix+"/shape", fmt.Sprintf("shape must be %q or %q", ShapeVPIC, ShapeNitrovin))
 		}
 		r.Shape = Shape(s)
 	}
 	if raw, ok := fields["now"]; ok {
 		var s string
 		if !jsonString(raw, &s) {
-			return Request{}, id, NewProblem(InvalidRequest, prefix+"/now", "now must be a string")
+			return Request{}, NewProblem(InvalidRequest, prefix+"/now", "now must be a string")
 		}
 		t, err := ParseNow(s)
 		if err != nil {
-			return Request{}, id, NewProblem(InvalidRequest, prefix+"/now", err.Error())
+			return Request{}, NewProblem(InvalidRequest, prefix+"/now", err.Error())
 		}
 		r.Now = t
 	}
 	if p := r.validate(prefix); p != nil {
-		return Request{}, id, p
+		return Request{}, p
 	}
-	return r, id, nil
+	return r, nil
 }
 
 // firstByte is the first non-whitespace byte of a JSON text.

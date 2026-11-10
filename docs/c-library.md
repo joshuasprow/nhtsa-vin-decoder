@@ -2,8 +2,9 @@
 
 `libnitrovin` is the decoder as a C shared library, for any language with a
 C FFI. It speaks the stdio surface's JSON: `nitrovin_decode` takes one
-request line and returns the reply line `nitrovin stdio` would write, built
-by the same Go function, so the two cannot drift apart. The ABI is fixed by
+request line, a decode, a translation or a list, and returns the reply line
+`nitrovin stdio` would write, built by the same Go function, so the two
+cannot drift apart. The ABI is fixed by
 [the C ABI contract](api/README.md#c-abi-libnitrovin-nitrovinh); this page
 is how to use it.
 
@@ -74,15 +75,54 @@ Declare every return type as `c_void_p`, not `c_char_p`: ctypes would copy
 a `c_char_p` into a Python string and lose the pointer `nitrovin_free`
 needs.
 
+### Vocabularies
+
+`nitrovin_open_vocab` opens the artifact with vocabularies, extension sets
+and declared spines loaded beside it, the files or directories `--vocab`
+takes; a request with `"op": "translate"` or `"op": "list"` then answers
+from them
+([Translation](api/README.md#translation-translate),
+[Listing](api/README.md#listing-list)):
+
+```python
+lib.nitrovin_open_vocab.restype = ctypes.c_void_p
+lib.nitrovin_open_vocab.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_char_p),
+                                    ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p)]
+
+paths = (ctypes.c_char_p * 1)(b"vocab/")  # a directory of *.jsonl
+h = lib.nitrovin_open_vocab(b"nitrovin-2026_10.artifact", paths, 1, ctypes.byref(err))
+if not h:
+    raise OSError(ctypes.string_at(err.value).decode())
+req = {"op": "translate", "from": "1GCVKREC6EZ123456", "to": ["yard"]}
+p = lib.nitrovin_decode(h, json.dumps(req).encode())
+reply = json.loads(ctypes.string_at(p))
+lib.nitrovin_free(p)
+print([e["entry"] for e in reply["translation"]["to"][0]["entries"]])
+lib.nitrovin_close(h)
+```
+
+```text
+[{'make': 'Chevy', 'model': 'Silverado'}]
+```
+
+That is with the repository's `testdata/vocab` as `vocab/`. In C the paths
+are a `const char *` array and its length.
+
 ## The rules
 
 - **Requests and replies** are one JSON object each, UTF-8 and
-  NUL-terminated: a request is a stdio line (`{"id": …, "vin": …,
-  "model_year": …, "shape": …, "full": …, "now": …}`), a reply is
-  `{"id": …, "decode": {…}}` or `{"id": …, "error": {…}}`. A refused
-  request is an `error` reply, never a NULL.
+  NUL-terminated: a request is a stdio line, a decode (`{"id": …, "vin": …,
+  "model_year": …, "shape": …, "full": …, "now": …}`) or, with `"op":
+  "translate"` or `"op": "list"`, a translation or a list; a reply is
+  `{"id": …, "decode": {…}}`, `{"id": …, "translation": {…}}`,
+  `{"id": …, "list": {…}}` or `{"id": …, "error": {…}}`. A refused request
+  is an `error` reply, never a NULL.
 - **`nitrovin_info(h)`** returns the `/v1/info` object: decoder version,
-  data month, artifact hash and the element table.
+  data month, artifact hash, the element table, and the vocabularies the
+  handle loaded with their drift counts (`[]` for `nitrovin_open`). A
+  library has no stderr, so drift shows only there.
+- **A vocabulary fault fails the open**: `nitrovin_open_vocab` returns NULL
+  with `*err` naming the file and line, as `--vocab` refuses.
 - **Free every string** the library returns with `nitrovin_free`, never your
   own `free()`. On Windows a host built against another C runtime corrupts
   its heap otherwise.
@@ -101,7 +141,11 @@ needs.
 `.github/workflows/libnitrovin.yml` builds all six libraries with `zig cc`
 on one Linux job (`scripts/libnitrovin.sh`) and loads each one through
 ctypes on its own native runner: Linux, macOS and Windows on amd64 and
-arm64. On each, 41 requests must give byte for byte the replies
+arm64. On each, 41 decode requests must give byte for byte the replies
 `nitrovin stdio` gives, again from 8 threads on one handle, and a second
 handle must not disturb the first
-([#44](https://github.com/joshuasprow/nitrovin/issues/44)).
+([#44](https://github.com/joshuasprow/nitrovin/issues/44)). Then a handle
+from `nitrovin_open_vocab` with `testdata/vocab` must give the replies
+`nitrovin --vocab testdata/vocab stdio` gives to decodes, translations,
+lists and refused lines, in order and from 8 threads
+([#138](https://github.com/joshuasprow/nitrovin/issues/138)).

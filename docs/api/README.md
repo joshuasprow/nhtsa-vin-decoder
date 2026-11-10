@@ -187,11 +187,21 @@ The full URI is
 
 JSON lines over stdin and stdout, UTF-8, `\n`-terminated.
 
-- Each input line is a `StdioRequest`: the request object plus an optional
-  `id` (any JSON value).
+- Each input line is a `StdioRequest`: an optional `op`, `decode` (the
+  default), `translate` or `list` (ADR 0012), and an optional `id` (any JSON
+  value), beside that op's request object: a decode request, a
+  `TranslateRequest` or a `ListRequest`. A field the op's request lacks is
+  refused, as everywhere; another `op` is `#invalid-request` at `/op`. A
+  line without `op` is a decode request, so a session of decode lines gets
+  the bytes it always has.
 - Each input line gets exactly one output line, in input order, flushed per
-  line: `{"id": …, "decode": {…}}` or `{"id": …, "error": <problem>}`. `id` is
-  present when the request had one, or could be read from a malformed line.
+  line, keyed by its op: `{"id": …, "decode": {…}}`,
+  `{"id": …, "translation": {…}}` or `{"id": …, "list": {…}}`, or
+  `{"id": …, "error": <problem>}`. `id` is present when the request had one,
+  or could be read from a refused line.
+- Translations and lists answer from the files `--vocab` or
+  `NITROVIN_VOCAB` loads with the data, as for every command; with none,
+  from vPIC alone.
 - A malformed or refused line gets an error line, and the session continues.
 - Blank lines (nothing but spaces, tabs and a `\r`) are skipped and get no reply.
 - EOF on stdin ends the session after the last reply; exit 0. Exit 1 only when
@@ -478,7 +488,8 @@ MCP and C surfaces carry the same object.
 ## C ABI (`libnitrovin`, `nitrovin.h`)
 
 Lean only: the library carries no data. The artifact is its own release asset,
-loaded by path, the same file `--data` takes.
+loaded by path, the same file `--data` takes; vocabularies, extension sets and
+declared spines load beside it by path, as `--vocab` takes them.
 
 ```c
 typedef struct nitrovin nitrovin_t;
@@ -487,11 +498,19 @@ typedef struct nitrovin nitrovin_t;
    frees with nitrovin_free. */
 nitrovin_t *nitrovin_open(const char *artifact_path, char **err);
 
-/* request_json: one StdioRequest. Returns one StdioReply, exactly the line
-   `nitrovin stdio` would write, without the newline. Never NULL. */
+/* nitrovin_open, then load the n paths in vocab_paths (files, or directories
+   of *.jsonl) beside the artifact, as --vocab does. vocab_paths may be NULL
+   when n is 0. */
+nitrovin_t *nitrovin_open_vocab(const char *artifact_path,
+                                const char *const *vocab_paths, size_t n,
+                                char **err);
+
+/* request_json: one StdioRequest of any op (decode, translate, list).
+   Returns one StdioReply, exactly the line `nitrovin stdio` would write,
+   without the newline. Never NULL. */
 char *nitrovin_decode(nitrovin_t *h, const char *request_json);
 
-/* The /v1/info object. */
+/* The /v1/info object, the handle's vocabularies included. */
 char *nitrovin_info(nitrovin_t *h);
 
 /* Free any string this library returned; never use the caller's free(). */
@@ -501,6 +520,13 @@ void nitrovin_free(char *s);
 void nitrovin_close(nitrovin_t *h);
 ```
 
+- `nitrovin_decode` answers every op, despite its name (ADR 0012): a
+  translation or a list is a `StdioRequest` with its `op`, from the files
+  the handle loaded, or vPIC alone for a `nitrovin_open` handle.
+- `nitrovin_open_vocab` loads as `--vocab` does (Vocabularies, above): a
+  fault fails the open, NULL with `*err` naming the file and line; drift
+  is served, and since a library has no stderr, `nitrovin_info` is where
+  it shows, in each file's `drift`.
 - Strings are UTF-8 and NUL-terminated in both directions.
 - Handles are safe to use from several threads at once. Two handles may hold
   two data months in one process.

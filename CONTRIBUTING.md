@@ -110,7 +110,7 @@ witnesses the oracle reads.
 - `libnitrovin.yml` (the C library on six native runners, on the pinned
   artifact): `cmd/libnitrovin`, the packages it links (`pkg/stdio`,
   `pkg/nitrovin`, `pkg/contract`, `pkg/decoder`, `pkg/vocab`), `go.mod`,
-  `scripts/libnitrovin.sh`.
+  `scripts/libnitrovin.sh`, the `testdata/vocab` fixture it loads.
 - `oracle-smoke.yml` (the Postgres oracle end to end): `oracle.yml`,
   `scripts/oracle.sh`, `testdata/oracle/`, `docs/deviations/`.
 - `release.yml`'s snapshot when release files change.
@@ -330,8 +330,9 @@ else `NITROVIN_VOCAB` (`env.load`).
 
 `go test ./cmd/nitrovin` runs the built binary: usage, refusal and
 unloadable-data cases, and `info`, `--version` and a decode on the embedded
-data; `TestForm` drives the browser form at `/` on the embedded data, and
-`TestServeCORS` `serve --cors` on it. With
+data; `TestStdioOps` a stdio session mixing decode, translate and list
+lines with `testdata/vocab`; `TestForm` drives the browser form at `/` on
+the embedded data, and `TestServeCORS` `serve --cors` on it. With
 `NITROVIN_ARTIFACT` it adds `decode -` over the answer key's VINs
 against the contract layer's bytes, the data precedence, the `-o text`
 transcript (`-update` rewrites it), every HTTP operation and status in

@@ -10,7 +10,7 @@ func init() {
 	register(command{
 		name:     "stdio",
 		synopsis: "[flags]",
-		summary:  `Answer JSON lines: one request per stdin line ({"id": 1, "vin": "…"}), one {"id", "decode"} or {"id", "error"} line back, in order, until EOF.`,
+		summary:  `Answer JSON lines: one request per stdin line ({"id": 1, "vin": "…"}; "op": "translate" or "list" for the others), one {"id", "decode"|"translation"|"list"} or {"id", "error"} line back, in order, until EOF.`,
 		setup:    stdioSetup,
 	})
 }
@@ -23,10 +23,10 @@ func stdioSetup(*flag.FlagSet) func(*env, []string) error {
 		if len(args) > 0 {
 			return usageError("stdio takes no arguments: the requests come on stdin")
 		}
-		d, err := e.decoder()
+		t, err := e.translator()
 		if err != nil {
 			return err
 		}
-		return stdio.Serve(d, e.stdin, e.stdout)
+		return stdio.Serve(t, e.stdin, e.stdout)
 	}
 }

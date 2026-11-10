@@ -174,8 +174,10 @@ printf '{"id":1,"vin":"1HGCM82633A004352"}\n{"id":2,"vin":"5YJ3E1EA2JF000316","s
 ```
 
 One request per line in, one line out per request, in order and flushed per
-line: `{"id": …, "decode": {…}}` or `{"id": …, "error": {…}}`. A bad line
-gets an error line and the session goes on; EOF ends it. This is the
+line: `{"id": …, "decode": {…}}` or `{"id": …, "error": {…}}`. A line with
+`"op": "translate"` or `"op": "list"` translates or lists instead, through
+the `--vocab` files, and its reply is keyed `translation` or `list`. A bad
+line gets an error line and the session goes on; EOF ends it. This is the
 easiest way to keep one decoder process open from another language
 (`docker run --rm -i ghcr.io/joshuasprow/nitrovin stdio` works too).
 [stdio contract](docs/api/README.md#stdio-nitrovin-stdio).
@@ -278,7 +280,9 @@ carry the data. Every `pkg/` package is public API:
 `nitrovin_open` loads an artifact, the same file `--data` takes, from a
 [nitrovin-data release](https://github.com/joshuasprow/nitrovin-data/releases).
 `nitrovin_decode` takes one stdio request line and returns exactly the
-reply line `nitrovin stdio` would write.
+reply line `nitrovin stdio` would write; `nitrovin_open_vocab` opens the
+artifact with vocabularies beside it, for translate and list lines
+([the C library](docs/c-library.md)).
 
 ```c
 #include <stdio.h>

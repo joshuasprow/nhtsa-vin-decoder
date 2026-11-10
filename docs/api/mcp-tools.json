@@ -403,8 +403,13 @@
         "$ref": "#/$defs/TranslateRequest",
         "$defs": {
           "TranslateRequest": {
+            "description": "One translate request, the same object on every surface (ADR 0012); on stdio, a line with op translate.",
+            "$ref": "#/$defs/TranslateRequestFields",
+            "unevaluatedProperties": false
+          },
+          "TranslateRequestFields": {
             "type": "object",
-            "description": "One translate request (ADR 0012): from a VIN, a vocabulary entry or a spine entry, through exactly one spine, to the target vocabularies. Contract prose: docs/api/README.md, Translation.",
+            "description": "A translate request's fields (ADR 0012): from a VIN, a vocabulary entry or a spine entry, through exactly one spine, to the target vocabularies. Contract prose: docs/api/README.md, Translation.",
             "required": [
               "from"
             ],
@@ -468,8 +473,7 @@
                   "vin"
                 ]
               }
-            },
-            "additionalProperties": false
+            }
           },
           "VocabularyEntryRef": {
             "type": "object",
@@ -1107,8 +1111,13 @@
         "$ref": "#/$defs/ListRequest",
         "$defs": {
           "ListRequest": {
+            "description": "One list request, the same object on every surface (ADR 0012); on stdio, a line with op list.",
+            "$ref": "#/$defs/ListRequestFields",
+            "unevaluatedProperties": false
+          },
+          "ListRequestFields": {
             "type": "object",
-            "description": "One list request (ADR 0012). Without of: the catalog of what is loaded. With of: one page of vPIC ('vpic') or a loaded file. Contract prose: docs/api/README.md, Listing.",
+            "description": "A list request's fields (ADR 0012). Without of: the catalog of what is loaded. With of: one page of vPIC ('vpic') or a loaded file. Contract prose: docs/api/README.md, Listing.",
             "properties": {
               "of": {
                 "type": "string",
@@ -1135,8 +1144,7 @@
                 "minLength": 1,
                 "description": "The previous page's next cursor."
               }
-            },
-            "additionalProperties": false
+            }
           }
         }
       },
