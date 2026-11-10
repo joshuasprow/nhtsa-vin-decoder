@@ -43,8 +43,7 @@ func (t *Translator) Translate(req contract.TranslateRequest) (contract.Translat
 		To: req.To,
 	}
 	if req.ModelYear.Valid {
-		y := int(req.ModelYear.V)
-		q.ModelYear = &y
+		q.ModelYear = new(int(req.ModelYear.V))
 	}
 	var vehicle *contract.Vehicle
 	if vin := req.From.VIN + req.VIN; vin != "" { // Validate allows one
