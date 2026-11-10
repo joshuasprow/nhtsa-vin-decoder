@@ -11,7 +11,8 @@
 # `serve` by default, so the entry passes `mcp`. Its title and description are
 # the decode_vin tool's own words from docs/api/mcp-tools.json (the
 # description is the tool description's first clause: the registry allows 100
-# characters).
+# characters). It expects jq at mise.toml's pin on PATH (mise's PATH, or the
+# same version by hand).
 set -euo pipefail
 
 out=$1

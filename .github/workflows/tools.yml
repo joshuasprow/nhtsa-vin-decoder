@@ -1,0 +1,106 @@
+# The tool pins: mise.toml, mise.lock and the mise step every job starts with
+# (.github/actions/mise); the commands are scripts/tools.sh.
+#
+# - tools, on a pull request that touches the pins, a workflow or wrangler's
+#   pin: on Linux x64 and macOS arm64 (each its own mise.lock entries), every
+#   pinned tool installed afresh with `mise install --locked`, no cache, then
+#   `scripts/tools.sh check`: each tool on PATH reports exactly its pin. Then
+#   `scripts/tools.sh refuse`: a copy of mise.lock with one checksum changed
+#   must make `mise install --locked` fail.
+# - outdated, every Monday or by hand: the pins with a newer release upstream
+#   (`scripts/tools.sh outdated`), as one open issue, "Tools: newer releases
+#   upstream", whose body each run rewrites; closed when every pin is current.
+#   It never bumps: a bump is a pull request (mise.toml's header).
+name: Tools
+
+on:
+  pull_request:
+    paths:
+      - mise.toml
+      - mise.lock
+      - .github/actions/mise/**
+      - .github/workflows/**
+      - scripts/tools.sh
+      # The postgres:17 digest, which check holds to one value.
+      - scripts/oracle.sh
+      - deploy/cloudflare/worker/package.json
+      - deploy/cloudflare/worker/package-lock.json
+  schedule:
+    - cron: "23 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  tools:
+    if: github.event_name != 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/mise
+        with:
+          cache: false
+      - name: wrangler (package.json)
+        working-directory: deploy/cloudflare/worker
+        run: npm ci
+      - run: scripts/tools.sh check
+      - run: scripts/tools.sh refuse
+
+  outdated:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # mise's GitHub API calls for the newest releases.
+      GITHUB_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/mise
+        with:
+          tools: jq node
+      - name: Report
+        run: |
+          scripts/tools.sh outdated >"$RUNNER_TEMP/rows.md"
+          title="Tools: newer releases upstream"
+          issue=$(gh issue list --state open --json number,title -L 100 |
+            jq -r --arg t "$title" 'map(select(.title == $t))[0].number // ""')
+          if [ -s "$RUNNER_TEMP/rows.md" ]; then
+            {
+              echo "Pins with a newer release upstream, as of the [weekly check]($RUN_URL). Nothing is bumped by this issue."
+              echo
+              cat "$RUNNER_TEMP/rows.md"
+              echo
+              # shellcheck disable=SC2016 # Markdown code spans, not expansions
+              echo 'Bump in a pull request: edit `mise.toml`, run `mise lock --platform macos-arm64,macos-x64,linux-x64,linux-arm64,windows-x64` and commit both files; wrangler is `npm install -E wrangler@<version>` in `deploy/cloudflare/worker`; postgres:17 is its digest in the workflows and `scripts/oracle.sh`.'
+            } >"$RUNNER_TEMP/body.md"
+            cat "$RUNNER_TEMP/body.md" >>"$GITHUB_STEP_SUMMARY"
+            if [ -n "$issue" ]; then
+              gh issue edit "$issue" --body-file "$RUNNER_TEMP/body.md"
+            else
+              gh issue create --title "$title" --body-file "$RUNNER_TEMP/body.md"
+            fi
+          else
+            echo "Every pin is current." | tee -a "$GITHUB_STEP_SUMMARY"
+            if [ -n "$issue" ]; then
+              gh issue close "$issue" --comment "Every pin is current as of $RUN_URL."
+            fi
+          fi

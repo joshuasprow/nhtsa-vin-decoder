@@ -18,6 +18,9 @@ on:
       - docs/api/openapi.yaml
       - go.mod
       - go.sum
+      - mise.toml
+      - mise.lock
+      - .github/actions/mise/**
       - .github/workflows/contract.yml
       - "!**/*.md"
 
@@ -34,11 +37,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: ./.github/actions/mise
         id: go
         with:
-          go-version-file: go.mod
-          cache: false
+          tools: go
       # As import.yml: Go version, go.sum and the Go sources name the entry.
       # A first run on a branch falls back to the artifact job's entry, which
       # import.yml's runs on main keep current.

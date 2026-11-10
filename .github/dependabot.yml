@@ -1,0 +1,14 @@
+# The GitHub Actions the workflows and .github/actions/mise use, pinned by
+# major tag: a pull request when a newer one is out. The tools themselves are
+# mise.toml's, reported weekly by tools.yml; Go modules are go.mod's.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

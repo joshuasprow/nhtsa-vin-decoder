@@ -9,6 +9,9 @@ on:
       - .github/workflows/oracle.yml
       - .github/workflows/oracle-smoke.yml
       - scripts/oracle.sh
+      - mise.toml
+      - mise.lock
+      - .github/actions/mise/**
       - testdata/oracle/**
       - docs/deviations/**
       - "!**/*.md"

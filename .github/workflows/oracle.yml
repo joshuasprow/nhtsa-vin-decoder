@@ -74,7 +74,7 @@ jobs:
     services:
       postgres:
         # The custom dump is archive format 1.16: pg_restore 17 or newer.
-        image: postgres:17
+        image: postgres:17@sha256:ff87138949ad9a46f32ff23bd6852b52ce024a13dffe9b4087be98292cdd3b4f
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: vpic
@@ -95,6 +95,9 @@ jobs:
       artifact: ${{ inputs.artifact || format('oracle-{0}', steps.fetch.outputs.month) }}
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/mise
+        with:
+          tools: jq
 
       - name: Download the VIN list
         if: inputs.vins-artifact

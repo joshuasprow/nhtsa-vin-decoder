@@ -2,7 +2,9 @@
 # The Postgres oracle: NHTSA's dump restored unmodified into Postgres 17+, and
 # its own vpic.spvindecode run over a VIN list to export an answer key, on the
 # stock dump and on a freshened copy (ADR 0006).
-# CI (.github/workflows/oracle.yml) and a workstation run the same commands.
+# CI (.github/workflows/oracle.yml) and a workstation run the same commands,
+# with jq at mise.toml's pin on PATH (mise's PATH, or the same version by
+# hand) beside docker, curl and unzip.
 #
 #   scripts/oracle.sh month                       newest published data month (YYYY_MM)
 #   scripts/oracle.sh fetch <month> <dir>         download and unzip that month's custom dump;
@@ -72,7 +74,8 @@
 set -euo pipefail
 
 CONTAINER="${ORACLE_CONTAINER:-nhtsa-oracle}"
-IMAGE="${ORACLE_IMAGE:-postgres:17}"
+# Pinned by digest, as the workflows' service images are (scripts/tools.sh check).
+IMAGE="${ORACLE_IMAGE:-postgres:17@sha256:ff87138949ad9a46f32ff23bd6852b52ce024a13dffe9b4087be98292cdd3b4f}"
 DB=vpic # the stock oracle; `DB=<name> psql_ …` targets another database
 FRESH_DB=vpic_fresh
 BASE_URL=https://vpic.nhtsa.dot.gov/downloads
