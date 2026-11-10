@@ -177,14 +177,23 @@ placed on the spine. Distinct from a name the vocabulary does not have at all.
 _Avoid_: unresolved, orphan
 
 **Spine**:
-The vocabulary every translation routes through. For vehicles, vPIC's makes
-and models, identified by their ids; a model implies its make.
+The vocabulary a translation routes through. For vehicles it is always vPIC's
+makes and models, identified by their ids (a model implies its make). For
+part types it is a declared spine.
 _Avoid_: canonical list, master data
 
+**Declared spine**:
+A part-type spine its author supplies: a name and every entry in it, flat,
+with or without names. Each part vocabulary maps onto exactly one, and a
+translation crosses exactly one. Its author adds entries rather than minting
+extensions.
+_Avoid_: custom taxonomy, part spine file
+
 **Mapping**:
-A stated correspondence from one entry to one spine entry (a make or a
-model), scoped to the model years it holds for and optionally narrowed by
-qualifiers. An entry carries as many mappings as it resolves to.
+A stated correspondence from one entry to one spine entry (a vPIC make or
+model, an extension, or an entry of a declared spine), scoped to the model
+years it holds for and optionally narrowed by qualifiers. An entry carries as
+many mappings as it resolves to.
 _Avoid_: alias, crosswalk
 
 **Qualifier**:
