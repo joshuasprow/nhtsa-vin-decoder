@@ -3,6 +3,7 @@ package vocab
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -120,7 +121,8 @@ func members(raw []byte, names []string, vals [][]byte) (unknown string, has, ok
 	ok = eachMember(raw, func(key, value []byte) {
 		k, plain := plainString(key)
 		if !plain {
-			k = []byte(keyString(key))
+			s, _ := str(key)
+			k = []byte(s)
 		}
 		for i, name := range names {
 			if string(k) == name {
@@ -168,13 +170,6 @@ func plainString(raw []byte) (_ []byte, ok bool) {
 	return s, true
 }
 
-// keyString is a member's key, unescaped.
-func keyString(key []byte) string {
-	var s string
-	json.Unmarshal(key, &s)
-	return s
-}
-
 // str reads raw as a JSON string.
 func str(raw []byte) (string, bool) {
 	if s, ok := plainString(raw); ok {
@@ -185,4 +180,35 @@ func str(raw []byte) (string, bool) {
 		return "", false
 	}
 	return s, true
+}
+
+// texts hands out strings copied into shared blocks, one allocation per
+// block rather than one per string. A block lives as long as any string
+// in it.
+type texts struct {
+	b       strings.Builder
+	scratch []byte
+}
+
+// textBlock is the size of a block of texts.
+const textBlock = 64 << 10
+
+// of is p as a string.
+func (t *texts) of(p []byte) string {
+	if t.b.Cap()-t.b.Len() < len(p) {
+		t.b = strings.Builder{}
+		t.b.Grow(max(len(p), textBlock))
+	}
+	start := t.b.Len()
+	t.b.Write(p)
+	return t.b.String()[start:]
+}
+
+// normalized is Normalize(s), s itself when Normalize leaves it as it is.
+func (t *texts) normalized(s string) string {
+	if normalASCII(s) {
+		return s
+	}
+	t.scratch = appendNormalized(t.scratch[:0], s)
+	return t.of(t.scratch)
 }

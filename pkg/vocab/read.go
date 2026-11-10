@@ -101,8 +101,8 @@ const chunkSize = 256 << 10
 
 // parse reads one file's bytes: a header, then lines of its kind. Blank
 // lines (nothing but spaces, tabs and a \r) are skipped and counted. The
-// lines after the header are read in chunks, in parallel, then indexed in
-// file order (index).
+// lines after the header are read in chunks, in parallel, each line into
+// its own slot of the file's lines, then indexed in file order (index).
 func parse(name string, data []byte) (*File, error) {
 	f := &File{Path: name}
 	hashed := make(chan struct{})
@@ -137,22 +137,27 @@ func parse(name string, data []byte) (*File, error) {
 		chunks = append(chunks, &chunk{data: data[start:end]})
 		start = end + 1
 	}
-	if len(chunks) == 1 {
-		newReader(f).read(chunks[0])
-	} else {
-		var next atomic.Int64
-		var wg sync.WaitGroup
-		for range min(runtime.GOMAXPROCS(0), len(chunks)) {
-			wg.Go(func() {
-				r := newReader(f)
-				for i := next.Add(1) - 1; i < int64(len(chunks)); i = next.Add(1) - 1 {
-					r.read(chunks[i])
-				}
-			})
-		}
-		wg.Wait()
+	inParallel(chunks, func() func(*chunk) {
+		return func(c *chunk) { c.lines = bytes.Count(c.data, []byte("\n")) + 1 }
+	})
+	slots := 0
+	for _, c := range chunks {
+		c.first, slots = slots, slots+c.lines
 	}
-	if faults := f.index(n, chunks); len(faults) > 0 {
+	var keys []string // each entry slot's key
+	switch f.Kind {
+	case KindVocabulary:
+		f.Entries, keys = make([]Entry, slots), make([]string, slots)
+	case KindExtensionSet:
+		f.Extensions = make([]Extension, slots)
+	case KindSpine:
+		f.SpineEntries = make([]SpineEntry, slots)
+	}
+	inParallel(chunks, func() func(*chunk) {
+		r := newReader(f)
+		return func(c *chunk) { r.read(c, n, keys) }
+	})
+	if faults := f.index(chunks, keys); len(faults) > 0 {
 		return nil, faults
 	}
 	<-hashed
@@ -171,22 +176,39 @@ func lineEnd(data []byte, start int) int {
 // blank reports whether a line holds nothing but spaces, tabs and a \r.
 func blank(line []byte) bool { return len(bytes.Trim(line, " \t\r")) == 0 }
 
-// chunk is a run of whole lines after the header, and what reading them
-// made: the lines of the file's kind that read, and the faults of the rest.
-// Its lines and faults count lines from 1 at the chunk's first.
+// chunk is a run of whole lines after the header: its lines are the
+// file's lines' slots first to first+lines-1. faults are those of its
+// lines that did not read, in line order.
 type chunk struct {
-	data       []byte
-	lines      int // how many lines data holds
-	entries    []Entry
-	keys       []string // each entry's key
-	extensions []Extension
-	spine      []SpineEntry
-	faults     Faults
+	data         []byte
+	first, lines int
+	faults       Faults
+}
+
+// inParallel calls work with every chunk, on up to GOMAXPROCS goroutines,
+// each with its own work, from worker.
+func inParallel(chunks []*chunk, worker func() func(*chunk)) {
+	if len(chunks) == 1 {
+		worker()(chunks[0])
+		return
+	}
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range min(runtime.GOMAXPROCS(0), len(chunks)) {
+		wg.Go(func() {
+			work := worker()
+			for i := next.Add(1) - 1; i < int64(len(chunks)); i = next.Add(1) - 1 {
+				work(chunks[i])
+			}
+		})
+	}
+	wg.Wait()
 }
 
 // reader reads lines of one file, a chunk at a time, on one goroutine. A
-// line's slices come from slabs, larger allocations it shares with the
-// lines after it, rather than allocations of their own.
+// line's slices and entry strings come from slabs and blocks, larger
+// allocations it shares with the lines after it, rather than allocations
+// of their own.
 type reader struct {
 	f        *File
 	line     [3][]byte // an entry line's members, entryNames
@@ -195,6 +217,7 @@ type reader struct {
 	mappings [][]byte
 	key      []byte
 
+	text     texts
 	strings  slab[string]
 	mappingS slab[Mapping]
 	years    slab[int]
@@ -217,121 +240,108 @@ func (s *slab[T]) take(n int) []T {
 	return out
 }
 
-// read reads c's lines.
-func (r *reader) read(c *chunk) {
-	size := bytes.Count(c.data, []byte("\n")) + 1
-	switch r.f.Kind {
-	case KindVocabulary:
-		c.entries, c.keys = make([]Entry, 0, size), make([]string, 0, size)
-	case KindExtensionSet:
-		c.extensions = make([]Extension, 0, size)
-	case KindSpine:
-		c.spine = make([]SpineEntry, 0, size)
-	}
-	for start := 0; start <= len(c.data); {
+// read reads c's lines into their slots, and an entry's key into its slot
+// of keys; header is the header's line.
+func (r *reader) read(c *chunk, header int, keys []string) {
+	f := r.f
+	slot := c.first
+	for start := 0; start <= len(c.data); slot++ {
 		end := lineEnd(c.data, start)
 		line := c.data[start:end]
 		start = end + 1
-		c.lines++
 		if blank(line) {
 			continue
 		}
-		n := c.lines
+		n := header + 1 + slot
 		var err error
-		switch r.f.Kind {
+		switch f.Kind {
 		case KindVocabulary:
 			var e Entry
 			var key string
 			if e, key, err = r.readEntry(n, line); err == nil {
-				c.entries = append(c.entries, e)
-				c.keys = append(c.keys, key)
+				f.Entries[slot], keys[slot] = e, key
 			}
 		case KindExtensionSet:
 			var x Extension
 			if x, err = extension(n, line); err == nil {
-				c.extensions = append(c.extensions, x)
+				f.Extensions[slot] = x
 			}
 		case KindSpine:
 			var e SpineEntry
 			if e, err = spineEntry(n, line); err == nil {
-				c.spine = append(c.spine, e)
+				f.SpineEntries[slot] = e
 			}
 		}
 		if err != nil {
-			c.faults = append(c.faults, fault(r.f.Path, n, "%v", err))
+			c.faults = append(c.faults, fault(f.Path, n, "%v", err))
 		}
 	}
 	c.data = nil
 }
 
-// index puts the chunks' lines in f in file order, indexed, and returns
-// every fault in line order: the chunks' and those of lines that repeat an
-// earlier line's entry or id. base is the header's line, the line before
-// the first chunk's.
-func (f *File) index(base int, chunks []*chunk) Faults {
-	total := 0
-	for _, c := range chunks {
-		total += len(c.entries) + len(c.extensions) + len(c.spine)
-	}
-	switch f.Kind { // slices.Grow leaves a file without lines nil
-	case KindVocabulary:
-		f.Entries = slices.Grow(f.Entries, total)
-		f.entries = make(map[string]int, total)
-		f.targets = map[Target][]int{}
-	case KindExtensionSet:
-		f.Extensions = slices.Grow(f.Extensions, total)
-		f.extensions = make(map[string]int, total)
-	case KindSpine:
-		f.SpineEntries = slices.Grow(f.SpineEntries, total)
-		f.spine = make(map[string]int, total)
-	}
+// index keeps, of f's lines, those that read and repeat no earlier line's
+// entry or id, indexed, and returns every fault in line order: the
+// chunks', and the repeats'. keys are the entry slots' keys.
+func (f *File) index(chunks []*chunk, keys []string) Faults {
 	var faults Faults
-	for _, c := range chunks {
-		next := 0 // c.faults[next:] are still to add
-		// at adds the faults of c's lines before line, then line's own if
-		// err is one.
-		at := func(line int, err error) {
-			for ; next < len(c.faults) && c.faults[next].Line < line; next++ {
-				ft := c.faults[next]
-				ft.Line += base
-				faults = append(faults, ft)
-			}
-			if err != nil {
-				faults = append(faults, fault(f.Path, base+line, "%v", err))
-			}
-		}
-		for i := range c.entries {
-			e := &c.entries[i]
-			line := e.Line
-			e.Line += base
-			at(line, f.addEntry(e, c.keys[i]))
-		}
-		for i := range c.extensions {
-			x := &c.extensions[i]
-			line := x.Line
-			x.Line += base
-			at(line, f.addExtension(x))
-		}
-		for i := range c.spine {
-			e := &c.spine[i]
-			line := e.Line
-			e.Line += base
-			at(line, f.addSpineEntry(e))
-		}
-		at(math.MaxInt, nil)
-		base += c.lines
-		*c = chunk{}
+	switch f.Kind {
+	case KindVocabulary:
+		f.entries, f.targets = make(map[string]int, len(f.Entries)), map[Target][]int{}
+		f.Entries, faults = keep(f.Path, chunks, f.Entries, func(e *Entry) int { return e.Line },
+			func(e *Entry, i, slot int) error { return f.addEntry(e, i, keys[slot]) })
+	case KindExtensionSet:
+		f.extensions = make(map[string]int, len(f.Extensions))
+		f.Extensions, faults = keep(f.Path, chunks, f.Extensions, func(x *Extension) int { return x.Line }, f.addExtension)
+	case KindSpine:
+		f.spine = make(map[string]int, len(f.SpineEntries))
+		f.SpineEntries, faults = keep(f.Path, chunks, f.SpineEntries, func(e *SpineEntry) int { return e.Line }, f.addSpineEntry)
 	}
 	return faults
 }
 
-// addEntry adds e, whose key is k, refusing it when an earlier entry has
-// the key.
-func (f *File) addEntry(e *Entry, k string) error {
+// keep compacts items, the slots of the chunks' lines, to those that read
+// (line is not 0) and that add accepts, given the index each takes; nil
+// when none do. It returns every fault in line order: the chunks', and
+// those of add, about the file at path.
+func keep[T any](path string, chunks []*chunk, items []T, line func(*T) int, add func(t *T, i, slot int) error) ([]T, Faults) {
+	var faults Faults
+	i := 0
+	for _, c := range chunks {
+		fs := c.faults
+		for slot := c.first; slot < c.first+c.lines; slot++ {
+			t := &items[slot]
+			n := line(t)
+			if n == 0 {
+				continue // a blank line, or one of fs
+			}
+			for len(fs) > 0 && fs[0].Line < n {
+				faults, fs = append(faults, fs[0]), fs[1:]
+			}
+			if err := add(t, i, slot); err != nil {
+				faults = append(faults, fault(path, n, "%v", err))
+				continue
+			}
+			if i != slot {
+				items[i] = *t
+			}
+			i++
+		}
+		faults = append(faults, fs...)
+		c.faults = nil
+	}
+	if i == 0 {
+		return nil, faults
+	}
+	clear(items[i:])
+	return items[:i], faults
+}
+
+// addEntry indexes e, about to be entry i, under its key k, refusing it
+// when an earlier entry has the key.
+func (f *File) addEntry(e *Entry, i int, k string) error {
 	if j, dup := f.entries[k]; dup {
 		return errAt("/entry", "duplicate entry: line %d names it too, after normalization", f.Entries[j].Line)
 	}
-	i := len(f.Entries)
 	f.entries[k] = i
 	for _, mp := range e.Mappings {
 		idx := f.targets[mp.Target]
@@ -339,28 +349,26 @@ func (f *File) addEntry(e *Entry, k string) error {
 			f.targets[mp.Target] = append(idx, i)
 		}
 	}
-	f.Entries = append(f.Entries, *e)
 	return nil
 }
 
-// addExtension adds x, refusing it when an earlier extension has its id.
-func (f *File) addExtension(x *Extension) error {
+// addExtension indexes x, about to be extension i, refusing it when an
+// earlier extension has its id.
+func (f *File) addExtension(x *Extension, i, _ int) error {
 	if j, dup := f.extensions[x.ID]; dup {
 		return errAt("/id", "duplicate id %q: line %d has it too", x.ID, f.Extensions[j].Line)
 	}
-	f.extensions[x.ID] = len(f.Extensions)
-	f.Extensions = append(f.Extensions, *x)
+	f.extensions[x.ID] = i
 	return nil
 }
 
-// addSpineEntry adds e, refusing it when an earlier spine entry has its
-// id.
-func (f *File) addSpineEntry(e *SpineEntry) error {
+// addSpineEntry indexes e, about to be spine entry i, refusing it when an
+// earlier spine entry has its id.
+func (f *File) addSpineEntry(e *SpineEntry, i, _ int) error {
 	if j, dup := f.spine[e.ID]; dup {
 		return errAt("/id", "duplicate id %q: line %d has it too", e.ID, f.SpineEntries[j].Line)
 	}
-	f.spine[e.ID] = len(f.SpineEntries)
-	f.SpineEntries = append(f.SpineEntries, *e)
+	f.spine[e.ID] = i
 	return nil
 }
 
@@ -617,7 +625,7 @@ func (r *reader) readEntry(n int, line []byte) (Entry, string, error) {
 		if raw == nil {
 			return Entry{}, "", errAt("/entry", "missing field %q", k)
 		}
-		if e.Fields[i], ok = str(raw); !ok {
+		if e.Fields[i], ok = r.str(raw); !ok {
 			return Entry{}, "", errAt("/entry/"+pointerToken(k), "must be a string")
 		}
 	}
@@ -638,7 +646,16 @@ func (r *reader) readEntry(n int, line []byte) (Entry, string, error) {
 		}
 	}
 	r.key = appendKey(r.key[:0], e.Fields)
-	return e, string(r.key), nil
+	return e, r.text.of(r.key), nil
+}
+
+// str reads raw as a JSON string, into r's text blocks when it needs no
+// unescaping.
+func (r *reader) str(raw []byte) (string, bool) {
+	if s, ok := plainString(raw); ok {
+		return r.text.of(s), true
+	}
+	return str(raw)
 }
 
 // mappingNames are a mapping's fields: the four targets first.
@@ -757,7 +774,10 @@ func qualifiersAt(raw []byte, ptr string) ([]Qualifier, error) {
 		value []byte
 	}
 	var ms []member
-	if !eachMember(raw, func(key, value []byte) { ms = append(ms, member{keyString(key), value}) }) {
+	if !eachMember(raw, func(key, value []byte) {
+		k, _ := str(key)
+		ms = append(ms, member{k, value})
+	}) {
 		return nil, errAt(ptr, "must be an object")
 	}
 	// As encoding/json reads them into a map: in key order, the last value

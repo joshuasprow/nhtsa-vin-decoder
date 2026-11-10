@@ -25,7 +25,7 @@ type Translator struct {
 // files it still translates a VIN or a vPIC id to the spine, and lists
 // vPIC.
 func NewTranslator(d *Decoder, files ...*vocab.File) (*Translator, error) {
-	m := newMonth(d.artifact, d.info.Elements)
+	m := d.month
 	set, err := vocab.NewSet(m, files)
 	if err != nil {
 		return nil, err
