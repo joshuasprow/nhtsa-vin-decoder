@@ -1,0 +1,4 @@
+# The tools deploy/cloudflare runs with, here and in deploy.yml (jdx/mise-action).
+[tools]
+terraform = "1.17.1"
+node = "24.21.0"

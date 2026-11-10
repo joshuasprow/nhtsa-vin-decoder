@@ -1,0 +1,206 @@
+# nitrovin.app (deploy/cloudflare/README.md): the Worker and its container
+# by wrangler, the account resources around them by Terraform.
+#
+# - deploy: after every green release (a v* tag's release.yml), or by hand
+#   from main (`gh workflow run deploy.yml -f tag=v0.1.6`, which is also the
+#   rollback: name the previous tag). Checks the tag's image digest is the
+#   one release.yml signed, deploys it, applies Terraform when its plan has
+#   changes, and smoke-tests https://nitrovin.app. One at a time.
+# - drift: weekly, fails when Terraform's plan is not empty: a change made in
+#   the dashboard.
+# - check, on a pull request touching deploy/cloudflare: Terraform fmt and
+#   validate (and a plan, once the bootstrap's secrets exist), the Worker's
+#   types, and the Worker under wrangler dev on a container built from the
+#   pull request (worker/dev-test.sh).
+#
+# Secrets: CLOUDFLARE_API_TOKEN (terraform/token's CI token), R2_ACCESS_KEY_ID
+# and R2_SECRET_ACCESS_KEY (the state bucket). Variable: CLOUDFLARE_ACCOUNT_ID;
+# until it is set, deploy and drift skip.
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to deploy (default the latest release)
+        required: false
+  schedule:
+    - cron: "17 6 * * 1"
+  pull_request:
+    paths:
+      - deploy/cloudflare/**
+      - .github/workflows/deploy.yml
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/joshuasprow/nitrovin
+  TF_VAR_account_id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+  AWS_ENDPOINT_URL_S3: https://${{ vars.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+  AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  WRANGLER_SEND_METRICS: "false"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-check-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          working_directory: deploy/cloudflare
+      - name: Terraform fmt and validate
+        working-directory: deploy/cloudflare/terraform
+        run: |
+          terraform fmt -recursive -check -diff
+          for root in . token; do
+            terraform -chdir="$root" init -backend=false -input=false
+            terraform -chdir="$root" validate
+          done
+      - name: Terraform plan
+        if: vars.CLOUDFLARE_ACCOUNT_ID != ''
+        working-directory: deploy/cloudflare/terraform
+        run: |
+          # A fork's pull request gets no secrets: nothing to plan with.
+          [[ -n $CLOUDFLARE_API_TOKEN && -n $AWS_ACCESS_KEY_ID ]] || { echo "terraform plan: no secrets, skipped"; exit 0; }
+          terraform init -input=false
+          terraform plan -input=false -lock=false
+      - name: Worker types
+        working-directory: deploy/cloudflare/worker
+        run: |
+          npm ci
+          npm run check
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Worker under wrangler dev
+        run: deploy/cloudflare/worker/dev-test.sh
+
+  deploy:
+    if: >-
+      vars.CLOUDFLARE_ACCOUNT_ID != '' && (
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v'))
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: deploy-nitrovin-app
+      cancel-in-progress: false
+    environment:
+      name: nitrovin.app
+      url: https://nitrovin.app
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          working_directory: deploy/cloudflare
+      # sigstore publishes no floating major tag: pin the release, as release.yml does.
+      - uses: sigstore/cosign-installer@v4.1.3
+
+      - name: Resolve the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_TAG: ${{ github.event.workflow_run.head_branch }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag=${RUN_TAG:-$INPUT_TAG}
+          [[ -n $tag ]] || tag=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
+          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "deploy: $tag is not a release tag" >&2; exit 1; }
+          gh release view "$tag" --json tagName >/dev/null
+          digest=$(docker buildx imagetools inspect "$IMAGE:$tag" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ $digest == sha256:* ]] || { echo "deploy: no digest for $IMAGE:$tag" >&2; exit 1; }
+          # The digest is the one release.yml signed for this tag, by its identity.
+          cosign verify "$IMAGE@$digest" \
+            --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/$tag" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null
+          {
+            echo "TAG=$tag"
+            echo "DIGEST=$digest"
+          } | tee -a "$GITHUB_ENV"
+
+      - name: Pin the Dockerfile to the release
+        working-directory: deploy/cloudflare/worker
+        run: |
+          sed -i "s|^FROM .*|FROM $IMAGE:$TAG@$DIGEST|" Dockerfile
+          grep '^FROM' Dockerfile
+
+      - name: wrangler deploy
+        working-directory: deploy/cloudflare/worker
+        run: |
+          npm ci
+          npx wrangler deploy --message "$TAG ($DIGEST), ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      # After the Worker exists: the custom domain names it.
+      - name: Terraform
+        working-directory: deploy/cloudflare/terraform
+        run: |
+          terraform init -input=false
+          set +e
+          terraform plan -input=false -detailed-exitcode -out=plan.tfplan
+          code=$?
+          set -e
+          case $code in
+            0) echo "terraform: no changes" ;;
+            2)
+              # R2 keeps no object versions: keep the state as it was first.
+              terraform state pull |
+                aws s3 cp - "s3://nitrovin-tfstate/history/main/$(date -u +%Y%m%dT%H%M%SZ)-${{ github.run_id }}.tfstate"
+              terraform apply -input=false plan.tfplan
+              ;;
+            *) exit "$code" ;;
+          esac
+
+      - name: Smoke test https://nitrovin.app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The tools this release lists, which main may have changed since.
+          export TOOLS=$RUNNER_TEMP/mcp-tools.json
+          gh api -H 'Accept: application/vnd.github.raw' "repos/${{ github.repository }}/contents/docs/api/mcp-tools.json?ref=$TAG" >"$TOOLS"
+          {
+            echo "### Smoke: $TAG ($DIGEST)"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          set -o pipefail
+          deploy/cloudflare/smoke.sh https://nitrovin.app "$IMAGE:$TAG@$DIGEST" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >>"$GITHUB_STEP_SUMMARY"
+
+  drift:
+    if: github.event_name == 'schedule' && vars.CLOUDFLARE_ACCOUNT_ID != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: deploy-nitrovin-app
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          working_directory: deploy/cloudflare
+      - name: Terraform plan
+        working-directory: deploy/cloudflare/terraform
+        run: |
+          terraform init -input=false
+          set +e
+          terraform plan -input=false -lock=false -detailed-exitcode
+          code=$?
+          set -e
+          [[ $code == 2 ]] && echo "::error::drift: nitrovin.app differs from deploy/cloudflare/terraform; apply it or change the code"
+          exit "$code"
