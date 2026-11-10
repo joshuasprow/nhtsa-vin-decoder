@@ -10,6 +10,7 @@
 # server-side files, measures sizes (raw, gzip -9, brotli -q 11), then
 # drives headless Chromium (measure.mjs) for timings and JS on/off
 # screenshots. Writes results/: sizes.tsv, measurements.json, *.png,
+# tinygo-sw.txt (the TinyGo Service Worker module failing at start),
 # server.log (every request that reached the server, with its body size).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -18,7 +19,7 @@ mkdir -p "$p/data" "$p/results"
 
 $p/build.sh go >/dev/null
 $p/build.sh tinygo >/dev/null
-for m in vocab contract template nethttp; do
+for m in hello vocab contract template nethttp; do
   GOOS=js GOARCH=wasm go build -trimpath -ldflags='-s -w' -o "$p/build/go/probe-$m.wasm" "./$p/wasm/probe/$m"
 done
 
@@ -47,6 +48,7 @@ size() { # name file
   size "Go core.wasm (vocab+translator, JSON API)" "$p/build/go/core.wasm"
   size "TinyGo core.wasm (vocab+translator, JSON API)" "$p/build/tinygo/core.wasm"
   size "TinyGo sw.wasm (builds; panics at start)" "$p/build/tinygo/sw.wasm"
+  size "probe: Go runtime alone (hello)" "$p/build/go/probe-hello.wasm"
   size "probe: Go pkg/vocab alone" "$p/build/go/probe-vocab.wasm"
   size "probe: Go pkg/vocab+pkg/contract" "$p/build/go/probe-contract.wasm"
   size "probe: Go vocab+contract+html/template" "$p/build/go/probe-template.wasm"
@@ -59,4 +61,5 @@ size() { # name file
   size "synthetic eBay-scale vocabulary (150,000 entries)" "$p/data/ebay-synthetic.jsonl"
 } | tee "$p/results/sizes.tsv"
 
+mise x node@24.21.0 -- node "$p/tinygo-sw.mjs" 2>&1 | grep -v "^    at" | tee "$p/results/tinygo-sw.txt" || true
 mise x node@24.21.0 -- node "$p/measure.mjs"

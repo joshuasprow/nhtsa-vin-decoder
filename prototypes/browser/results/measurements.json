@@ -1,0 +1,981 @@
+{
+  "base": "http://127.0.0.1:8147",
+  "runs": 25,
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+  "htmx": {
+    "first_visit_sw_ready_ms": 1191.199999988079,
+    "first_boot": {
+      "wasm_ms": 736.0999999940395,
+      "spine_fetch_ms": 212.5,
+      "spine_index_ms": 221.59999999403954,
+      "idb_read_ms": 1,
+      "reindex_ms": 0.30000001192092896,
+      "boot_ms": 1171.5,
+      "files": 0,
+      "bytes": 0,
+      "spine": {
+        "parse_ms": 208.199,
+        "link_ms": 0.3,
+        "drift_ms": 0.099,
+        "files": 0,
+        "entries": 0
+      },
+      "index": {
+        "parse_ms": 0,
+        "link_ms": 0,
+        "drift_ms": 0,
+        "files": 0,
+        "entries": 0
+      }
+    },
+    "load_epa": {
+      "parse_ms": 169.1,
+      "link_ms": 6.099,
+      "drift_ms": 6.2,
+      "files": 1,
+      "entries": 5747,
+      "key": "epa-vehicles@f0af1ca5eb2de5153ed34ebfdc8c71db278d3f2e8f4926964719c85dad1d3e2d",
+      "load_ms": 186,
+      "idb_put_ms": 1.9000000059604645,
+      "wall_ms": 205
+    },
+    "cold_epa": {
+      "runs": [
+        {
+          "first_fragment_ms": 456.5,
+          "wasm_ms": 45.900000005960464,
+          "spine_fetch_ms": 10.200000002980232,
+          "spine_index_ms": 210.09999999403954,
+          "idb_read_ms": 0.7999999970197678,
+          "reindex_ms": 176.1000000089407,
+          "boot_ms": 443.1000000089407,
+          "files": 1,
+          "bytes": 956057,
+          "spine": {
+            "parse_ms": 197.4,
+            "link_ms": 0.199,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 159.899,
+            "link_ms": 6.2,
+            "drift_ms": 6.3,
+            "files": 1,
+            "entries": 5747
+          }
+        },
+        {
+          "first_fragment_ms": 447,
+          "wasm_ms": 46,
+          "spine_fetch_ms": 9.900000005960464,
+          "spine_index_ms": 204.29999999701977,
+          "idb_read_ms": 0.7000000029802322,
+          "reindex_ms": 172.5,
+          "boot_ms": 433.40000000596046,
+          "files": 1,
+          "bytes": 956057,
+          "spine": {
+            "parse_ms": 191.699,
+            "link_ms": 0.199,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 156.199,
+            "link_ms": 6,
+            "drift_ms": 6.299,
+            "files": 1,
+            "entries": 5747
+          }
+        },
+        {
+          "first_fragment_ms": 447.20000000298023,
+          "wasm_ms": 45.900000005960464,
+          "spine_fetch_ms": 9.299999997019768,
+          "spine_index_ms": 204.1000000089407,
+          "idb_read_ms": 0.7999999970197678,
+          "reindex_ms": 173.09999999403954,
+          "boot_ms": 433.20000000298023,
+          "files": 1,
+          "bytes": 956057,
+          "spine": {
+            "parse_ms": 192.099,
+            "link_ms": 0.2,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 157.099,
+            "link_ms": 5.999,
+            "drift_ms": 6.1,
+            "files": 1,
+            "entries": 5747
+          }
+        },
+        {
+          "first_fragment_ms": 450.5,
+          "wasm_ms": 45.79999999701977,
+          "spine_fetch_ms": 9.899999991059303,
+          "spine_index_ms": 207.6000000089407,
+          "idb_read_ms": 0.8999999910593033,
+          "reindex_ms": 171.90000000596046,
+          "boot_ms": 436.09999999403954,
+          "files": 1,
+          "bytes": 956057,
+          "spine": {
+            "parse_ms": 195.3,
+            "link_ms": 0.3,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 155.699,
+            "link_ms": 6.199,
+            "drift_ms": 6.3,
+            "files": 1,
+            "entries": 5747
+          }
+        },
+        {
+          "first_fragment_ms": 453,
+          "wasm_ms": 45.599999994039536,
+          "spine_fetch_ms": 9.200000002980232,
+          "spine_index_ms": 208.09999999403954,
+          "idb_read_ms": 0.7000000029802322,
+          "reindex_ms": 175.5,
+          "boot_ms": 439.09999999403954,
+          "files": 1,
+          "bytes": 956057,
+          "spine": {
+            "parse_ms": 195.9,
+            "link_ms": 0.199,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 159.1,
+            "link_ms": 6.199,
+            "drift_ms": 6.2,
+            "files": 1,
+            "entries": 5747
+          }
+        }
+      ],
+      "first_fragment_ms": {
+        "n": 5,
+        "median": 450.5,
+        "p90": 456.5,
+        "min": 447,
+        "max": 456.5
+      },
+      "boot_ms": {
+        "n": 5,
+        "median": 436.1,
+        "p90": 443.1,
+        "min": 433.2,
+        "max": 443.1
+      },
+      "wasm_ms": {
+        "n": 5,
+        "median": 45.9,
+        "p90": 46,
+        "min": 45.6,
+        "max": 46
+      },
+      "spine_ms": {
+        "n": 5,
+        "median": 217.3,
+        "p90": 220.3,
+        "min": 213.4,
+        "max": 220.3
+      },
+      "idb_read_ms": {
+        "n": 5,
+        "median": 0.8,
+        "p90": 0.9,
+        "min": 0.7,
+        "max": 0.9
+      },
+      "reindex_ms": {
+        "n": 5,
+        "median": 173.1,
+        "p90": 176.1,
+        "min": 171.9,
+        "max": 176.1
+      },
+      "label": "EPA only in IndexedDB"
+    },
+    "load_ebay": {
+      "parse_ms": 3825.1,
+      "link_ms": 436.299,
+      "drift_ms": 61.5,
+      "files": 2,
+      "entries": 150000,
+      "key": "ebay-synthetic@7ee4bc3033db9b35dc1575bcdfae724344707bfccb1d9e98301683dcef8d62a4",
+      "load_ms": 4426.600000008941,
+      "idb_put_ms": 52,
+      "wall_ms": 4567
+    },
+    "cold_epa_ebay": {
+      "runs": [
+        {
+          "first_fragment_ms": 4882.600000008941,
+          "wasm_ms": 47.70000000298023,
+          "spine_fetch_ms": 9.599999994039536,
+          "spine_index_ms": 207.20000000298023,
+          "idb_read_ms": 19.5,
+          "reindex_ms": 4584.70000000298,
+          "boot_ms": 4868.70000000298,
+          "files": 2,
+          "bytes": 37310152,
+          "spine": {
+            "parse_ms": 194.499,
+            "link_ms": 0.199,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 4041.999,
+            "link_ms": 393.2,
+            "drift_ms": 68.599,
+            "files": 2,
+            "entries": 155747
+          }
+        },
+        {
+          "first_fragment_ms": 4860.79999999702,
+          "wasm_ms": 45.19999998807907,
+          "spine_fetch_ms": 8.800000011920929,
+          "spine_index_ms": 204.5,
+          "idb_read_ms": 19,
+          "reindex_ms": 4569.399999991059,
+          "boot_ms": 4846.899999991059,
+          "files": 2,
+          "bytes": 37310152,
+          "spine": {
+            "parse_ms": 192.399,
+            "link_ms": 0.199,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 4050.2,
+            "link_ms": 372.2,
+            "drift_ms": 65.599,
+            "files": 2,
+            "entries": 155747
+          }
+        },
+        {
+          "first_fragment_ms": 4897.9000000059605,
+          "wasm_ms": 61.19999998807907,
+          "spine_fetch_ms": 10.100000008940697,
+          "spine_index_ms": 205.79999999701977,
+          "idb_read_ms": 20.200000002980232,
+          "reindex_ms": 4584.0999999940395,
+          "boot_ms": 4881.399999991059,
+          "files": 2,
+          "bytes": 37310152,
+          "spine": {
+            "parse_ms": 192.999,
+            "link_ms": 0.199,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 3979.099,
+            "link_ms": 362.5,
+            "drift_ms": 64.699,
+            "files": 2,
+            "entries": 155747
+          }
+        },
+        {
+          "first_fragment_ms": 4760.5999999940395,
+          "wasm_ms": 61.6000000089407,
+          "spine_fetch_ms": 10.599999994039536,
+          "spine_index_ms": 204.5,
+          "idb_read_ms": 19.599999994039536,
+          "reindex_ms": 4448.600000008941,
+          "boot_ms": 4744.9000000059605,
+          "files": 2,
+          "bytes": 37310152,
+          "spine": {
+            "parse_ms": 192.099,
+            "link_ms": 0.2,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 3942.599,
+            "link_ms": 360.8,
+            "drift_ms": 62.9,
+            "files": 2,
+            "entries": 155747
+          }
+        },
+        {
+          "first_fragment_ms": 4789,
+          "wasm_ms": 63.29999999701977,
+          "spine_fetch_ms": 10.299999997019768,
+          "spine_index_ms": 203.40000000596046,
+          "idb_read_ms": 18.599999994039536,
+          "reindex_ms": 4477.9000000059605,
+          "boot_ms": 4773.5,
+          "files": 2,
+          "bytes": 37310152,
+          "spine": {
+            "parse_ms": 190.8,
+            "link_ms": 0.299,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 3975.8,
+            "link_ms": 358.5,
+            "drift_ms": 63.5,
+            "files": 2,
+            "entries": 155747
+          }
+        }
+      ],
+      "first_fragment_ms": {
+        "n": 5,
+        "median": 4860.8,
+        "p90": 4897.9,
+        "min": 4760.6,
+        "max": 4897.9
+      },
+      "boot_ms": {
+        "n": 5,
+        "median": 4846.9,
+        "p90": 4881.4,
+        "min": 4744.9,
+        "max": 4881.4
+      },
+      "wasm_ms": {
+        "n": 5,
+        "median": 61.2,
+        "p90": 63.3,
+        "min": 45.2,
+        "max": 63.3
+      },
+      "spine_ms": {
+        "n": 5,
+        "median": 215.1,
+        "p90": 216.8,
+        "min": 213.3,
+        "max": 216.8
+      },
+      "idb_read_ms": {
+        "n": 5,
+        "median": 19.5,
+        "p90": 20.2,
+        "min": 18.6,
+        "max": 20.2
+      },
+      "reindex_ms": {
+        "n": 5,
+        "median": 4569.4,
+        "p90": 4584.7,
+        "min": 4448.6,
+        "max": 4584.7
+      },
+      "label": "EPA + synthetic eBay in IndexedDB"
+    },
+    "fragment_name": {
+      "rt": {
+        "n": 25,
+        "median": 1,
+        "p90": 1.7,
+        "min": 0.6,
+        "max": 96
+      },
+      "wasm": {
+        "n": 25,
+        "median": 0.6,
+        "p90": 0.9,
+        "min": 0.3,
+        "max": 95.5
+      }
+    },
+    "fragment_vin": {
+      "rt": {
+        "n": 25,
+        "median": 1.5,
+        "p90": 2,
+        "min": 1.3,
+        "max": 3.8
+      },
+      "wasm": {
+        "n": 25,
+        "median": 1.2,
+        "p90": 1.6,
+        "min": 1,
+        "max": 3.5
+      }
+    },
+    "htmx_submit_ms": {
+      "n": 10,
+      "median": 27.3,
+      "p90": 29.5,
+      "min": 25.3,
+      "max": 29.5
+    },
+    "page_errors": []
+  },
+  "server": {
+    "fragment_name": {
+      "rt": {
+        "n": 25,
+        "median": 0.4,
+        "p90": 0.5,
+        "min": 0.3,
+        "max": 0.9
+      }
+    },
+    "fragment_vin": {
+      "rt": {
+        "n": 25,
+        "median": 0.4,
+        "p90": 0.4,
+        "min": 0.3,
+        "max": 0.5
+      }
+    },
+    "note": "the server has epa-vehicles loaded with -vocab; ebay-synthetic is browser-only"
+  },
+  "plain_go": {
+    "first_boot": {
+      "wasm_ms": 344.70000000298023,
+      "spine_fetch_ms": 11,
+      "spine_index_ms": 209.59999999403954,
+      "idb_read_ms": 1.5999999940395355,
+      "reindex_ms": 0.20000000298023224,
+      "boot_ms": 567.0999999940395,
+      "files": 0,
+      "spine": {
+        "parse_ms": 189.6,
+        "link_ms": 0.199,
+        "drift_ms": 0.1,
+        "files": 0,
+        "entries": 0
+      },
+      "index": {
+        "parse_ms": 0,
+        "link_ms": 0.1,
+        "drift_ms": 0,
+        "files": 0,
+        "entries": 0
+      }
+    },
+    "load_epa": {
+      "parse_ms": 136.1,
+      "link_ms": 4.299,
+      "drift_ms": 4.8,
+      "files": 1,
+      "entries": 5747,
+      "key": "epa-vehicles@f0af1ca5eb2de5153ed34ebfdc8c71db278d3f2e8f4926964719c85dad1d3e2d",
+      "load_ms": 147.59999999403954,
+      "idb_put_ms": 2.9000000059604645,
+      "wall_ms": 164
+    },
+    "cold_epa": {
+      "label": "EPA only in IndexedDB",
+      "runs": [
+        {
+          "wasm_ms": 16,
+          "spine_fetch_ms": 9.899999991059303,
+          "spine_index_ms": 195.1000000089407,
+          "idb_read_ms": 1.2000000029802322,
+          "reindex_ms": 129.79999999701977,
+          "boot_ms": 352,
+          "files": 1,
+          "spine": {
+            "parse_ms": 180.5,
+            "link_ms": 0,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 122.2,
+            "link_ms": 3.599,
+            "drift_ms": 2.8,
+            "files": 1,
+            "entries": 5747
+          }
+        },
+        {
+          "wasm_ms": 14.600000008940697,
+          "spine_fetch_ms": 9.299999997019768,
+          "spine_index_ms": 186.20000000298023,
+          "idb_read_ms": 1.2999999970197678,
+          "reindex_ms": 145.5,
+          "boot_ms": 356.90000000596046,
+          "files": 1,
+          "spine": {
+            "parse_ms": 179.1,
+            "link_ms": 0,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 132.199,
+            "link_ms": 5.299,
+            "drift_ms": 4.499,
+            "files": 1,
+            "entries": 5747
+          }
+        },
+        {
+          "wasm_ms": 14,
+          "spine_fetch_ms": 8.700000002980232,
+          "spine_index_ms": 191.29999999701977,
+          "idb_read_ms": 1.0999999940395355,
+          "reindex_ms": 128.20000000298023,
+          "boot_ms": 343.29999999701977,
+          "files": 1,
+          "spine": {
+            "parse_ms": 177.5,
+            "link_ms": 0,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 120.999,
+            "link_ms": 3.3,
+            "drift_ms": 2.8,
+            "files": 1,
+            "entries": 5747
+          }
+        }
+      ],
+      "boot_ms": {
+        "n": 3,
+        "median": 352,
+        "p90": 356.9,
+        "min": 343.3,
+        "max": 356.9
+      },
+      "wasm_ms": {
+        "n": 3,
+        "median": 14.6,
+        "p90": 16,
+        "min": 14,
+        "max": 16
+      },
+      "spine_ms": {
+        "n": 3,
+        "median": 200,
+        "p90": 205,
+        "min": 195.5,
+        "max": 205
+      },
+      "reindex_ms": {
+        "n": 3,
+        "median": 129.8,
+        "p90": 145.5,
+        "min": 128.2,
+        "max": 145.5
+      }
+    },
+    "load_ebay": {
+      "parse_ms": 3829.1,
+      "link_ms": 370.299,
+      "drift_ms": 57.2,
+      "files": 2,
+      "entries": 150000,
+      "key": "ebay-synthetic@7ee4bc3033db9b35dc1575bcdfae724344707bfccb1d9e98301683dcef8d62a4",
+      "load_ms": 4363.4000000059605,
+      "idb_put_ms": 46.29999999701977,
+      "wall_ms": 4417
+    },
+    "translate_name_ms": {
+      "n": 25,
+      "median": 0.1,
+      "p90": 0.2,
+      "min": 0,
+      "max": 3.4
+    },
+    "translate_vin_with_decode_ms": {
+      "n": 25,
+      "median": 0.8,
+      "p90": 1.2,
+      "min": 0.6,
+      "max": 2
+    },
+    "cold_epa_ebay": {
+      "label": "EPA + synthetic eBay in IndexedDB",
+      "runs": [
+        {
+          "wasm_ms": 14.600000008940697,
+          "spine_fetch_ms": 8.5,
+          "spine_index_ms": 190.20000000298023,
+          "idb_read_ms": 20.099999994039536,
+          "reindex_ms": 4391.4000000059605,
+          "boot_ms": 4624.800000011921,
+          "files": 2,
+          "spine": {
+            "parse_ms": 176.1,
+            "link_ms": 0,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 3899.299,
+            "link_ms": 359.5,
+            "drift_ms": 58.4,
+            "files": 2,
+            "entries": 155747
+          }
+        },
+        {
+          "wasm_ms": 13.799999997019768,
+          "spine_fetch_ms": 8.800000011920929,
+          "spine_index_ms": 187.5,
+          "idb_read_ms": 19,
+          "reindex_ms": 4387.79999999702,
+          "boot_ms": 4616.9000000059605,
+          "files": 2,
+          "spine": {
+            "parse_ms": 173.9,
+            "link_ms": 0,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 3900.499,
+            "link_ms": 359.399,
+            "drift_ms": 60.4,
+            "files": 2,
+            "entries": 155747
+          }
+        },
+        {
+          "wasm_ms": 13.899999991059303,
+          "spine_fetch_ms": 9,
+          "spine_index_ms": 190.20000000298023,
+          "idb_read_ms": 21.200000002980232,
+          "reindex_ms": 4406.0999999940395,
+          "boot_ms": 4640.399999991059,
+          "files": 2,
+          "spine": {
+            "parse_ms": 176.1,
+            "link_ms": 0,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 3903.5,
+            "link_ms": 365.7,
+            "drift_ms": 62.7,
+            "files": 2,
+            "entries": 155747
+          }
+        }
+      ],
+      "boot_ms": {
+        "n": 3,
+        "median": 4624.8,
+        "p90": 4640.4,
+        "min": 4616.9,
+        "max": 4640.4
+      },
+      "wasm_ms": {
+        "n": 3,
+        "median": 13.9,
+        "p90": 14.6,
+        "min": 13.8,
+        "max": 14.6
+      },
+      "spine_ms": {
+        "n": 3,
+        "median": 198.7,
+        "p90": 199.2,
+        "min": 196.3,
+        "max": 199.2
+      },
+      "reindex_ms": {
+        "n": 3,
+        "median": 4391.4,
+        "p90": 4406.1,
+        "min": 4387.8,
+        "max": 4406.1
+      }
+    },
+    "page_errors": []
+  },
+  "plain_tinygo": {
+    "first_boot": {
+      "wasm_ms": 61.1000000089407,
+      "spine_fetch_ms": 10.799999997019768,
+      "spine_index_ms": 204.3999999910593,
+      "idb_read_ms": 1.1000000089406967,
+      "reindex_ms": 0.09999999403953552,
+      "boot_ms": 277.5,
+      "files": 0,
+      "spine": {
+        "parse_ms": 191.8,
+        "link_ms": 0,
+        "drift_ms": 0,
+        "files": 0,
+        "entries": 0
+      },
+      "index": {
+        "parse_ms": 0,
+        "link_ms": 0,
+        "drift_ms": 0,
+        "files": 0,
+        "entries": 0
+      }
+    },
+    "load_epa": {
+      "parse_ms": 153.299,
+      "link_ms": 5.999,
+      "drift_ms": 3.7,
+      "files": 1,
+      "entries": 5747,
+      "key": "epa-vehicles@f0af1ca5eb2de5153ed34ebfdc8c71db278d3f2e8f4926964719c85dad1d3e2d",
+      "load_ms": 165,
+      "idb_put_ms": 1.9000000059604645,
+      "wall_ms": 181
+    },
+    "cold_epa": {
+      "label": "EPA only in IndexedDB",
+      "runs": [
+        {
+          "wasm_ms": 7.5,
+          "spine_fetch_ms": 9.900000005960464,
+          "spine_index_ms": 187.3999999910593,
+          "idb_read_ms": 1.2000000029802322,
+          "reindex_ms": 155.79999999701977,
+          "boot_ms": 361.79999999701977,
+          "files": 1,
+          "spine": {
+            "parse_ms": 179.099,
+            "link_ms": 0,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 146.5,
+            "link_ms": 0,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 5747
+          }
+        }
+      ],
+      "boot_ms": {
+        "n": 1,
+        "median": 361.8,
+        "p90": 361.8,
+        "min": 361.8,
+        "max": 361.8
+      },
+      "wasm_ms": {
+        "n": 1,
+        "median": 7.5,
+        "p90": 7.5,
+        "min": 7.5,
+        "max": 7.5
+      },
+      "spine_ms": {
+        "n": 1,
+        "median": 197.3,
+        "p90": 197.3,
+        "min": 197.3,
+        "max": 197.3
+      },
+      "reindex_ms": {
+        "n": 1,
+        "median": 155.8,
+        "p90": 155.8,
+        "min": 155.8,
+        "max": 155.8
+      }
+    },
+    "load_ebay": {
+      "parse_ms": 243694.2,
+      "link_ms": 534.899,
+      "drift_ms": 70,
+      "files": 2,
+      "entries": 150000,
+      "key": "ebay-synthetic@7ee4bc3033db9b35dc1575bcdfae724344707bfccb1d9e98301683dcef8d62a4",
+      "load_ms": 244442.79999999702,
+      "idb_put_ms": 46.70000000298023,
+      "wall_ms": 244497
+    },
+    "translate_name_ms": {
+      "n": 25,
+      "median": 0.2,
+      "p90": 0.4,
+      "min": 0.1,
+      "max": 3.2
+    },
+    "translate_vin_with_decode_ms": {
+      "n": 25,
+      "median": 2.5,
+      "p90": 9376.7,
+      "min": 1.5,
+      "max": 9736.9
+    },
+    "cold_epa_ebay": {
+      "label": "EPA + synthetic eBay in IndexedDB",
+      "runs": [
+        {
+          "wasm_ms": 30.799999997019768,
+          "spine_fetch_ms": 10.700000002980232,
+          "spine_index_ms": 247.29999999701977,
+          "idb_read_ms": 26.5,
+          "reindex_ms": 194402.20000000298,
+          "boot_ms": 194717.5,
+          "files": 2,
+          "spine": {
+            "parse_ms": 232.8,
+            "link_ms": 0,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 0
+          },
+          "index": {
+            "parse_ms": 185199.3,
+            "link_ms": 0,
+            "drift_ms": 0,
+            "files": 0,
+            "entries": 155747
+          }
+        }
+      ],
+      "boot_ms": {
+        "n": 1,
+        "median": 194717.5,
+        "p90": 194717.5,
+        "min": 194717.5,
+        "max": 194717.5
+      },
+      "wasm_ms": {
+        "n": 1,
+        "median": 30.8,
+        "p90": 30.8,
+        "min": 30.8,
+        "max": 30.8
+      },
+      "spine_ms": {
+        "n": 1,
+        "median": 258,
+        "p90": 258,
+        "min": 258,
+        "max": 258
+      },
+      "reindex_ms": {
+        "n": 1,
+        "median": 194402.2,
+        "p90": 194402.2,
+        "min": 194402.2,
+        "max": 194402.2
+      }
+    },
+    "page_errors": []
+  },
+  "checks": [
+    {
+      "name": "JS on: / decodes through htmx without a page load",
+      "ok": true,
+      "detail": "url http://127.0.0.1:8147/ui/decode?vin=1HGCM82633A004352&model_year="
+    },
+    {
+      "name": "JS on: /vocab re-rendered by the Service Worker",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "JS on: /vocab translates a VIN through browser-held files",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "JS on: Remove drops a stored file",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "JS on: no page errors",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "JS off: / decode form submits to /ui/decode as a full page",
+      "ok": true,
+      "detail": "http://127.0.0.1:8147/ui/decode?vin=1HGCM82633A004352&model_year="
+    },
+    {
+      "name": "JS off: /vocab says browser-held vocabularies need JavaScript",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "JS off: no file input is offered (nothing can be uploaded)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "JS off: translate form answers as a full page from the server",
+      "ok": true,
+      "detail": "http://127.0.0.1:8147/ui/translate?from=epa-vehicles&vin=1HGCM82633A004352&make=Honda&model=Accord&fields=&model_year=&to=yard&to=epa-vehicles"
+    },
+    {
+      "name": "JS off: catalog link lists entries as a full page",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "JS off: next-page link works",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "JS off: /vocab-js says it needs JavaScript",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "plain-JS go: VIN translation reaches EPA entries",
+      "ok": true,
+      "detail": "{\"from\":{\"vin\":\"1HGCM82633A004352\",\"status\":\"mapped\"},\"vehicle\":{\"vin\":\"1HGCM82633A004352\",\"make\":474,\"model\":1861,\"model_year\":2003},\"spine\":[{\"model\":1861,\"name\":\"Accord\",\"under\":{\"make\":474}},{\"mak"
+    },
+    {
+      "name": "plain-JS go: no page errors",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "plain-JS tinygo: VIN translation reaches EPA entries",
+      "ok": true,
+      "detail": "{\"from\":{\"vin\":\"1HGCM82633A004352\",\"status\":\"mapped\"},\"vehicle\":{\"vin\":\"1HGCM82633A004352\",\"make\":474,\"model\":1861,\"model_year\":2003},\"spine\":[{\"model\":1861,\"name\":\"Accord\",\"under\":{\"make\":474}},{\"mak"
+    },
+    {
+      "name": "plain-JS tinygo: no page errors",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

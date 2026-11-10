@@ -1,0 +1,16 @@
+artifact	raw	gzip-9	brotli-11
+Go sw.wasm (vocab+translator+/ui handlers: html/template, net/http)	12934078	3225730	2321014
+Go core.wasm (vocab+translator, JSON API)	5920304	1577326	1156707
+TinyGo core.wasm (vocab+translator, JSON API)	1531022	551113	400863
+TinyGo sw.wasm (builds; panics at start)	2649675	912347	653516
+probe: Go runtime alone (hello)	1855159	546778	423327
+probe: Go pkg/vocab alone	5165139	1397028	1033482
+probe: Go pkg/vocab+pkg/contract	5493328	1477910	1087364
+probe: Go vocab+contract+html/template	7994953	2046280	1473813
+probe: Go net/http alone	4920355	1404717	1068369
+Go wasm_exec.js	16992	4365	3753
+TinyGo wasm_exec.js	18002	5004	4368
+htmx 2.0.11 (htmx.min.js)	52182	16892	15259
+spine bundle 2026_10 (JSON)	4144201	1153603	771575
+EPA vocabulary (5,747 entries)	956057	63895	51248
+synthetic eBay-scale vocabulary (150,000 entries)	36354174	3327483	1688382

@@ -29,6 +29,7 @@ const stats = (xs) => {
   const q = (p) => s[Math.min(s.length - 1, Math.floor(p * s.length))];
   return { n: s.length, median: +q(0.5).toFixed(2), p90: +q(0.9).toFixed(2), min: +s[0].toFixed(2), max: +s[s.length - 1].toFixed(2) };
 };
+const save = () => writeFileSync(join(out, 'measurements.json'), JSON.stringify({ ...results, checks }, null, 2) + '\n');
 const shot = (page, name) => page.screenshot({ path: join(out, `${name}.png`), fullPage: true });
 
 const browser = await chromium.launch();
@@ -143,6 +144,7 @@ async function fragmentRuns(page, url, n = N) {
   check('JS on: Remove drops a stored file', true);
   r.page_errors = errors;
   check('JS on: no page errors', errors.length === 0, errors.join('; '));
+  save();
   await context.close();
 }
 
@@ -187,6 +189,7 @@ async function fragmentRuns(page, url, n = N) {
   await page.goto(`${BASE}/vocab-js`);
   check('JS off: /vocab-js says it needs JavaScript', /needs JavaScript/.test(await page.textContent('main')));
   await shot(page, 'vocab-plain-js-off');
+  save();
   await context.close();
 }
 
@@ -213,11 +216,25 @@ for (const core of ['go', 'tinygo']) {
     await page.evaluate(() => { window.protoLastLoad = null; });
     const t0 = Date.now();
     await page.setInputFiles('#file', path);
-    await page.waitForFunction(() => window.protoLastLoad, null, { timeout: 300000 });
+    await page.waitForFunction(() => window.protoLastLoad, null, { timeout: 1500000 });
     return { ...(await page.evaluate(() => window.protoLastLoad)), wall_ms: Date.now() - t0 };
   };
+  // a cold page load: the module, the spine bundle, every stored file read
+  // and indexed again. TinyGo is slow at this: one run, a long timeout.
+  const reload = async (label) => {
+    const runs = [];
+    for (let i = 0; i < (core === 'go' ? 3 : 1); i++) {
+      await page.reload();
+      await page.waitForSelector('html[data-ready=yes]', { timeout: 1500000 });
+      runs.push(await page.evaluate(() => window.protoTimings));
+    }
+    return { label, runs, boot_ms: stats(runs.map((x) => x.boot_ms)), wasm_ms: stats(runs.map((x) => x.wasm_ms)), spine_ms: stats(runs.map((x) => x.spine_fetch_ms + x.spine_index_ms)), reindex_ms: stats(runs.map((x) => x.reindex_ms)) };
+  };
   r.load_epa = await load(EPA);
+  r.cold_epa = await reload('EPA only in IndexedDB');
+  save();
   r.load_ebay = await load(EBAY);
+  save();
   const warm = await page.evaluate(async ({ vin, n }) => {
     const nameReq = JSON.stringify({ from: { vocabulary: 'epa-vehicles', entry: { make: 'Honda', model: 'Accord' } }, model_year: 2003, to: ['epa-vehicles', 'ebay-synthetic'] });
     const vinReq = JSON.stringify({ from: vin, to: ['epa-vehicles', 'ebay-synthetic'] });
@@ -242,20 +259,15 @@ for (const core of ['go', 'tinygo']) {
   await page.click('#tform button');
   await page.waitForSelector('#result h2');
   await shot(page, `vocab-plain-${core}-js-on`);
-  const reloads = [];
-  for (let i = 0; i < 3; i++) {
-    await page.reload();
-    await page.waitForSelector('html[data-ready=yes]', { timeout: 120000 });
-    reloads.push(await page.evaluate(() => window.protoTimings));
-  }
-  r.cold_page_load = { runs: reloads, boot_ms: stats(reloads.map((x) => x.boot_ms)), wasm_ms: stats(reloads.map((x) => x.wasm_ms)), reindex_ms: stats(reloads.map((x) => x.reindex_ms)) };
+  r.cold_epa_ebay = await reload('EPA + synthetic eBay in IndexedDB');
   r.page_errors = errors;
   check(`plain-JS ${core}: no page errors`, errors.length === 0, errors.join('; '));
+  save();
   await context.close();
 }
 
 await browser.close();
 results.checks = checks;
-writeFileSync(join(out, 'measurements.json'), JSON.stringify(results, null, 2) + '\n');
+save();
 console.log(`wrote ${join(out, 'measurements.json')}`);
 process.exitCode = checks.every((c) => c.ok) ? 0 : 1;

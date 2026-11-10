@@ -1,0 +1,8 @@
+panic: unimplemented: (reflect.Type).NumOut()
+prototypes/browser/tinygo-sw.mjs:15
+console.log('setSpine:', globalThis.nitrovin.setSpine(readFileSync(join(build, 'spine.json'), 'utf8')));
+                                             ^
+
+TypeError: Cannot read properties of undefined (reading 'setSpine')
+
+Node.js v24.21.0
