@@ -57,6 +57,7 @@ Every release embeds one vPIC data month; `nitrovin --version` names it.
 | Docker | `docker run --rm -p 8080:8080 ghcr.io/joshuasprow/nitrovin` | linux/amd64, linux/arm64 |
 | Go 1.27+ | `go install github.com/joshuasprow/nitrovin/cmd/nitrovin@latest` | anywhere Go builds |
 | Archives | [GitHub Releases](https://github.com/joshuasprow/nitrovin/releases): `nitrovin_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) | linux, darwin, windows × amd64, arm64 |
+| Linux packages | the same releases: `sudo apt install ./nitrovin_<version>_linux_<arch>.deb`, `sudo dnf install ./nitrovin_<version>_linux_<arch>.rpm`, `sudo apk add --allow-untrusted ./nitrovin_<version>_linux_<arch>.apk` | linux amd64, arm64 |
 | C library | the same releases: `libnitrovin_<version>_<os>_<arch>` | linux, darwin, windows × amd64, arm64 |
 
 ```console
@@ -69,6 +70,22 @@ The Docker image runs `nitrovin serve --addr :8080` by default, as a
 non-root user, and takes any other command in its place
 (`docker run --rm ghcr.io/joshuasprow/nitrovin decode 1HGCM82633A004352`).
 Its tags are `vX.Y.Z`, `vX.Y`, `vX`, `latest` and `data-<YYYY_MM>`.
+
+The Linux packages install `/usr/bin/nitrovin` and put `LICENSE` and
+`NOTICE` in `/usr/share/doc/nitrovin`; removing the package removes all
+three. They are release assets, not a package repository, so nothing signs
+them for `apt`, `dnf` or `apk` (hence `--allow-untrusted`): verify one with
+cosign before you install it,
+
+```sh
+TAG=v0.1.5
+cosign verify-blob --bundle nitrovin_${TAG#v}_linux_amd64.deb.sigstore.json \
+  --certificate-identity https://github.com/joshuasprow/nitrovin/.github/workflows/release.yml@refs/tags/$TAG \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com nitrovin_${TAG#v}_linux_amd64.deb
+```
+
+or check it against `checksums.txt` as [Verify a release](#verify-a-release)
+shows.
 
 The binaries are not notarized by Apple. Homebrew removes the quarantine
 flag for you. A macOS binary downloaded with a browser is killed on launch
@@ -182,6 +199,9 @@ macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows) and Cursor
 Use the absolute path `which nitrovin` prints: desktop apps do not see your
 shell's `PATH`. With Docker instead, `"command": "docker"` and
 `"args": ["run", "--rm", "-i", "ghcr.io/joshuasprow/nitrovin", "mcp"]`.
+A client that installs from the [MCP Registry](https://registry.modelcontextprotocol.io)
+finds this server as `io.github.joshuasprow/nitrovin`: the Docker image at
+the release tag, run with `mcp`.
 To try it without a client, save the snippet as `claude_desktop_config.json`
 and call the tool with the MCP Inspector:
 
