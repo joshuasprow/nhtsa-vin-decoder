@@ -435,3 +435,5 @@ its parity method and its deviation registry follow
 Drennan (MIT), the reference implementation; no ultravin source is copied,
 and the committed parity corpus includes ultravin's VIN lists. Details in
 [`NOTICE`](NOTICE).
+
+<!-- ci-matrix probe -->
