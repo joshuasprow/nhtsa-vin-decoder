@@ -39,19 +39,37 @@ type decodeOptions struct {
 
 func decodeSetup(fs *flag.FlagSet) func(*env, []string) error {
 	var o decodeOptions
-	fs.Func("model-year", "model-year hint `N` for every VIN without its own", func(s string) error {
-		y, err := strconv.ParseInt(s, 10, 32)
-		if err != nil {
-			return errors.New("must be a 32-bit integer")
-		}
-		o.modelYear = contract.Value(int32(y))
-		return nil
-	})
+	modelYearFlag(fs, &o.modelYear, "model-year hint `N` for every VIN without its own")
 	fs.BoolVar(&o.full, "full", false, "add the items, every row the decoder emitted (JSON only)")
 	fs.StringVar(&o.shape, "shape", string(contract.ShapeVPIC), "layout of the attributes: vpic or nitrovin (JSON only)")
 	fs.StringVar(&o.now, "now", "", "decode as of `instant`, RFC 3339 or YYYY-MM-DD (default: the clock, read once)")
 	fs.StringVar(&o.output, "o", "json", "output `format`: json, or text (one row per value)")
 	return func(e *env, args []string) error { return o.run(e, args) }
+}
+
+// modelYearFlag defines --model-year on fs, a 32-bit model year into y.
+func modelYearFlag(fs *flag.FlagSet, y *contract.Null[int32], usage string) {
+	fs.Func("model-year", usage, func(s string) error {
+		v, err := strconv.ParseInt(s, 10, 32)
+		if err != nil {
+			return errors.New("must be a 32-bit integer")
+		}
+		*y = contract.Value(int32(v))
+		return nil
+	})
+}
+
+// clock is --now's instant, or else the wall clock, read once per run as
+// the contract fixes. A bad --now is a usageError.
+func clock(now string) (time.Time, error) {
+	if now == "" {
+		return time.Now(), nil
+	}
+	t, err := contract.ParseNow(now)
+	if err != nil {
+		return time.Time{}, usageError("--now: " + err.Error())
+	}
+	return t, nil
 }
 
 func (o *decodeOptions) run(e *env, args []string) error {
@@ -72,14 +90,9 @@ func (o *decodeOptions) run(e *env, args []string) error {
 	default:
 		return usageError("-o must be json or text")
 	}
-	if o.now != "" {
-		t, err := contract.ParseNow(o.now)
-		if err != nil {
-			return usageError("--now: " + err.Error())
-		}
-		base.Now = t
-	} else {
-		base.Now = time.Now() // once per run, as the contract fixes
+	var err error
+	if base.Now, err = clock(o.now); err != nil {
+		return err
 	}
 	switch {
 	case len(args) == 0:
@@ -129,31 +142,42 @@ func (o *decodeOptions) runStdin(e *env, base contract.Request, out *decodeWrite
 	if err != nil {
 		return err
 	}
+	return eachLine(e, out.w, func(line string) error {
+		req, err := stdinRequest(base, line)
+		if err != nil {
+			return err
+		}
+		return out.decode(d, req)
+	})
+}
+
+// eachLine calls answer with each non-empty stdin line, without its "\n"
+// and a trailing "\r", flushing w before a read that would block, so the
+// answers so far show while the next line is awaited. The first error
+// stops the run, as a problem naming its line ("line 7"); w is flushed,
+// and the answers already written are complete.
+func eachLine(e *env, w *bufio.Writer, answer func(line string) error) error {
 	in := bufio.NewReader(e.stdin)
 	for n := 1; ; n++ {
-		if in.Buffered() == 0 { // about to block: show what is decoded so far
-			if err := out.w.Flush(); err != nil {
+		if in.Buffered() == 0 { // about to block: show what is answered so far
+			if err := w.Flush(); err != nil {
 				return err
 			}
 		}
 		line, rerr := in.ReadString('\n')
 		if rerr != nil && rerr != io.EOF {
-			out.w.Flush()
+			w.Flush()
 			return rerr
 		}
 		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 		if line != "" {
-			req, err := stdinRequest(base, line)
-			if err == nil {
-				err = out.decode(d, req)
-			}
-			if err != nil {
-				out.w.Flush()
+			if err := answer(line); err != nil {
+				w.Flush()
 				return naming(err, fmt.Sprintf("line %d", n))
 			}
 		}
 		if rerr == io.EOF {
-			return out.w.Flush()
+			return w.Flush()
 		}
 	}
 }
@@ -208,12 +232,18 @@ func (o *decodeWriter) decode(d *nitrovin.Decoder, req contract.Request) error {
 		}
 		return writeText(o.w, dec)
 	}
-	b, err := json.Marshal(dec)
+	return writeLine(o.w, dec)
+}
+
+// writeLine writes v to w as one line of compact JSON, exactly as the Go
+// module marshals it.
+func writeLine(w *bufio.Writer, v any) error {
+	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	o.w.Write(b)
-	return o.w.WriteByte('\n')
+	w.Write(b)
+	return w.WriteByte('\n')
 }
 
 // writeText writes dec as a two-column table: the VIN, then every
