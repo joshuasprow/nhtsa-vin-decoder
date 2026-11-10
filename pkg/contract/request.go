@@ -126,6 +126,25 @@ func ParseRequest(data []byte) (Request, error) {
 // request objects in at most MaxBody bytes. A problem's pointer names the
 // item ("/3/vin"). The error is a *Problem.
 func ParseBatch(data []byte) ([]Request, error) {
+	raw, p := parseBatch(data)
+	if p != nil {
+		return nil, p
+	}
+	reqs := make([]Request, len(raw))
+	for i, item := range raw {
+		r, p := parseObject(item, "/"+strconv.Itoa(i))
+		if p != nil {
+			return nil, p
+		}
+		reqs[i] = r
+	}
+	return reqs, nil
+}
+
+// parseBatch reads a batch body, POST /v1/decode's or POST /v1/translate's,
+// into its items: a JSON array of 1 to MaxBatch values in at most MaxBody
+// bytes.
+func parseBatch(data []byte) ([]json.RawMessage, *Problem) {
 	if len(data) > MaxBody {
 		return nil, NewProblem(TooLarge, "", fmt.Sprintf("the body is over %d bytes", MaxBody))
 	}
@@ -145,15 +164,7 @@ func ParseBatch(data []byte) ([]Request, error) {
 	case len(raw) > MaxBatch:
 		return nil, NewProblem(TooLarge, "", fmt.Sprintf("the batch has %d requests; the limit is %d", len(raw), MaxBatch))
 	}
-	reqs := make([]Request, len(raw))
-	for i, item := range raw {
-		r, p := parseObject(item, "/"+strconv.Itoa(i))
-		if p != nil {
-			return nil, p
-		}
-		reqs[i] = r
-	}
-	return reqs, nil
+	return raw, nil
 }
 
 // Op is what a StdioRequest asks for (ADR 0012).

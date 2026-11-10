@@ -4,10 +4,11 @@ info:
   version: v1
   summary: Offline VIN decoding that answers like NHTSA's vPIC.
   description: |
-    `nitrovin serve`. Every route decodes with the artifact the server loaded
-    at startup; the server is ready when it is alive. Wire types live in
-    `decode.schema.json`; the rules this document cannot express (layouts,
-    item order, the clock, versioning) are in `README.md` beside it.
+    `nitrovin serve`. Every route answers with the artifact and the
+    vocabularies (`--vocab`) the server loaded at startup; the server is
+    ready when it is alive. Wire types live in `decode.schema.json`; the
+    rules this document cannot express (layouts, item order, the clock,
+    translation and listing, versioning) are in `README.md` beside it.
 
     Within `/v1` changes are additive only: new fields, routes and optional
     parameters. Element names and codes change with data months; that is data,
@@ -81,6 +82,160 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '405': { $ref: '#/components/responses/MethodNotAllowed' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /v1/translate:
+    get:
+      operationId: translateOne
+      summary: Translate one VIN, vocabulary entry or spine entry.
+      description: |
+        One translate request as query parameters, each the request's path
+        with dots: `from` is `from.vin`; or `from.vocabulary` with one
+        `from.entry.<field>` per field of the vocabulary
+        (`from.entry.make=Dodge&from.entry.model=Ram%201500`); or one of
+        `from.make`, `from.model`, `from.ext`, or `from.spine` with
+        `from.id`. `to` is repeated, once per target vocabulary. Every
+        parameter but `to` is given at most once, and an unknown one is
+        refused. The answer, and any refusal with its `pointer`, is the one
+        the same request gets as a `POST /v1/translate` item. Nothing to
+        translate is never an error: an unknown or unmapped entry answers
+        with its `status` and empty lists.
+      parameters:
+        - name: from.vin
+          in: query
+          description: A VIN to translate from, as a decode's `vin`.
+          schema: { type: string, minLength: 1 }
+          example: 1D7RV1GT5AS123456
+        - name: from.vocabulary
+          in: query
+          description: |
+            A loaded vocabulary to translate an entry of, its fields given as
+            `from.entry.<field>`, exactly the vocabulary's fields.
+          schema: { type: string, minLength: 1 }
+          example: yard
+        - name: from.make
+          in: query
+          schema: { $ref: 'decode.schema.json#/$defs/SpineRefFields/properties/make' }
+        - name: from.model
+          in: query
+          schema: { $ref: 'decode.schema.json#/$defs/SpineRefFields/properties/model' }
+        - name: from.ext
+          in: query
+          schema: { $ref: 'decode.schema.json#/$defs/SpineRefFields/properties/ext' }
+        - name: from.spine
+          in: query
+          schema: { $ref: 'decode.schema.json#/$defs/SpineRefFields/properties/spine' }
+        - name: from.id
+          in: query
+          schema: { $ref: 'decode.schema.json#/$defs/SpineRefFields/properties/id' }
+        - name: to
+          in: query
+          description: A target vocabulary, on the same spine as `from`; repeated for several. None answers the spine alone.
+          schema: { $ref: 'decode.schema.json#/$defs/TranslateRequestFields/properties/to' }
+          style: form
+          explode: true
+        - name: model_year
+          in: query
+          description: The model year, the VIN's decode hint, and the year when no VIN decodes one; any 32-bit integer.
+          schema: { type: integer, minimum: -2147483648, maximum: 2147483647 }
+        - name: vin
+          in: query
+          schema: { $ref: 'decode.schema.json#/$defs/TranslateRequestFields/properties/vin' }
+        - $ref: '#/components/parameters/now'
+      responses:
+        '200':
+          description: The translation.
+          content:
+            application/json:
+              schema: { $ref: 'decode.schema.json#/$defs/Translation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '500': { $ref: '#/components/responses/Internal' }
+    post:
+      operationId: translateBatch
+      summary: Translate up to 1,000 requests.
+      description: |
+        A JSON array of translate requests in, a JSON array of translations
+        out, same length and order. The wall clock is read once for the
+        whole request; an item's `now` overrides it for that item. Any
+        refused item refuses the whole request with 400, its `pointer`
+        naming the item (`/3/to/0`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              minItems: 1
+              maxItems: 1000
+              items: { $ref: 'decode.schema.json#/$defs/TranslateRequest' }
+            example:
+              - { from: 1D7RV1GT5AS123456, to: [yard] }
+              - { from: { vocabulary: yard, entry: { make: Dodge, model: Ram 1500 } }, model_year: 2010 }
+              - { from: { make: 476 }, to: [yard] }
+      responses:
+        '200':
+          description: One translation per request item, in order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: 'decode.schema.json#/$defs/Translation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /v1/vocabularies:
+    get:
+      operationId: listCatalog
+      summary: What is loaded, by name.
+      description: |
+        The catalog: vPIC, then every loaded vocabulary, extension set and
+        declared spine, in load order. It is neither filtered nor paged, so
+        any query parameter is refused.
+      responses:
+        '200':
+          description: The catalog, its entries `CatalogEntry` values.
+          content:
+            application/json:
+              schema: { $ref: 'decode.schema.json#/$defs/List' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /v1/vocabularies/{name}/entries:
+    get:
+      operationId: listEntries
+      summary: Page through vPIC or one loaded file.
+      description: |
+        One page of what `name` lists: vPIC's makes (`vpic`), or one make's
+        models (`vpic` with `where.make`); a vocabulary's entries with their
+        mappings; a declared spine's entries; an extension set's extensions.
+        `where.<field>` matches a field exactly after the fixed
+        normalization, once per field (`where.make=Dodge`). Every parameter
+        is given at most once, and an unknown one is refused.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: '`vpic`, or a name from the catalog.'
+          schema: { type: string, minLength: 1 }
+          example: yard
+        - name: limit
+          in: query
+          description: Entries a page.
+          schema: { $ref: 'decode.schema.json#/$defs/ListRequestFields/properties/limit' }
+        - name: after
+          in: query
+          description: The previous page's `next`.
+          schema: { $ref: 'decode.schema.json#/$defs/ListRequestFields/properties/after' }
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema: { $ref: 'decode.schema.json#/$defs/List' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
         '500': { $ref: '#/components/responses/Internal' }
   /v1/info:
     get:
@@ -181,9 +336,12 @@ components:
   responses:
     BadRequest:
       description: |
-        The request cannot be decoded as asked: malformed JSON, a field of the
-        wrong type, an unknown field or query parameter, an empty or
+        The request cannot be answered as asked: malformed JSON, a field of
+        the wrong type, an unknown field or query parameter, an empty or
         over-17-character VIN, a bad `model_year`, `full`, `shape` or `now`.
+        For translate and list, also what the loaded files refuse: a name
+        nothing loaded has, entry or `where` fields the vocabulary lacks, a
+        target on another spine, an `after` that is not a cursor.
       content:
         application/problem+json:
           schema: { $ref: 'decode.schema.json#/$defs/Problem' }

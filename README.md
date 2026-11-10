@@ -144,6 +144,9 @@ curl localhost:8080/v1/decode/1HGCM82633A004352
 curl 'localhost:8080/v1/decode/1HGCM82633A004352?model_year=2003&shape=nitrovin'
 curl localhost:8080/v1/decode -d '[{"vin":"1HGCM82633A004352"},{"vin":"5YJ3E1EA2JF000316","shape":"nitrovin"}]'
 curl localhost:8080/v1/info
+curl 'localhost:8080/v1/translate?from.vin=1HGCM82633A004352'
+curl localhost:8080/v1/vocabularies
+curl 'localhost:8080/v1/vocabularies/vpic/entries?where.make=474&limit=5'
 ```
 
 Open the address in a browser for a decode form: a VIN, an optional model
@@ -160,8 +163,15 @@ The form is not part of the API: it is not in the OpenAPI document and may
 change.
 
 `POST /v1/decode` takes up to 1,000 requests and returns an array of
-decodes in order. Refusals are `application/problem+json` (RFC 9457) with a
-`pointer` to the offending value. `GET /v1/openapi.json` serves the
+decodes in order; `POST /v1/translate` does the same for translate
+requests, and `GET /v1/translate` takes one as dotted query parameters
+(`from.vocabulary=yard&from.entry.make=Dodge&to=ebay`).
+`GET /v1/vocabularies` lists what is loaded and
+`GET /v1/vocabularies/{name}/entries` pages through one
+([Translation](docs/api/README.md#translation-translate),
+[Listing](docs/api/README.md#listing-list)). Refusals are
+`application/problem+json` (RFC 9457) with a `pointer` to the offending
+value. `GET /v1/openapi.json` serves the
 [OpenAPI 3.1 document](docs/api/openapi.yaml); `GET /healthz` is the probe.
 There are no CORS headers unless `--cors <origin>` (or `--cors '*'`) names
 the browsers that may call `/v1` and `/mcp`. SIGINT or SIGTERM drains

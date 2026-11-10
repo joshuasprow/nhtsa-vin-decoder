@@ -129,8 +129,8 @@ func serve(e *env, addr, cors string) error {
 	return srv.Shutdown(ctx)
 }
 
-// loaded is the decoder with the Info of everything loaded beside it:
-// /v1/info lists the vocabularies.
+// loaded is the decoder with the files loaded beside it: /v1/info lists
+// them, and /v1/translate and /v1/vocabularies answer through them.
 type loaded struct {
 	*nitrovin.Decoder
 	*nitrovin.Translator
@@ -138,13 +138,14 @@ type loaded struct {
 
 func (l loaded) Info() contract.Info { return l.Translator.Info() }
 
-// decodeService is what the API answers with: a *nitrovin.Decoder, or
-// loaded.
+// decodeService is what the API answers with: loaded, or a fault injected
+// in a test.
 type decodeService interface {
 	Info() contract.Info
 	Decode(contract.Request) (contract.Decode, error)
 	DecodeBatch([]contract.Request) ([]contract.Decode, error)
 	Translate(contract.TranslateRequest) (contract.Translation, error)
+	TranslateBatch([]contract.TranslateRequest) ([]contract.Translation, error)
 	List(contract.ListRequest) (contract.List, error)
 }
 
@@ -233,8 +234,9 @@ func allows(allow, method string) bool {
 }
 
 // route maps an escaped path to the methods it takes, as the Allow header
-// lists them, and its handler; a nil handler is no route. A VIN is one path
-// segment, so a VIN holding "/" is sent as %2F.
+// lists them, and its handler; a nil handler is no route. A VIN and a
+// vocabulary name are one path segment each, so a VIN holding "/" is sent
+// as %2F.
 func (a *api) route(path string) (string, http.HandlerFunc) {
 	switch path {
 	case "/":
@@ -243,6 +245,10 @@ func (a *api) route(path string) (string, http.HandlerFunc) {
 		return "GET, HEAD", a.copyScript
 	case "/v1/decode":
 		return http.MethodPost, a.decodeBatch
+	case "/v1/translate":
+		return "GET, POST", a.translate
+	case "/v1/vocabularies":
+		return http.MethodGet, func(w http.ResponseWriter, r *http.Request) { a.list(w, r, "") }
 	case "/v1/info":
 		return http.MethodGet, a.info
 	case "/v1/openapi.json":
@@ -255,6 +261,11 @@ func (a *api) route(path string) (string, http.HandlerFunc) {
 	if vin, ok := strings.CutPrefix(path, "/v1/decode/"); ok && !strings.Contains(vin, "/") {
 		return http.MethodGet, func(w http.ResponseWriter, r *http.Request) { a.decodeOne(w, r, vin) }
 	}
+	if rest, ok := strings.CutPrefix(path, "/v1/vocabularies/"); ok {
+		if name, ok := strings.CutSuffix(rest, "/entries"); ok && name != "" && !strings.Contains(name, "/") {
+			return http.MethodGet, func(w http.ResponseWriter, r *http.Request) { a.list(w, r, name) }
+		}
+	}
 	return "", nil
 }
 
@@ -265,9 +276,8 @@ func (a *api) decodeOne(w http.ResponseWriter, r *http.Request, escapedVIN strin
 		a.problem(w, contract.NewProblem(contract.InvalidRequest, "/vin", err.Error()))
 		return
 	}
-	query, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil {
-		a.problem(w, contract.NewProblem(contract.InvalidRequest, "", "the query string is malformed: "+err.Error()))
+	query, ok := a.query(w, r)
+	if !ok {
 		return
 	}
 	req, err := contract.ParseQuery(vin, query)
@@ -283,21 +293,10 @@ func (a *api) decodeOne(w http.ResponseWriter, r *http.Request, escapedVIN strin
 	a.ok(w, dec)
 }
 
-// decodeBatch is POST /v1/decode. Its request is the body alone, so any
-// query parameter is refused.
+// decodeBatch is POST /v1/decode.
 func (a *api) decodeBatch(w http.ResponseWriter, r *http.Request) {
-	if r.URL.RawQuery != "" {
-		a.problem(w, contract.NewProblem(contract.InvalidRequest, "", "POST /v1/decode takes no query parameters"))
-		return
-	}
-	if r.ContentLength > contract.MaxBody {
-		a.problem(w, contract.NewProblem(contract.TooLarge, "", fmt.Sprintf("the body is over %d bytes", contract.MaxBody)))
-		return
-	}
-	// One byte over the limit is enough for ParseBatch to refuse it.
-	body, err := io.ReadAll(io.LimitReader(r.Body, contract.MaxBody+1))
-	if err != nil {
-		a.problem(w, contract.NewProblem(contract.MalformedJSON, "", "reading the body: "+err.Error()))
+	body, ok := a.body(w, r)
+	if !ok {
 		return
 	}
 	reqs, err := contract.ParseBatch(body)
@@ -311,6 +310,103 @@ func (a *api) decodeBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.ok(w, decs)
+}
+
+// translate is GET /v1/translate, one request as dotted query parameters,
+// and POST /v1/translate, a batch.
+func (a *api) translate(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		a.translateBatch(w, r)
+		return
+	}
+	query, ok := a.query(w, r)
+	if !ok {
+		return
+	}
+	req, err := contract.ParseTranslateQuery(query)
+	if err != nil {
+		a.problem(w, contract.AsProblem(err))
+		return
+	}
+	tr, err := a.d.Translate(req)
+	if err != nil {
+		a.problem(w, contract.AsProblem(err))
+		return
+	}
+	a.ok(w, tr)
+}
+
+func (a *api) translateBatch(w http.ResponseWriter, r *http.Request) {
+	body, ok := a.body(w, r)
+	if !ok {
+		return
+	}
+	reqs, err := contract.ParseTranslateBatch(body)
+	if err != nil {
+		a.problem(w, contract.AsProblem(err))
+		return
+	}
+	trs, err := a.d.TranslateBatch(reqs)
+	if err != nil {
+		a.problem(w, contract.AsProblem(err))
+		return
+	}
+	a.ok(w, trs)
+}
+
+// list is GET /v1/vocabularies, the catalog, with escapedName "", and GET
+// /v1/vocabularies/{name}/entries; escapedName is the path segment.
+func (a *api) list(w http.ResponseWriter, r *http.Request, escapedName string) {
+	of, err := url.PathUnescape(escapedName)
+	if err != nil {
+		a.problem(w, contract.NewProblem(contract.InvalidRequest, "/of", err.Error()))
+		return
+	}
+	query, ok := a.query(w, r)
+	if !ok {
+		return
+	}
+	req, err := contract.ParseListQuery(of, query)
+	if err != nil {
+		a.problem(w, contract.AsProblem(err))
+		return
+	}
+	l, err := a.d.List(req)
+	if err != nil {
+		a.problem(w, contract.AsProblem(err))
+		return
+	}
+	a.ok(w, l)
+}
+
+// query is a GET's query; a malformed one is refused.
+func (a *api) query(w http.ResponseWriter, r *http.Request) (url.Values, bool) {
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		a.problem(w, contract.NewProblem(contract.InvalidRequest, "", "the query string is malformed: "+err.Error()))
+		return nil, false
+	}
+	return query, true
+}
+
+// body is a POST's body, up to one byte over contract.MaxBody, enough for
+// the batch parsers to refuse it. The request is the body alone, so any
+// query parameter is refused.
+func (a *api) body(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	if r.URL.RawQuery != "" {
+		a.problem(w, contract.NewProblem(contract.InvalidRequest, "", fmt.Sprintf("POST %s takes no query parameters", r.URL.EscapedPath())))
+		return nil, false
+	}
+	if r.ContentLength > contract.MaxBody {
+		a.problem(w, contract.NewProblem(contract.TooLarge, "", fmt.Sprintf("the body is over %d bytes", contract.MaxBody)))
+		return nil, false
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, contract.MaxBody+1))
+	if err != nil {
+		a.problem(w, contract.NewProblem(contract.MalformedJSON, "", "reading the body: "+err.Error()))
+		return nil, false
+	}
+	return body, true
 }
 
 func (a *api) info(w http.ResponseWriter, _ *http.Request) { a.ok(w, a.d.Info()) }

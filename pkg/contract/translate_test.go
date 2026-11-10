@@ -2,7 +2,9 @@ package contract
 
 import (
 	"encoding/json"
+	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -116,6 +118,96 @@ func TestTranslateRequestValidate(t *testing.T) {
 	}
 }
 
+func TestParseTranslateBatch(t *testing.T) {
+	reqs, err := ParseTranslateBatch([]byte(`[{"from":"a"},{"from":{"make":476},"to":["yard"]}]`))
+	want := []TranslateRequest{{From: TranslateFrom{VIN: "a"}}, {From: TranslateFrom{SpineRef: SpineRef{Make: 476}}, To: []string{"yard"}}}
+	if err != nil || !reflect.DeepEqual(reqs, want) {
+		t.Errorf("got %+v, %v", reqs, err)
+	}
+	item := `{"from":{"make":476}},`
+	for _, c := range []struct {
+		in      string
+		typ     ProblemType
+		pointer string
+	}{
+		{`[`, MalformedJSON, ""},
+		{`{"from":"a"}`, InvalidRequest, ""},
+		{`[]`, InvalidRequest, ""},
+		{"[" + strings.Repeat(item, MaxBatch) + `{"from":"a"}]`, TooLarge, ""},
+		{`[{"from":"a"},{"from":"a","vin":"b"}]`, InvalidRequest, "/1/vin"},
+		{`[{"from":"a"},"a"]`, InvalidRequest, "/1"},
+		{`["` + strings.Repeat("a", MaxBody) + `"]`, TooLarge, ""},
+	} {
+		_, err := ParseTranslateBatch([]byte(c.in))
+		problemOf(t, err, c.typ, c.pointer)
+	}
+}
+
+// TestParseTranslateQuery: a query asks what the JSON request it spells
+// asks, and is refused where that request is, at the same pointer.
+func TestParseTranslateQuery(t *testing.T) {
+	for _, c := range []struct{ query, json string }{
+		{"from.vin=1HGCM82633A004352", `{"from":"1HGCM82633A004352"}`},
+		{"from.vocabulary=yard&from.entry.make=Dodge&from.entry.model=Ram+1500&to=yard&to=ebay&model_year=2010&vin=1D7RV1GT5AS123456&now=2026-11-10",
+			`{"from":{"vocabulary":"yard","entry":{"make":"Dodge","model":"Ram 1500"}},"to":["yard","ebay"],"model_year":2010,"vin":"1D7RV1GT5AS123456","now":"2026-11-10"}`},
+		{"from.vocabulary=codes&from.entry.a%2Fb=1", `{"from":{"vocabulary":"codes","entry":{"a/b":"1"}}}`},
+		{"from.make=476", `{"from":{"make":476}}`},
+		{"from.model=1938.0", `{"from":{"model":1938.0}}`},
+		{"from.ext=ext:classics/corvair", `{"from":{"ext":"ext:classics/corvair"}}`},
+		{"from.spine=parts&from.id=300", `{"from":{"spine":"parts","id":"300"}}`},
+		// Refused alike.
+		{"", `{}`},
+		{"from.vin=", `{"from":""}`},
+		{"from.vin=1HGCM82633A004352A", `{"from":"1HGCM82633A004352A"}`},
+		{"from.vin=a&vin=a", `{"from":"a","vin":"a"}`},
+		{"from.make=476&vin=", `{"from":{"make":476},"vin":""}`},
+		{"from.vocabulary=yard", `{"from":{"vocabulary":"yard"}}`},
+		{"from.entry.make=Dodge", `{"from":{"entry":{"make":"Dodge"}}}`},
+		{"from.vocabulary=&from.entry.make=Dodge", `{"from":{"vocabulary":"","entry":{"make":"Dodge"}}}`},
+		{"from.vocabulary=yard&from.entry.make=Dodge&from.make=476", `{"from":{"vocabulary":"yard","entry":{"make":"Dodge"},"make":476}}`},
+		{"from.make=476&from.model=1938", `{"from":{"make":476,"model":1938}}`},
+		{"from.make=0", `{"from":{"make":0}}`},
+		{"from.make=Dodge", `{"from":{"make":"Dodge"}}`},
+		{"from.make=+476", `{"from":{"make":" 476"}}`},
+		{"from.ext=classics/corvair", `{"from":{"ext":"classics/corvair"}}`},
+		{"from.spine=parts", `{"from":{"spine":"parts"}}`},
+		{"from.id=300", `{"from":{"id":"300"}}`},
+		{"from.make=476&to=yard&to=", `{"from":{"make":476},"to":["yard",""]}`},
+		{"from.make=476&model_year=2010.5", `{"from":{"make":476},"model_year":2010.5}`},
+		{"from.make=476&model_year=null", `{"from":{"make":476},"model_year":"null"}`},
+		{"from.make=476&now=tomorrow", `{"from":{"make":476},"now":"tomorrow"}`},
+	} {
+		q, err := url.ParseQuery(c.query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, gotErr := ParseTranslateQuery(q)
+		want, wantErr := ParseTranslateRequest([]byte(c.json))
+		if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(gotErr, wantErr) {
+			t.Errorf("?%s: %+v, %v; want %s's %+v, %v", c.query, got, gotErr, c.json, want, wantErr)
+		}
+	}
+	// What only a query can get wrong.
+	for _, c := range []struct{ query, pointer string }{
+		{"from.vin=a&from.make=476", "/from"},
+		{"from.vin=a&from.entry.make=Dodge", "/from"},
+		{"from.make=476&from.make=477", "/from/make"},
+		{"from.make=476&now=2026-11-01&now=2026-11-02", "/now"},
+		{"from.vocabulary=yard&from.entry.make=Dodge&from.entry.make=Ram", "/from/entry/make"},
+		{"from.make=476&from.mke=1", "/from/mke"},
+		{"from.make=476&model.year=2010", "/model/year"},
+		{"from.make=476&shape=vpic", "/shape"},
+		{"from.make=476&from.entry~x=1", "/from/entry~0x"},
+	} {
+		q, err := url.ParseQuery(c.query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = ParseTranslateQuery(q)
+		problemOf(t, err, InvalidRequest, c.pointer)
+	}
+}
+
 func TestParseListRequest(t *testing.T) {
 	accepted := []struct {
 		in   string
@@ -161,6 +253,43 @@ func TestParseListRequest(t *testing.T) {
 		if validate(listRequest, []byte(c.in)) == nil {
 			t.Errorf("%s: refused, but the schema accepts it", c.in)
 		}
+	}
+}
+
+// TestParseListQuery: as TestParseTranslateQuery, for list.
+func TestParseListQuery(t *testing.T) {
+	for _, c := range []struct{ of, query, json string }{
+		{"", "", `{}`},
+		{"vpic", "where.make=476&limit=1000&after=WyJhIl0", `{"of":"vpic","where":{"make":476},"limit":1000,"after":"WyJhIl0"}`},
+		{"yard", "where.make=Dodge&where.model=Ram+1500&limit=1", `{"of":"yard","where":{"make":"Dodge","model":"Ram 1500"},"limit":1}`},
+		{"yard", "limit=0", `{"of":"yard","limit":0}`},
+		{"yard", "limit=1.5", `{"of":"yard","limit":1.5}`},
+		{"yard", "limit=ten", `{"of":"yard","limit":"ten"}`},
+		{"yard", "after=", `{"of":"yard","after":""}`},
+	} {
+		q, err := url.ParseQuery(c.query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, gotErr := ParseListQuery(c.of, q)
+		want, wantErr := ParseListRequest([]byte(c.json))
+		if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(gotErr, wantErr) {
+			t.Errorf("%s ?%s: %+v, %v; want %s's %+v, %v", c.of, c.query, got, gotErr, c.json, want, wantErr)
+		}
+	}
+	for _, c := range []struct{ query, pointer string }{
+		{"of=yard", "/of"},
+		{"page=2", "/page"},
+		{"limit=1&limit=2", "/limit"},
+		{"where.make=Dodge&where.make=Ram", "/where/make"},
+		{"where.a.b=1&where.a.b=2", "/where/a.b"},
+	} {
+		q, err := url.ParseQuery(c.query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = ParseListQuery("yard", q)
+		problemOf(t, err, InvalidRequest, c.pointer)
 	}
 }
 

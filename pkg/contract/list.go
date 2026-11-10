@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // List limits from docs/api/README.md.
@@ -94,6 +96,44 @@ func readList(fields map[string]json.RawMessage) (ListRequest, *Problem) {
 		r.Limit = int(n)
 	}
 	return r, nil
+}
+
+// ParseListQuery parses GET /v1/vocabularies, the catalog, with of "", and
+// GET /v1/vocabularies/{name}/entries, with of the path's name: one
+// where.<field> per field matched, limit and after, each at most once; an
+// unknown parameter is refused. As in ParseTranslateQuery, the parameters
+// are read as the JSON request they spell, and a problem's pointer is the
+// parameter's path ("/where/make"). The error is a *Problem.
+func ParseListQuery(of string, query url.Values) (ListRequest, error) {
+	req := map[string]json.RawMessage{}
+	if of != "" {
+		req["of"] = queryString(of)
+	}
+	where := map[string]json.RawMessage{}
+	for _, name := range slices.Sorted(maps.Keys(query)) {
+		vs := query[name]
+		ptr := queryPointer(name, "where.")
+		if len(vs) != 1 {
+			return ListRequest{}, NewProblem(InvalidRequest, ptr, name+" is given more than once")
+		}
+		v := vs[0]
+		switch name {
+		case "limit":
+			req[name] = queryNumber(v)
+		case "after":
+			req[name] = queryString(v)
+		default:
+			field, ok := strings.CutPrefix(name, "where.")
+			if !ok {
+				return ListRequest{}, NewProblem(InvalidRequest, ptr, "unknown query parameter "+strconv.Quote(name))
+			}
+			where[field] = queryString(v)
+		}
+	}
+	if len(where) > 0 {
+		req["where"] = marshalRaw(where)
+	}
+	return ParseListRequest(marshalRaw(req))
 }
 
 // List is the answer to a ListRequest: the catalog, or one page of what Of

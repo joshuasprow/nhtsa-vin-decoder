@@ -154,10 +154,32 @@ that crosses midnight on 31 December keeps its starting instant.
 
 Routes, bodies and status codes are in [`openapi.yaml`](openapi.yaml):
 `GET /v1/decode/{vin}`, `POST /v1/decode` (≤ 1,000 items, ≤ 1 MiB),
-`GET /v1/info`, `GET /v1/openapi.json`, `GET /healthz`, and `POST /mcp`,
-the MCP server below over Streamable HTTP. `GET /` is a decode form for
-browsers (HTML, `HEAD` allowed too), with its one script at `GET /copy.js`;
-both are outside the contract, not in `openapi.yaml`, and may change.
+`GET` and `POST /v1/translate`, `GET /v1/vocabularies`,
+`GET /v1/vocabularies/{name}/entries`, `GET /v1/info`,
+`GET /v1/openapi.json`, `GET /healthz`, and `POST /mcp`, the MCP server
+below over Streamable HTTP. `GET /` is a decode form for browsers (HTML,
+`HEAD` allowed too), with its one script at `GET /copy.js`; both are
+outside the contract, not in `openapi.yaml`, and may change.
+
+**Translate and list** ([Translation](#translation-translate),
+[Listing](#listing-list)) carry the same request objects:
+
+- `POST /v1/translate` takes a JSON array of `TranslateRequest` (≤ 1,000
+  items, ≤ 1 MiB) and answers an array of `Translation` in the same order,
+  reading the clock once, as `POST /v1/decode` does.
+- `GET /v1/translate` takes one request as query parameters named by its
+  paths with dots: `from.vin`; `from.vocabulary` with one
+  `from.entry.<field>` per field; `from.make`, `from.model`, `from.ext`, or
+  `from.spine` with `from.id`; `to` repeated; `model_year`, `vin`, `now`.
+  The parameters are read as the JSON request they spell, so a GET answers
+  exactly as the equivalent `POST` item, refusals and their `pointer`
+  (`/from/entry/model`) included.
+- `GET /v1/vocabularies` is the catalog (`list` with no `of`), and takes no
+  parameter. `GET /v1/vocabularies/{name}/entries` is `list` with `of` the
+  name (`vpic` included): `where.<field>` per field (`where.make=476`),
+  `limit`, `after`.
+- Every parameter but `to` is given at most once, and an unknown one is
+  refused, as on `GET /v1/decode/{vin}`.
 
 **CORS** is off unless `serve --cors <origin>` (or `*`) turns it on. Then
 every response under `/v1/` and on `/mcp`, refusals included, carries
