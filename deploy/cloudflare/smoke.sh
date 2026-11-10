@@ -108,14 +108,19 @@ cmp -s <(jq -c .result.tools "$tmp/mcp.b") <(jq -c .tools "$tools") ||
 	fail "POST /mcp tools/list: tools differ from $tools"
 pass "POST /mcp tools/list: mcp-tools.json's tools"
 
-# CORS on /v1 and /mcp, not on the form.
+# CORS on /v1 and /mcp, not on the pages.
 [[ $(header info access-control-allow-origin) == '*' ]] || fail "GET /v1/info: no Access-Control-Allow-Origin: *"
 status=$(req preflight -X OPTIONS -H 'Origin: https://example.com' -H 'Access-Control-Request-Method: POST' "$base/mcp")
 [[ $status == 204 && $(header preflight access-control-allow-methods) == POST ]] || fail "OPTIONS /mcp: $status"
-status=$(req form "$base/?vin=$vin")
-[[ $status == 200 && $(header form content-type) == "text/html; charset=utf-8" ]] || fail "GET /?vin=$vin: $status"
-grep -qi '^access-control-' "$tmp/form.h" && fail "GET /?vin=$vin: CORS headers on the form"
+status=$(req form "$base/ui/decode?vin=$vin")
+[[ $status == 200 && $(header form content-type) == "text/html; charset=utf-8" ]] || fail "GET /ui/decode?vin=$vin: $status"
+grep -qi '^access-control-' "$tmp/form.h" && fail "GET /ui/decode?vin=$vin: CORS headers on the form"
 pass "CORS: * on /v1 and /mcp, preflight 204; the form has none"
+
+# An old link to the form redirects to it.
+status=$(req old "$base/?vin=$vin")
+[[ $status == 301 && $(header old location) == "/ui/decode?vin=$vin" ]] || fail "GET /?vin=$vin: $status $(header old location)"
+pass "GET /?vin=$vin: 301 to /ui/decode?vin=$vin"
 
 [[ $base == https://* ]] || exit 0
 host=${base#https://}

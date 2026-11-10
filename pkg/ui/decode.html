@@ -1,0 +1,176 @@
+{{/* The decode form (decode.go): home is the entry page at /, decode the
+form's page at /ui/decode. The form asks /ui/decode as a page without
+JavaScript; with it, htmx fills the layout's main with the answer and pushes
+its URL. The examples and the empty-values link are boosted the same way. */}}
+{{define "home" -}}
+{{template "intro"}}
+{{template "decode-form" .}}
+{{template "examples"}}
+
+<h2 id="install">Install</h2>
+<p>Every release embeds one vPIC data month; <code>nitrovin --version</code> names it.</p>
+<table class="install">
+<thead><tr><th>Channel</th><th>Command</th><th>Platforms</th></tr></thead>
+<tbody>
+<tr><th scope="row">Homebrew</th><td><div class="copyable"><pre tabindex="0" data-copy="the Homebrew install command">brew install joshuasprow/tap/nitrovin</pre></div></td><td>macOS, Linux</td></tr>
+<tr><th scope="row">Scoop</th><td><div class="copyable"><pre tabindex="0" data-copy="the Scoop install commands">scoop bucket add joshuasprow https://github.com/joshuasprow/scoop-bucket
+scoop install nitrovin</pre></div></td><td>Windows amd64, arm64</td></tr>
+<tr><th scope="row">winget</th><td><code>JoshuaSprow.Nitrovin</code>, not yet submitted (<a href="https://github.com/joshuasprow/nitrovin/issues/78">#78</a>)</td><td>Windows</td></tr>
+<tr><th scope="row">Docker</th><td><div class="copyable"><pre tabindex="0" data-copy="the Docker command">docker run --rm -p 8080:8080 ghcr.io/joshuasprow/nitrovin</pre></div></td><td>linux/amd64, linux/arm64</td></tr>
+<tr><th scope="row">Go 1.27+</th><td><div class="copyable"><pre tabindex="0" data-copy="the go install command">go install github.com/joshuasprow/nitrovin/cmd/nitrovin@latest</pre></div></td><td>anywhere Go builds</td></tr>
+</tbody>
+</table>
+<p>Archives and the C library for linux, darwin and windows on amd64 and arm64 are on <a href="{{.Links.Release}}">{{if .Links.Tag}}the {{.Links.Tag}} release{{else}}GitHub Releases{{end}}</a>.</p>
+
+<h2 id="mcp">In an AI assistant (MCP)</h2>
+<p><code>nitrovin mcp</code> is an MCP server over stdio with the tools <code>decode_vin</code>, <code>translate</code> and <code>list</code>. For Claude Desktop (<code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS, <code>%APPDATA%\Claude\claude_desktop_config.json</code> on Windows) and Cursor (<code>~/.cursor/mcp.json</code>) the entry is the same.</p>
+<h3>A local binary</h3>
+<p>Use the absolute path <code>which nitrovin</code> prints: desktop apps do not see your shell's <code>PATH</code>.</p>
+<div class="copyable"><pre tabindex="0" id="mcp-local" data-copy="the MCP configuration for a local binary">{
+  "mcpServers": {
+    "nitrovin": {
+      "command": "/opt/homebrew/bin/nitrovin",
+      "args": ["mcp"]
+    }
+  }
+}</pre></div>
+<h3>The Docker image</h3>
+<div class="copyable"><pre tabindex="0" id="mcp-docker" data-copy="the MCP configuration for the Docker image">{
+  "mcpServers": {
+    "nitrovin": {
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "ghcr.io/joshuasprow/nitrovin", "mcp"]
+    }
+  }
+}</pre></div>
+
+<h2 id="verify">Verify a release</h2>
+<p>Releases are signed with cosign keyless signatures from GitHub Actions: every asset has an <code>&lt;asset&gt;.sigstore.json</code> bundle and a line in <code>checksums.txt</code>. {{if .Links.Tag}}From the directory you downloaded {{.Links.Tag}}'s assets to:{{else}}This build, {{.DecoderVersion}}, is not a release: set <code>TAG</code> to the release you downloaded.{{end}}</p>
+<div class="copyable"><pre tabindex="0" id="verify-commands" data-copy="the verify commands">TAG={{with .Links.Tag}}{{.}}{{else}}vX.Y.Z{{end}}
+cosign verify-blob --bundle checksums.txt.sigstore.json \
+  --certificate-identity https://github.com/joshuasprow/nitrovin/.github/workflows/release.yml@refs/tags/$TAG \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+sha256sum --check --ignore-missing checksums.txt
+cosign verify ghcr.io/joshuasprow/nitrovin:$TAG \
+  --certificate-identity https://github.com/joshuasprow/nitrovin/.github/workflows/release.yml@refs/tags/$TAG \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com</pre></div>
+
+<h2 id="links">Links</h2>
+<ul>
+<li><a href="{{.Links.Release}}">{{if .Links.Tag}}nitrovin {{.Links.Tag}}{{else}}nitrovin's releases{{end}}</a>: binaries, checksums and signatures{{if .Links.Tag}} (<a href="https://github.com/joshuasprow/nitrovin/releases">every release</a>){{end}}</li>
+<li><a href="{{.Links.DataRelease}}">nitrovin-data {{.DataMonth}}</a>: the artifact, NHTSA's dump and the month's frozen parity key</li>
+<li><a href="{{.Links.ParityReport}}">the {{.DataMonth}} parity report</a> and <a href="{{.Links.Parity}}">what parity means</a></li>
+<li><a href="https://vpic.nhtsa.dot.gov/">vPIC</a>, the data's source, and <a href="https://vpic.nhtsa.dot.gov/api/">its API documentation</a></li>
+<li><a href="https://vpic.nhtsa.dot.gov/decoder/">NHTSA's online decoder</a>, to compare answers</li>
+<li><a href="/v1/openapi.json">this server's API</a> and <a href="https://github.com/joshuasprow/nitrovin#readme">the README</a></li>
+</ul>
+{{template "form-footer" .}}
+{{- end}}
+
+{{define "decode" -}}
+{{template "intro"}}
+{{template "decode-form" .}}
+{{with .Decode}}
+<h2>Result</h2>
+<p>Error codes:
+<span class="mono {{if .Clean}}codes-clean{{else}}codes-flagged{{end}}">{{range $i, $c := .ErrorCodes}}{{if $i}}, {{end}}{{$c}}{{end}}</span>
+· check digit {{if .CheckDigitValid}}valid{{else}}invalid{{end}}</p>
+<ul class="codes">
+{{range .Codes}}<li>{{if .Text}}{{.Text}}{{else}}{{.Code}}{{end}}</li>
+{{end}}</ul>
+{{with .AdditionalErrorText}}<p>{{.}}</p>{{end}}
+<table class="kv">
+<tbody>
+<tr><th scope="row">VIN</th><td class="mono">{{if .Input}}{{template "chars" .Input}}{{else}}{{.VIN}}{{end}}</td></tr>
+{{if .Suggested}}<tr><th scope="row">Suggested VIN</th><td><span class="mono">{{template "chars" .Suggested}}</span>{{with .DifferAt}} <span class="hint">differs at {{.}}</span>{{end}}</td></tr>
+{{end}}</tbody>
+</table>
+<p><a href="{{.JSON}}">JSON on /v1</a> · <a href="{{.NHTSA}}">this VIN on NHTSA's decoder</a></p>
+
+{{if .EmptyToggle}}<p hx-boost="true" hx-target="#ui-main">{{if $.ShowEmpty}}Empty values shown. <a href="{{.EmptyToggle}}">Hide them</a>{{else}}{{.Hidden}} empty values hidden. <a href="{{.EmptyToggle}}">Show them</a>{{end}}</p>{{end}}
+{{range .Groups}}<details{{if .Open}} open{{end}}>
+<summary>{{.Name}} <span class="hint">({{len .Rows}})</span></summary>
+<table class="kv">
+<tbody>
+{{range .Rows}}<tr><th scope="row">{{.Name}}</th><td>{{if .List}}<ul>{{range .Values}}<li>{{.}}</li>{{end}}</ul>{{else}}{{range .Values}}{{.}}{{else}}<span class="null">empty</span>{{end}}{{end}}</td></tr>
+{{end}}</tbody>
+</table>
+</details>
+{{end}}
+
+<h2>Copy</h2>
+<h3>The decode's JSON</h3>
+<div class="copyable"><pre tabindex="0" class="wrap" id="copy-json" data-copy="the decode's JSON">{{.Copy.JSON}}</pre></div>
+<h3>This page's URL</h3>
+<div class="copyable"><pre tabindex="0" class="wrap" id="copy-url" data-copy="this page's URL">{{.Copy.URL}}</pre></div>
+<h3>The same request with curl</h3>
+<div class="copyable"><pre tabindex="0" class="wrap" id="copy-curl" data-copy="the curl command">{{.Copy.Curl}}</pre></div>
+<h3>The same decode on the command line</h3>
+<div class="copyable"><pre tabindex="0" class="wrap" id="copy-cli" data-copy="the nitrovin decode command">{{.Copy.CLI}}</pre></div>
+
+{{if .Items}}
+<h2>Items</h2>
+<div class="wide">
+<table>
+<thead><tr><th>Element</th><th>Variable</th><th>Value</th><th>Attribute</th><th>Source</th><th>Pattern</th><th>VIN schema</th><th>Keys</th></tr></thead>
+<tbody>
+{{range .Items}}<tr><td>{{.ElementID}}</td><td>{{.Variable}}</td><td>{{template "null" .Value}}</td><td>{{template "null" .AttributeID}}</td><td>{{template "null" .Source}}</td><td>{{template "null" .PatternID}}</td><td>{{template "null" .VinSchemaID}}</td><td class="mono">{{template "null" .Keys}}</td></tr>
+{{end}}</tbody>
+</table>
+</div>
+{{end}}
+{{else}}
+{{template "examples"}}
+{{end}}
+{{template "form-footer" .}}
+{{- end}}
+
+{{define "intro" -}}
+<h1>nitrovin: decode a VIN</h1>
+<p>nitrovin decodes VINs offline and answers like NHTSA's <a href="https://vpic.nhtsa.dot.gov/">vPIC</a>: it runs NHTSA's own decoding procedure, ported to Go, on a month of vPIC data built into one binary.</p>
+{{- end}}
+
+{{define "decode-form" -}}
+<form method="get" action="/ui/decode" hx-get="/ui/decode" hx-target="#ui-main" hx-push-url="true">
+{{with index .Errors ""}}<p class="error" role="alert">{{.}}</p>{{end}}
+<div>
+<label for="vin">VIN</label>
+<input type="text" id="vin" name="vin" value="{{.VIN}}" autocomplete="off" spellcheck="false" autofocus{{with index .Errors "vin"}} aria-invalid="true" aria-describedby="vin-error"{{end}}>
+{{with index .Errors "vin"}}<p class="error" id="vin-error">{{.}}</p>{{end}}
+</div>
+<div>
+<label for="model_year">Model year <span class="hint">(optional hint)</span></label>
+<input type="text" id="model_year" name="model_year" value="{{.ModelYear}}" inputmode="numeric" autocomplete="off"{{with index .Errors "model_year"}} aria-invalid="true" aria-describedby="model_year-error"{{end}}>
+{{with index .Errors "model_year"}}<p class="error" id="model_year-error">{{.}}</p>{{end}}
+</div>
+<fieldset{{with index .Errors "shape"}} aria-describedby="shape-error"{{end}}>
+<legend>Shape</legend>
+<label><input type="radio" name="shape" value="vpic"{{if eq .Shape "vpic"}} checked{{end}}> vpic <span class="hint">(vPIC's element codes)</span></label>
+<label><input type="radio" name="shape" value="nitrovin"{{if eq .Shape "nitrovin"}} checked{{end}}> nitrovin <span class="hint">(variable names, lists)</span></label>
+{{with index .Errors "shape"}}<p class="error" id="shape-error">{{.}}</p>{{end}}
+</fieldset>
+<div>
+<label class="check"><input type="checkbox" name="full" value="true"{{if .Full}} checked{{end}}{{with index .Errors "full"}} aria-describedby="full-error"{{end}}> full <span class="hint">(every row the decoder emitted)</span></label>
+{{with index .Errors "full"}}<p class="error" id="full-error">{{.}}</p>{{end}}
+<label class="check"><input type="checkbox" name="show_empty" value="true"{{if .ShowEmpty}} checked{{end}}> show empty values <span class="hint">(vpic shape)</span></label>
+</div>
+<button type="submit">Decode</button>
+</form>
+{{- end}}
+
+{{define "examples" -}}
+<p hx-boost="true" hx-target="#ui-main">Try one: <a class="example" href="/ui/decode?vin=1HGCM82633A004352">1HGCM82633A004352</a> <span class="hint">a 2003 Honda Accord</span> · <a class="example" href="/ui/decode?vin=5YJ3E1EA2JF000316">5YJ3E1EA2JF000316</a> <span class="hint">a 2018 Tesla Model 3</span></p>
+{{- end}}
+
+{{define "form-footer" -}}
+<footer>
+data {{.DataMonth}} · decoder {{.DecoderVersion}} ·
+<a href="{{.Links.Parity}}">parity</a> ·
+<a href="https://github.com/joshuasprow/nitrovin">source</a> ·
+<a href="{{.Links.Release}}">{{if .Links.Tag}}release {{.Links.Tag}}{{else}}releases{{end}}</a> ·
+the API is <a href="/v1/openapi.json">/v1</a>
+</footer>
+{{- end}}
+
+{{define "null"}}{{if .Valid}}{{.V}}{{else}}<span class="null">NULL</span>{{end}}{{end}}
+{{define "chars"}}{{range .}}{{if .Differs}}<mark>{{.C}}</mark>{{else}}{{.C}}{{end}}{{end}}{{end}}

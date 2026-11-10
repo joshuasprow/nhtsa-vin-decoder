@@ -20,15 +20,26 @@ import (
 // any test executes them.
 var _ = template.Must(tpl.New("stub").Parse(`<p id="stub">{{.}}</p>`))
 
-// backend is a Backend answering a fixed Info, testSpine as its spine
-// bundle and "<name> bytes" as each loaded file's but broken's, which it
-// fails to read. It counts SpineBundle's calls in spines, when not nil.
+// backend is a Backend answering a fixed Info, every decode with the error
+// codes alone, or err, testSpine as its spine bundle and "<name> bytes" as
+// each loaded file's but broken's, which it fails to read. It counts
+// SpineBundle's calls in spines, when not nil.
 type backend struct {
 	info   contract.Info
+	err    error
 	spines *atomic.Int32
 }
 
 func (b backend) Info() contract.Info { return b.info }
+
+func (b backend) Decode(req contract.Request) (contract.Decode, error) {
+	if b.err != nil {
+		return contract.Decode{}, b.err
+	}
+	return contract.Decode{VIN: req.VIN, ErrorCodes: []int{0}, Attributes: contract.VpicAttributes{}}, nil
+}
+
+func (backend) ErrorText(code int) string { return "" }
 
 func (b backend) SpineBundle() ([]byte, error) {
 	if b.spines != nil {
@@ -102,7 +113,7 @@ func checkHTML(t *testing.T, name string, header http.Header) {
 }
 
 // checkPage checks body is a whole page in the layout, titled title,
-// linking the release's htmx and stylesheet.
+// linking the release's htmx, copy.js and stylesheet.
 func checkPage(t *testing.T, name, body, title string) {
 	t.Helper()
 	for _, want := range []string{
@@ -111,6 +122,7 @@ func checkPage(t *testing.T, name, body, title string) {
 		`<meta name="htmx-config" content="{&#34;allowEval&#34;:false,`,
 		`<link rel="stylesheet" href="` + testAssetsAttr + `/ui.css">`,
 		`<script src="` + testAssetsAttr + `/htmx.min.js" defer></script>`,
+		`<script src="` + testAssetsAttr + `/copy.js" defer></script>`,
 		`<div id="ui-error" role="alert"></div>`,
 		"</html>\n",
 	} {
@@ -149,8 +161,13 @@ func TestStubRoute(t *testing.T) {
 		t.Errorf("fragment: %d; want 200", status)
 	}
 	checkHTML(t, "fragment", hdr)
-	if want := `<p id="stub">hello</p><div id="ui-error" role="alert" hx-swap-oob="true"></div>`; body != want {
+	if want := `<title>Stub · nitrovin</title><p id="stub">hello</p><div id="ui-error" role="alert" hx-swap-oob="true"></div>`; body != want {
 		t.Errorf("fragment:\n%s\nwant\n%s", body, want)
+	}
+	for _, k := range []string{"HX-Retarget", "HX-Reswap"} {
+		if hdr.Get(k) != "" {
+			t.Errorf("fragment: %s %q, though the route names no target", k, hdr.Get(k))
+		}
 	}
 
 	if status, _, _ := response(t, h, "HEAD", "/ui/stub", nil); status != 200 {
@@ -228,6 +245,7 @@ func TestPanic(t *testing.T) {
 func TestAssets(t *testing.T) {
 	h := stubHandler(t, nil)
 	for name, contentType := range map[string]string{
+		"copy.js":     "text/javascript; charset=utf-8",
 		"htmx.min.js": "text/javascript; charset=utf-8",
 		"ui.css":      "text/css; charset=utf-8",
 	} {

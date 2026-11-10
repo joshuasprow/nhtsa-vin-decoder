@@ -1,6 +1,7 @@
-// Package ui serves nitrovin's pages under /ui (ADR 0013): html/template
-// pages and htmx fragments. Like the routes, which are outside the /v1
-// contract and openapi.yaml, its Go API is free to change.
+// Package ui serves nitrovin's pages (ADR 0013): the entry page at / and
+// everything under /ui, html/template pages and htmx fragments. Like the
+// routes, which are outside the /v1 contract and openapi.yaml, its Go API
+// is free to change.
 //
 // `nitrovin serve` runs the Handler against its decoder and loaded files;
 // the browser's Service Worker runs the same Handler, built with Go's
@@ -11,16 +12,20 @@
 // Every route answers a fragment when the request carries HX-Request, and
 // a full page in the one layout when it doesn't or when htmx restores
 // history, so every page works without JavaScript and htmx only enhances
-// links and forms that already work. Every response varies by HX-Request
-// and carries CSP, script-src 'self' among it. Errors carry real status
-// codes: a page request gets the one full-page error template, unknown
-// paths included; an htmx request gets the error fragment, which the
-// layout's htmx configuration (responseHandling) swaps into the page's
-// error slot. The pages' assets, htmx (vendored, one pinned file) and the
-// stylesheet, are served under /ui/r/<release>/, immutable for a year: a
-// new release is a new URL. So are what a Service Worker needs of the
-// server to translate in the browser: the data month's spine bundle
-// (SpinePath) and each file the server loaded (FilePath).
+// links and forms that already work. A fragment carries its page's title,
+// which htmx gives the document. Every response varies by HX-Request and
+// carries CSP, script-src 'self' among it. Errors carry real status codes:
+// a page request gets the one full-page error template, unknown paths
+// included; an htmx request gets the error fragment, which the layout's
+// htmx configuration (responseHandling) swaps into the page's error slot.
+// A page that refuses with its own content instead, as the decode form
+// shows a refusal beside its field, names the element it fills, and htmx
+// is sent there (HX-Retarget). The pages' assets, htmx (vendored, one
+// pinned file), the stylesheet and copy.js, are served under
+// /ui/r/<release>/, immutable for a year: a new release is a new URL. So
+// are what a Service Worker needs of the server to translate in the
+// browser: the data month's spine bundle (SpinePath) and each file the
+// server loaded (FilePath).
 package ui
 
 import (
@@ -33,6 +38,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -64,10 +70,10 @@ const htmxConfig = `{"allowEval":false,"includeIndicatorStyles":false,"responseH
 // never changes.
 const immutable = "public, max-age=31536000, immutable"
 
-//go:embed ui.html static
+//go:embed *.html static
 var files embed.FS
 
-var tpl = template.Must(template.ParseFS(files, "ui.html"))
+var tpl = template.Must(template.ParseFS(files, "*.html"))
 
 // asset is one file served under /ui/r/<release>/.
 type asset struct {
@@ -85,6 +91,7 @@ var static = func() map[string]asset {
 		return b
 	}
 	return map[string]asset{
+		"copy.js":     {"text/javascript; charset=utf-8", read("copy.js")},
 		"htmx.min.js": {"text/javascript; charset=utf-8", read("htmx.min.js")},
 		"ui.css":      {"text/css; charset=utf-8", read("ui.css")},
 	}
@@ -92,13 +99,18 @@ var static = func() map[string]asset {
 
 // Backend is what the pages answer from: on the server its decoder and
 // loaded files, in the Service Worker the files the browser holds. Info is
-// GET /v1/info's answer; its release names the assets' URLs.
+// GET /v1/info's answer; its release names the assets' URLs. Decode
+// answers as GET /v1/decode/{vin} does. ErrorText is an error code's text
+// as NHTSA's ErrorText spells it ("1 - Check Digit (9th position) does not
+// calculate properly"), "" when the data has none.
 //
 // SpineBundle and File are what the server publishes under /ui/r/: the
 // Service Worker forwards those paths to it, so its own Backend is never
 // asked them.
 type Backend interface {
 	Info() contract.Info
+	Decode(contract.Request) (contract.Decode, error)
+	ErrorText(code int) string
 	// SpineBundle is the data month's spine bundle (vocab.WriteBundle),
 	// published at SpinePath. The Handler asks for it once.
 	SpineBundle() ([]byte, error)
@@ -164,19 +176,27 @@ type Handler struct {
 // route answers one page: the view, or the error the page shows instead.
 type route func(r *http.Request) (view, error)
 
-// view is what a route answers: its fragment, a template of ui.html with
-// its data, and the page's title and status (0 is 200).
+// view is what a route answers: its fragment, a template of the package's
+// templates with its data, and the page's title and status (0 is 200).
+// target is the element the fragment fills, where htmx is sent even with a
+// 4xx status, "" for a fragment that only succeeds. A location other than
+// "" redirects there with status instead.
 type view struct {
 	title    string
 	template string
 	data     any
 	status   int
+	target   string
+	location string
 }
 
-// New is the /ui handler answering from b. A route's fault and a panic are
-// logged to log.
+// New is the handler of / and /ui answering from b. A route's fault and a
+// panic are logged to log.
 func New(b Backend, log *log.Logger) *Handler {
-	return &Handler{b: b, log: log, spine: sync.OnceValues(b.SpineBundle), routes: map[string]route{}}
+	h := &Handler{b: b, log: log, spine: sync.OnceValues(b.SpineBundle), routes: map[string]route{}}
+	h.routes["/"] = h.home
+	h.routes[decodePath] = h.decode
+	return h
 }
 
 // fragment reports whether r asks for a fragment: htmx sent it, and not to
@@ -218,6 +238,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	v, err := answer(r)
 	if err != nil {
 		h.fail(w, frag, base, h.pageError(err))
+		return
+	}
+	if v.location != "" {
+		http.Redirect(w, r, v.location, v.status)
 		return
 	}
 	h.render(w, frag, base, v, false)
@@ -339,10 +363,17 @@ type layout struct {
 }
 
 // render writes v: its fragment alone, or the page around it. A fragment
-// that is no error clears the page's error slot. Rendering is whole before
-// anything is written, so a template's fault is a clean 500.
+// that is no error starts with its page's title and clears the page's
+// error slot, and one with a target is sent there whatever its status.
+// Rendering is whole before anything is written, so a template's fault is
+// a clean 500.
 func (h *Handler) render(w http.ResponseWriter, frag bool, base string, v view, failed bool) {
 	var body bytes.Buffer
+	if frag && !failed {
+		if err := tpl.ExecuteTemplate(&body, "fragment-title", v.title); err != nil {
+			panic(err)
+		}
+	}
 	if err := tpl.ExecuteTemplate(&body, v.template, v.data); err != nil {
 		panic(fmt.Errorf("template %s: %w", v.template, err))
 	}
@@ -350,6 +381,10 @@ func (h *Handler) render(w http.ResponseWriter, frag bool, base string, v view, 
 	if frag && !failed {
 		if err := tpl.ExecuteTemplate(&body, "clear-error", nil); err != nil {
 			panic(err)
+		}
+		if v.target != "" {
+			w.Header().Set("HX-Retarget", v.target)
+			w.Header().Set("HX-Reswap", "innerHTML")
 		}
 	}
 	if !frag {
@@ -360,6 +395,7 @@ func (h *Handler) render(w http.ResponseWriter, frag bool, base string, v view, 
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(out.Len()))
 	w.Header().Set("Vary", "HX-Request")
 	status := v.status
 	if status == 0 {

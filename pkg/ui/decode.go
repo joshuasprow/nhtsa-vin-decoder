@@ -1,11 +1,8 @@
-package main
+package ui
 
 import (
-	"bytes"
 	"cmp"
-	_ "embed"
 	"encoding/json"
-	"html/template"
 	"maps"
 	"net/http"
 	"net/url"
@@ -17,33 +14,24 @@ import (
 	"sync"
 	"unicode"
 
-	// Aliased: the package's tests name a helper artifact.
-	dataartifact "github.com/joshuasprow/nitrovin-data/pkg/artifact"
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 )
 
-// The decode form at GET / is for people with a browser. It sits outside
-// /v1 and openapi.yaml: not part of the contract, free to change. Its query
-// is GET /v1/decode/{vin}'s with the VIN as a parameter, so a decode is a
-// shareable URL, and its refusals are contract.ParseQuery's, each shown
-// beside the field its pointer names. Without a query it says what
-// nitrovin is: examples, install, MCP, verify and links, all derived from
-// the running binary's version and data month. The page is whole without
-// JavaScript; /copy.js only adds copy buttons to the text it already shows.
+// The decode form (ADR 0013). GET / is the entry page: what nitrovin is,
+// the form, examples, install, MCP, verify and links, all derived from the
+// running binary's version and data month. The form asks GET /ui/decode,
+// whose query is GET /v1/decode/{vin}'s with the VIN as a parameter, so a
+// decode is a shareable URL, and whose refusals are contract.ParseQuery's,
+// each shown beside the field its pointer names. The pages are whole
+// without JavaScript. With it, htmx swaps the answer into the page's main
+// and pushes its URL, and copy.js adds copy buttons to the text the page
+// already shows. Old links to the form, /?vin=…, redirect to /ui/decode.
 
-//go:embed form.html
-var formHTML string
+// decodePath is the decode form's page.
+const decodePath = "/ui/decode"
 
-var formTemplate = template.Must(template.New("form").Parse(formHTML))
-
-// copyJS is GET /copy.js, the page's one script.
-//
-//go:embed copy.js
-var copyJS []byte
-
-// formCSP lets the page use its own inline styles and its one script from
-// the server itself: no inline script or handler, no third-party resource.
-const formCSP = "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'"
+// mainTarget is the layout's main, which the form's answer fills.
+const mainTarget = "#ui-main"
 
 // formFields are the query parameters the form has a field for; a refusal
 // pointing elsewhere shows above the form.
@@ -65,7 +53,7 @@ const (
 	otherGroup = "Other"
 )
 
-// formPage is what form.html renders.
+// formPage is what the home and decode templates render.
 type formPage struct {
 	VIN, ModelYear, Shape string
 	Full, ShowEmpty       bool
@@ -299,25 +287,6 @@ func diffVINs(vin, suggested string) (in, out []formChar, at string) {
 	return in, out, at
 }
 
-// errorTexts reads the error-code table of the artifact data: each code's
-// text as NHTSA's ErrorText spells it ("1 - Check Digit (9th position)
-// does not calculate properly"), by id.
-func errorTexts(data []byte) (map[int]string, error) {
-	a, err := dataartifact.Open(data)
-	if err != nil {
-		return nil, err
-	}
-	t := a.Table("errorcode")
-	ids, names := t.Int32s("id"), t.Strings("name")
-	texts := make(map[int]string, len(ids))
-	for i, id := range ids {
-		if s, ok := names.At(i); ok {
-			texts[int(id)] = strings.TrimSpace(s)
-		}
-	}
-	return texts, nil
-}
-
 // releaseTag matches a release's version, which is its tag; pseudoVersion
 // matches the Go pseudo-version of any other commit.
 var (
@@ -361,22 +330,53 @@ func newFormLinks(info contract.Info) formLinks {
 	return l
 }
 
-// form is GET / (and HEAD /): the empty form without a query, otherwise
-// the form filled in from the query and the decode, or the refusal, below.
-func (a *api) form(w http.ResponseWriter, r *http.Request) {
-	info := a.d.Info()
-	page := formPage{
+// newFormPage is the empty form on info.
+func newFormPage(info contract.Info) *formPage {
+	return &formPage{
 		Shape: string(contract.ShapeVPIC), DataMonth: info.DataMonth, DecoderVersion: info.DecoderVersion,
 		Links: newFormLinks(info),
 	}
+}
+
+// formTitle is the form's title before it has a decode.
+const formTitle = "Decode a VIN"
+
+// home is GET /: the entry page. A query is an old link to the form,
+// which lives at /ui/decode now: redirected there, query and all.
+func (h *Handler) home(r *http.Request) (view, error) {
+	if r.URL.RawQuery != "" {
+		return view{location: decodePath + "?" + r.URL.RawQuery, status: http.StatusMovedPermanently}, nil
+	}
+	return view{title: formTitle, template: "home", data: newFormPage(h.b.Info())}, nil
+}
+
+// decode is GET /ui/decode: the empty form without a query, otherwise the
+// form filled in from the query and the decode below it, or the refusal
+// beside the field it names. A refusal is the form still, with its status,
+// so htmx sends it to the page's main and not to the error slot.
+func (h *Handler) decode(r *http.Request) (view, error) {
+	info := h.b.Info()
+	page := newFormPage(info)
+	v := view{title: formTitle, template: "decode", data: page, target: mainTarget}
 	if r.URL.RawQuery == "" {
-		a.page(w, http.StatusOK, &page)
-		return
+		return v, nil
+	}
+	refuse := func(err error) (view, error) {
+		p := contract.AsProblem(err)
+		if p.Type == contract.Internal {
+			return view{}, err // a fault in nitrovin: the error page, logged
+		}
+		field := strings.TrimPrefix(p.Pointer, "/")
+		if !slices.Contains(formFields, field) {
+			field = ""
+		}
+		page.Errors = map[string]string{field: p.Detail}
+		v.status = p.Status
+		return v, nil
 	}
 	query, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
-		a.refusePage(w, &page, contract.NewProblem(contract.InvalidRequest, "", "the query string is malformed: "+err.Error()))
-		return
+		return refuse(contract.NewProblem(contract.InvalidRequest, "", "the query string is malformed: "+err.Error()))
 	}
 	vins := query["vin"]
 	delete(query, "vin")
@@ -395,31 +395,28 @@ func (a *api) form(w http.ResponseWriter, r *http.Request) {
 	}
 	page.Full = query.Get("full") == "true"
 	if len(vins) > 1 {
-		a.refusePage(w, &page, contract.NewProblem(contract.InvalidRequest, "/vin", "vin is given more than once"))
-		return
+		return refuse(contract.NewProblem(contract.InvalidRequest, "/vin", "vin is given more than once"))
 	}
 
 	req, err := contract.ParseQuery(page.VIN, query)
 	if err != nil {
-		a.refusePage(w, &page, contract.AsProblem(err))
-		return
+		return refuse(err)
 	}
-	dec, err := a.d.Decode(req)
+	dec, err := h.b.Decode(req)
 	if err != nil {
-		a.refusePage(w, &page, contract.AsProblem(err))
-		return
+		return refuse(err)
 	}
-	page.Decode, err = a.decodePage(r, &page, query, req, dec, info.Elements)
+	page.Decode, err = h.decodePage(r, page, query, req, dec, info.Elements)
 	if err != nil {
-		a.refusePage(w, &page, contract.AsProblem(err))
-		return
+		return view{}, err
 	}
-	a.page(w, http.StatusOK, &page)
+	v.title = dec.VIN
+	return v, nil
 }
 
 // decodePage is dec as the page shows it. query is the decode's own query,
 // the VIN and the page's parameters taken out.
-func (a *api) decodePage(r *http.Request, page *formPage, query url.Values, req contract.Request, dec contract.Decode, elements contract.Elements) (*formDecode, error) {
+func (h *Handler) decodePage(r *http.Request, page *formPage, query url.Values, req contract.Request, dec contract.Decode, elements contract.Elements) (*formDecode, error) {
 	body, err := json.Marshal(dec) // as GET /v1/decode/{vin} writes it
 	if err != nil {
 		return nil, err
@@ -450,13 +447,13 @@ func (a *api) decodePage(r *http.Request, page *formPage, query url.Values, req 
 		if !page.ShowEmpty {
 			toggle.Set(showEmpty, "true")
 		}
-		d.EmptyToggle = "/?vin=" + url.QueryEscape(page.VIN)
+		d.EmptyToggle = decodePath + "?vin=" + url.QueryEscape(page.VIN)
 		if len(toggle) > 0 {
 			d.EmptyToggle += "&" + toggle.Encode()
 		}
 	}
 	for _, c := range dec.ErrorCodes {
-		d.Codes = append(d.Codes, formCode{c, a.errorTexts[c]})
+		d.Codes = append(d.Codes, formCode{c, h.b.ErrorText(c)})
 	}
 	if dec.CorrectedVIN.Valid {
 		d.Input, d.Suggested, d.DifferAt = diffVINs(dec.VIN, dec.CorrectedVIN.V)
@@ -516,38 +513,4 @@ func shellQuote(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// refusePage renders the form with p's detail beside the field p points
-// at, with p's status. An internal problem is logged, as the API logs it.
-func (a *api) refusePage(w http.ResponseWriter, page *formPage, p *contract.Problem) {
-	if p.Status == http.StatusInternalServerError {
-		a.log.Print(p)
-	}
-	field := strings.TrimPrefix(p.Pointer, "/")
-	if !slices.Contains(formFields, field) {
-		field = ""
-	}
-	page.Errors = map[string]string{field: p.Detail}
-	a.page(w, p.Status, page)
-}
-
-// page writes the rendered form with status. The template escapes every
-// value it is given: the VIN and the query are the caller's text.
-func (a *api) page(w http.ResponseWriter, status int, page *formPage) {
-	var b bytes.Buffer
-	if err := formTemplate.Execute(&b, page); err != nil {
-		a.problem(w, contract.AsProblem(err))
-		return
-	}
-	h := w.Header()
-	h.Set("Content-Security-Policy", formCSP)
-	h.Set("X-Content-Type-Options", "nosniff")
-	a.write(w, status, "text/html; charset=utf-8", b.Bytes())
-}
-
-// copyScript is GET /copy.js (and HEAD).
-func (a *api) copyScript(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	a.write(w, http.StatusOK, "text/javascript; charset=utf-8", copyJS)
 }

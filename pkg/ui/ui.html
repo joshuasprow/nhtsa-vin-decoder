@@ -13,6 +13,7 @@ inline script or style: CSP refuses both. */}}
 <meta name="htmx-config" content="{{.HTMXConfig}}">
 <link rel="stylesheet" href="{{.Assets}}/ui.css">
 <script src="{{.Assets}}/htmx.min.js" defer></script>
+<script src="{{.Assets}}/copy.js" defer></script>
 {{- end}}
 </head>
 <body>
@@ -24,6 +25,10 @@ inline script or style: CSP refuses both. */}}
 </body>
 </html>
 {{end}}
+
+{{/* fragment-title starts every fragment that is no error: htmx takes it
+out and gives the document its page's title. */}}
+{{define "fragment-title"}}<title>{{.}} · nitrovin</title>{{end}}
 
 {{/* clear-error follows every fragment that is no error: htmx swaps it
 out of band over the page's error slot, emptying it. */}}

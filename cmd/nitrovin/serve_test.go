@@ -1039,7 +1039,7 @@ func TestServeCORS(t *testing.T) {
 		{method: "OPTIONS", target: "/v1/nothing", header: preflight, status: 404, cors: true},
 
 		{method: "GET", target: "/", status: 200},
-		{method: "GET", target: "/copy.js", status: 200},
+		{method: "GET", target: "/ui/decode?vin=1HGCM82633A004352", status: 200},
 		{method: "GET", target: "/healthz", status: 200},
 		{method: "OPTIONS", target: "/healthz", header: preflight, status: 405},
 		{method: "GET", target: "/v2/info", status: 404},

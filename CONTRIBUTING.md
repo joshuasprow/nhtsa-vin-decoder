@@ -358,8 +358,9 @@ else `NITROVIN_VOCAB` (`env.load`).
 `go test ./cmd/nitrovin` runs the built binary: usage, refusal and
 unloadable-data cases, and `info`, `--version` and a decode on the embedded
 data; `TestStdioOps` a stdio session mixing decode, translate and list
-lines with `testdata/vocab`; `TestForm` drives the browser form at `/` on
-the embedded data, and `TestServeCORS` `serve --cors` on it. With
+lines with `testdata/vocab`; `TestForm` drives the decode form (`/` and
+`/ui/decode`) on the embedded data, over HTTP and then in a browser (below),
+and `TestServeCORS` `serve --cors` on it. With
 `NITROVIN_ARTIFACT` it adds `decode -` over the answer key's VINs
 against the contract layer's bytes, the data precedence, the `-o text`
 transcript (`-update` rewrites it), every HTTP operation and status in
@@ -370,28 +371,48 @@ and `cmd/nitrovin/mcp-tools.json` are generated copies of the files in
 `docs/api/`; tests fail when they drift (`-update-openapi`,
 `go generate ./cmd/nitrovin`).
 
-`pkg/ui` is the pages under `/ui`
+`pkg/ui` is the pages for browsers, the entry page at `/` and everything
+under `/ui`
 ([ADR 0013](docs/adr/0013-browser-vocabularies-in-a-service-worker.md)),
-which `serve` hands every `/ui` path to and the browser's Service Worker
-will run too, so it reaches its data through interfaces and builds for
-`js/wasm`. Each route answers a fragment of `ui.html` for a request with
-`HX-Request` and the same fragment in the one layout for any other, with
+which `serve` hands those paths to and the browser's Service Worker will run
+too, so it reaches its data through interfaces (`ui.Backend`) and builds
+for `js/wasm`. Each route answers a fragment of its templates (`ui.html`,
+`decode.html`) for a request with `HX-Request`, its page's title first, and
+the same fragment in the one layout for any other, with
 `Vary: HX-Request` and the CSP (`ui.CSP`, `script-src 'self'`). Every error
 has its real status: the one error page, or the error fragment that the
-layout's htmx configuration swaps into its error slot. The layout loads its
-stylesheet and htmx from `/ui/r/<release>/` (`ui.Release`: decoder version,
-data month and artifact hash, the Worker's cache key), immutable for a year.
-htmx is vendored, one file (`pkg/ui/static/htmx.min.js`, npm's `htmx.org`
-at `htmxVersion`), held to its sha256 by `TestHTMXPin`; the weekly tools
-issue reports a newer release ([Tools](#tools)). Beside them `/ui/r/<release>/`
-publishes what the Service Worker needs of the server: the spine bundle
-(`ui.SpinePath`, asked of the `Backend` once) and each loaded file, byte
-for byte (`ui.FilePath`: `vocab/<blake3>/<name>.jsonl`, since the release
-does not name the files a server loads). `serve` reads a file again from
-disk when asked and refuses bytes whose blake3 is not the one loaded.
+layout's htmx configuration swaps into its error slot; a page that refuses
+with its own content, as the decode form does beside a field, sends htmx
+to its target instead (`HX-Retarget`). The layout loads its stylesheet,
+htmx and `copy.js` (copy buttons) from `/ui/r/<release>/` (`ui.Release`:
+decoder version, data month and artifact hash, the Worker's cache key),
+immutable for a year. htmx is vendored, one file
+(`pkg/ui/static/htmx.min.js`, npm's `htmx.org` at `htmxVersion`), held to
+its sha256 by `TestHTMXPin`; the weekly tools issue reports a newer release
+([Tools](#tools)). Beside them `/ui/r/<release>/` publishes what the
+Service Worker needs of the server: the spine bundle (`ui.SpinePath`,
+asked of the `Backend` once) and each loaded file, byte for byte
+(`ui.FilePath`: `vocab/<blake3>/<name>.jsonl`, since the release does not
+name the files a server loads). `serve` reads a file again from disk when
+asked and refuses bytes whose blake3 is not the one loaded.
 `go test ./pkg/ui` walks a stub route as page and fragment, the errors, the
-assets and the published files; `TestUI` and `TestServePublished` in
+assets, the published files and the decode form's routes; `TestUI` and
+`TestServePublished` in
 `cmd/nitrovin` the same through `serve`.
+
+`TestForm` then runs the form in headless Chrome or Chromium
+(`browser_test.go`, over the DevTools protocol with chromedp), twice, each
+in a browser with a fresh profile: an installed Service Worker survives
+JavaScript being turned off, so a profile that had JavaScript would answer
+the JavaScript-off run from the worker. Without JavaScript every step is a
+page load; with it, every step must reach the server with `HX-Request` and
+never reload the page, and back and forward restore each state. axe-core
+audits every state of both runs and fails on any violation; it is vendored
+as `cmd/nitrovin/testdata/axe.min.js` (npm's `axe-core` at `axeVersion`,
+held to its sha256 by `TestAxePin`, reported by the weekly tools issue
+too). The browser is `$NITROVIN_CHROME`, else Chrome or Chromium on `PATH`
+or in `/Applications`; without one the browser runs skip, except in CI
+(`CI` set), where they fail.
 
 `cmd/libnitrovin` is the C library (`-buildmode=c-shared`, no data).
 `scripts/libnitrovin.sh <dir> [<goos>/<goarch>…]` builds it for all six
