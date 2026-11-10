@@ -25,7 +25,9 @@ flowchart LR
   the `FROM` line to the release it deploys after `cosign verify` proves the
   digest is the one that tag's `release.yml` signed.
 - **Container.** The `default` scheduling policy, `lite` (1/16 vCPU,
-  256 MiB), `max_instances: 3`. Every request goes to one named instance;
+  256 MiB), `max_instances: 3`, placed in the US only (`regions` ENAM and
+  WNAM, `jurisdiction: "us"`, [#124](https://github.com/joshuasprow/nitrovin/issues/124)).
+  Every request goes to one named instance;
   a cron fetches `/healthz` every four minutes, inside `sleepAfter`'s ten,
   so it never sleeps. Readiness is `/healthz`: `serve` listens only once the
   data has loaded.
