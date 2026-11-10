@@ -24,10 +24,12 @@ import (
 	"io"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"text/tabwriter"
 
+	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
 )
@@ -221,22 +223,40 @@ func commandUsage(c command, fs *flag.FlagSet) string {
 // decoder loads the data: --data, then $NITROVIN_DATA, then the artifact
 // embedded in the binary.
 func (e *env) decoder() (*nitrovin.Decoder, error) {
+	d, _, err := e.load()
+	return d, err
+}
+
+// load is decoder with the artifact's bytes, for a command that reads more
+// of the data than a decode carries: serve's form reads the error-code
+// table.
+func (e *env) load() (*nitrovin.Decoder, []byte, error) {
 	path, from := e.data, "--data"
 	if path == "" {
 		path, from = e.getenv("NITROVIN_DATA"), "NITROVIN_DATA"
 	}
 	if path == "" {
-		d, err := nitrovin.Embedded()
+		data := embedded.Artifact()
+		d, err := nitrovin.Load(data, contract.DataSourceEmbedded)
 		if err != nil {
-			return nil, contract.NewProblem(contract.Internal, "", fmt.Sprintf("embedded data: %v", err))
+			return nil, nil, contract.NewProblem(contract.Internal, "", fmt.Sprintf("embedded data: %v", err))
 		}
-		return d, nil
+		return d, data, nil
 	}
-	d, err := nitrovin.Open(path)
+	// nitrovin.Open, keeping the bytes.
+	abs, err := filepath.Abs(path)
+	var data []byte
+	if err == nil {
+		data, err = os.ReadFile(abs)
+	}
+	var d *nitrovin.Decoder
+	if err == nil {
+		d, err = nitrovin.Load(data, abs)
+	}
 	if err != nil {
-		return nil, contract.NewProblem(contract.Internal, "", fmt.Sprintf("%s %s: %v", from, path, err))
+		return nil, nil, contract.NewProblem(contract.Internal, "", fmt.Sprintf("%s %s: %v", from, path, err))
 	}
-	return d, nil
+	return d, data, nil
 }
 
 // printVersion prints `nitrovin v1.2.0 (data 2026_10)`.
