@@ -408,3 +408,5 @@ if [ -n "${ORACLE_TIMINGS:-}" ]; then
   end=${EPOCHREALTIME:-$(date +%s)}
   awk -v c="$label" -v s="$start" -v e="$end" 'BEGIN { printf "%s\t%.1f\n", c, e - s }' >>"$ORACLE_TIMINGS"
 fi
+
+// ci-matrix probe
