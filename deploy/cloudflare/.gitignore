@@ -1,0 +1,2 @@
+# terraform init's working directories (the lock files are committed)
+.terraform/

@@ -1,0 +1,21 @@
+{
+	"name": "nitrovin-worker",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"check": "wrangler types && tsc --noEmit",
+		"dev": "wrangler dev",
+		"deploy": "wrangler deploy"
+	},
+	"dependencies": {
+		"@cloudflare/containers": "0.3.7"
+	},
+	"devDependencies": {
+		"typescript": "7.0.2",
+		"wrangler": "4.160.0"
+	},
+	"allowScripts": {
+		"esbuild@0.28.2": true,
+		"workerd@1.20261110.1": true
+	}
+}
