@@ -14,9 +14,6 @@ type Set struct {
 	month  Month
 	files  []*File
 	byName map[string]*File
-	// sorted holds, per vocabulary, its entries in list order: by their
-	// normalized fields.
-	sorted map[*File][]sortedEntry
 	// lists holds, per declared spine and extension set, its entries in
 	// list order, built on first use.
 	lists map[*File]func() []row
@@ -32,6 +29,31 @@ type Set struct {
 type sortedEntry struct {
 	entry *Entry
 	key   []string
+	// at is entry's index in its file's Entries.
+	at int
+}
+
+// listOrder is a vocabulary's entries in list order, by their normalized
+// fields: made once per file, since it is the file's alone.
+func (f *File) listOrder() []sortedEntry {
+	f.listOnce.Do(func() {
+		// Every entry's key in one allocation, the normalized fields that
+		// are not already normal in shared blocks.
+		n := len(f.Fields)
+		keys := make([]string, n*len(f.Entries))
+		var text texts
+		es := make([]sortedEntry, len(f.Entries))
+		for i := range f.Entries {
+			key := keys[i*n : (i+1)*n : (i+1)*n]
+			for j, v := range f.Entries[i].Fields {
+				key[j] = text.normalized(v)
+			}
+			es[i] = sortedEntry{&f.Entries[i], key, i}
+		}
+		slices.SortFunc(es, func(a, b sortedEntry) int { return compareKeys(a.key, b.key) })
+		f.listed = es
+	})
+	return f.listed
 }
 
 // NewSet links files (Link), refusing with Faults, and indexes them beside
@@ -40,26 +62,12 @@ func NewSet(m Month, files []*File) (*Set, error) {
 	if err := Link(files); err != nil {
 		return nil, err
 	}
-	s := &Set{month: m, files: files, byName: map[string]*File{}, sorted: map[*File][]sortedEntry{}, lists: map[*File]func() []row{}}
+	s := &Set{month: m, files: files, byName: map[string]*File{}, lists: map[*File]func() []row{}}
 	for _, f := range files {
 		s.byName[f.Name] = f
 		switch f.Kind {
 		case KindVocabulary:
-			// Every entry's key in one allocation, the normalized fields
-			// that are not already normal in shared blocks.
-			n := len(f.Fields)
-			keys := make([]string, n*len(f.Entries))
-			var text texts
-			es := make([]sortedEntry, len(f.Entries))
-			for i := range f.Entries {
-				key := keys[i*n : (i+1)*n : (i+1)*n]
-				for j, v := range f.Entries[i].Fields {
-					key[j] = text.normalized(v)
-				}
-				es[i] = sortedEntry{&f.Entries[i], key}
-			}
-			slices.SortFunc(es, func(a, b sortedEntry) int { return compareKeys(a.key, b.key) })
-			s.sorted[f] = es
+			f.listOrder()
 		case KindSpine:
 			s.lists[f] = sync.OnceValue(func() []row {
 				var rows []row

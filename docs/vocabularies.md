@@ -322,6 +322,26 @@ file again when it is asked for, and refuses with a 500 a file that
 changed on disk since it was loaded: restart `serve` to publish the new
 one.
 
+**In a browser**: `serve`'s `/vocab` page lists the server's files and
+translates and lists through them (`/ui/translate`, `/ui/vocabularies`),
+with JavaScript or without. With JavaScript it also loads your own files,
+picked from disk, into the browser: a Service Worker (`/sw.js`) keeps each
+file's text and parsed index in IndexedDB and runs the same pages, built
+from the same Go to WebAssembly, over them and the server's files, which
+it links from the URLs above. Files picked together load as one batch,
+which must link (with the server's files and those already stored), and a
+file named like a stored one replaces it; a file named like one of the
+server's is refused. Removing a file others link to is refused, naming
+them, unless they go too. The worker answers only the pages that name a
+file the browser holds and leaves every other request to the server, so a
+link means the same with JavaScript on or off; opened in another browser,
+a link naming your file says where it lives. Answers carry the
+`decoder_version` and `data_month` of the decode they used, and the worker
+refuses a VIN when the server has moved to another data month than its
+own: close every tab of the site and open it again, and the new release's
+worker takes over. A page loaded with a hard reload is not the worker's,
+and says your files are paused for that load.
+
 **stdio**: a line with `"op": "translate"` or `"op": "list"` carries that
 request, and its reply is keyed `translation` or `list`:
 
@@ -453,7 +473,8 @@ against, reaches every EPA name mapped to vPIC's Silverado for 2004.
 ## Keeping a vocabulary private
 
 nitrovin reads vocabulary files from the paths you give it and sends them
-nowhere, and an answer names a file only by its `name` and `version`
+nowhere (a file loaded on `/vocab` stays in that browser: only a VIN to
+decode goes to the server), and an answer names a file only by its `name` and `version`
 (`/v1/info` adds its hash and local path). nitrovin ships no third-party
 vocabulary but EPA's, and the hosted [nitrovin.app](https://nitrovin.app)
 loads none: there, translate and list answer for vPIC alone. A vocabulary

@@ -217,17 +217,17 @@ type decodeService interface {
 }
 
 // api serves the routes of docs/api/openapi.yaml, /mcp among them, and the
-// pages for browsers, the entry page at / and everything under /ui
-// (pkg/ui). Every refusal but the pages' and the MCP transport's is an RFC
-// 9457 problem. CORS headers are set only with a cors origin, and only
-// under /v1/ and on /mcp.
+// pages for browsers (pkg/ui): the entry page at /, /vocab, the Service
+// Worker at /sw.js and everything under /ui. Every refusal but the pages'
+// and the MCP transport's is an RFC 9457 problem. CORS headers are set
+// only with a cors origin, and only under /v1/ and on /mcp.
 type api struct {
 	d   decodeService
 	log *log.Logger
 	// mcp is `nitrovin mcp`'s server over Streamable HTTP, stateless.
 	mcp http.Handler
-	// ui serves /, /ui and everything under it, their errors included.
-	ui http.Handler
+	// ui serves the pages, their errors included.
+	ui *ui.Handler
 	// cors is the origin browsers may call /v1 and /mcp from, * for any;
 	// "" sets no CORS header.
 	cors string
@@ -250,7 +250,11 @@ func newAPI(d decodeService, log *log.Logger, stderr io.Writer, errorTexts map[i
 		JSONResponse:        true,
 		MaxRequestBodyBytes: contract.MaxBody,
 	})
-	return &api{d: d, log: log, mcp: handler, ui: ui.New(pages{d, errorTexts}, log), cors: cors}, nil
+	h := ui.New(pages{d, errorTexts}, log)
+	if w := embeddedWorker(); w != nil {
+		h.WithWorker(*w)
+	}
+	return &api{d: d, log: log, mcp: handler, ui: h, cors: cors}, nil
 }
 
 // corsAllowHeaders are the request headers a preflight allows: a POST's
@@ -268,7 +272,7 @@ func (a *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	path := r.URL.EscapedPath()
-	if path == "/" || path == "/ui" || strings.HasPrefix(path, "/ui/") {
+	if path == "/" || path == "/vocab" || path == "/sw.js" || path == "/ui" || strings.HasPrefix(path, "/ui/") {
 		a.ui.ServeHTTP(w, r)
 		return
 	}

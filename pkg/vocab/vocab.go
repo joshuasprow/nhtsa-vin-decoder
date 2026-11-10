@@ -20,8 +20,10 @@
 package vocab
 
 import (
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -96,10 +98,14 @@ type File struct {
 	// SpineEntries are a declared spine's lines.
 	SpineEntries []SpineEntry
 
-	entries    map[string]int   // entry key → index in Entries
 	targets    map[Target][]int // mapping target → indexes in Entries, ascending
 	extensions map[string]int   // extension id → index in Extensions
 	spine      map[string]int   // spine entry id → index in SpineEntries
+
+	// listed is a vocabulary's entries in list order (listOrder), made
+	// once: on first use, or by ReadIndex.
+	listOnce sync.Once
+	listed   []sortedEntry
 }
 
 // Entry is one line of a vocabulary: an entry's fields and every mapping it
@@ -233,11 +239,9 @@ func asciiSpace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r'
 }
 
-// key is the index key of an entry's field values: each normalized, length
+// appendKey appends the key of an entry's field values to b, the key
+// parsing finds a repeated entry by: each value normalized, length
 // prefixed so no value can run into the next.
-func key(values []string) string { return string(appendKey(nil, values)) }
-
-// appendKey appends key(values) to b.
 func appendKey(b []byte, values []string) []byte {
 	for _, v := range values {
 		at := len(b)
@@ -252,8 +256,8 @@ func appendKey(b []byte, values []string) []byte {
 	return b
 }
 
-// Entry finds a vocabulary's entry by its fields, matched after Normalize.
-// fields must name exactly the vocabulary's Fields.
+// Entry finds a vocabulary's entry by its fields, matched after Normalize,
+// in its list order. fields must name exactly the vocabulary's Fields.
 func (f *File) Entry(fields map[string]string) (*Entry, bool) {
 	if f.Kind != KindVocabulary || len(fields) != len(f.Fields) {
 		return nil, false
@@ -264,13 +268,14 @@ func (f *File) Entry(fields map[string]string) (*Entry, bool) {
 		if !ok {
 			return nil, false
 		}
-		values[i] = v
+		values[i] = Normalize(v)
 	}
-	i, ok := f.entries[key(values)]
+	es := f.listOrder()
+	i, ok := slices.BinarySearchFunc(es, values, func(se sortedEntry, values []string) int { return compareKeys(se.key, values) })
 	if !ok {
 		return nil, false
 	}
-	return &f.Entries[i], true
+	return es[i].entry, true
 }
 
 // FieldsOf is a vocabulary entry's fields by name, as written.

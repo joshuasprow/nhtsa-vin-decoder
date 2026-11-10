@@ -1,0 +1,4 @@
+# scripts/sw.sh builds the Service Worker module here (sw.wasm, wasm_exec.js),
+# where `nitrovin serve` embeds it. Built, never committed.
+*
+!.gitignore

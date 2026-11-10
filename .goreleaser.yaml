@@ -2,7 +2,9 @@
 # .github/workflows/release.yml on a v* tag:
 #
 # - nitrovin_<version>_<os>_<arch>.{tar.gz,zip}: cmd/nitrovin with the data
-#   pinned in go.mod embedded, linux/darwin/windows on amd64/arm64.
+#   pinned in go.mod embedded, linux/darwin/windows on amd64/arm64, and the
+#   browser's Service Worker module (scripts/sw.sh, run in the before hook
+#   into cmd/nitrovin/sw, which git ignores) that `serve` publishes.
 # - libnitrovin_<version>_<os>_<arch>.{tar.gz,zip}: the lean C library and
 #   nitrovin.h for the same six targets, built by scripts/libnitrovin.sh
 #   (zig cc) in the before hook and packed as meta archives.
@@ -35,6 +37,7 @@ before:
     - rm -rf build/libnitrovin
     - scripts/libnitrovin.sh build/libnitrovin
     - scripts/mcp-server-json.sh build/server.json {{ .Version }}
+    - scripts/sw.sh
 
 builds:
   - id: nitrovin

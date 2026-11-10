@@ -444,10 +444,14 @@ nitrovin --vocab testdata/vocab translate --to yard 1C6RR7LT5FS123456  # a VIN t
 nitrovin --vocab testdata/vocab serve                                 # /v1/translate, /v1/vocabularies
 ```
 
-`serve` also publishes each loaded file, and the data month's spine bundle
-(its vPIC makes, models and element values), under `/ui/r/<release>/`,
-immutable, for a browser that translates locally
-([docs/vocabularies.md](docs/vocabularies.md)).
+`serve`'s `/vocab` page translates through vPIC and the server's own files
+with or without JavaScript, and with it loads your own files into your
+browser, where they stay: a Service Worker keeps them in IndexedDB and
+translates with the same Go, built to WebAssembly, linking them with the
+server's files, which `serve` publishes with the data month's spine bundle
+under `/ui/r/<release>/` ([docs/vocabularies.md](docs/vocabularies.md)).
+Release builds include the worker; a `go install` build serves `/vocab`
+without it, and says so.
 
 Each data release also carries `epa-vehicles.jsonl`, a vocabulary of the
 names EPA's fuel-economy data

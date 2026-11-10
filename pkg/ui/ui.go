@@ -1,13 +1,14 @@
-// Package ui serves nitrovin's pages (ADR 0013): the entry page at / and
-// everything under /ui, html/template pages and htmx fragments. Like the
-// routes, which are outside the /v1 contract and openapi.yaml, its Go API
-// is free to change.
+// Package ui serves nitrovin's pages (ADR 0013): the entry page at /,
+// /vocab, the Service Worker at /sw.js and everything under /ui,
+// html/template pages and htmx fragments. Like the routes, which are
+// outside the /v1 contract and openapi.yaml, its Go API is free to change.
 //
-// `nitrovin serve` runs the Handler against its decoder and loaded files;
-// the browser's Service Worker runs the same Handler, built with Go's
-// toolchain to WebAssembly, against the files the browser holds. So the
+// `nitrovin serve` runs the Handler against its decoder and loaded files
+// (New); the browser's Service Worker runs the same vocabulary pages, built
+// with Go's toolchain to WebAssembly (cmd/nitrovin-sw), against the files
+// the browser holds and the server's (NewInBrowser, a Library). So the
 // package never imports the artifact, the decoder or pkg/nitrovin: what a
-// page answers from is a Backend, and the package builds for js/wasm.
+// page answers from is an interface, and the package builds for js/wasm.
 //
 // Every route answers a fragment when the request carries HX-Request, and
 // a full page in the one layout when it doesn't or when htmx restores
@@ -81,7 +82,9 @@ type asset struct {
 	body        []byte
 }
 
-// static are the files under /ui/r/<release>/, by name.
+// static are the files under /ui/r/<release>/, by name. sw.wasm and
+// wasm_exec.js join them when the server has the worker's module
+// (WithWorker).
 var static = func() map[string]asset {
 	read := func(name string) []byte {
 		b, err := files.ReadFile("static/" + name)
@@ -94,21 +97,30 @@ var static = func() map[string]asset {
 		"copy.js":     {"text/javascript; charset=utf-8", read("copy.js")},
 		"htmx.min.js": {"text/javascript; charset=utf-8", read("htmx.min.js")},
 		"ui.css":      {"text/css; charset=utf-8", read("ui.css")},
+		"vocab.js":    {"text/javascript; charset=utf-8", read("vocab.js")},
+		"worker.js":   {"text/javascript; charset=utf-8", read("worker.js")},
 	}
 }()
 
-// Backend is what the pages answer from: on the server its decoder and
-// loaded files, in the Service Worker the files the browser holds. Info is
-// GET /v1/info's answer; its release names the assets' URLs. Decode
-// answers as GET /v1/decode/{vin} does. ErrorText is an error code's text
-// as NHTSA's ErrorText spells it ("1 - Check Digit (9th position) does not
-// calculate properly"), "" when the data has none.
+// Pages is what the vocabulary pages answer from, on the server and in the
+// browser's Service Worker alike. Info is GET /v1/info's answer, whose
+// release names the assets' URLs; Translate and List answer as
+// /v1/translate and /v1/vocabularies do.
+type Pages interface {
+	Info() contract.Info
+	Translate(contract.TranslateRequest) (contract.Translation, error)
+	List(contract.ListRequest) (contract.List, error)
+}
+
+// Backend is what the server's pages answer from: its decoder and loaded
+// files. Decode answers as GET /v1/decode/{vin} does. ErrorText is an
+// error code's text as NHTSA's ErrorText spells it ("1 - Check Digit (9th
+// position) does not calculate properly"), "" when the data has none.
 //
 // SpineBundle and File are what the server publishes under /ui/r/: the
-// Service Worker forwards those paths to it, so its own Backend is never
-// asked them.
+// Service Worker forwards those paths to it.
 type Backend interface {
-	Info() contract.Info
+	Pages
 	Decode(contract.Request) (contract.Decode, error)
 	ErrorText(code int) string
 	// SpineBundle is the data month's spine bundle (vocab.WriteBundle),
@@ -118,6 +130,13 @@ type Backend interface {
 	// name, published at FilePath: bytes whose blake3 is the one Info
 	// lists, or an error.
 	File(name string) ([]byte, error)
+}
+
+// Worker is the browser's Service Worker module, the same pages built
+// with Go's toolchain for js/wasm (cmd/nitrovin-sw, scripts/sw.sh), and
+// the wasm_exec.js of the Go that built it.
+type Worker struct {
+	Module, Exec []byte
 }
 
 // Release is info's release as the Worker caches it
@@ -163,14 +182,23 @@ func FilePath(info contract.Info, f contract.VocabularyFile) string {
 	return assetsPath(Release(info)) + "/" + filesDir + url.PathEscape(f.Blake3) + "/" + url.PathEscape(f.Name) + ".jsonl"
 }
 
-// Handler serves /ui/*. It is safe for concurrent use when its Backend is.
+// Handler serves the pages. It is safe for concurrent use when what it
+// answers from is.
 type Handler struct {
-	b   Backend
-	log *log.Logger
+	p Pages
+	// b is the server's Backend, nil in the browser.
+	b Backend
+	// lib is the browser's files, nil on the server.
+	lib *Library
+	// worker is the Service Worker's module, nil on the server when it
+	// has none and in the browser.
+	worker *Worker
+	log    *log.Logger
 	// spine is the Backend's spine bundle, asked for once.
 	spine func() ([]byte, error)
-	// routes are the pages by path.
-	routes map[string]route
+	// routes are the pages by path, and posts the forms that change
+	// something, by path.
+	routes, posts map[string]route
 }
 
 // route answers one page: the view, or the error the page shows instead.
@@ -188,14 +216,33 @@ type view struct {
 	status   int
 	target   string
 	location string
+	// vocab loads vocab.js, the browser files' script: /vocab's.
+	vocab bool
 }
 
-// New is the handler of / and /ui answering from b. A route's fault and a
-// panic are logged to log.
+// New is the server's handler of /, /vocab, /sw.js and /ui answering from
+// b. A route's fault and a panic are logged to log.
 func New(b Backend, log *log.Logger) *Handler {
-	h := &Handler{b: b, log: log, spine: sync.OnceValues(b.SpineBundle), routes: map[string]route{}}
+	h := &Handler{p: b, b: b, log: log, spine: sync.OnceValues(b.SpineBundle), routes: map[string]route{}, posts: map[string]route{}}
 	h.routes["/"] = h.home
 	h.routes[decodePath] = h.decode
+	h.vocabRoutes()
+	return h
+}
+
+// NewInBrowser is the Service Worker's handler, answering from the files
+// the browser holds and the server's it links (Library): the vocabulary
+// pages alone, since the worker forwards every other request.
+func NewInBrowser(lib *Library, log *log.Logger) *Handler {
+	h := &Handler{p: lib, lib: lib, log: log, routes: map[string]route{}, posts: map[string]route{}}
+	h.vocabRoutes()
+	return h
+}
+
+// WithWorker gives the server's handler the Service Worker's module: it
+// then serves /sw.js and the module, and /vocab offers browser files.
+func (h *Handler) WithWorker(w Worker) *Handler {
+	h.worker = &w
 	return h
 }
 
@@ -219,19 +266,37 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.fail(w, frag, base, &pageError{Status: http.StatusInternalServerError, Message: fmt.Sprint("nitrovin failed: ", v)})
 		}
 	}()
-	info := h.b.Info()
+	info := h.p.Info()
 	base = assetsPath(Release(info))
 
-	if rest, ok := strings.CutPrefix(r.URL.Path, assetsPrefix); ok {
+	if rest, ok := strings.CutPrefix(r.URL.Path, assetsPrefix); ok && h.b != nil {
 		h.asset(w, r, frag, base, info, rest)
 		return
 	}
-	answer, ok := h.routes[r.URL.Path]
-	if !ok {
-		h.fail(w, frag, base, &pageError{Status: http.StatusNotFound, Message: "There is no page at " + r.URL.Path + "."})
+	if r.URL.Path == swPath && h.b != nil && h.worker != nil {
+		if !getOrHead(w, r) {
+			h.fail(w, frag, base, &pageError{Status: http.StatusMethodNotAllowed, Message: swPath + " takes GET, not " + r.Method + "."})
+			return
+		}
+		h.serviceWorker(w, info, base)
 		return
 	}
-	if !getOrHead(w, r) {
+	answer, ok := h.routes[r.URL.Path]
+	if strings.HasPrefix(r.URL.Path, vocabulariesPath+"/") {
+		answer, ok = h.entries, true
+	}
+	post, posted := h.posts[r.URL.Path]
+	switch {
+	case !ok && !posted:
+		h.fail(w, frag, base, &pageError{Status: http.StatusNotFound, Message: "There is no page at " + r.URL.Path + "."})
+		return
+	case posted && r.Method == http.MethodPost:
+		answer = post
+	case posted:
+		w.Header().Set("Allow", http.MethodPost)
+		h.fail(w, frag, base, &pageError{Status: http.StatusMethodNotAllowed, Message: r.URL.Path + " takes POST, not " + r.Method + "."})
+		return
+	case !getOrHead(w, r):
 		h.fail(w, frag, base, &pageError{Status: http.StatusMethodNotAllowed, Message: r.URL.Path + " takes GET, not " + r.Method + "."})
 		return
 	}
@@ -297,6 +362,14 @@ func (h *Handler) published(info contract.Info, name string, missing *pageError)
 	if name == spineName {
 		return "application/json", h.spine, nil
 	}
+	if h.worker != nil {
+		switch name {
+		case moduleName:
+			return "application/wasm", func() ([]byte, error) { return h.worker.Module, nil }, nil
+		case execName:
+			return "text/javascript; charset=utf-8", func() ([]byte, error) { return h.worker.Exec, nil }, nil
+		}
+	}
 	rest, ok := strings.CutPrefix(name, filesDir)
 	hash, file, ok2 := strings.Cut(rest, "/")
 	fileName, ok3 := strings.CutSuffix(file, ".jsonl")
@@ -360,6 +433,8 @@ type layout struct {
 	Assets     string
 	HTMXConfig string
 	Body       template.HTML
+	// Vocab loads vocab.js.
+	Vocab bool
 }
 
 // render writes v: its fragment alone, or the page around it. A fragment
@@ -389,7 +464,7 @@ func (h *Handler) render(w http.ResponseWriter, frag bool, base string, v view, 
 	}
 	if !frag {
 		out = new(bytes.Buffer)
-		page := layout{Title: v.title, Assets: base, HTMXConfig: htmxConfig, Body: template.HTML(body.String())}
+		page := layout{Title: v.title, Assets: base, HTMXConfig: htmxConfig, Body: template.HTML(body.String()), Vocab: v.vocab}
 		if err := tpl.ExecuteTemplate(out, "page", page); err != nil {
 			panic(fmt.Errorf("template page: %w", err))
 		}

@@ -41,6 +41,15 @@ func (b backend) Decode(req contract.Request) (contract.Decode, error) {
 
 func (backend) ErrorText(code int) string { return "" }
 
+// Translate and List answer from no files: the catalog is vPIC alone.
+func (backend) Translate(contract.TranslateRequest) (contract.Translation, error) {
+	return contract.Translation{}, contract.NewProblem(contract.InvalidRequest, "/from", "nothing to translate in the stub")
+}
+
+func (backend) List(contract.ListRequest) (contract.List, error) {
+	return contract.List{Entries: []contract.ListEntry{contract.CatalogEntry{Name: "vpic", Kind: "spine", Version: "2026_10", Subject: "vehicle"}}}, nil
+}
+
 func (b backend) SpineBundle() ([]byte, error) {
 	if b.spines != nil {
 		b.spines.Add(1)
