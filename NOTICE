@@ -22,3 +22,9 @@ The corpus file's header names the source file and commit.
 
 htmx: the /ui pages load htmx (https://htmx.org, Zero-Clause BSD), vendored
 unmodified as pkg/ui/static/htmx.min.js.
+
+axe-core: TestForm audits the pages with axe-core
+(https://github.com/dequelabs/axe-core, Mozilla Public License 2.0, Deque
+Systems, Inc.), vendored unmodified, its license header intact, as
+cmd/nitrovin/testdata/axe.min.js. It is test data: no binary or image ships
+it.

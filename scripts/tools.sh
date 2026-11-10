@@ -23,11 +23,13 @@
 # mise refuses the download for its checksum.
 #
 # outdated asks mise (`mise outdated --bump`: the newest release, majors
-# included), the npm registry for wrangler and for htmx (vendored in
-# pkg/ui/static, its version pkg/ui/ui.go's htmxVersion), and Docker Hub for
+# included), the npm registry for wrangler, for htmx (vendored in
+# pkg/ui/static, its version pkg/ui/ui.go's htmxVersion) and for axe-core
+# (vendored in cmd/nitrovin/testdata for TestForm's audits, its version
+# cmd/nitrovin/browser_test.go's axeVersion), and Docker Hub for
 # postgres:17's digest (with `docker buildx imagetools`). It reports and
 # never bumps: a bump is an edit of mise.toml and `mise lock` (mise.toml's
-# header), or for htmx a new file, version and hash (pkg/ui/ui.go).
+# header), or for htmx and axe-core a new file, version and hash.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -121,6 +123,11 @@ cmd_outdated() {
   [ -n "$pinned" ] || die "no htmxVersion in pkg/ui/ui.go"
   latest=$(npm view htmx.org version)
   [ "$latest" = "$pinned" ] || rows+=$'\n'"| htmx (pkg/ui/static/htmx.min.js) | $pinned | $latest |"
+
+  pinned=$(sed -n 's/^const axeVersion = "\(.*\)"$/\1/p' cmd/nitrovin/browser_test.go)
+  [ -n "$pinned" ] || die "no axeVersion in cmd/nitrovin/browser_test.go"
+  latest=$(npm view axe-core version)
+  [ "$latest" = "$pinned" ] || rows+=$'\n'"| axe-core (cmd/nitrovin/testdata/axe.min.js) | $pinned | $latest |"
 
   ref=$(postgres_refs | head -n 1)
   digest=$(docker buildx imagetools inspect postgres:17 --format '{{json .Manifest}}' | jq -r .digest)

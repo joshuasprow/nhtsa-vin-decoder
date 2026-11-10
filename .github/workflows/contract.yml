@@ -5,8 +5,10 @@
 # against the embedded data; pkg/nitrovin vetted; the CLI's usage, refusal,
 # unloadable-data and vocabulary cases, and a decode on its embedded data;
 # the EPA vocabulary builder on a sample of vehicles.csv, against the same;
-# the /ui pages (pkg/ui), and the packages the browser's Service Worker
-# runs (ADR 0013) built for js/wasm. The same decodes on the engine's
+# the pages (pkg/ui), the decode form among them in the runner's headless
+# Chrome, with JavaScript and without, audited by axe (TestForm, which CI
+# set makes fail without a browser); and the packages the browser's Service
+# Worker runs (ADR 0013) built for js/wasm. The same decodes on the engine's
 # output, and the CLI's decodes of the answer key, need an artifact:
 # import.yml's artifact job runs them.
 name: Contract

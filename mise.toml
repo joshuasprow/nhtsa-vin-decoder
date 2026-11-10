@@ -24,9 +24,14 @@
 # - htmx: vendored, one file (pkg/ui/static/htmx.min.js, npm's htmx.org at
 #   pkg/ui/ui.go's htmxVersion), held to its sha256 by TestHTMXPin. The
 #   pages load it from the server, so nothing installs it.
+# - axe-core: vendored, one file (cmd/nitrovin/testdata/axe.min.js, npm's
+#   axe-core at browser_test.go's axeVersion), held to its sha256 by
+#   TestAxePin. TestForm injects it into the pages it audits.
 #
 # Not pinned, on purpose:
 # - Docker: a daemon (Docker Desktop locally, preinstalled on runners).
+# - Chrome or Chromium, for TestForm's browser runs: the machine's
+#   (preinstalled on runners; NITROVIN_CHROME names another).
 # - psql and pg_restore: the oracle runs them inside the postgres container,
 #   because runner images ship a client too old for the dump (pg_restore 17+);
 #   no host install.

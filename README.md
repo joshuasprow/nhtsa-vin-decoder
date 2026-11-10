@@ -150,18 +150,19 @@ curl localhost:8080/v1/vocabularies
 curl 'localhost:8080/v1/vocabularies/vpic/entries?where.make=474&limit=5'
 ```
 
-Open the address in a browser for a decode form: a VIN, an optional model
-year, the shape and `full`, rendered on the server, each decode a
-shareable URL (`/?vin=1HGCM82633A004352`). A decode shows its elements in
-vPIC's groups (empty values hidden in the `vpic` shape until asked), its
-error codes in NHTSA's words, a suggested VIN with the differing positions
-marked, a link to the same VIN on NHTSA's decoder, and the decode's JSON,
-URL, `curl` and `nitrovin decode` equivalents to copy. The empty form says
-how to install, configure MCP and verify this version, with links to its
-release and data month. The only script, `/copy.js`, adds copy buttons;
-without JavaScript everything else works and the text stays selectable.
-The form is not part of the API: it is not in the OpenAPI document and may
-change.
+Open the address in a browser: the page says how to install, configure MCP
+and verify this version, with links to its release and data month, above a
+decode form: a VIN, an optional model year, the shape and `full`. The form
+answers at `/ui/decode`, rendered on the server, each decode a shareable
+URL (`/ui/decode?vin=1HGCM82633A004352`; older `/?vin=` links redirect
+there). A decode shows its elements in vPIC's groups (empty values hidden
+in the `vpic` shape until asked), its error codes in NHTSA's words, a
+suggested VIN with the differing positions marked, a link to the same VIN
+on NHTSA's decoder, and the decode's JSON, URL, `curl` and
+`nitrovin decode` equivalents to copy. Everything works without
+JavaScript; with it, [htmx](https://htmx.org) swaps each answer into the
+page and copy buttons appear. The pages are not part of the API: they are
+not in the OpenAPI document and may change.
 
 `POST /v1/decode` takes up to 1,000 requests and returns an array of
 decodes in order; `POST /v1/translate` does the same for translate

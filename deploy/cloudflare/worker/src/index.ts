@@ -116,13 +116,13 @@ function forward(request: Request, url: URL): Request {
 	});
 }
 
-/** The GETs whose 200 is a function of the URL and the release alone. */
+/**
+ * The GETs whose 200 is a function of the URL and the release alone. The
+ * pages (/ and /ui/…) are not: each answers a fragment or a whole page as
+ * HX-Request asks.
+ */
 function cacheable(url: URL): boolean {
-	return (
-		url.pathname.startsWith("/v1/decode/") ||
-		url.pathname === "/v1/info" ||
-		(url.pathname === "/" && url.search !== "")
-	);
+	return url.pathname.startsWith("/v1/decode/") || url.pathname === "/v1/info";
 }
 
 /**

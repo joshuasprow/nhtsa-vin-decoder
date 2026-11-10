@@ -24,6 +24,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zeebo/blake3"
 
+	// Aliased: the package's tests name a helper artifact.
+	dataartifact "github.com/joshuasprow/nitrovin-data/pkg/artifact"
+
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
 	"github.com/joshuasprow/nitrovin/pkg/ui"
@@ -43,7 +46,7 @@ func init() {
 	register(command{
 		name:     "serve",
 		synopsis: "[--addr ADDR] [--cors ORIGIN]",
-		summary:  "Serve the HTTP API (docs/api/openapi.yaml), MCP over Streamable HTTP at /mcp and a decode form at / on --addr, then :$PORT, then 127.0.0.1:8080, once the data has loaded.",
+		summary:  "Serve the HTTP API (docs/api/openapi.yaml), MCP over Streamable HTTP at /mcp and pages for browsers at / and /ui/ (a decode form at /ui/decode) on --addr, then :$PORT, then 127.0.0.1:8080, once the data has loaded.",
 		setup: func(fs *flag.FlagSet) func(*env, []string) error {
 			addr := fs.String("addr", "", "listen on `address` (default :$PORT when PORT is set, else 127.0.0.1:8080)")
 			cors := fs.String("cors", "", "let browsers on `origin` (scheme://host[:port], or * for any) call /v1 and /mcp (default none)")
@@ -171,39 +174,69 @@ func (l loaded) File(name string) ([]byte, error) {
 	return nil, fmt.Errorf("no file named %s is loaded", name)
 }
 
+// pages is what the pages (pkg/ui) answer from on the server: the API's
+// service and its data's error-code table.
+type pages struct {
+	decodeService
+	errorTexts map[int]string
+}
+
+func (p pages) ErrorText(code int) string { return p.errorTexts[code] }
+
+// errorTexts reads the error-code table of the artifact data: each code's
+// text as NHTSA's ErrorText spells it ("1 - Check Digit (9th position)
+// does not calculate properly"), by id.
+func errorTexts(data []byte) (map[int]string, error) {
+	a, err := dataartifact.Open(data)
+	if err != nil {
+		return nil, err
+	}
+	t := a.Table("errorcode")
+	ids, names := t.Int32s("id"), t.Strings("name")
+	texts := make(map[int]string, len(ids))
+	for i, id := range ids {
+		if s, ok := names.At(i); ok {
+			texts[int(id)] = strings.TrimSpace(s)
+		}
+	}
+	return texts, nil
+}
+
 // decodeService is what the API answers with: loaded, or a fault injected
-// in a test. It is also the pages' ui.Backend.
+// in a test. With the error-code table (pages) it is the pages'
+// ui.Backend.
 type decodeService interface {
-	ui.Backend
+	Info() contract.Info
 	Decode(contract.Request) (contract.Decode, error)
 	DecodeBatch([]contract.Request) ([]contract.Decode, error)
 	Translate(contract.TranslateRequest) (contract.Translation, error)
 	TranslateBatch([]contract.TranslateRequest) ([]contract.Translation, error)
 	List(contract.ListRequest) (contract.List, error)
+	SpineBundle() ([]byte, error)
+	File(name string) ([]byte, error)
 }
 
-// api serves the routes of docs/api/openapi.yaml, /mcp among them, the
-// decode form at / with its script at /copy.js (form.go), and the pages
-// under /ui (pkg/ui). Every refusal but the form's own, the pages' and the
-// MCP transport's is an RFC 9457 problem. CORS headers are set only with a
-// cors origin, and only under /v1/ and on /mcp.
+// api serves the routes of docs/api/openapi.yaml, /mcp among them, and the
+// pages for browsers, the entry page at / and everything under /ui
+// (pkg/ui). Every refusal but the pages' and the MCP transport's is an RFC
+// 9457 problem. CORS headers are set only with a cors origin, and only
+// under /v1/ and on /mcp.
 type api struct {
 	d   decodeService
 	log *log.Logger
 	// mcp is `nitrovin mcp`'s server over Streamable HTTP, stateless.
 	mcp http.Handler
-	// ui serves /ui and everything under it, its errors included.
+	// ui serves /, /ui and everything under it, their errors included.
 	ui http.Handler
 	// cors is the origin browsers may call /v1 and /mcp from, * for any;
 	// "" sets no CORS header.
 	cors string
-	// errorTexts is the data's error-code table, each code's text by id,
-	// for the form; nil shows the codes alone.
-	errorTexts map[int]string
 }
 
 // newAPI is the API answering with d. The MCP server's diagnostics go to
-// stderr; cors is checkOrigin's.
+// stderr; errorTexts is the data's error-code table, each code's text by
+// id, for the decode form (nil shows the codes alone); cors is
+// checkOrigin's.
 func newAPI(d decodeService, log *log.Logger, stderr io.Writer, errorTexts map[int]string, cors string) (*api, error) {
 	server, err := newMCPServer(d, stderr)
 	if err != nil {
@@ -217,7 +250,7 @@ func newAPI(d decodeService, log *log.Logger, stderr io.Writer, errorTexts map[i
 		JSONResponse:        true,
 		MaxRequestBodyBytes: contract.MaxBody,
 	})
-	return &api{d: d, log: log, mcp: handler, ui: ui.New(d, log), cors: cors, errorTexts: errorTexts}, nil
+	return &api{d: d, log: log, mcp: handler, ui: ui.New(pages{d, errorTexts}, log), cors: cors}, nil
 }
 
 // corsAllowHeaders are the request headers a preflight allows: a POST's
@@ -235,7 +268,7 @@ func (a *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	path := r.URL.EscapedPath()
-	if path == "/ui" || strings.HasPrefix(path, "/ui/") {
+	if path == "/" || path == "/ui" || strings.HasPrefix(path, "/ui/") {
 		a.ui.ServeHTTP(w, r)
 		return
 	}
@@ -279,10 +312,6 @@ func allows(allow, method string) bool {
 // as %2F.
 func (a *api) route(path string) (string, http.HandlerFunc) {
 	switch path {
-	case "/":
-		return "GET, HEAD", a.form
-	case "/copy.js":
-		return "GET, HEAD", a.copyScript
 	case "/v1/decode":
 		return http.MethodPost, a.decodeBatch
 	case "/v1/translate":

@@ -16,6 +16,7 @@ import (
 	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
+	"github.com/joshuasprow/nitrovin/pkg/ui"
 )
 
 // versioned is the embedded decoder reporting another decoder version, as
@@ -61,7 +62,8 @@ func formServer(t *testing.T, version string) (*httptest.Server, *nitrovin.Decod
 }
 
 // get fetches url and checks what every page of the form carries: its
-// headers, no CORS, and no script but /copy.js, nothing inline.
+// headers, no CORS, and no script but the release's htmx and copy.js,
+// nothing inline.
 func get(t *testing.T, url string, status int) string {
 	t.Helper()
 	resp, err := client.Get(url)
@@ -81,8 +83,13 @@ func get(t *testing.T, url string, status int) string {
 	for _, s := range inlineHandler.FindAllString(body, -1) {
 		t.Errorf("inline handler %s", s)
 	}
-	if scripts := scriptTag.FindAllString(body, -1); !slices.Equal(scripts, []string{`<script src="/copy.js" defer>`}) {
-		t.Errorf("scripts %q; want /copy.js alone", scripts)
+	if strings.Contains(body, "<style") || strings.Contains(body, " style=") {
+		t.Errorf("inline style")
+	}
+	scripts := scriptTag.FindAllString(body, -1)
+	if len(scripts) != 2 || !releaseScript.MatchString(scripts[0]) || !releaseScript.MatchString(scripts[1]) ||
+		!strings.Contains(scripts[0], "/htmx.min.js") || !strings.Contains(scripts[1], "/copy.js") {
+		t.Errorf("scripts %q; want the release's htmx and copy.js alone", scripts)
 	}
 	return body
 }
@@ -90,14 +97,16 @@ func get(t *testing.T, url string, status int) string {
 var (
 	inlineHandler = regexp.MustCompile(`(?i)<[^>]*\son[a-z]+\s*=[^>]*>`)
 	scriptTag     = regexp.MustCompile(`(?i)<script[^>]*>`)
+	releaseScript = regexp.MustCompile(`^<script src="/ui/r/[^"]+/(htmx\.min|copy)\.js" defer>$`)
 )
 
 func pageHeaders(t *testing.T, h http.Header) {
 	t.Helper()
 	for k, want := range map[string]string{
 		"Content-Type":            "text/html; charset=utf-8",
-		"Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'",
+		"Content-Security-Policy": ui.CSP,
 		"X-Content-Type-Options":  "nosniff",
+		"Vary":                    "HX-Request",
 	} {
 		if got := h.Get(k); got != want {
 			t.Errorf("%s %q; want %q", k, got, want)
@@ -137,9 +146,11 @@ func groups(body string) (names []string, open map[string]bool, markup map[strin
 	return names, open, markup
 }
 
-// TestForm drives the decode form at / against the embedded data: the empty
-// form, a decode in each shape, error codes, refusals beside their field,
-// the caller's text escaped, and the headers on every page.
+// TestForm drives the decode form against the embedded data: the entry
+// page at /, a decode in each shape at /ui/decode, error codes, refusals
+// beside their field, the caller's text escaped, the headers on every
+// page, and old links to the form at / redirected. Then a browser runs it
+// twice (browser_test.go), without JavaScript and with it.
 func TestForm(t *testing.T) {
 	srv, d := formServer(t, "")
 	info := d.Info()
@@ -152,8 +163,9 @@ func TestForm(t *testing.T) {
 	}{
 		{"/", 200,
 			[]string{
-				`<form method="get" action="/">`, `value="vpic" checked`, "data " + info.DataMonth, "decoder " + info.DecoderVersion,
-				`href="/?vin=1HGCM82633A004352"`, `href="/?vin=5YJ3E1EA2JF000316"`,
+				`<form method="get" action="/ui/decode" hx-get="/ui/decode" hx-target="#ui-main" hx-push-url="true">`,
+				`value="vpic" checked`, "data " + info.DataMonth, "decoder " + info.DecoderVersion,
+				`href="/ui/decode?vin=1HGCM82633A004352"`, `href="/ui/decode?vin=5YJ3E1EA2JF000316"`,
 				`href="https://vpic.nhtsa.dot.gov/"`, `href="https://vpic.nhtsa.dot.gov/api/"`, `href="https://vpic.nhtsa.dot.gov/decoder/"`,
 				// A (devel) build is no release: the releases index, docs on main.
 				`href="https://github.com/joshuasprow/nitrovin/releases"`, `/blob/main/docs/parity.md"`,
@@ -163,7 +175,7 @@ func TestForm(t *testing.T) {
 				"TAG=vX.Y.Z\n", "This build, " + info.DecoderVersion + ", is not a release",
 			},
 			[]string{"<h2>Result", `class="error"`, "/releases/tag/v0", "<mark>"}},
-		{"/?vin=1HGCM82633A004352&model_year=&shape=vpic", 200,
+		{"/ui/decode?vin=1HGCM82633A004352&model_year=&shape=vpic", 200,
 			[]string{
 				`<th scope="row">Make</th><td>HONDA</td>`, `<a href="/v1/decode/1HGCM82633A004352?shape=vpic"`, `codes-clean">0</span>`,
 				"<li>0 - VIN decoded clean. Check Digit (9th position) is correct</li>",
@@ -171,7 +183,7 @@ func TestForm(t *testing.T) {
 				`href="https://vpic.nhtsa.dot.gov/decoder/VinDecoder?VIN=1HGCM82633A004352"`,
 			},
 			[]string{"<h2>Items", "Suggested VIN", `id="install"`}},
-		{"/?vin=5YJ3E1EA2JF000316&model_year=2018&shape=nitrovin&full=true", 200,
+		{"/ui/decode?vin=5YJ3E1EA2JF000316&model_year=2018&shape=nitrovin&full=true", 200,
 			[]string{
 				`<th scope="row">Manufacturer Name</th><td>TESLA, INC.</td>`,
 				`<th scope="row">Note</th><td><ul><li>Curb Weight (lbs): 3549-4072</li></ul></td>`,
@@ -183,14 +195,14 @@ func TestForm(t *testing.T) {
 			[]string{"empty values hidden", "empty values shown"}},
 		// A wrong check digit is error code 1, spelled out: a decode, not a
 		// refusal.
-		{"/?vin=1HGCM82633A004353", 200,
+		{"/ui/decode?vin=1HGCM82633A004353", 200,
 			[]string{
 				`codes-flagged">1</span>`, "check digit invalid", `<th scope="row">Make</th><td>HONDA</td>`,
 				"<li>1 - Check Digit (9th position) does not calculate properly</li>",
 			},
 			[]string{`class="error"`}},
 		// Code 14's positions are the decode's AdditionalErrorText.
-		{"/?vin=JH2PC40066M200001", 200,
+		{"/ui/decode?vin=JH2PC40066M200001", 200,
 			[]string{
 				"<li>0 - VIN decoded clean. Check Digit (9th position) is correct</li>",
 				"<li>14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.</li>",
@@ -198,7 +210,7 @@ func TestForm(t *testing.T) {
 			},
 			nil},
 		// A suggested VIN, its one differing position marked on both.
-		{"/?vin=1FBNF0AA21A111111", 200,
+		{"/ui/decode?vin=1FBNF0AA21A111111", 200,
 			[]string{
 				"<li>3 - VIN corrected, error in one position (assuming Check Digit is correct)</li>",
 				`<th scope="row">VIN</th><td class="mono">1FBNF0<mark>A</mark>A21A111111</td>`,
@@ -206,21 +218,21 @@ func TestForm(t *testing.T) {
 			},
 			nil},
 		// '!' marks each position the procedure could not correct.
-		{"/?vin=1GTW7NFH5PA077131", 200,
+		{"/ui/decode?vin=1GTW7NFH5PA077131", 200,
 			[]string{`1GTW7NF<mark>H</mark>5P<mark>A</mark>077131`, `1GTW7NF<mark>!</mark>5P<mark>!</mark>077131`, "differs at positions 8, 11"},
 			nil},
-		{"/?vin=1HGCM82633A0043521&model_year=2003", 400,
+		{"/ui/decode?vin=1HGCM82633A0043521&model_year=2003", 400,
 			[]string{`aria-invalid="true" aria-describedby="vin-error"`, `<p class="error" id="vin-error">`, `value="2003"`},
 			[]string{"<h2>Result", `id="model_year-error"`}},
-		{"/?vin=1HGCM82633A004352&model_year=2003.5", 400,
+		{"/ui/decode?vin=1HGCM82633A004352&model_year=2003.5", 400,
 			[]string{`<p class="error" id="model_year-error">model_year must be a 32-bit integer</p>`},
 			[]string{"<h2>Result"}},
-		{"/?vin=1HGCM82633A004352&colour=red", 400,
+		{"/ui/decode?vin=1HGCM82633A004352&colour=red", 400,
 			[]string{`<p class="error" role="alert">unknown query parameter &#34;colour&#34;</p>`},
 			[]string{"<h2>Result"}},
 		// The caller's text is escaped wherever the page echoes it,
 		// non-ASCII kept; the decode's VIN is sanitized (non-ASCII → &).
-		{"/?vin=%3Cb%3E%C3%89%22x%3C%2Fb%3E", 200,
+		{"/ui/decode?vin=%3Cb%3E%C3%89%22x%3C%2Fb%3E", 200,
 			[]string{
 				`value="&lt;b&gt;É&#34;x&lt;/b&gt;"`, `href="/v1/decode/%3Cb%3E%C3%89%22x%3C%2Fb%3E"`,
 				`<td class="mono"><mark>&lt;</mark>B<mark>&gt;</mark><mark>&amp;</mark><mark>&#34;</mark>X<mark>&lt;</mark><mark>/</mark><mark>B</mark><mark>&gt;</mark></td>`,
@@ -254,30 +266,33 @@ func TestForm(t *testing.T) {
 		t.Errorf("HEAD /: %d, Content-Length %d; want 200 and the GET's length", resp.StatusCode, resp.ContentLength)
 	}
 
-	// Every other method is the API's 405.
+	// Every other method is the pages' 405.
 	resp, err = client.Post(srv.URL+"/", "application/x-www-form-urlencoded", strings.NewReader("vin=1HGCM82633A004352"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != 405 || resp.Header.Get("Allow") != "GET, HEAD" || resp.Header.Get("Content-Type") != "application/problem+json" {
-		t.Errorf("POST /: %d, Allow %q, %s; want 405, GET, HEAD, a problem", resp.StatusCode, resp.Header.Get("Allow"), resp.Header.Get("Content-Type"))
+	if resp.StatusCode != 405 || resp.Header.Get("Allow") != "GET, HEAD" || resp.Header.Get("Content-Type") != "text/html; charset=utf-8" {
+		t.Errorf("POST /: %d, Allow %q, %s; want 405, GET, HEAD, the error page", resp.StatusCode, resp.Header.Get("Allow"), resp.Header.Get("Content-Type"))
 	}
 
-	// The page's one script, from the server itself.
-	resp, err = client.Get(srv.URL + "/copy.js")
+	// An old link to the form, /?vin=…, redirects to /ui/decode, its query
+	// unchanged, and lands on the same decode.
+	const old = "/?vin=1HGCM82633A004352&shape=nitrovin"
+	noFollow := &http.Client{Timeout: client.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err = noFollow.Get(srv.URL + old)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if err != nil {
-		t.Fatal(err)
+	if resp.StatusCode != http.StatusMovedPermanently || resp.Header.Get("Location") != "/ui/decode?vin=1HGCM82633A004352&shape=nitrovin" {
+		t.Errorf("GET %s: %d, Location %q; want 301 to /ui/decode with the query", old, resp.StatusCode, resp.Header.Get("Location"))
 	}
-	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "text/javascript; charset=utf-8" ||
-		resp.Header.Get("X-Content-Type-Options") != "nosniff" || string(b) != string(copyJS) {
-		t.Errorf("GET /copy.js: %d, %s, nosniff %q, %d bytes; want 200, the script", resp.StatusCode, resp.Header.Get("Content-Type"), resp.Header.Get("X-Content-Type-Options"), len(b))
+	if body := get(t, srv.URL+old, 200); !strings.Contains(body, `<th scope="row">Make</th><td>HONDA</td>`) || !strings.Contains(body, `value="nitrovin" checked`) {
+		t.Errorf("GET %s, redirected: not the decode\n%s", old, body)
 	}
+
+	t.Run("browser", func(t *testing.T) { browserForm(t, srv) })
 }
 
 // TestFormGroups: a decode's elements sit in vPIC's groups, in vPIC's group
@@ -285,7 +300,7 @@ func TestForm(t *testing.T) {
 // empty values until asked, and a group with nothing to show is left out.
 func TestFormGroups(t *testing.T) {
 	srv, d := formServer(t, "")
-	const vin = "/?vin=1HGCM82633A004352"
+	const vin = "/ui/decode?vin=1HGCM82633A004352"
 
 	body := get(t, srv.URL+vin, 200)
 	names, open, markup := groups(body)
@@ -311,7 +326,7 @@ func TestFormGroups(t *testing.T) {
 		}
 	}
 	hidden := regexp.MustCompile(`(\d+) empty values hidden\. <a href="([^"]+)">Show them</a>`).FindStringSubmatch(body)
-	if hidden == nil || hidden[2] != "/?vin=1HGCM82633A004352&amp;show_empty=true" {
+	if hidden == nil || hidden[2] != "/ui/decode?vin=1HGCM82633A004352&amp;show_empty=true" {
 		t.Fatalf("no link to show the empty values: %q\n%s", hidden, body)
 	}
 	if strings.Contains(body, `<th scope="row">BusLength</th>`) || slices.Contains(names, "Interior") {
@@ -332,7 +347,7 @@ func TestFormGroups(t *testing.T) {
 	if i := slices.Index(names, "Interior"); i < 0 || names[i-1] != "Exterior/Bus" {
 		t.Errorf("Interior missing or out of place: %q", names)
 	}
-	if !strings.Contains(body, `Empty values shown. <a href="/?vin=1HGCM82633A004352">Hide them</a>`) || !strings.Contains(body, `name="show_empty" value="true" checked`) {
+	if !strings.Contains(body, `Empty values shown. <a href="/ui/decode?vin=1HGCM82633A004352">Hide them</a>`) || !strings.Contains(body, `name="show_empty" value="true" checked`) {
 		t.Errorf("no link to hide the empty values, or the box unchecked\n%s", body)
 	}
 
@@ -350,7 +365,7 @@ func TestFormGroups(t *testing.T) {
 func TestFormCopies(t *testing.T) {
 	srv, _ := formServer(t, "")
 	const (
-		target = "/?vin=1HGCM82633A004352&model_year=2003&shape=nitrovin&full=true&now=2026-11-09T12:00:00Z"
+		target = "/ui/decode?vin=1HGCM82633A004352&model_year=2003&shape=nitrovin&full=true&now=2026-11-09T12:00:00Z"
 		v1     = "/v1/decode/1HGCM82633A004352?full=true&model_year=2003&now=2026-11-09T12%3A00%3A00Z&shape=nitrovin"
 		cmd    = "nitrovin decode --model-year 2003 --shape nitrovin --full --now 2026-11-09T12:00:00Z 1HGCM82633A004352"
 	)
@@ -386,7 +401,7 @@ func TestFormCopies(t *testing.T) {
 		"-":                   {"curl " + srv.URL + "/v1/decode/-", "echo - | nitrovin decode -"},
 		"it%27s":              {"curl " + srv.URL + "/v1/decode/it%27s", `nitrovin decode 'it'\''s'`},
 	} {
-		body := get(t, srv.URL+"/?vin="+vin, 200)
+		body := get(t, srv.URL+"/ui/decode?vin="+vin, 200)
 		if got := [2]string{textOf(t, body, "copy-curl"), textOf(t, body, "copy-cli")}; got != want {
 			t.Errorf("vin %s: %q; want %q", vin, got, want)
 		}

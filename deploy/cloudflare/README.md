@@ -1,7 +1,8 @@
 # nitrovin.app on Cloudflare
 
-`https://nitrovin.app` runs the released image's `nitrovin serve`: the decode
-form at `/`, the `/v1` API and MCP over Streamable HTTP at `/mcp`
+`https://nitrovin.app` runs the released image's `nitrovin serve`: the pages
+at `/` and `/ui/` (the decode form at `/ui/decode`), the `/v1` API and MCP
+over Streamable HTTP at `/mcp`
 ([#104](https://github.com/joshuasprow/nitrovin/issues/104)).
 
 ```mermaid
@@ -34,7 +35,7 @@ flowchart LR
   place needs a new name. A cron fetches `/healthz` every four minutes,
   inside `sleepAfter`'s ten, so it never sleeps. Readiness is `/healthz`:
   `serve` listens only once the data has loaded.
-- **Cache.** `GET /v1/decode/*`, `GET /v1/info` and `GET /?…` are served
+- **Cache.** `GET /v1/decode/*` and `GET /v1/info` are served
   from the Cache API under a key of the release and the URL. The release
   (`decoder_version/data_month/artifact_hash`) is the Worker's `RELEASE`,
   which `deploy.yml` reads from the image it deploys, so a hit never
@@ -46,7 +47,8 @@ flowchart LR
   release, which then holds for the deploy. Cached answers
   carry `Cache-Control: public, max-age=86400` and `Cf-Cache-Status`
   (`MISS`, `HIT`, `BYPASS`). Everything else, refusals included, is
-  `no-store`; `POST` and `/mcp` never touch the cache.
+  `no-store`; `POST` and `/mcp` never touch the cache. The pages are not
+  cached: one URL answers a fragment for htmx and a whole page otherwise.
 - **CORS** is the container's (`serve --cors '*'`): `/v1` and `/mcp` only.
 - **Logs.** Workers Logs without invocation logs, which would record each
   URL and so each VIN. The Worker logs nothing itself.

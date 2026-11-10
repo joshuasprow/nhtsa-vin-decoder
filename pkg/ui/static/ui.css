@@ -1,8 +1,57 @@
-/* The /ui pages' one stylesheet (pkg/ui). CSP allows no inline style. */
-:root { color-scheme: light dark; --muted: #6b7280; --line: #d1d5db; --bad: #b91c1c; }
-body { font: 15px/1.5 system-ui, sans-serif; max-width: 62rem; margin: 1rem auto; padding: 0 1rem; }
+/* The /ui pages' one stylesheet (pkg/ui). CSP allows no inline style. Each
+   color scheme names its own colors, each pair at least 4.5:1. */
+:root { color-scheme: light dark; --fg: #111827; --bg: #ffffff; --link: #1d4ed8; --muted: #4b5563; --line: #d1d5db; --bad: #b91c1c; --ok: #15803d; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e5e7eb; --bg: #111827; --link: #93c5fd; --muted: #9ca3af; --line: #4b5563; --bad: #fca5a5; --ok: #86efac; }
+}
+body { font: 15px/1.5 system-ui, sans-serif; max-width: 62rem; margin: 1rem auto; padding: 0 1rem; color: var(--fg); background: var(--bg); }
+a { color: var(--link); }
 header { margin: .5rem 0 1rem; }
 h1 { font-size: 1.4rem; margin: .5rem 0; }
 h2 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; }
+h3 { font-size: 1rem; margin: 1.25rem 0 .4rem; }
 #ui-error:empty { display: none; }
 #ui-error { color: var(--bad); border-left: 4px solid var(--bad); padding-left: .6rem; margin: 0 0 1rem; }
+a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible, pre:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+code, pre, .mono { font-family: ui-monospace, monospace; }
+p code { overflow-wrap: anywhere; }
+.hint { color: var(--muted); font-weight: 400; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+footer { margin-top: 2.5rem; color: var(--muted); font-size: 13px; }
+
+/* The decode form (decode.html). */
+form { display: grid; gap: .75rem; padding: 1rem; border: 1px solid var(--line); border-radius: 6px; }
+label, legend { font-weight: 600; }
+fieldset { border: 0; padding: 0; margin: 0; }
+fieldset label, label.check { font-weight: 400; margin-right: 1rem; display: inline-block; }
+input[type=text] { font: inherit; padding: .3rem .5rem; width: 100%; max-width: 22rem; box-sizing: border-box; display: block; }
+input#vin { font-family: ui-monospace, monospace; }
+input[aria-invalid=true] { border: 2px solid var(--bad); }
+.error { color: var(--bad); margin: .2rem 0 0; }
+button { font: inherit; padding: .35rem 1.2rem; justify-self: start; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; vertical-align: top; padding: .25rem .75rem .25rem 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+table.kv th { width: 40%; font-weight: 600; }
+td ul { margin: 0; padding-left: 1.1rem; }
+pre { margin: 0; padding: .5rem .75rem; border: 1px solid var(--line); border-radius: 4px; overflow-x: auto; font-size: 13px; }
+pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; }
+.copyable { display: flex; gap: .5rem; align-items: flex-start; margin: .25rem 0; }
+.copyable > pre { flex: 1; min-width: 0; }
+button.copy { font-size: 13px; padding: .3rem .8rem; flex: none; }
+mark { font-weight: 700; }
+details { border: 1px solid var(--line); border-radius: 6px; padding: .25rem .75rem; margin: .5rem 0; }
+summary { cursor: pointer; font-weight: 600; padding: .25rem 0; }
+details table { margin-bottom: .5rem; }
+ul.codes { margin: .25rem 0; padding-left: 1.1rem; }
+a.example { display: inline-block; font-family: ui-monospace, monospace; padding: .2rem .6rem; border: 1px solid var(--line); border-radius: 4px; }
+.codes-clean { color: var(--ok); }
+.codes-flagged { color: var(--bad); }
+.null { color: var(--muted); font-style: italic; }
+.wide { overflow-x: auto; }
+.wide table { font-size: 13px; }
+@media (max-width: 40rem) {
+  table.kv th { width: auto; }
+  table.install, table.install tbody, table.install tr, table.install th, table.install td { display: block; }
+  table.install thead { display: none; }
+  table.install th { border: 0; padding-top: .75rem; }
+}
