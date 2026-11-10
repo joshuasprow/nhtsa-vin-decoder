@@ -98,19 +98,27 @@ type Picked struct {
 	Data     []byte
 }
 
-// StoredFile is a stored file as the pages list it: its record, what it
-// holds, and why it is left out, "" when it links.
+// StoredFile is a file as the pages list it: its record (the browser's
+// files alone have one), what it holds, why it is left out ("" when it
+// links), and where it drifts from the release's data month.
 type StoredFile struct {
 	Record
 	Kind, Version, Fault string
 	// Lines are its entries, extensions or spine entries.
 	Lines int
+	// Drift counts its drift by kind, as /v1/info does; empty for a file
+	// left out.
+	Drift []contract.DriftCount
 }
 
 // shelf is the files at one moment, and the set the linked ones make.
 type shelf struct {
 	server, browser []*held
 	set             *vocab.Set
+	// drift is the linked files' drift, measured once, when a page first
+	// shows it: a translation never needs it.
+	driftOnce sync.Once
+	drift     []vocab.Finding
 }
 
 // held is one file: the server's or the browser's, read (file) or not,
@@ -333,26 +341,46 @@ func (l *Library) Month() string { return l.month.Name() }
 // Files are the stored files, by name.
 func (l *Library) Files() []StoredFile {
 	s := l.state.Load()
-	out := make([]StoredFile, len(s.browser))
-	for i, h := range s.browser {
+	return l.list(s, s.browser)
+}
+
+// Server are the server's files, as it publishes them, each with what
+// it holds or the fault that left it out.
+func (l *Library) Server() []StoredFile {
+	s := l.state.Load()
+	return l.list(s, s.server)
+}
+
+// list is hs, files of s, as the pages list them.
+func (l *Library) list(s *shelf, hs []*held) []StoredFile {
+	out := make([]StoredFile, len(hs))
+	for i, h := range hs {
 		out[i] = StoredFile{Record: h.rec, Fault: h.fault}
+		out[i].Name = h.name
 		if f := h.file; f != nil {
 			out[i].Kind, out[i].Version = string(f.Kind), f.Version
 			out[i].Lines = len(f.Entries) + len(f.Extensions) + len(f.SpineEntries)
+		}
+		if h.linked() {
+			out[i].Drift = contract.DriftCounts(h.file.Path, l.drift(s))
 		}
 	}
 	return out
 }
 
-// Server are the names of the server's files, and the fault of each it
-// could not link ("" when it links).
-func (l *Library) Server() []StoredFile {
-	s := l.state.Load()
-	out := make([]StoredFile, len(s.server))
-	for i, h := range s.server {
-		out[i] = StoredFile{Record: Record{Name: h.name}, Fault: h.fault}
-	}
-	return out
+// drift is the drift of s's linked files from the release's data month,
+// measured on first use.
+func (l *Library) drift(s *shelf) []vocab.Finding {
+	s.driftOnce.Do(func() {
+		var files []*vocab.File
+		for _, h := range s.all() {
+			if h.linked() {
+				files = append(files, h.file)
+			}
+		}
+		s.drift = vocab.Drift(l.month, files)
+	})
+	return s.drift
 }
 
 // translator is the core over s's set.
@@ -392,8 +420,10 @@ func (l *Library) decode(vin string, year contract.Null[int32], now time.Time) (
 	}
 	status, body, err := l.remote.Get(u)
 	if err != nil {
+		// err is the browser's ("TypeError: Failed to fetch"), which says
+		// nothing more than that the request failed.
 		return contract.VINDecode{}, &pageError{Status: http.StatusServiceUnavailable, Message: "Decoding the VIN " + vin +
-			" needs this nitrovin's server, which did not answer (" + err.Error() + "). Translating a vocabulary entry works without it."}
+			" needs this nitrovin's server, which could not be reached: this browser may be offline. Translating a vocabulary entry works without it."}
 	}
 	if status != http.StatusOK {
 		var p contract.Problem

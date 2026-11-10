@@ -1,10 +1,12 @@
 // /vocab's browser files (ADR 0013): registers the Service Worker
-// (worker.js), says what state it is in, and hands the files the visitor
-// picks to it by postMessage. Without this script the page says that
-// loading files needs JavaScript; everything else on it works.
+// (worker.js), says what state it is in, swaps the worker's panel (the
+// merged catalog, with the browser's files) over the server's catalog,
+// and hands the files the visitor picks or drops, and EPA's vocabulary on
+// a click, to the worker by postMessage. Without this script the page
+// says that loading files needs JavaScript; everything else on it works.
 //
 // States, on #browser's data-state and in words in #browser-status:
-// starting, ready (the worker controls the page and lists the files in
+// starting, ready (the worker controls the page and its panel is in
 // #browser-files), paused (an installed worker does not control this
 // page: a hard reload bypasses it), unsupported (no Service Workers), and
 // failed. An update waiting for the old worker's pages to close is said
@@ -23,6 +25,10 @@
   const say = (state, text) => {
     section.dataset.state = state;
     status.textContent = text + update;
+  };
+  // tell says how a load went, in #load-status, which no swap replaces.
+  const tell = (text) => {
+    document.getElementById('load-status').textContent = text;
   };
 
   if (!('serviceWorker' in navigator)) {
@@ -63,17 +69,27 @@
     say('ready', 'Your files stay in this browser and are translated here.');
   })().catch((err) => say('failed', 'The translator in this browser could not start: ' + err + '.'));
 
-  // load hands files to the worker as one batch. Their bytes go by
-  // postMessage (transferred, never copied to a request).
-  const load = async (picked) => {
-    // The panel is swapped after the load: the line is looked up each time.
-    const tell = (text) => {
-      const line = document.getElementById('load-status');
-      if (line) line.textContent = text;
-    };
+  const ready = () => section.dataset.state === 'ready' && sw.controller;
+
+  // usage says, below the panel, how much this site keeps in the browser
+  // and whether the browser may clear it.
+  const usage = async () => {
+    const line = document.getElementById('storage-usage');
+    if (!line || !navigator.storage || !navigator.storage.estimate) return;
+    const { usage: used, quota } = await navigator.storage.estimate();
+    const kept = navigator.storage.persisted && await navigator.storage.persisted();
+    line.textContent = 'This site keeps ' + (used / 1e6).toFixed(1) + ' MB in this browser, of the ' + Math.round(quota / 1e6).toLocaleString('en') +
+      ' MB the browser allows it' + (kept ? '; the browser keeps it until you remove it.' : '; the browser may clear it when it runs short of space.');
+  };
+  document.addEventListener('htmx:afterSettle', () => { usage().catch(() => {}); });
+
+  // load hands files to the worker as one batch: [{name, read}], read
+  // giving each file's bytes, which go by postMessage (transferred, never
+  // copied to a request). what names the batch in the status line.
+  const load = async (what, picked) => {
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-    tell('Reading ' + picked.map((f) => f.name).join(', ') + '…');
-    const files = await Promise.all(picked.map(async (f) => ({ name: f.name, data: await f.arrayBuffer() })));
+    tell('Reading ' + what + '…');
+    const files = await Promise.all(picked.map(async (f) => ({ name: f.name, data: await f.read() })));
     const done = await new Promise((resolve) => {
       const ch = new MessageChannel();
       let timer;
@@ -94,19 +110,73 @@
       sw.controller.postMessage({ op: 'load', files }, [ch.port2, ...files.map((f) => f.data)]);
     });
     await showFiles();
-    let usage = '';
-    if (done.ok && navigator.storage && navigator.storage.estimate) {
-      const { usage: used, quota } = await navigator.storage.estimate();
-      usage = ' This site stores ' + (used / 1e6).toFixed(1) + ' MB of the ' + (quota / 1e6).toFixed(0) + ' MB the browser allows it.';
+    tell(done.ok ? done.message : 'Nothing was loaded: ' + done.message);
+  };
+  const failed = (err) => tell('Nothing was loaded: ' + (err && err.message ? err.message : err));
+
+  // fromDisk is a picked or dropped file to load.
+  const fromDisk = (f) => ({
+    name: f.name,
+    read: () => f.arrayBuffer().catch((err) => { throw new Error(f.name + ' could not be read (' + err.message + ').'); }),
+  });
+  const loadFiles = (list) => {
+    const picked = [...list];
+    if (picked.length === 0) return;
+    if (!ready()) {
+      tell('Nothing was loaded: files load once the translator in this browser is ready.');
+      return;
     }
-    tell((done.ok ? done.message : 'Nothing was loaded: ' + done.message) + usage);
+    load(picked.map((f) => f.name).join(', '), picked.map(fromDisk)).catch(failed);
   };
 
   document.addEventListener('change', (e) => {
-    if (e.target.id !== 'vocab-files' || !sw.controller || e.target.files.length === 0) return;
-    load([...e.target.files]).catch((err) => {
-      const line = document.getElementById('load-status');
-      if (line) line.textContent = 'Nothing was loaded: ' + err + '.';
-    });
+    if (e.target.id === 'vocab-files') loadFiles(e.target.files);
+  });
+
+  // Files dropped anywhere on the page load as if picked: some browsers
+  // (embedded ones among them) open no dialog for a file input.
+  const carriesFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+  let over = 0;
+  document.addEventListener('dragenter', (e) => {
+    if (!carriesFiles(e)) return;
+    over++;
+    section.classList.add('dropping');
+  });
+  document.addEventListener('dragleave', (e) => {
+    if (carriesFiles(e) && --over <= 0) {
+      over = 0;
+      section.classList.remove('dropping');
+    }
+  });
+  document.addEventListener('dragover', (e) => {
+    if (!carriesFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  document.addEventListener('drop', (e) => {
+    if (!carriesFiles(e)) return;
+    e.preventDefault();
+    over = 0;
+    section.classList.remove('dropping');
+    loadFiles(e.dataTransfer.files);
+  });
+
+  // EPA's vocabulary, from this release's assets: one click.
+  document.addEventListener('click', (e) => {
+    const button = e.target.closest && e.target.closest('#load-epa');
+    if (!button || !ready()) return;
+    load("EPA's vocabulary", [{
+      name: button.dataset.file,
+      read: async () => {
+        let r;
+        try {
+          r = await fetch(button.dataset.url);
+        } catch {
+          throw new Error("EPA's vocabulary could not be downloaded: this server could not be reached, and this browser may be offline.");
+        }
+        if (!r.ok) throw new Error("EPA's vocabulary could not be downloaded: this server answered HTTP " + r.status + '. Reload the page and try again.');
+        return r.arrayBuffer();
+      },
+    }]).catch(failed);
   });
 })();

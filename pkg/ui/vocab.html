@@ -4,32 +4,44 @@ render on the server and in the browser's Service Worker. */}}
 {{define "vocab" -}}
 <h1>Vocabularies</h1>
 <p>A vocabulary names vehicles or parts in someone's own terms and maps each name onto a spine: vPIC's makes and models, or a declared parts spine. nitrovin translates between vocabularies through the spine, and from a VIN's decode.</p>
-<p hx-boost="true" hx-target="#ui-main"><a href="/ui/translate">Translate</a> · <a href="/ui/vocabularies">every vocabulary loaded here</a></p>
-<h2>On this server</h2>
-{{template "catalog" .Catalog}}
+<p hx-boost="true" hx-target="#ui-main"><a href="/ui/translate">Translate</a> · <a href="/ui/vocabularies">this server's vocabularies</a></p>
 <section id="browser" aria-labelledby="browser-h"{{if .Worker}} data-worker="/sw.js"{{end}}>
-<h2 id="browser-h">Your own files</h2>
+<h2 id="browser-h">Loaded here</h2>
 <p id="browser-status" role="status" aria-live="polite">{{if .Worker -}}
 Loading your own vocabulary files needs JavaScript: they are kept in this browser (IndexedDB) and translated here by WebAssembly in a Service Worker, so they are never uploaded. Translation through vPIC and this server's own files works without it.
 {{- else -}}
 This nitrovin was built without its browser translator (scripts/sw.sh builds it; release builds include it), so it cannot load your own files. Translation through vPIC and this server's own files works.
 {{- end}}</p>
-<div id="browser-files"></div>
+<div id="browser-files">
+{{template "catalog" .Catalog}}
+</div>
+<p id="load-status" role="status" aria-live="polite"></p>
 </section>
 {{- end}}
 
+{{/* catalog is the catalog, each row marked by where it lives (built in,
+this server, this browser), with its drift or the fault that left it out.
+Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 {{define "catalog" -}}
 <table class="catalog">
-<thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Version</th><th scope="col">Names</th><th scope="col">Spine or fields</th></tr></thead>
+<thead><tr><th scope="col">Name</th><th scope="col">Kept in</th><th scope="col">Kind</th><th scope="col">Version</th><th scope="col">Names</th><th scope="col">Spine or fields</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
 <tbody>
-{{range .}}<tr><th scope="row"><a href="/ui/vocabularies/{{.Name}}">{{.Name}}</a></th><td>{{.Kind}}</td><td>{{.Version}}</td><td>{{.Subject}}</td><td>{{with .Fields}}{{range $i, $f := .}}{{if $i}}, {{end}}{{$f}}{{end}} → {{end}}{{.Spine}}</td></tr>
+{{range .Rows}}<tr data-where="{{.Where}}"><th scope="row">{{if .Fault}}{{.Name}}{{else}}<a href="/ui/vocabularies/{{.Name}}">{{.Name}}</a>{{end}}</th>
+<td>{{.WhereText}}{{with .File}}<br><span class="hint">{{.FileName}}, {{.SizeText}}{{if .Lines}}, {{.Lines}} lines{{end}}, stored {{.Stored.Format "2006-01-02 15:04"}} UTC</span>{{end}}</td>
+<td>{{.Kind}}</td><td>{{.Version}}</td><td>{{.Subject}}</td><td>{{with .Fields}}{{range $i, $f := .}}{{if $i}}, {{end}}{{$f}}{{end}} → {{end}}{{.Spine}}</td>
+<td>{{if .Fault}}<span class="error">Left out: {{.Fault}}</span>{{else if eq .Where "vpic"}}the data month{{else if .Drift}}<details><summary>Drift: {{.DriftText}}</summary><ul>{{range .DriftExamples}}<li>{{.}}</li>{{end}}</ul></details>{{else}}linked, no drift{{end}}</td>
+<td>{{if not .Fault}}{{if eq .Where "vpic"}}<a href="/ui/translate">Translate<span class="visually-hidden"> a VIN</span></a>{{else if eq .Kind "vocabulary"}}<a href="/ui/translate?from.vocabulary={{.Name}}">Translate<span class="visually-hidden"> from {{.Name}}</span></a>{{end}}{{end}}
+{{- if and $.Manage .File}}
+<form method="post" action="/ui/files/remove" hx-post="/ui/files/remove" hx-target="#browser-files" class="inline">
+<input type="hidden" name="name" value="{{.Name}}"><button type="submit">Remove {{.Name}}</button>
+</form>{{end}}</td></tr>
 {{end}}</tbody>
 </table>
 {{- end}}
 
 {{define "catalog-page" -}}
 <h1>Vocabularies</h1>
-<p>Everything loaded here, vPIC's spine first. <a href="/vocab">Load your own</a>.</p>
+<p>What this server loaded, vPIC's spine first. Files kept in your own browser are listed, and loaded, on <a href="/vocab">Vocabularies</a>.</p>
 {{template "catalog" .}}
 {{- end}}
 
@@ -111,6 +123,10 @@ This nitrovin was built without its browser translator (scripts/sw.sh builds it;
 </section>
 {{- end}}
 
+{{/* files is the worker's /vocab panel: the merged catalog with Remove on
+the browser's files, a refused remove, EPA's vocabulary to load, and the
+loader. vocab.js fills storage-usage, and says how a load went in
+#load-status, outside the panel, which a swap never replaces. */}}
 {{define "files" -}}
 {{with .Refusal}}<div class="refusal" role="alert">
 <p>{{.Error}} Remove them too?</p>
@@ -120,22 +136,18 @@ This nitrovin was built without its browser translator (scripts/sw.sh builds it;
 <button type="submit">Remove all of them</button>
 </form>
 </div>{{end}}
+{{template "catalog" .Catalog}}
+{{if .NoneStored}}<p>No files are kept in this browser yet.</p>{{end}}
+{{with .Offer}}<div class="offer">
+{{if .Held}}<p>EPA's vocabulary, {{.Name}} {{.Version}}, is kept in this browser.</p>
+{{else}}<button type="button" id="load-epa" data-url="{{.URL}}" data-file="{{.Name}}.jsonl" aria-describedby="load-epa-hint">Load EPA's vocabulary</button>
+<p id="load-epa-hint" class="hint">{{.Name}} {{.Version}}, {{.SizeText}}: the make and model names of EPA's fuel-economy data, mapped onto this data month's vPIC makes and models. It is public, published with nitrovin's data; loaded, it is kept in this browser like your own files{{with .Replaces}}, replacing version {{.}}{{end}}.</p>
+{{end}}</div>{{end}}
 <div class="load">
 <label for="vocab-files">Load vocabulary files</label>
 <input type="file" id="vocab-files" multiple accept=".jsonl,application/jsonl" aria-describedby="vocab-files-hint">
-<p id="vocab-files-hint" class="hint">Files picked together are linked as one batch; a file named like a stored one replaces it. They stay in this browser.</p>
+<p id="vocab-files-hint" class="hint">Or drop them anywhere on this page. Files loaded together are linked as one batch, and a file named like a stored one replaces it. They stay in this browser.</p>
 </div>
-<p id="load-status" role="status" aria-live="polite"></p>
-{{if .Files}}<table class="files">
-<thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Version</th><th scope="col">Lines</th><th scope="col">Bytes</th><th scope="col">Stored</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
-<tbody>
-{{range .Files}}<tr><th scope="row">{{.Name}}<br><span class="hint">{{.FileName}}</span></th><td>{{.Kind}}</td><td>{{.Version}}</td><td>{{.Lines}}</td><td>{{.Size}}</td><td>{{.Stored.Format "2006-01-02 15:04"}}</td>
-<td>{{with .Fault}}<span class="error">left out: {{.}}</span>{{else}}linked{{end}}</td>
-<td>{{if and (not .Fault) (eq .Kind "vocabulary")}}<a href="/ui/translate?from.vocabulary={{.Name}}">Translate</a> · {{end}}{{if not .Fault}}<a href="/ui/vocabularies/{{.Name}}">List</a>{{end}}
-<form method="post" action="/ui/files/remove" hx-post="/ui/files/remove" hx-target="#browser-files" class="inline">
-<input type="hidden" name="name" value="{{.Name}}"><button type="submit">Remove {{.Name}}</button>
-</form></td></tr>
-{{end}}</tbody>
-</table>{{else}}<p>No files are kept in this browser yet.</p>{{end}}
-<p class="hint">Translated here by release {{.Release}}, data {{.DataMonth}}{{with .Server}}, linked with this server's {{range $i, $f := .}}{{if $i}}, {{end}}{{$f.Name}}{{with $f.Fault}} (left out: {{.}}){{end}}{{end}}{{end}}.</p>
+<p id="storage-usage" class="hint"></p>
+<p class="hint">Translated in this browser by release {{.Release}}, data month {{.DataMonth}}.</p>
 {{- end}}

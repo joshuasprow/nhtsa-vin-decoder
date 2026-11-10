@@ -1,4 +1,5 @@
 # scripts/sw.sh builds the Service Worker module here (sw.wasm, wasm_exec.js),
-# where `nitrovin serve` embeds it. Built, never committed.
+# and scripts/epa.sh fetches EPA's vocabulary here (epa-vehicles.jsonl),
+# where `nitrovin serve` embeds them. Built, never committed.
 *
 !.gitignore

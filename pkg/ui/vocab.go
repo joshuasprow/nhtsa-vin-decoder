@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,20 +14,25 @@ import (
 	"strings"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
+	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
 // The vocabulary pages (ADR 0013). /vocab is the entry page, the server's:
-// its files, and the visitor's own, which need JavaScript. /ui/translate
+// the catalog of what is loaded, each file marked by where it lives, and
+// the visitor's own files, which need JavaScript. /ui/translate
 // translates, its query GET /v1/translate's; /ui/vocabularies lists the
-// catalog and /ui/vocabularies/{name} one file's entries, their queries
-// GET /v1/vocabularies's. Each answers the same on the server and in the
-// browser's Service Worker, which answers only the requests naming a file
-// the browser holds and forwards the rest: so a link means one thing with
-// JavaScript on or off, and a link naming a browser file, opened where the
-// file is not, says where it lives. /ui/files lists the browser's files
-// and /ui/files/remove drops some: the worker's alone, which the server
-// answers by saying so. /sw.js is the worker itself, the only response
-// whose CSP allows WebAssembly.
+// server's catalog and /ui/vocabularies/{name} one file's entries, their
+// queries GET /v1/vocabularies's. Each answers the same on the server and
+// in the browser's Service Worker, which answers only the requests naming
+// a file the browser holds and forwards the rest: so a link means one
+// thing with JavaScript on or off, and a link naming a browser file,
+// opened where the file is not, says where it lives. /ui/files is the
+// worker's /vocab panel: the merged catalog (vPIC, the server's files and
+// the browser's) with the browser's files' storage, drift and removal,
+// and the one-click load of EPA's vocabulary; /ui/files/remove drops
+// browser files. Both are the worker's alone, which the server answers by
+// saying so. /sw.js is the worker itself, the only response whose CSP
+// allows WebAssembly.
 
 const (
 	vocabPath        = "/vocab"
@@ -111,7 +118,7 @@ func named(q url.Values) []string {
 // vocabPage is /vocab: the server's catalog, and whether the server has
 // the worker to load the visitor's own files.
 type vocabPage struct {
-	Catalog []contract.CatalogEntry
+	Catalog catalogTable
 	Worker  bool
 }
 
@@ -120,7 +127,108 @@ func (h *Handler) vocab(*http.Request) (view, error) {
 	if err != nil {
 		return view{}, err
 	}
-	return view{title: "Vocabularies", template: "vocab", vocab: true, data: vocabPage{Catalog: cat, Worker: h.worker != nil}}, nil
+	return view{title: "Vocabularies", template: "vocab", vocab: true, data: vocabPage{Catalog: catalogTable{Rows: h.rows(cat)}, Worker: h.worker != nil}}, nil
+}
+
+// catalogTable is the catalog as /vocab shows it; Manage adds the
+// browser's files' removal, which only the worker's panel offers.
+type catalogTable struct {
+	Rows   []catalogRow
+	Manage bool
+}
+
+// catalogRow is one row of the catalog: vPIC or a file, where it lives,
+// its drift from the data month, and why it is left out ("" when it
+// links). File is the browser's record of a file it holds, nil for the
+// others.
+type catalogRow struct {
+	contract.CatalogEntry
+	// Where is "vpic" (nitrovin's own data), "server" or "browser".
+	Where string
+	Drift []contract.DriftCount
+	Fault string
+	File  *StoredFile
+}
+
+// WhereText is where the row's file lives, in words.
+func (r catalogRow) WhereText() string {
+	switch r.Where {
+	case "vpic":
+		return "built in"
+	case "server":
+		return "this server"
+	}
+	return "this browser"
+}
+
+// DriftText is the row's drift counted by kind: "1 make, 2 qualifier".
+func (r catalogRow) DriftText() string {
+	var out []string
+	for _, d := range r.Drift {
+		out = append(out, strconv.Itoa(d.Count)+" "+d.Kind)
+	}
+	return strings.Join(out, ", ")
+}
+
+// DriftExamples are the row's drift examples, each with its line, and
+// how many more of each kind there are.
+func (r catalogRow) DriftExamples() []string {
+	var out []string
+	for _, d := range r.Drift {
+		for _, e := range d.Examples {
+			out = append(out, "line "+strconv.Itoa(e.Line)+": "+e.Detail)
+		}
+		if more := d.Count - len(d.Examples); more > 0 {
+			out = append(out, fmt.Sprintf("and %d more of kind %s", more, d.Kind))
+		}
+	}
+	return out
+}
+
+// rows is the catalog cat as /vocab shows it, vPIC first. On the server,
+// each file is the server's, its drift Info's. In the browser, the
+// Library says which files are the server's and which the browser's, the
+// drift of each, and the files left out, which cat lacks.
+func (h *Handler) rows(cat []contract.CatalogEntry) []catalogRow {
+	if h.lib == nil {
+		info := h.p.Info()
+		out := make([]catalogRow, len(cat))
+		for i, c := range cat {
+			out[i] = catalogRow{CatalogEntry: c, Where: "server"}
+			if c.Name == "vpic" {
+				out[i].Where = "vpic"
+			}
+			if j := slices.IndexFunc(info.Vocabularies, func(v contract.VocabularyFile) bool { return v.Name == c.Name }); j >= 0 {
+				out[i].Drift = info.Vocabularies[j].Drift
+			}
+		}
+		return out
+	}
+	var out []catalogRow
+	byName := map[string]contract.CatalogEntry{}
+	for _, c := range cat {
+		byName[c.Name] = c
+		if c.Name == "vpic" {
+			out = append(out, catalogRow{CatalogEntry: c, Where: "vpic"})
+		}
+	}
+	add := func(where string, files []StoredFile) {
+		for _, f := range files {
+			r := catalogRow{Where: where, Drift: f.Drift, Fault: f.Fault}
+			if c, ok := byName[f.Name]; ok && f.Fault == "" {
+				r.CatalogEntry = c
+			} else {
+				r.CatalogEntry = contract.CatalogEntry{Name: f.Name, Kind: f.Kind, Version: f.Version}
+			}
+			if where == "browser" {
+				r.File = &f
+			}
+			out = append(out, r)
+		}
+	}
+	add("server", h.lib.Server())
+	add("browser", h.lib.Files())
+	return out
 }
 
 // translatePage is /ui/translate: its forms, and the translation asked for.
@@ -359,7 +467,7 @@ func unconfirmedText(u contract.Unconfirmed) string {
 	return " [unconfirmed: " + strings.Join(parts, ", ") + "]"
 }
 
-// catalogPage is /ui/vocabularies: everything loaded, vPIC first.
+// catalogPage is /ui/vocabularies: what the server loaded, vPIC first.
 func (h *Handler) catalogPage(r *http.Request) (view, error) {
 	if len(r.URL.Query()) > 0 {
 		if _, err := contract.ParseListQuery("", r.URL.Query()); err != nil {
@@ -370,7 +478,7 @@ func (h *Handler) catalogPage(r *http.Request) (view, error) {
 	if err != nil {
 		return view{}, err
 	}
-	return view{title: "Vocabularies", template: "catalog-page", data: cat}, nil
+	return view{title: "Vocabularies", template: "catalog-page", data: catalogTable{Rows: h.rows(cat)}}, nil
 }
 
 // entriesPage is one page of /ui/vocabularies/{name}.
@@ -464,24 +572,57 @@ func (h *Handler) entries(r *http.Request) (view, error) {
 	return view{title: name, template: "entries", data: p}, nil
 }
 
-// filesPanel is /ui/files: the browser's files, and a remove it refused.
+// filesPanel is /ui/files: the merged catalog with the browser's files'
+// removal, a remove it refused, and EPA's vocabulary to load.
 type filesPanel struct {
-	Files     []StoredFile
-	Server    []StoredFile
+	Catalog   catalogTable
+	Offer     *offerView
 	DataMonth string
 	Release   string
 	Refusal   *removeRefusal
 }
 
-func (h *Handler) panel() filesPanel {
-	return filesPanel{Files: h.lib.Files(), Server: h.lib.Server(), DataMonth: h.lib.Month(), Release: Release(h.lib.Info())}
+// NoneStored reports whether the browser keeps no file.
+func (p filesPanel) NoneStored() bool {
+	return !slices.ContainsFunc(p.Catalog.Rows, func(r catalogRow) bool { return r.Where == "browser" })
+}
+
+// offerView is the Offer as the panel shows it: whether the browser holds
+// it already, and the version of it the browser holds otherwise, "" for
+// none.
+type offerView struct {
+	*Offer
+	Held     bool
+	Replaces string
+}
+
+func (h *Handler) panel() (filesPanel, error) {
+	cat, err := h.catalog()
+	if err != nil {
+		return filesPanel{}, err
+	}
+	p := filesPanel{Catalog: catalogTable{Rows: h.rows(cat), Manage: true}, DataMonth: h.lib.Month(), Release: Release(h.lib.Info())}
+	if h.offer != nil {
+		p.Offer = &offerView{Offer: h.offer}
+		for _, f := range h.lib.Files() {
+			if f.Name == h.offer.Name {
+				p.Offer.Held = f.Blake3 == h.offer.Blake3
+				p.Offer.Replaces = f.Version
+			}
+		}
+	}
+	return p, nil
 }
 
 func (h *Handler) files(*http.Request) (view, error) {
 	if h.lib == nil {
 		return view{}, &pageError{Status: http.StatusNotFound, Message: needsBrowser}
 	}
-	return view{title: "Your files", template: "files", data: h.panel()}, nil
+	p, err := h.panel()
+	if err != nil {
+		return view{}, err
+	}
+	return view{title: "Your files", template: "files", data: p}, nil
 }
 
 // remove drops the browser's files the form names (name, repeated),
@@ -496,7 +637,10 @@ func (h *Handler) remove(r *http.Request) (view, error) {
 	}
 	err := h.lib.Remove(r.PostForm["name"], r.PostForm.Get("all") == "true")
 	if refusal, ok := errors.AsType[*removeRefusal](err); ok {
-		p := h.panel()
+		p, err := h.panel()
+		if err != nil {
+			return view{}, err
+		}
 		p.Refusal = refusal
 		return view{title: "Your files", template: "files", data: p, status: http.StatusConflict, target: filesTarget}, nil
 	}
@@ -506,11 +650,65 @@ func (h *Handler) remove(r *http.Request) (view, error) {
 	if !fragment(r) {
 		return view{location: vocabPath, status: http.StatusSeeOther}, nil
 	}
-	return view{title: "Your files", template: "files", data: h.panel()}, nil
+	return h.files(r)
 }
 
+// Offer is the one public vocabulary a server offers the browser as a
+// one-click load: EPA's (epa-vehicles, nitrovin-data's release asset for
+// the data month, which release builds embed), published among the
+// release's assets at URL. Loaded, the browser keeps it as a file of its
+// own.
+type Offer struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Blake3  string `json:"blake3"`
+	Size    int    `json:"size"`
+	URL     string `json:"url"`
+}
+
+// SizeText is the offer's size in words.
+func (o *Offer) SizeText() string { return sizeText(o.Size) }
+
+// epaFileName is the file name the EPA vocabulary is read and offered as.
+const epaFileName = "epa-vehicles.jsonl"
+
+// epaOffer is the EPA vocabulary b as the server offers it, nil when it is
+// not offered: it does not read (logged), it was built for another data
+// month than the server decodes with, or the server loaded a file of its
+// name, which makes the browser refuse it.
+func (h *Handler) epaOffer(b []byte) *Offer {
+	info := h.p.Info()
+	f, err := vocab.Read(epaFileName, bytes.NewReader(b))
+	if err != nil {
+		h.log.Printf("ui: the EPA vocabulary built in is not offered: %v", err)
+		return nil
+	}
+	if f.DataMonth != info.DataMonth || slices.ContainsFunc(info.Vocabularies, func(v contract.VocabularyFile) bool { return v.Name == f.Name }) {
+		return nil
+	}
+	o := &Offer{Name: f.Name, Version: f.Version, Blake3: hex.EncodeToString(f.Hash[:]), Size: len(b)}
+	o.URL = FilePath(info, contract.VocabularyFile{Name: o.Name, Blake3: o.Blake3})
+	return o
+}
+
+// sizeText is n bytes in words: "512 bytes", "2.1 kB", "956 kB", "25.5 MB".
+func sizeText(n int) string {
+	switch {
+	case n < 1000:
+		return strconv.Itoa(n) + " bytes"
+	case n < 10_000:
+		return strconv.FormatFloat(float64(n)/1e3, 'f', 1, 64) + " kB"
+	case n < 1_000_000:
+		return strconv.Itoa((n+500)/1000) + " kB"
+	}
+	return strconv.FormatFloat(float64(n)/1e6, 'f', 1, 64) + " MB"
+}
+
+// SizeText is the stored file's size in words.
+func (f StoredFile) SizeText() string { return sizeText(f.Size) }
+
 // workerConfig is what /sw.js gives the worker: the release, its assets,
-// and the server's files it links.
+// the server's files it links and the vocabulary it offers.
 type workerConfig struct {
 	Assets         string       `json:"assets"`
 	Release        string       `json:"release"`
@@ -518,6 +716,7 @@ type workerConfig struct {
 	DataMonth      string       `json:"data_month"`
 	ArtifactHash   string       `json:"artifact_hash"`
 	Files          []workerFile `json:"files"`
+	EPA            *Offer       `json:"epa,omitempty"`
 }
 
 type workerFile struct {
@@ -528,18 +727,19 @@ type workerFile struct {
 	URL     string `json:"url"`
 }
 
-// WorkerInfo is the Info a worker's config describes: the release and the
-// server's files, what a Library links.
-func WorkerInfo(config []byte) (contract.Info, error) {
+// ReadWorkerConfig reads a worker's config: the Info it describes (the
+// release and the server's files, what a Library links) and the
+// vocabulary the server offers, nil for none (NewInBrowser).
+func ReadWorkerConfig(config []byte) (contract.Info, *Offer, error) {
 	var c workerConfig
 	if err := json.Unmarshal(config, &c); err != nil {
-		return contract.Info{}, err
+		return contract.Info{}, nil, err
 	}
 	info := contract.Info{DecoderVersion: c.DecoderVersion, DataMonth: c.DataMonth, ArtifactHash: c.ArtifactHash, Vocabularies: []contract.VocabularyFile{}}
 	for _, f := range c.Files {
 		info.Vocabularies = append(info.Vocabularies, contract.VocabularyFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3})
 	}
-	return info, nil
+	return info, c.EPA, nil
 }
 
 // serviceWorker answers /sw.js: the release's worker. Its bytes name the
@@ -548,7 +748,7 @@ func WorkerInfo(config []byte) (contract.Info, error) {
 // the old one and starts once the old one's pages close. It is never
 // cached without asking (no-cache), and it alone may run WebAssembly.
 func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info, base string) {
-	c := workerConfig{Assets: base, Release: Release(info), DecoderVersion: info.DecoderVersion, DataMonth: info.DataMonth, ArtifactHash: info.ArtifactHash, Files: []workerFile{}}
+	c := workerConfig{Assets: base, Release: Release(info), DecoderVersion: info.DecoderVersion, DataMonth: info.DataMonth, ArtifactHash: info.ArtifactHash, Files: []workerFile{}, EPA: h.offer}
 	for _, f := range info.Vocabularies {
 		c.Files = append(c.Files, workerFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3, URL: FilePath(info, f)})
 	}
