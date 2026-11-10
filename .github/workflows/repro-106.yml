@@ -1,9 +1,10 @@
-# Throwaway (#106), removed before merge: release.yml's snapshot built twice
-# on one commit, once with the per-tool actions it used before (setup-go,
-# setup-zig, goreleaser-action "~> v2") and once with the mise step, then
-# every file under dist/ and build/ compared byte for byte. Both jobs set
-# every tracked file's mtime to the commit's, so the archives do not carry
-# two checkout times.
+# Throwaway (#106), removed before merge: release.yml's snapshot built three
+# times on one commit: twice with the per-tool actions it used before
+# (setup-go, setup-zig, goreleaser-action "~> v2"), which is the baseline of
+# what a rebuild reproduces at all, and once with the mise step. Every file
+# under dist/ and build/ is hashed, and each package's payload files too.
+# Every build sets each tracked file's mtime to the commit's, so archives do
+# not carry the checkout time.
 name: Repro 106
 
 on:
@@ -19,103 +20,108 @@ defaults:
     shell: bash
 
 jobs:
-  old:
+  build:
+    strategy:
+      matrix:
+        variant: [old, old-again, mise]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v7
+      - if: matrix.variant != 'mise'
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: mlugg/setup-zig@v2
+      - if: matrix.variant != 'mise'
+        uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
+      - if: matrix.variant == 'mise'
+        uses: ./.github/actions/mise
+        with:
+          tools: go zig goreleaser jq
       - uses: docker/setup-buildx-action@v4
       - name: Commit-time mtimes
         run: git ls-files -z | xargs -0 touch -h -d "@$(git log -1 --format=%ct)"
       - name: Read the embedded data month
         run: echo "DATA_MONTH=$(go run ./cmd/nitrovin info | jq -r .data_month)" | tee -a "$GITHUB_ENV"
-      - uses: goreleaser/goreleaser-action@v7
+      - if: matrix.variant != 'mise'
+        uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
           args: release --snapshot --clean --skip=sign
         env:
           HOMEBREW_TAP_DEPLOY_KEY: unused
           SCOOP_BUCKET_DEPLOY_KEY: unused
-      - name: Tools and hashes
-        run: |
-          mkdir out
-          {
-            echo "go: $(go version)"
-            echo "zig: $(zig version)"
-            echo "goreleaser: $( (command -v goreleaser >/dev/null && goreleaser --version || "$(find "$RUNNER_TOOL_CACHE" -name goreleaser -type f | head -n 1)" --version) | grep GitVersion)"
-            echo "jq: $(jq --version)"
-            echo "commit: $(git rev-parse HEAD)"
-          } | tee out/tools.txt
-          find dist build -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum >out/hashes.txt
-          wc -l out/hashes.txt
-      - uses: actions/upload-artifact@v7
-        with:
-          name: old
-          path: out/
-
-  mise:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/mise
-        with:
-          tools: go zig goreleaser jq github:modelcontextprotocol/registry
-      - uses: docker/setup-buildx-action@v4
-      - name: Commit-time mtimes
-        run: git ls-files -z | xargs -0 touch -h -d "@$(git log -1 --format=%ct)"
-      - name: Read the embedded data month
-        run: echo "DATA_MONTH=$(go run ./cmd/nitrovin info | jq -r .data_month)" | tee -a "$GITHUB_ENV"
-      - name: goreleaser
+      - if: matrix.variant == 'mise'
         env:
           HOMEBREW_TAP_DEPLOY_KEY: unused
           SCOOP_BUCKET_DEPLOY_KEY: unused
         run: goreleaser release --snapshot --clean --skip=sign
       - name: Tools and hashes
         run: |
-          mkdir out
+          mkdir -p out/lib
           {
-            echo "go: $(go version)"
-            echo "zig: $(zig version)"
-            echo "goreleaser: $(goreleaser --version | grep GitVersion)"
+            echo "go: $(go version) at $(command -v go)"
+            echo "zig: $(zig version) at $(command -v zig)"
             echo "jq: $(jq --version)"
             echo "commit: $(git rev-parse HEAD)"
           } | tee out/tools.txt
           find dist build -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum >out/hashes.txt
-          wc -l out/hashes.txt
+          command -v rpm2cpio >/dev/null || sudo apt-get install -y -qq rpm2cpio cpio >/dev/null
+          # Each package's payload, file by file.
+          for p in dist/*.deb dist/*.rpm dist/*.apk; do
+            x=$(mktemp -d)
+            case $p in
+              *.deb) dpkg-deb -x "$p" "$x" ;;
+              *.rpm) (cd "$x" && rpm2cpio "$OLDPWD/$p" | cpio -idm --quiet) ;;
+              *.apk) tar -xzf "$p" -C "$x" 2>/dev/null ;;
+            esac
+            (cd "$x" && find . -type f ! -name '.PKGINFO' ! -name '.SIGN*' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) | sed "s|  \./|  ${p#dist/}:|"
+          done >out/payloads.txt
+          for f in build/libnitrovin/*/libnitrovin.*; do
+            echo "$f $(go tool buildid "$f" 2>&1)"
+          done | tee out/buildids.txt
+          cp -r build/libnitrovin/. out/lib/
       - uses: actions/upload-artifact@v7
         with:
-          name: mise
+          name: ${{ matrix.variant }}
           path: out/
 
   compare:
-    needs: [old, mise]
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/download-artifact@v8
       - name: Byte-compare
         run: |
+          # Files whose hash differs between two builds' lists.
+          differ() { join -j 2 <(sort -k2 "$1") <(sort -k2 "$2") | awk '$2 != $3 {print $1}'; }
+          same() { join -j 2 <(sort -k2 "$1") <(sort -k2 "$2") | awk '$2 == $3' | wc -l; }
           {
             echo '### Tools'
             echo '```'
-            sed 's/^/old   /' old/tools.txt
-            sed 's/^/mise  /' mise/tools.txt
+            for v in old old-again mise; do sed "s/^/$v: /" "$v/tools.txt"; done
             echo '```'
-            same=$(comm -12 old/hashes.txt mise/hashes.txt | wc -l)
-            echo "### Files: $(wc -l <old/hashes.txt) old, $(wc -l <mise/hashes.txt) mise, $same byte-identical"
+            for b in old-again mise; do
+              echo "### old vs $b: $(same old/hashes.txt "$b/hashes.txt") of $(wc -l <old/hashes.txt) files identical; payloads $(same old/payloads.txt "$b/payloads.txt") of $(wc -l <old/payloads.txt)"
+              echo '```'
+              differ old/hashes.txt "$b/hashes.txt"
+              differ old/payloads.txt "$b/payloads.txt"
+              echo '```'
+            done
+            echo '### C library build IDs'
             echo '```'
-            diff old/hashes.txt mise/hashes.txt || true
+            paste -d '\n' old/buildids.txt mise/buildids.txt
+            echo '```'
+            echo '### C libraries, old vs mise: differing bytes (cmp -l)'
+            echo '```'
+            for f in old/lib/*/*; do
+              g=mise/lib/${f#old/lib/}
+              echo "${f#old/lib/}: $(cmp -l "$f" "$g" | wc -l) of $(wc -c <"$f") bytes"
+            done
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
-          diff -q old/hashes.txt mise/hashes.txt
