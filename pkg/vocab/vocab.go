@@ -22,6 +22,7 @@ package vocab
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Format is the file format this package reads: a header's format.
@@ -184,20 +185,71 @@ type SpineEntry struct {
 // trimmed, every run of white space collapsed to one space, and Unicode
 // lower-cased.
 func Normalize(s string) string {
-	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+	if normalASCII(s) {
+		return s
+	}
+	return string(appendNormalized(make([]byte, 0, len(s)), s))
+}
+
+// normalASCII reports whether s is ASCII that Normalize leaves as it is.
+func normalASCII(s string) bool {
+	for i := range len(s) {
+		switch c := s[i]; {
+		case c >= utf8.RuneSelf, 'A' <= c && c <= 'Z', c != ' ' && asciiSpace(c):
+			return false
+		case c == ' ' && (i == 0 || i == len(s)-1 || s[i+1] == ' '):
+			return false
+		}
+	}
+	return true
+}
+
+// appendNormalized appends Normalize(s) to b: byte by byte when s is
+// ASCII, through Unicode's white space and case otherwise.
+func appendNormalized(b []byte, s string) []byte {
+	start, space := len(b), false
+	for i := range len(s) {
+		c := s[i]
+		switch {
+		case c >= utf8.RuneSelf:
+			return append(b[:start], strings.ToLower(strings.Join(strings.Fields(s), " "))...)
+		case asciiSpace(c):
+			space = len(b) > start
+			continue
+		case 'A' <= c && c <= 'Z':
+			c += 'a' - 'A'
+		}
+		if space {
+			b, space = append(b, ' '), false
+		}
+		b = append(b, c)
+	}
+	return b
+}
+
+// asciiSpace reports whether c is white space, as unicode.IsSpace has it,
+// for an ASCII byte.
+func asciiSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r'
 }
 
 // key is the index key of an entry's field values: each normalized, length
 // prefixed so no value can run into the next.
-func key(values []string) string {
-	var b strings.Builder
+func key(values []string) string { return string(appendKey(nil, values)) }
+
+// appendKey appends key(values) to b.
+func appendKey(b []byte, values []string) []byte {
 	for _, v := range values {
-		v = Normalize(v)
-		b.WriteString(strconv.Itoa(len(v)))
-		b.WriteByte(':')
-		b.WriteString(v)
+		at := len(b)
+		b = appendNormalized(b, v)
+		n := len(b) - at
+		var buf [21]byte
+		prefix := append(strconv.AppendInt(buf[:0], int64(n), 10), ':')
+		b = append(b, prefix...)             // room for the prefix
+		copy(b[at+len(prefix):], b[at:at+n]) // the value, after it
+		copy(b[at:], prefix)
 	}
-	return b.String()
+	return b
 }
 
 // Entry finds a vocabulary's entry by its fields, matched after Normalize.

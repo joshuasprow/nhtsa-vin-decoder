@@ -47,17 +47,17 @@ func Link(files []*File) error {
 					continue
 				}
 			}
-			for _, e := range f.Entries {
-				for i, mp := range e.Mappings {
-					ptr := "/mappings/" + strconv.Itoa(i)
-					switch {
+			for i := range f.Entries {
+				e := &f.Entries[i]
+				for j := range e.Mappings {
+					switch mp := &e.Mappings[j]; {
 					case mp.Ext != "":
 						if _, why := ext(mp.Ext); why != "" {
-							faults = append(faults, fault(f.Path, e.Line, "%s/ext: %s", ptr, why))
+							faults = append(faults, fault(f.Path, e.Line, "/mappings/%d/ext: %s", j, why))
 						}
 					case mp.ID != "":
 						if _, ok := spine.SpineEntry(mp.ID); !ok {
-							faults = append(faults, fault(f.Path, e.Line, "%s/id: spine %q has no id %q", ptr, f.Spine, mp.ID))
+							faults = append(faults, fault(f.Path, e.Line, "/mappings/%d/id: spine %q has no id %q", j, f.Spine, mp.ID))
 						}
 					}
 				}

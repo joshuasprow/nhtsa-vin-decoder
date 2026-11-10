@@ -45,9 +45,18 @@ func NewSet(m Month, files []*File) (*Set, error) {
 		s.byName[f.Name] = f
 		switch f.Kind {
 		case KindVocabulary:
+			// Every entry's key in one allocation, the normalized fields
+			// that are not already normal in shared blocks.
+			n := len(f.Fields)
+			keys := make([]string, n*len(f.Entries))
+			var text texts
 			es := make([]sortedEntry, len(f.Entries))
 			for i := range f.Entries {
-				es[i] = sortedEntry{&f.Entries[i], normalized(f.Entries[i].Fields)}
+				key := keys[i*n : (i+1)*n : (i+1)*n]
+				for j, v := range f.Entries[i].Fields {
+					key[j] = text.normalized(v)
+				}
+				es[i] = sortedEntry{&f.Entries[i], key}
 			}
 			slices.SortFunc(es, func(a, b sortedEntry) int { return compareKeys(a.key, b.key) })
 			s.sorted[f] = es

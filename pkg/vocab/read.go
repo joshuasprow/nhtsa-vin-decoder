@@ -6,14 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"maps"
 	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/zeebo/blake3"
 )
@@ -93,44 +95,281 @@ func Read(name string, r io.Reader) (*File, error) {
 	return parse(name, data)
 }
 
+// chunkSize is about how many bytes of lines one goroutine reads at a
+// time.
+const chunkSize = 256 << 10
+
 // parse reads one file's bytes: a header, then lines of its kind. Blank
-// lines (nothing but spaces, tabs and a \r) are skipped and counted.
+// lines (nothing but spaces, tabs and a \r) are skipped and counted. The
+// lines after the header are read in chunks, in parallel, each line into
+// its own slot of the file's lines, then indexed in file order (index).
 func parse(name string, data []byte) (*File, error) {
-	f := &File{Path: name, Hash: blake3.Sum256(data)}
-	var faults Faults
-	header := false
-	for i, line := range bytes.Split(data, []byte("\n")) {
-		n := i + 1
-		if len(bytes.Trim(line, " \t\r")) == 0 {
+	f := &File{Path: name}
+	hashed := make(chan struct{})
+	go func() {
+		f.Hash = blake3.Sum256(data)
+		close(hashed)
+	}()
+	n, start := 0, 0
+	for {
+		if start > len(data) {
+			return nil, Faults{fault(name, 1, "no header: the file is empty")}
+		}
+		end := lineEnd(data, start)
+		line := data[start:end]
+		n, start = n+1, end+1
+		if blank(line) {
 			continue
 		}
-		var err error
-		if !header {
-			if err = f.header(line); err != nil {
-				return nil, Faults{fault(name, n, "%v", err)}
+		if err := f.header(line); err != nil {
+			return nil, Faults{fault(name, n, "%v", err)}
+		}
+		break
+	}
+	var chunks []*chunk
+	for start <= len(data) {
+		end := len(data)
+		if start+chunkSize < len(data) {
+			if i := bytes.IndexByte(data[start+chunkSize:], '\n'); i >= 0 {
+				end = start + chunkSize + i
 			}
-			header = true
-			continue
 		}
-		switch f.Kind {
-		case KindVocabulary:
-			err = f.entry(n, line)
-		case KindExtensionSet:
-			err = f.extension(n, line)
-		case KindSpine:
-			err = f.spineEntry(n, line)
-		}
-		if err != nil {
-			faults = append(faults, fault(name, n, "%v", err))
-		}
+		chunks = append(chunks, &chunk{data: data[start:end]})
+		start = end + 1
 	}
-	if !header {
-		return nil, Faults{fault(name, 1, "no header: the file is empty")}
+	inParallel(chunks, func() func(*chunk) {
+		return func(c *chunk) { c.lines = bytes.Count(c.data, []byte("\n")) + 1 }
+	})
+	slots := 0
+	for _, c := range chunks {
+		c.first, slots = slots, slots+c.lines
 	}
-	if len(faults) > 0 {
+	var keys []string // each entry slot's key
+	switch f.Kind {
+	case KindVocabulary:
+		f.Entries, keys = make([]Entry, slots), make([]string, slots)
+	case KindExtensionSet:
+		f.Extensions = make([]Extension, slots)
+	case KindSpine:
+		f.SpineEntries = make([]SpineEntry, slots)
+	}
+	inParallel(chunks, func() func(*chunk) {
+		r := newReader(f)
+		return func(c *chunk) { r.read(c, n, keys) }
+	})
+	if faults := f.index(chunks, keys); len(faults) > 0 {
 		return nil, faults
 	}
+	<-hashed
 	return f, nil
+}
+
+// lineEnd is the index of the '\n' that ends the line starting at
+// data[start], or len(data) for the last line.
+func lineEnd(data []byte, start int) int {
+	if i := bytes.IndexByte(data[start:], '\n'); i >= 0 {
+		return start + i
+	}
+	return len(data)
+}
+
+// blank reports whether a line holds nothing but spaces, tabs and a \r.
+func blank(line []byte) bool { return len(bytes.Trim(line, " \t\r")) == 0 }
+
+// chunk is a run of whole lines after the header: its lines are the
+// file's lines' slots first to first+lines-1. faults are those of its
+// lines that did not read, in line order.
+type chunk struct {
+	data         []byte
+	first, lines int
+	faults       Faults
+}
+
+// inParallel calls work with every chunk, on up to GOMAXPROCS goroutines,
+// each with its own work, from worker.
+func inParallel(chunks []*chunk, worker func() func(*chunk)) {
+	if len(chunks) == 1 {
+		worker()(chunks[0])
+		return
+	}
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range min(runtime.GOMAXPROCS(0), len(chunks)) {
+		wg.Go(func() {
+			work := worker()
+			for i := next.Add(1) - 1; i < int64(len(chunks)); i = next.Add(1) - 1 {
+				work(chunks[i])
+			}
+		})
+	}
+	wg.Wait()
+}
+
+// reader reads lines of one file, a chunk at a time, on one goroutine. A
+// line's slices and entry strings come from slabs and blocks, larger
+// allocations it shares with the lines after it, rather than allocations
+// of their own.
+type reader struct {
+	f        *File
+	line     [3][]byte // an entry line's members, entryNames
+	entry    [][]byte  // its entry's fields, the file's Fields
+	mapping  [9][]byte // a mapping's members, mappingNames
+	mappings [][]byte
+	key      []byte
+
+	text     texts
+	strings  slab[string]
+	mappingS slab[Mapping]
+	years    slab[int]
+}
+
+func newReader(f *File) *reader {
+	return &reader{f: f, entry: make([][]byte, len(f.Fields))}
+}
+
+// slab hands out short slices of one larger allocation.
+type slab[T any] []T
+
+// take is the next n elements, its capacity n.
+func (s *slab[T]) take(n int) []T {
+	if len(*s) < n {
+		*s = make([]T, max(n, 1024))
+	}
+	out := (*s)[:n:n]
+	*s = (*s)[n:]
+	return out
+}
+
+// read reads c's lines into their slots, and an entry's key into its slot
+// of keys; header is the header's line.
+func (r *reader) read(c *chunk, header int, keys []string) {
+	f := r.f
+	slot := c.first
+	for start := 0; start <= len(c.data); slot++ {
+		end := lineEnd(c.data, start)
+		line := c.data[start:end]
+		start = end + 1
+		if blank(line) {
+			continue
+		}
+		n := header + 1 + slot
+		var err error
+		switch f.Kind {
+		case KindVocabulary:
+			var e Entry
+			var key string
+			if e, key, err = r.readEntry(n, line); err == nil {
+				f.Entries[slot], keys[slot] = e, key
+			}
+		case KindExtensionSet:
+			var x Extension
+			if x, err = extension(n, line); err == nil {
+				f.Extensions[slot] = x
+			}
+		case KindSpine:
+			var e SpineEntry
+			if e, err = spineEntry(n, line); err == nil {
+				f.SpineEntries[slot] = e
+			}
+		}
+		if err != nil {
+			c.faults = append(c.faults, fault(f.Path, n, "%v", err))
+		}
+	}
+	c.data = nil
+}
+
+// index keeps, of f's lines, those that read and repeat no earlier line's
+// entry or id, indexed, and returns every fault in line order: the
+// chunks', and the repeats'. keys are the entry slots' keys.
+func (f *File) index(chunks []*chunk, keys []string) Faults {
+	var faults Faults
+	switch f.Kind {
+	case KindVocabulary:
+		f.entries, f.targets = make(map[string]int, len(f.Entries)), map[Target][]int{}
+		f.Entries, faults = keep(f.Path, chunks, f.Entries, func(e *Entry) int { return e.Line },
+			func(e *Entry, i, slot int) error { return f.addEntry(e, i, keys[slot]) })
+	case KindExtensionSet:
+		f.extensions = make(map[string]int, len(f.Extensions))
+		f.Extensions, faults = keep(f.Path, chunks, f.Extensions, func(x *Extension) int { return x.Line }, f.addExtension)
+	case KindSpine:
+		f.spine = make(map[string]int, len(f.SpineEntries))
+		f.SpineEntries, faults = keep(f.Path, chunks, f.SpineEntries, func(e *SpineEntry) int { return e.Line }, f.addSpineEntry)
+	}
+	return faults
+}
+
+// keep compacts items, the slots of the chunks' lines, to those that read
+// (line is not 0) and that add accepts, given the index each takes; nil
+// when none do. It returns every fault in line order: the chunks', and
+// those of add, about the file at path.
+func keep[T any](path string, chunks []*chunk, items []T, line func(*T) int, add func(t *T, i, slot int) error) ([]T, Faults) {
+	var faults Faults
+	i := 0
+	for _, c := range chunks {
+		fs := c.faults
+		for slot := c.first; slot < c.first+c.lines; slot++ {
+			t := &items[slot]
+			n := line(t)
+			if n == 0 {
+				continue // a blank line, or one of fs
+			}
+			for len(fs) > 0 && fs[0].Line < n {
+				faults, fs = append(faults, fs[0]), fs[1:]
+			}
+			if err := add(t, i, slot); err != nil {
+				faults = append(faults, fault(path, n, "%v", err))
+				continue
+			}
+			if i != slot {
+				items[i] = *t
+			}
+			i++
+		}
+		faults = append(faults, fs...)
+		c.faults = nil
+	}
+	if i == 0 {
+		return nil, faults
+	}
+	clear(items[i:])
+	return items[:i], faults
+}
+
+// addEntry indexes e, about to be entry i, under its key k, refusing it
+// when an earlier entry has the key.
+func (f *File) addEntry(e *Entry, i int, k string) error {
+	if j, dup := f.entries[k]; dup {
+		return errAt("/entry", "duplicate entry: line %d names it too, after normalization", f.Entries[j].Line)
+	}
+	f.entries[k] = i
+	for _, mp := range e.Mappings {
+		idx := f.targets[mp.Target]
+		if len(idx) == 0 || idx[len(idx)-1] != i {
+			f.targets[mp.Target] = append(idx, i)
+		}
+	}
+	return nil
+}
+
+// addExtension indexes x, about to be extension i, refusing it when an
+// earlier extension has its id.
+func (f *File) addExtension(x *Extension, i, _ int) error {
+	if j, dup := f.extensions[x.ID]; dup {
+		return errAt("/id", "duplicate id %q: line %d has it too", x.ID, f.Extensions[j].Line)
+	}
+	f.extensions[x.ID] = i
+	return nil
+}
+
+// addSpineEntry indexes e, about to be spine entry i, refusing it when an
+// earlier spine entry has its id.
+func (f *File) addSpineEntry(e *SpineEntry, i, _ int) error {
+	if j, dup := f.spine[e.ID]; dup {
+		return errAt("/id", "duplicate id %q: line %d has it too", e.ID, f.SpineEntries[j].Line)
+	}
+	f.spine[e.ID] = i
+	return nil
 }
 
 // lineError is what is wrong with a line: at a JSON Pointer into it, or
@@ -148,48 +387,38 @@ func errAt(ptr, format string, a ...any) error {
 	return &lineError{ptr, fmt.Sprintf(format, a...)}
 }
 
-// object reads a line as a JSON object.
-func object(line []byte) (map[string]json.RawMessage, error) {
+// under moves err, a lineError about a part of the line, under prefix, the
+// part's pointer.
+func under(prefix string, err error) error {
+	e := err.(*lineError)
+	e.ptr = prefix + e.ptr
+	return e
+}
+
+// lineValue checks that a line is JSON, and is its value without the white
+// space around it.
+func lineValue(line []byte) ([]byte, error) {
 	if !json.Valid(line) {
 		var v any
 		err := json.Unmarshal(line, &v)
 		return nil, errAt("", "malformed JSON: %v", err)
 	}
-	return objectAt(line, "")
+	return trimSpace(line), nil
 }
 
-// objectAt reads raw, at ptr, as a JSON object.
-func objectAt(raw json.RawMessage, ptr string) (map[string]json.RawMessage, error) {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
-		return nil, errAt(ptr, "must be an object")
-	}
-	return m, nil
-}
-
-// closed refuses the fields of m, at ptr, that are not allowed.
-func closed(m map[string]json.RawMessage, ptr string, allowed ...string) error {
-	for _, k := range slices.Sorted(maps.Keys(m)) {
-		if !slices.Contains(allowed, k) {
-			return errAt(ptr, "unknown field %q", k)
-		}
-	}
-	return nil
-}
-
-func isNull(raw json.RawMessage) bool { return string(bytes.TrimSpace(raw)) == "null" }
+func isNull(raw []byte) bool { return string(bytes.TrimSpace(raw)) == "null" }
 
 // stringAt reads raw, at ptr, as a string.
-func stringAt(raw json.RawMessage, ptr string) (string, error) {
-	var s string
-	if isNull(raw) || json.Unmarshal(raw, &s) != nil {
+func stringAt(raw []byte, ptr string) (string, error) {
+	s, ok := str(raw)
+	if !ok {
 		return "", errAt(ptr, "must be a string")
 	}
 	return s, nil
 }
 
 // nonEmptyAt reads raw, at ptr, as a non-empty string.
-func nonEmptyAt(raw json.RawMessage, ptr string) (string, error) {
+func nonEmptyAt(raw []byte, ptr string) (string, error) {
 	s, err := stringAt(raw, ptr)
 	if err == nil && s == "" {
 		err = errAt(ptr, "must not be empty")
@@ -198,13 +427,32 @@ func nonEmptyAt(raw json.RawMessage, ptr string) (string, error) {
 }
 
 // integer reads raw as a JSON integer: digits, no fraction or exponent.
-func integer(raw json.RawMessage) (int64, bool) {
-	n, err := strconv.ParseInt(string(bytes.TrimSpace(raw)), 10, 64)
+func integer(raw []byte) (int64, bool) {
+	raw = bytes.TrimSpace(raw)
+	digits := bytes.TrimPrefix(raw, []byte("-"))
+	if len(digits) == 0 || len(digits) > 18 { // 18 digits never overflow
+		return parseInt(raw)
+	}
+	var n int64
+	for _, c := range digits {
+		if c < '0' || c > '9' {
+			return parseInt(raw)
+		}
+		n = n*10 + int64(c-'0')
+	}
+	if len(digits) < len(raw) {
+		n = -n
+	}
+	return n, true
+}
+
+func parseInt(raw []byte) (int64, bool) {
+	n, err := strconv.ParseInt(string(raw), 10, 64)
 	return n, err == nil
 }
 
 // idAt reads raw, at ptr, as a vPIC id: an integer from 1 to 2^31-1.
-func idAt(raw json.RawMessage, ptr string) (int32, error) {
+func idAt(raw []byte, ptr string) (int32, error) {
 	n, ok := integer(raw)
 	if !ok || n < 1 || n > math.MaxInt32 {
 		return 0, errAt(ptr, "must be an integer from 1 to %d", math.MaxInt32)
@@ -222,7 +470,7 @@ var (
 )
 
 // nameAt reads raw, at ptr, as a file name.
-func nameAt(raw json.RawMessage, ptr string) (string, error) {
+func nameAt(raw []byte, ptr string) (string, error) {
 	s, err := stringAt(raw, ptr)
 	switch {
 	case err != nil:
@@ -235,58 +483,64 @@ func nameAt(raw json.RawMessage, ptr string) (string, error) {
 	return s, nil
 }
 
+// headerNames are a header's fields: a spine's are the first four, an
+// extension set's the first five, a vocabulary's all of them.
+var headerNames = []string{"format", "kind", "name", "version", "data_month", "subject", "fields", "spine"}
+
 // header reads line 1.
 func (f *File) header(line []byte) error {
-	m, err := object(line)
+	raw, err := lineValue(line)
 	if err != nil {
 		return err
 	}
-	raw, ok := m["format"]
-	if !ok {
+	var v, scratch [8][]byte
+	if _, _, ok := members(raw, headerNames, v[:]); !ok {
+		return errAt("", "must be an object")
+	}
+	if v[0] == nil {
 		return errAt("", "missing field \"format\"")
 	}
-	if n, ok := integer(raw); !ok || n != Format {
-		return errAt("/format", "unknown format %s: this nitrovin reads format %d", bytes.TrimSpace(raw), Format)
+	if n, ok := integer(v[0]); !ok || n != Format {
+		return errAt("/format", "unknown format %s: this nitrovin reads format %d", bytes.TrimSpace(v[0]), Format)
 	}
-	raw, ok = m["kind"]
-	if !ok {
+	if v[1] == nil {
 		return errAt("", "missing field \"kind\"")
 	}
-	kind, err := stringAt(raw, "/kind")
+	kind, err := stringAt(v[1], "/kind")
 	if err != nil {
 		return err
 	}
 	f.Kind = Kind(kind)
-	allowed := []string{"format", "kind", "name", "version"}
+	allowed := 4
 	switch f.Kind {
 	case KindVocabulary:
-		allowed = append(allowed, "data_month", "subject", "fields", "spine")
+		allowed = 8
 	case KindExtensionSet:
-		allowed = append(allowed, "data_month")
+		allowed = 5
 	case KindSpine:
 	default:
 		return errAt("/kind", "unknown kind %q: vocabulary, extension-set or spine", kind)
 	}
-	if err := closed(m, "", allowed...); err != nil {
-		return err
+	if unknown, has, _ := members(raw, headerNames[:allowed], scratch[:allowed]); has {
+		return errAt("", "unknown field %q", unknown)
 	}
-	required := []string{"name", "version"}
+	required := []int{2, 3} // name, version
 	if f.Kind == KindVocabulary {
-		required = append(required, "subject", "fields")
+		required = append(required, 5, 6) // subject, fields
 	}
-	for _, k := range required {
-		if _, ok := m[k]; !ok {
-			return errAt("", "missing field %q", k)
+	for _, i := range required {
+		if v[i] == nil {
+			return errAt("", "missing field %q", headerNames[i])
 		}
 	}
-	if f.Name, err = nameAt(m["name"], "/name"); err != nil {
+	if f.Name, err = nameAt(v[2], "/name"); err != nil {
 		return err
 	}
-	if f.Version, err = nonEmptyAt(m["version"], "/version"); err != nil {
+	if f.Version, err = nonEmptyAt(v[3], "/version"); err != nil {
 		return err
 	}
-	if raw, ok := m["data_month"]; ok {
-		if f.DataMonth, err = stringAt(raw, "/data_month"); err != nil {
+	if v[4] != nil {
+		if f.DataMonth, err = stringAt(v[4], "/data_month"); err != nil {
 			return err
 		}
 		if !monthPattern.MatchString(f.DataMonth) {
@@ -294,15 +548,9 @@ func (f *File) header(line []byte) error {
 		}
 	}
 	if f.Kind != KindVocabulary {
-		switch f.Kind {
-		case KindExtensionSet:
-			f.extensions = map[string]int{}
-		case KindSpine:
-			f.spine = map[string]int{}
-		}
 		return nil
 	}
-	subject, err := stringAt(m["subject"], "/subject")
+	subject, err := stringAt(v[5], "/subject")
 	if err != nil {
 		return err
 	}
@@ -310,8 +558,8 @@ func (f *File) header(line []byte) error {
 	if f.Subject != SubjectVehicle && f.Subject != SubjectPart {
 		return errAt("/subject", "unknown subject %q: vehicle or part", subject)
 	}
-	var fields []json.RawMessage
-	if isNull(m["fields"]) || json.Unmarshal(m["fields"], &fields) != nil {
+	fields, ok := items(v[6], nil)
+	if !ok {
 		return errAt("/fields", "must be an array of strings")
 	}
 	if len(fields) == 0 {
@@ -328,190 +576,231 @@ func (f *File) header(line []byte) error {
 		}
 		f.Fields = append(f.Fields, s)
 	}
-	raw, hasSpine := m["spine"]
+	hasSpine := v[7] != nil
 	switch {
 	case f.Subject == SubjectPart && !hasSpine:
 		return errAt("", "missing field \"spine\": a part vocabulary names the spine it maps onto")
 	case f.Subject == SubjectVehicle && hasSpine:
 		return errAt("/spine", "a vehicle vocabulary maps onto vPIC and names no spine")
 	case hasSpine:
-		if f.Spine, err = nameAt(raw, "/spine"); err != nil {
+		if f.Spine, err = nameAt(v[7], "/spine"); err != nil {
 			return err
 		}
 	}
-	f.entries = map[string]int{}
-	f.targets = map[Target][]int{}
 	return nil
 }
 
-// entry reads a vocabulary's line n.
-func (f *File) entry(n int, line []byte) error {
-	m, err := object(line)
+// entryNames are a vocabulary line's fields.
+var entryNames = []string{"entry", "mappings", "note"}
+
+// readEntry reads a vocabulary's line n, and its key.
+func (r *reader) readEntry(n int, line []byte) (Entry, string, error) {
+	f := r.f
+	raw, err := lineValue(line)
 	if err != nil {
-		return err
+		return Entry{}, "", err
 	}
-	if err := closed(m, "", "entry", "mappings", "note"); err != nil {
-		return err
+	v := r.line[:]
+	unknown, has, ok := members(raw, entryNames, v)
+	switch {
+	case !ok:
+		return Entry{}, "", errAt("", "must be an object")
+	case has:
+		return Entry{}, "", errAt("", "unknown field %q", unknown)
+	case v[0] == nil:
+		return Entry{}, "", errAt("", "missing field \"entry\"")
+	case v[1] == nil:
+		return Entry{}, "", errAt("", "missing field \"mappings\"")
 	}
-	for _, k := range []string{"entry", "mappings"} {
-		if _, ok := m[k]; !ok {
-			return errAt("", "missing field %q", k)
-		}
+	unknown, has, ok = members(v[0], f.Fields, r.entry)
+	switch {
+	case !ok:
+		return Entry{}, "", errAt("/entry", "must be an object")
+	case has:
+		return Entry{}, "", errAt("/entry", "unknown field %q: the vocabulary's fields are %s", unknown, quoted(f.Fields))
 	}
-	e := Entry{Line: n, Fields: make([]string, len(f.Fields))}
-	fields, err := objectAt(m["entry"], "/entry")
-	if err != nil {
-		return err
-	}
-	for _, k := range slices.Sorted(maps.Keys(fields)) {
-		if !slices.Contains(f.Fields, k) {
-			return errAt("/entry", "unknown field %q: the vocabulary's fields are %s", k, quoted(f.Fields))
-		}
-	}
+	e := Entry{Line: n, Fields: r.strings.take(len(f.Fields))}
 	for i, k := range f.Fields {
-		raw, ok := fields[k]
-		if !ok {
-			return errAt("/entry", "missing field %q", k)
+		raw := r.entry[i]
+		if raw == nil {
+			return Entry{}, "", errAt("/entry", "missing field %q", k)
 		}
-		if e.Fields[i], err = stringAt(raw, "/entry/"+pointerToken(k)); err != nil {
-			return err
-		}
-	}
-	var mappings []json.RawMessage
-	if isNull(m["mappings"]) || json.Unmarshal(m["mappings"], &mappings) != nil {
-		return errAt("/mappings", "must be an array")
-	}
-	for i, raw := range mappings {
-		mp, err := f.mapping(raw, "/mappings/"+strconv.Itoa(i))
-		if err != nil {
-			return err
-		}
-		e.Mappings = append(e.Mappings, mp)
-	}
-	if raw, ok := m["note"]; ok {
-		if e.Note, err = stringAt(raw, "/note"); err != nil {
-			return err
+		if e.Fields[i], ok = r.str(raw); !ok {
+			return Entry{}, "", errAt("/entry/"+pointerToken(k), "must be a string")
 		}
 	}
-	k := key(e.Fields)
-	if j, dup := f.entries[k]; dup {
-		return errAt("/entry", "duplicate entry: line %d names it too, after normalization", f.Entries[j].Line)
+	if r.mappings, ok = items(v[1], r.mappings[:0]); !ok {
+		return Entry{}, "", errAt("/mappings", "must be an array")
 	}
-	f.entries[k] = len(f.Entries)
-	for _, mp := range e.Mappings {
-		idx := f.targets[mp.Target]
-		if len(idx) == 0 || idx[len(idx)-1] != len(f.Entries) {
-			f.targets[mp.Target] = append(idx, len(f.Entries))
+	if len(r.mappings) > 0 {
+		e.Mappings = r.mappingS.take(len(r.mappings))
+		for i, raw := range r.mappings {
+			if err := r.readMapping(raw, &e.Mappings[i]); err != nil {
+				return Entry{}, "", under("/mappings/"+strconv.Itoa(i), err)
+			}
 		}
 	}
-	f.Entries = append(f.Entries, e)
-	return nil
+	if v[2] != nil {
+		if e.Note, err = stringAt(v[2], "/note"); err != nil {
+			return Entry{}, "", err
+		}
+	}
+	r.key = appendKey(r.key[:0], e.Fields)
+	return e, r.text.of(r.key), nil
 }
 
-// mapping reads one of a vocabulary entry's mappings, at ptr.
-func (f *File) mapping(raw json.RawMessage, ptr string) (Mapping, error) {
-	var mp Mapping
-	m, err := objectAt(raw, ptr)
-	if err != nil {
-		return mp, err
+// str reads raw as a JSON string, into r's text blocks when it needs no
+// unescaping.
+func (r *reader) str(raw []byte) (string, bool) {
+	if s, ok := plainString(raw); ok {
+		return r.text.of(s), true
 	}
-	if err := closed(m, ptr, "make", "model", "ext", "id", "first", "last", "qualifiers", "origin", "note"); err != nil {
-		return mp, err
+	return str(raw)
+}
+
+// mappingNames are a mapping's fields: the four targets first.
+var mappingNames = []string{"make", "model", "ext", "id", "first", "last", "qualifiers", "origin", "note"}
+
+// origins are a mapping's origins.
+var origins = []string{"derived", "curated", "seed"}
+
+// readMapping reads one of a vocabulary entry's mappings into mp. Its
+// error's pointer is into the mapping.
+func (r *reader) readMapping(raw []byte, mp *Mapping) error {
+	f := r.f
+	v := r.mapping[:]
+	unknown, has, ok := members(raw, mappingNames, v)
+	switch {
+	case !ok:
+		return errAt("", "must be an object")
+	case has:
+		return errAt("", "unknown field %q", unknown)
 	}
-	var targets []string
-	for _, k := range []string{"make", "model", "ext", "id"} {
-		if _, ok := m[k]; ok {
-			targets = append(targets, k)
+	t, targets := 0, 0
+	for i := range 4 {
+		if v[i] != nil {
+			t, targets = i, targets+1
 		}
 	}
 	switch {
-	case len(targets) == 0:
-		return mp, errAt(ptr, "names no spine entry: one of make, model, ext or id")
-	case len(targets) > 1:
-		return mp, errAt(ptr, "names more than one spine entry: %s", strings.Join(targets, ", "))
+	case targets == 0:
+		return errAt("", "names no spine entry: one of make, model, ext or id")
+	case targets > 1:
+		var named []string
+		for i := range 4 {
+			if v[i] != nil {
+				named = append(named, mappingNames[i])
+			}
+		}
+		return errAt("", "names more than one spine entry: %s", strings.Join(named, ", "))
 	}
-	t := targets[0]
 	switch {
-	case f.Subject == SubjectVehicle && t == "id":
-		return mp, errAt(ptr, "a vehicle vocabulary maps to make, model or ext, not id")
-	case f.Subject == SubjectPart && t != "id":
-		return mp, errAt(ptr, "a part vocabulary maps to an id of spine %q, not %s", f.Spine, t)
+	case f.Subject == SubjectVehicle && t == 3:
+		return errAt("", "a vehicle vocabulary maps to make, model or ext, not id")
+	case f.Subject == SubjectPart && t != 3:
+		return errAt("", "a part vocabulary maps to an id of spine %q, not %s", f.Spine, mappingNames[t])
 	}
-	switch tp := ptr + "/" + t; t {
-	case "make":
-		mp.Make, err = idAt(m[t], tp)
-	case "model":
-		mp.Model, err = idAt(m[t], tp)
-	case "ext":
-		mp.Ext, err = extRefAt(m[t], tp)
-	case "id":
-		mp.ID, err = nonEmptyAt(m[t], tp)
+	var err error
+	switch t {
+	case 0:
+		mp.Make, err = idAt(v[0], "/make")
+	case 1:
+		mp.Model, err = idAt(v[1], "/model")
+	case 2:
+		mp.Ext, err = extRefAt(v[2], "/ext")
+	case 3:
+		mp.ID, err = nonEmptyAt(v[3], "/id")
 	}
 	if err != nil {
-		return mp, err
+		return err
 	}
-	for _, k := range []string{"first", "last"} {
-		raw, ok := m[k]
-		if !ok {
+	for i, ptr := range []string{"/first", "/last"} {
+		raw := v[4+i]
+		if raw == nil {
 			continue
 		}
 		y, ok := integer(raw)
 		if !ok || y < math.MinInt32 || y > math.MaxInt32 {
-			return mp, errAt(ptr+"/"+k, "must be an integer year")
+			return errAt(ptr, "must be an integer year")
 		}
-		year := int(y)
-		if k == "first" {
-			mp.First = &year
+		year := r.years.take(1)
+		year[0] = int(y)
+		if i == 0 {
+			mp.First = &year[0]
 		} else {
-			mp.Last = &year
+			mp.Last = &year[0]
 		}
 	}
 	if mp.First != nil && mp.Last != nil && *mp.First > *mp.Last {
-		return mp, errAt(ptr, "first year %d is after last year %d", *mp.First, *mp.Last)
+		return errAt("", "first year %d is after last year %d", *mp.First, *mp.Last)
 	}
-	if raw, ok := m["qualifiers"]; ok {
+	if v[6] != nil {
 		if mp.Ext != "" {
-			return mp, errAt(ptr+"/qualifiers", "an extension mapping takes no qualifiers: no decode lands on an extension")
+			return errAt("/qualifiers", "an extension mapping takes no qualifiers: no decode lands on an extension")
 		}
-		if mp.Qualifiers, err = qualifiersAt(raw, ptr+"/qualifiers"); err != nil {
-			return mp, err
-		}
-	}
-	if raw, ok := m["origin"]; ok {
-		if mp.Origin, err = stringAt(raw, ptr+"/origin"); err != nil {
-			return mp, err
-		}
-		if !slices.Contains([]string{"derived", "curated", "seed"}, mp.Origin) {
-			return mp, errAt(ptr+"/origin", "unknown origin %q: derived, curated or seed", mp.Origin)
+		if mp.Qualifiers, err = qualifiersAt(v[6], "/qualifiers"); err != nil {
+			return err
 		}
 	}
-	if raw, ok := m["note"]; ok {
-		if mp.Note, err = stringAt(raw, ptr+"/note"); err != nil {
-			return mp, err
+	if v[7] != nil {
+		if s, ok := plainString(v[7]); ok {
+			for _, o := range origins {
+				if string(s) == o {
+					mp.Origin = o // shared, not a copy per mapping
+				}
+			}
+		}
+		if mp.Origin == "" {
+			if mp.Origin, err = stringAt(v[7], "/origin"); err != nil {
+				return err
+			}
+			if !slices.Contains(origins, mp.Origin) {
+				return errAt("/origin", "unknown origin %q: derived, curated or seed", mp.Origin)
+			}
 		}
 	}
-	return mp, nil
+	if v[8] != nil {
+		if mp.Note, err = stringAt(v[8], "/note"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // qualifiersAt reads a mapping's qualifiers, at ptr: element id → values.
-func qualifiersAt(raw json.RawMessage, ptr string) ([]Qualifier, error) {
-	m, err := objectAt(raw, ptr)
-	if err != nil {
-		return nil, err
+func qualifiersAt(raw []byte, ptr string) ([]Qualifier, error) {
+	type member struct {
+		key   string
+		value []byte
 	}
-	if len(m) == 0 {
+	var ms []member
+	if !eachMember(raw, func(key, value []byte) {
+		k, _ := str(key)
+		ms = append(ms, member{k, value})
+	}) {
+		return nil, errAt(ptr, "must be an object")
+	}
+	// As encoding/json reads them into a map: in key order, the last value
+	// of a repeated key.
+	slices.SortStableFunc(ms, func(a, b member) int { return strings.Compare(a.key, b.key) })
+	kept := ms[:0]
+	for i, m := range ms {
+		if i+1 == len(ms) || ms[i+1].key != m.key {
+			kept = append(kept, m)
+		}
+	}
+	if len(kept) == 0 {
 		return nil, errAt(ptr, "must name at least one element: omit qualifiers instead")
 	}
 	var qs []Qualifier
-	for _, k := range slices.Sorted(maps.Keys(m)) {
-		raw := m[k]
-		el, err := strconv.ParseInt(k, 10, 32)
-		if !elementPattern.MatchString(k) || err != nil {
-			return nil, errAt(ptr, "%q is not an element id", k)
+	for _, m := range kept {
+		el, err := strconv.ParseInt(m.key, 10, 32)
+		if !elementPattern.MatchString(m.key) || err != nil {
+			return nil, errAt(ptr, "%q is not an element id", m.key)
 		}
-		vp := ptr + "/" + k
-		var values []json.RawMessage
-		if isNull(raw) || json.Unmarshal(raw, &values) != nil {
+		vp := ptr + "/" + m.key
+		values, ok := items(m.value, nil)
+		if !ok {
 			return nil, errAt(vp, "must be an array of attribute ids and strings")
 		}
 		if len(values) == 0 {
@@ -543,7 +832,7 @@ func qualifiersAt(raw json.RawMessage, ptr string) ([]Qualifier, error) {
 }
 
 // extRefAt reads raw, at ptr, as an extension reference, ext:<set>/<id>.
-func extRefAt(raw json.RawMessage, ptr string) (string, error) {
+func extRefAt(raw []byte, ptr string) (string, error) {
 	s, err := stringAt(raw, ptr)
 	if err == nil && !extPattern.MatchString(s) {
 		err = errAt(ptr, "%q is not an extension reference, ext:<set>/<id>", s)
@@ -557,88 +846,87 @@ func splitExt(ref string) (set, id string) {
 	return m[1], m[2]
 }
 
+// extensionNames are an extension set line's fields.
+var extensionNames = []string{"id", "make_name", "make", "name"}
+
 // extension reads an extension set's line n.
-func (f *File) extension(n int, line []byte) error {
-	m, err := object(line)
+func extension(n int, line []byte) (Extension, error) {
+	raw, err := lineValue(line)
 	if err != nil {
-		return err
+		return Extension{}, err
 	}
-	if err := closed(m, "", "id", "make_name", "make", "name"); err != nil {
-		return err
+	var v [4][]byte
+	unknown, has, ok := members(raw, extensionNames, v[:])
+	switch {
+	case !ok:
+		return Extension{}, errAt("", "must be an object")
+	case has:
+		return Extension{}, errAt("", "unknown field %q", unknown)
+	case v[0] == nil:
+		return Extension{}, errAt("", "missing field \"id\"")
 	}
 	x := Extension{Line: n}
-	raw, ok := m["id"]
-	if !ok {
-		return errAt("", "missing field \"id\"")
-	}
-	if x.ID, err = nonEmptyAt(raw, "/id"); err != nil {
-		return err
+	if x.ID, err = nonEmptyAt(v[0], "/id"); err != nil {
+		return Extension{}, err
 	}
 	if !idPattern.MatchString(x.ID) {
-		return errAt("/id", "%q may contain neither '/' nor white space", x.ID)
+		return Extension{}, errAt("/id", "%q may contain neither '/' nor white space", x.ID)
 	}
-	_, hasMakeName := m["make_name"]
-	_, hasMake := m["make"]
-	_, hasName := m["name"]
+	hasMakeName, hasMake, hasName := v[1] != nil, v[2] != nil, v[3] != nil
 	switch {
 	case hasMakeName && (hasMake || hasName):
-		return errAt("", "an extension is a make (make_name) or a model (make and name), not both")
+		return Extension{}, errAt("", "an extension is a make (make_name) or a model (make and name), not both")
 	case hasMakeName:
-		if x.MakeName, err = nonEmptyAt(m["make_name"], "/make_name"); err != nil {
-			return err
+		if x.MakeName, err = nonEmptyAt(v[1], "/make_name"); err != nil {
+			return Extension{}, err
 		}
 	case !hasMake || !hasName:
-		return errAt("", "missing make_name, for an extension make, or make and name, for an extension model")
+		return Extension{}, errAt("", "missing make_name, for an extension make, or make and name, for an extension model")
 	default:
-		raw := m["make"]
-		if _, ok := integer(raw); ok {
-			x.Make, err = idAt(raw, "/make")
-		} else if x.MakeExt, err = extRefAt(raw, "/make"); err != nil {
+		if _, ok := integer(v[2]); ok {
+			x.Make, err = idAt(v[2], "/make")
+		} else if x.MakeExt, err = extRefAt(v[2], "/make"); err != nil {
 			err = errAt("/make", "must be a vPIC make id or an extension reference, ext:<set>/<id>")
 		}
 		if err != nil {
-			return err
+			return Extension{}, err
 		}
-		if x.Name, err = nonEmptyAt(m["name"], "/name"); err != nil {
-			return err
+		if x.Name, err = nonEmptyAt(v[3], "/name"); err != nil {
+			return Extension{}, err
 		}
 	}
-	if j, dup := f.extensions[x.ID]; dup {
-		return errAt("/id", "duplicate id %q: line %d has it too", x.ID, f.Extensions[j].Line)
-	}
-	f.extensions[x.ID] = len(f.Extensions)
-	f.Extensions = append(f.Extensions, x)
-	return nil
+	return x, nil
 }
 
+// spineNames are a declared spine line's fields.
+var spineNames = []string{"id", "name"}
+
 // spineEntry reads a declared spine's line n.
-func (f *File) spineEntry(n int, line []byte) error {
-	m, err := object(line)
+func spineEntry(n int, line []byte) (SpineEntry, error) {
+	raw, err := lineValue(line)
 	if err != nil {
-		return err
+		return SpineEntry{}, err
 	}
-	if err := closed(m, "", "id", "name"); err != nil {
-		return err
+	var v [2][]byte
+	unknown, has, ok := members(raw, spineNames, v[:])
+	switch {
+	case !ok:
+		return SpineEntry{}, errAt("", "must be an object")
+	case has:
+		return SpineEntry{}, errAt("", "unknown field %q", unknown)
+	case v[0] == nil:
+		return SpineEntry{}, errAt("", "missing field \"id\"")
 	}
 	e := SpineEntry{Line: n}
-	raw, ok := m["id"]
-	if !ok {
-		return errAt("", "missing field \"id\"")
+	if e.ID, err = nonEmptyAt(v[0], "/id"); err != nil {
+		return SpineEntry{}, err
 	}
-	if e.ID, err = nonEmptyAt(raw, "/id"); err != nil {
-		return err
-	}
-	if raw, ok := m["name"]; ok {
-		if e.Name, err = nonEmptyAt(raw, "/name"); err != nil {
-			return err
+	if v[1] != nil {
+		if e.Name, err = nonEmptyAt(v[1], "/name"); err != nil {
+			return SpineEntry{}, err
 		}
 	}
-	if j, dup := f.spine[e.ID]; dup {
-		return errAt("/id", "duplicate id %q: line %d has it too", e.ID, f.SpineEntries[j].Line)
-	}
-	f.spine[e.ID] = len(f.SpineEntries)
-	f.SpineEntries = append(f.SpineEntries, e)
-	return nil
+	return e, nil
 }
 
 // quoted lists names as "a", "b".
