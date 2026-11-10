@@ -156,3 +156,57 @@ _Avoid_: transport, interface, frontend
 The unattended run that notices a new dump, builds its artifact, runs the
 gates, and ships a release.
 _Avoid_: sync, update
+
+### Translation
+
+**Vocabulary**:
+One system's names for vehicles or parts (a yard's inventory, a parts
+catalog, a marketplace's listings), supplied to nitrovin as data, never as
+code. vPIC's own makes and models are the one vocabulary nitrovin carries.
+_Avoid_: plugin, mapping file, dictionary
+
+**Entry**:
+One named thing in a vocabulary: a make, a make and model, a part type. Each
+vocabulary declares the fields that name its entries (make and model; a
+catalog's own code); a model year is never one of them.
+_Avoid_: key, alias, row
+
+**Unmapped entry**:
+An entry a vocabulary lists without any mapping: known to it, but not yet
+placed on the spine. Distinct from a name the vocabulary does not have at all.
+_Avoid_: unresolved, orphan
+
+**Spine**:
+The vocabulary every translation routes through. For vehicles, vPIC's makes
+and models, identified by their ids; a model implies its make.
+_Avoid_: canonical list, master data
+
+**Mapping**:
+A stated correspondence from one entry to one spine entry (a make or a
+model), scoped to the model years it holds for and optionally narrowed by
+qualifiers. An entry carries as many mappings as it resolves to.
+_Avoid_: alias, crosswalk
+
+**Qualifier**:
+A condition on a mapping, stated in vPIC's own terms: an element and the
+values of it the mapping holds for (Drive Type 4WD; Series "DS (1500)"). Only
+a decode can satisfy one, so it narrows a translation from a VIN and never one
+from a name.
+_Avoid_: trim (as the general term), filter, attribute (an attribute is the
+decode's value; a qualifier is the mapping's condition on it)
+
+**Extension**:
+A spine entry an author mints for a vehicle vPIC lacks: a make, or a model
+under a vPIC make or an extension make. It stands in until the author maps to
+a real vPIC entry instead; no decode ever lands on one.
+_Avoid_: custom model, fake id
+
+**Extension set**:
+A named collection of extensions, loaded beside vocabularies and shared by
+them, so that two vocabularies' mappings to the same missing vehicle meet.
+_Avoid_: extension vocabulary (it names spine entries, not a system's names)
+
+**Translation**:
+Resolving an entry of one vocabulary to entries of another through the
+spine. May be one-to-many in either direction.
+_Avoid_: lookup, aliasing
