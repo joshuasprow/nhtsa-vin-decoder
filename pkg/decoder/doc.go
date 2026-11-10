@@ -8,3 +8,5 @@
 // (pg_get_functiondef), and is tested against Postgres running that body.
 // The engine reads no clock: the current year is always an argument.
 package decoder
+
+// ci-matrix probe
