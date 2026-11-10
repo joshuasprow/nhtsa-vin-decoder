@@ -3,6 +3,8 @@
 //
 //	{"id": 1, "vin": "1HGCM82633A004352", "model_year": 2003}
 //	{"id":1,"decode":{"vin":"1HGCM82633A004352",…}}
+//	{"id": 2, "op": "translate", "from": {"make": 476}, "to": ["yard"]}
+//	{"id":2,"translation":{"from":{…},…}}
 //
 // Reply answers one line; it is also what the C library's nitrovin_decode
 // returns, so the two surfaces give the same bytes. Serve runs a session.
@@ -19,26 +21,43 @@ import (
 )
 
 // reply is a StdioReply: the request's id, when it had one or one could be
-// read from a refused line, then exactly one of decode and error.
+// read from a refused line, then exactly one of decode, translation, list
+// and error.
 type reply struct {
-	ID     json.RawMessage   `json:"id,omitempty"`
-	Decode *contract.Decode  `json:"decode,omitempty"`
-	Error  *contract.Problem `json:"error,omitempty"`
+	ID          json.RawMessage       `json:"id,omitempty"`
+	Decode      *contract.Decode      `json:"decode,omitempty"`
+	Translation *contract.Translation `json:"translation,omitempty"`
+	List        *contract.List        `json:"list,omitempty"`
+	Error       *contract.Problem     `json:"error,omitempty"`
 }
 
 // Reply answers one input line, a StdioRequest without its newline, with
-// one StdioReply of compact JSON without a newline: {"id":…,"decode":{…}},
+// one StdioReply of compact JSON without a newline, keyed by the line's op:
+// {"id":…,"decode":{…}}, {"id":…,"translation":{…}} or {"id":…,"list":{…}},
 // or {"id":…,"error":<problem>} for a line that is not JSON, a refused
-// request, or a fault in nitrovin. The decode is the bytes json.Marshal
+// request, or a fault in nitrovin. The answer is the bytes json.Marshal
 // gives for it. A request without now reads the clock once. The id is
 // echoed as compact JSON. Reply never fails.
-func Reply(d *nitrovin.Decoder, line []byte) []byte {
+func Reply(t *nitrovin.Translator, line []byte) []byte {
 	id, req, err := contract.ParseStdio(line)
 	r := reply{ID: id}
 	if err == nil {
-		var dec contract.Decode
-		if dec, err = d.Decode(req); err == nil {
-			r.Decode = &dec
+		switch req.Op {
+		case contract.OpTranslate:
+			var tr contract.Translation
+			if tr, err = t.Translate(req.Translate); err == nil {
+				r.Translation = &tr
+			}
+		case contract.OpList:
+			var l contract.List
+			if l, err = t.List(req.List); err == nil {
+				r.List = &l
+			}
+		default:
+			var dec contract.Decode
+			if dec, err = t.Decoder().Decode(req.Decode); err == nil {
+				r.Decode = &dec
+			}
 		}
 	}
 	if err != nil {
@@ -46,7 +65,7 @@ func Reply(d *nitrovin.Decoder, line []byte) []byte {
 	}
 	b, err := json.Marshal(r)
 	if err != nil {
-		// A decode that will not marshal is a fault in nitrovin; the id is
+		// An answer that will not marshal is a fault in nitrovin; the id is
 		// valid JSON and a problem is strings and an int, so this marshals.
 		b, _ = json.Marshal(reply{ID: id, Error: contract.AsProblem(err)})
 	}
@@ -59,7 +78,7 @@ func Reply(d *nitrovin.Decoder, line []byte) []byte {
 // is made. Lines end at "\n"; the last may lack it. A blank line (nothing
 // but spaces, tabs and a "\r") gets no reply. Serve returns nil at EOF, or
 // the first error reading r or writing w.
-func Serve(d *nitrovin.Decoder, r io.Reader, w io.Writer) error {
+func Serve(t *nitrovin.Translator, r io.Reader, w io.Writer) error {
 	in := bufio.NewReader(r)
 	var line []byte
 	for {
@@ -73,7 +92,7 @@ func Serve(d *nitrovin.Decoder, r io.Reader, w io.Writer) error {
 		}
 		line = bytes.TrimSuffix(line, []byte("\n"))
 		if len(bytes.Trim(line, " \t\r")) > 0 {
-			if _, err := w.Write(append(Reply(d, line), '\n')); err != nil {
+			if _, err := w.Write(append(Reply(t, line), '\n')); err != nil {
 				return err
 			}
 		}

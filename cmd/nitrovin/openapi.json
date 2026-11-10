@@ -806,17 +806,57 @@
         "description": "One decode per request item, same order, same length."
       },
       "StdioRequest": {
-        "description": "One line of `nitrovin stdio` input, and the request_json of nitrovin_decode.",
-        "$ref": "#/components/schemas/DecodeRequestFields",
+        "type": "object",
+        "description": "One line of `nitrovin stdio` input, and the request_json of nitrovin_decode: op's request plus an optional id.",
         "properties": {
           "id": {
             "description": "Any JSON value; echoed on the reply."
+          },
+          "op": {
+            "enum": [
+              "decode",
+              "translate",
+              "list"
+            ],
+            "default": "decode",
+            "description": "The request beside it: a DecodeRequest, a TranslateRequest or a ListRequest. The reply is keyed decode, translation or list."
+          }
+        },
+        "if": {
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "const": "translate"
+            }
+          }
+        },
+        "then": {
+          "$ref": "#/components/schemas/TranslateRequestFields"
+        },
+        "else": {
+          "if": {
+            "required": [
+              "op"
+            ],
+            "properties": {
+              "op": {
+                "const": "list"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/components/schemas/ListRequestFields"
+          },
+          "else": {
+            "$ref": "#/components/schemas/DecodeRequestFields"
           }
         },
         "unevaluatedProperties": false
       },
       "StdioReply": {
-        "description": "One line of `nitrovin stdio` output, and the return of nitrovin_decode.",
+        "description": "One line of `nitrovin stdio` output, and the return of nitrovin_decode: the request's id when it had one, then its op's answer or an error.",
         "oneOf": [
           {
             "type": "object",
@@ -827,6 +867,32 @@
               "id": {},
               "decode": {
                 "$ref": "#/components/schemas/Decode"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "translation"
+            ],
+            "properties": {
+              "id": {},
+              "translation": {
+                "$ref": "#/components/schemas/Translation"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "list"
+            ],
+            "properties": {
+              "id": {},
+              "list": {
+                "$ref": "#/components/schemas/List"
               }
             },
             "additionalProperties": false
@@ -1040,9 +1106,9 @@
         },
         "additionalProperties": false
       },
-      "TranslateRequest": {
+      "TranslateRequestFields": {
         "type": "object",
-        "description": "One translate request (ADR 0012): from a VIN, a vocabulary entry or a spine entry, through exactly one spine, to the target vocabularies. Contract prose: docs/api/README.md, Translation.",
+        "description": "A translate request's fields (ADR 0012): from a VIN, a vocabulary entry or a spine entry, through exactly one spine, to the target vocabularies. Contract prose: docs/api/README.md, Translation.",
         "required": [
           "from"
         ],
@@ -1106,8 +1172,12 @@
               "vin"
             ]
           }
-        },
-        "additionalProperties": false
+        }
+      },
+      "TranslateRequest": {
+        "description": "One translate request, the same object on every surface (ADR 0012); on stdio, a line with op translate.",
+        "$ref": "#/components/schemas/TranslateRequestFields",
+        "unevaluatedProperties": false
       },
       "VocabularyEntryRef": {
         "type": "object",
@@ -1570,9 +1640,9 @@
         },
         "additionalProperties": false
       },
-      "ListRequest": {
+      "ListRequestFields": {
         "type": "object",
-        "description": "One list request (ADR 0012). Without of: the catalog of what is loaded. With of: one page of vPIC ('vpic') or a loaded file. Contract prose: docs/api/README.md, Listing.",
+        "description": "A list request's fields (ADR 0012). Without of: the catalog of what is loaded. With of: one page of vPIC ('vpic') or a loaded file. Contract prose: docs/api/README.md, Listing.",
         "properties": {
           "of": {
             "type": "string",
@@ -1599,8 +1669,12 @@
             "minLength": 1,
             "description": "The previous page's next cursor."
           }
-        },
-        "additionalProperties": false
+        }
+      },
+      "ListRequest": {
+        "description": "One list request, the same object on every surface (ADR 0012); on stdio, a line with op list.",
+        "$ref": "#/components/schemas/ListRequestFields",
+        "unevaluatedProperties": false
       },
       "List": {
         "type": "object",

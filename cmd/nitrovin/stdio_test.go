@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
+	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
+	"github.com/joshuasprow/nitrovin/pkg/vocab"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -112,7 +114,7 @@ func TestStdio(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: %v", l.in, err)
 			}
-			dec, err := d.Decode(req)
+			dec, err := d.Decode(req.Decode)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -148,6 +150,120 @@ func TestStdio(t *testing.T) {
 		}
 	}
 	second := cli(t, env, stdin.String(), "--data", path, "stdio")
+	if second != first {
+		t.Errorf("second run differs: exit %d, stderr %q, stdout identical: %t", second.exit, second.stderr, second.stdout == first.stdout)
+	}
+	schema := stdioReply(t)
+	for i, reply := range strings.Split(strings.TrimSuffix(first.stdout, "\n"), "\n") {
+		v, err := jsonschema.UnmarshalJSON(strings.NewReader(reply))
+		if err == nil {
+			err = schema.Validate(v)
+		}
+		if err != nil {
+			t.Errorf("reply %d is not a StdioReply: %v", i+1, err)
+		}
+	}
+}
+
+// TestStdioOps runs one scripted session mixing ops twice, with the
+// fixture loaded: decodes, translations and lists, with and without an id,
+// refused by the parser and by the loaded files. Each line gets one reply,
+// in order, keyed by its op: the contract layer's answer, or its refusal.
+// Both runs are byte-identical and every reply is a StdioReply.
+func TestStdioOps(t *testing.T) {
+	fixtureData(t)
+	d, err := nitrovin.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := vocab.Open(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := nitrovin.NewTranslator(d, files...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type line struct {
+		in string
+		// id is the reply's id, "" for none; kind is the reply's key, or
+		// the problem's type and pointer.
+		id, kind string
+		pointer  string
+	}
+	script := []line{
+		{in: `{"vin":"1GCVKREC6EZ123456","now":"` + now + `"}`, kind: "decode"},
+		{in: `{"id":1,"op":"translate","from":"1GCVKREC6EZ123456","to":["yard"],"now":"` + now + `"}`, id: "1", kind: "translation"},
+		{in: `{"op":"translate","from":{"vocabulary":"yard","entry":{"make":"dodge","model":"RAM 1500"}},"to":["yard"],"model_year":2010,"now":"` + now + `"}`, kind: "translation"},
+		{in: `{"id":"s","op":"translate","from":{"make":476},"now":"` + now + `"}`, id: `"s"`, kind: "translation"},
+		{in: `{"id":2,"op":"translate","from":{"vocabulary":"listing","entry":{"category":"Brake Pads"}},"to":["listing"],"vin":"JH2PC40066M200001","now":"` + now + `"}`, id: "2", kind: "translation"},
+		{in: ""},
+		{in: `{"id":3,"op":"list"}`, id: "3", kind: "list"},
+		{in: `{"op":"list","of":"yard","limit":2}`, kind: "list"},
+		{in: `{"id":4,"op":"list","of":"vpic","where":{"make":476},"limit":3}`, id: "4", kind: "list"},
+		{in: `{"id":5,"op":"decode","vin":"1HGCM82633A004352","shape":"nitrovin","now":"` + now + `"}`, id: "5", kind: "decode"},
+		{in: `{"id":6,"op":"Translate","from":{"make":476}}`, id: "6", kind: string(contract.InvalidRequest), pointer: "/op"},
+		{in: `{"id":7,"op":"translate","from":{"make":476},"to":["nowhere"],"now":"` + now + `"}`, id: "7", kind: string(contract.InvalidRequest), pointer: "/to/0"},
+		{in: `{"op":"translate","from":{"make":476},"to":["listing"],"now":"` + now + `"}`, kind: string(contract.InvalidRequest), pointer: "/to/0"},
+		{in: `{"id":8,"op":"list","of":"vpic","full":true}`, id: "8", kind: string(contract.InvalidRequest), pointer: "/full"},
+		{in: `{"id":9,"op":"list","of":"nowhere"}`, id: "9", kind: string(contract.InvalidRequest), pointer: "/of"},
+		{in: `{"id":10,"op":"translate","from":`, kind: string(contract.MalformedJSON)},
+	}
+
+	var stdin, want strings.Builder
+	for _, l := range script {
+		stdin.WriteString(l.in + "\n")
+		if l.kind == "" {
+			continue // blank: no reply
+		}
+		_, req, err := contract.ParseStdio([]byte(l.in))
+		var body any
+		key := "error"
+		if err == nil {
+			switch req.Op {
+			case contract.OpTranslate:
+				body, err = tr.Translate(req.Translate)
+				key = "translation"
+			case contract.OpList:
+				body, err = tr.List(req.List)
+				key = "list"
+			default:
+				body, err = d.Decode(req.Decode)
+				key = "decode"
+			}
+		}
+		if err != nil {
+			p := contract.AsProblem(err)
+			if string(p.Type) != l.kind || p.Pointer != l.pointer {
+				t.Fatalf("%s: refused with %+v, want %s at %q", l.in, p, l.kind, l.pointer)
+			}
+			body, key = p, "error"
+		} else if key != l.kind {
+			t.Fatalf("%s: answered as %s, want %s", l.in, key, l.kind)
+		}
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want.WriteByte('{')
+		if l.id != "" {
+			want.WriteString(`"id":` + l.id + ",")
+		}
+		want.WriteString(`"` + key + `":`)
+		want.Write(b)
+		want.WriteString("}\n")
+	}
+
+	first := cli(t, nil, stdin.String(), "--vocab", fixture, "stdio")
+	if first.exit != 0 || first.stderr != "" || first.stdout != want.String() {
+		t.Errorf("first run: exit %d, stderr %q, stdout equals the contract layer's replies: %t", first.exit, first.stderr, first.stdout == want.String())
+		for i, l := range strings.SplitAfter(first.stdout, "\n") {
+			if w := strings.SplitAfter(want.String(), "\n"); i < len(w) && l != w[i] {
+				t.Fatalf("reply %d:\n got %.300s\nwant %.300s", i+1, l, w[i])
+			}
+		}
+	}
+	second := cli(t, []string{"NITROVIN_VOCAB=" + fixture}, stdin.String(), "stdio")
 	if second != first {
 		t.Errorf("second run differs: exit %d, stderr %q, stdout identical: %t", second.exit, second.stderr, second.stdout == first.stdout)
 	}

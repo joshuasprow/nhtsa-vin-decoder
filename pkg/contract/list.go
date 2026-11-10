@@ -45,6 +45,15 @@ func ParseListRequest(data []byte) (ListRequest, error) {
 	if p != nil {
 		return ListRequest{}, p
 	}
+	r, p := readList(fields)
+	if p != nil {
+		return ListRequest{}, p
+	}
+	return r, nil
+}
+
+// readList reads a list request's fields, unknown ones already refused.
+func readList(fields map[string]json.RawMessage) (ListRequest, *Problem) {
 	var r ListRequest
 	for _, k := range []string{"of", "after"} {
 		raw, ok := fields[k]

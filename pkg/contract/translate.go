@@ -166,7 +166,14 @@ func parseTranslate(data []byte, prefix string) (TranslateRequest, *Problem) {
 	if p != nil {
 		return TranslateRequest{}, p
 	}
+	return readTranslate(fields, prefix)
+}
+
+// readTranslate reads a translate request's fields, unknown ones already
+// refused; prefix is the JSON Pointer to the object.
+func readTranslate(fields map[string]json.RawMessage, prefix string) (TranslateRequest, *Problem) {
 	var r TranslateRequest
+	var p *Problem
 	raw, ok := fields["from"]
 	if !ok {
 		return r, NewProblem(InvalidRequest, prefix+"/from", "from is required")
@@ -313,13 +320,22 @@ func objectFields(data []byte, ptr, what string, allowed []string) (map[string]j
 		return nil, NewProblem(InvalidRequest, ptr, err.Error())
 	}
 	if allowed != nil {
-		for _, name := range slices.Sorted(maps.Keys(fields)) {
-			if !slices.Contains(allowed, name) {
-				return nil, NewProblem(InvalidRequest, pointerTo(ptr, name), "unknown field "+strconv.Quote(name))
-			}
+		if p := unknownField(fields, ptr, allowed); p != nil {
+			return nil, p
 		}
 	}
 	return fields, nil
+}
+
+// unknownField refuses, at ptr, the first member of an object not in
+// allowed, in byte order, so the refusal is deterministic.
+func unknownField(fields map[string]json.RawMessage, ptr string, allowed []string) *Problem {
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		if !slices.Contains(allowed, name) {
+			return NewProblem(InvalidRequest, pointerTo(ptr, name), "unknown field "+strconv.Quote(name))
+		}
+	}
+	return nil
 }
 
 // Translation is the answer to a TranslateRequest (ADR 0012): the route

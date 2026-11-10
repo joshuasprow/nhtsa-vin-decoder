@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -140,29 +141,58 @@ func TestParseBatch(t *testing.T) {
 	}
 }
 
+// TestParseStdio: a line is one op's request plus an optional id; op is
+// "decode" when absent. The schema's StdioRequest accepts and refuses as
+// ParseStdio does.
 func TestParseStdio(t *testing.T) {
-	id, r, err := ParseStdio([]byte(`{"id":{"n":[1]},"vin":"a"}`))
-	if err != nil || string(id) != `{"n":[1]}` || r != (Request{VIN: "a"}) {
-		t.Errorf("got %s, %+v, %v", id, r, err)
-	}
-	// A refused line still yields its id, so the error line can echo it.
-	id, _, err = ParseStdio([]byte(`{"id":"q7","vin":"a","colour":"red"}`))
-	problemOf(t, err, InvalidRequest, "/colour")
-	if string(id) != `"q7"` {
-		t.Errorf("refused line's id %s, want \"q7\"", id)
-	}
-	id, _, err = ParseStdio([]byte(`{"id":"q8","vin":`))
-	problemOf(t, err, MalformedJSON, "")
-	if id != nil {
-		t.Errorf("malformed line's id %s, want none", id)
-	}
-	if _, _, err := ParseStdio([]byte(`{"vin":"a"}`)); err != nil {
-		t.Errorf("no id: %v", err)
+	accepted := []struct {
+		in, id string
+		want   StdioRequest
+	}{
+		{`{"id":{"n":[1]},"vin":"a"}`, `{"n":[1]}`, StdioRequest{Op: OpDecode, Decode: Request{VIN: "a"}}},
+		{`{"vin":"a"}`, "", StdioRequest{Op: OpDecode, Decode: Request{VIN: "a"}}},
+		{`{"op":"decode","vin":"a","full":true}`, "", StdioRequest{Op: OpDecode, Decode: Request{VIN: "a", Full: true}}},
+		{`{"id":2,"op":"translate","from":{"make":476},"to":["yard"]}`, "2", StdioRequest{Op: OpTranslate, Translate: TranslateRequest{From: TranslateFrom{SpineRef: SpineRef{Make: 476}}, To: []string{"yard"}}}},
+		{`{"op":"translate","from":"1HGCM82633A004352","model_year":2003}`, "", StdioRequest{Op: OpTranslate, Translate: TranslateRequest{From: TranslateFrom{VIN: "1HGCM82633A004352"}, ModelYear: Value[int32](2003)}}},
+		{`{"op":"list"}`, "", StdioRequest{Op: OpList}},
+		{`{"id":"p","op":"list","of":"vpic","where":{"make":476},"limit":5}`, `"p"`, StdioRequest{Op: OpList, List: ListRequest{Of: "vpic", Where: map[string]string{"make": "476"}, Limit: 5}}},
 	}
 	stdioRequest := schemaDef(t, "StdioRequest")
-	for _, line := range []string{`{"id":{"n":[1]},"vin":"a"}`, `{"vin":"a"}`} {
-		if err := validate(stdioRequest, []byte(line)); err != nil {
-			t.Errorf("%s: the schema refuses it: %v", line, err)
+	for _, c := range accepted {
+		id, r, err := ParseStdio([]byte(c.in))
+		if err != nil || string(id) != c.id || !reflect.DeepEqual(r, c.want) {
+			t.Errorf("%s: got %s, %+v, %v; want %s, %+v", c.in, id, r, err, c.id, c.want)
+		}
+		if err := validate(stdioRequest, []byte(c.in)); err != nil {
+			t.Errorf("%s: the schema refuses it: %v", c.in, err)
+		}
+	}
+
+	// A refused line still yields its id, so the error line can echo it.
+	refused := []struct {
+		in, id  string
+		typ     ProblemType
+		pointer string
+	}{
+		{`{"id":"q7","vin":"a","colour":"red"}`, `"q7"`, InvalidRequest, "/colour"},
+		{`{"id":"q8","vin":`, "", MalformedJSON, ""},
+		{`[{"vin":"a"}]`, "", InvalidRequest, ""},
+		{`{"id":1,"op":"Decode","vin":"a"}`, "1", InvalidRequest, "/op"},
+		{`{"id":1,"op":null,"vin":"a"}`, "1", InvalidRequest, "/op"},
+		{`{"id":1,"op":"translate","vin":"a"}`, "1", InvalidRequest, "/from"},
+		{`{"id":1,"op":"translate","from":{"make":476},"full":true}`, "1", InvalidRequest, "/full"},
+		{`{"id":1,"op":"list","vin":"a"}`, "1", InvalidRequest, "/vin"},
+		{`{"id":1,"op":"list","limit":0}`, "1", InvalidRequest, "/limit"},
+		{`{"id":1,"op":"decode","from":"a"}`, "1", InvalidRequest, "/from"},
+	}
+	for _, c := range refused {
+		id, _, err := ParseStdio([]byte(c.in))
+		problemOf(t, err, c.typ, c.pointer)
+		if string(id) != c.id {
+			t.Errorf("%s: id %s, want %s", c.in, id, c.id)
+		}
+		if c.typ == InvalidRequest && validate(stdioRequest, []byte(c.in)) == nil {
+			t.Errorf("%s: refused, but the schema accepts it", c.in)
 		}
 	}
 }

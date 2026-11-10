@@ -4,14 +4,17 @@
 # on its own OS and architecture, opens a real artifact with nitrovin_open, and
 # must answer every line of cmd/libnitrovin/testdata/requests.jsonl with
 # exactly the reply `nitrovin stdio` gave on the same artifact, in order and
-# from eight threads on one handle (cmd/libnitrovin/testdata/smoke.py).
+# from eight threads on one handle (cmd/libnitrovin/testdata/smoke.py). It
+# then opens the artifact with the testdata/vocab fixture through
+# nitrovin_open_vocab, and must answer vocab-requests.jsonl's decodes,
+# translations and lists as `nitrovin --vocab testdata/vocab stdio` did.
 # The artifact is the one go.mod pins (nitrovin-data's pkg/embedded, from the
 # module cache): no dump, no Postgres.
 #
 # It runs for the library and the packages it links (go list -deps
-# ./cmd/libnitrovin): pkg/stdio, pkg/nitrovin, pkg/contract, pkg/decoder, and
-# go.mod for nitrovin-data's. The main command and the importer are not among
-# them.
+# ./cmd/libnitrovin): pkg/stdio, pkg/nitrovin, pkg/contract, pkg/decoder,
+# pkg/vocab, and go.mod for nitrovin-data's; and for the fixture. The main
+# command and the importer are not among them.
 name: C library
 
 on:
@@ -23,6 +26,7 @@ on:
       - pkg/contract/**
       - pkg/decoder/**
       - pkg/vocab/**
+      - testdata/vocab/*.jsonl
       - go.mod
       - mise.toml
       - mise.lock
@@ -131,6 +135,8 @@ jobs:
           go build -buildvcs=false -o "$RUNNER_TEMP/nitrovin" ./cmd/nitrovin
           "$RUNNER_TEMP/nitrovin" stdio --data smoke/nitrovin.artifact \
             <cmd/libnitrovin/testdata/requests.jsonl >smoke/replies.jsonl
+          "$RUNNER_TEMP/nitrovin" --vocab testdata/vocab stdio --data smoke/nitrovin.artifact \
+            <cmd/libnitrovin/testdata/vocab-requests.jsonl >smoke/vocab-replies.jsonl
 
       - uses: actions/upload-artifact@v7
         with:
@@ -170,4 +176,5 @@ jobs:
       - run: |
           python -c 'import platform, struct; print(platform.platform(), platform.machine(), struct.calcsize("P") * 8, "bit")'
           python cmd/libnitrovin/testdata/smoke.py "dist/${{ matrix.target }}/${{ matrix.lib }}" \
-            smoke/nitrovin.artifact cmd/libnitrovin/testdata/requests.jsonl smoke/replies.jsonl
+            smoke/nitrovin.artifact cmd/libnitrovin/testdata/requests.jsonl smoke/replies.jsonl \
+            cmd/libnitrovin/testdata/vocab-requests.jsonl smoke/vocab-replies.jsonl testdata/vocab/*.jsonl
