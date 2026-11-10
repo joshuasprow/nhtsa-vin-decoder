@@ -1,8 +1,9 @@
-# What CI cannot hold itself: its own API token, and the bucket its state
-# lives in. A person applies this, once at bootstrap and again only to
-# change the token's scopes, with a short-lived token of their own
-# (deploy/cloudflare/README.md); CI never plans or applies it, so the CI
-# token needs no right over tokens or buckets.
+# What CI cannot hold itself: its own API token, the state bucket, and the
+# R2 token that reads and writes the state. A person applies this, once at
+# bootstrap (on local state, then moved into the bucket it made; README.md)
+# and again only to change a token's scopes, with a short-lived token of
+# their own; CI never plans or applies it, so the CI token needs no right
+# over tokens or buckets.
 terraform {
   required_version = "~> 1.17.0"
 
@@ -101,13 +102,6 @@ resource "cloudflare_account_token" "ci" {
   ]
 }
 
-# The state bucket, created by hand before there was any state to keep
-# (README.md), adopted here.
-import {
-  to = cloudflare_r2_bucket.state
-  id = "${var.account_id}/nitrovin-tfstate/default"
-}
-
 resource "cloudflare_r2_bucket" "state" {
   account_id = var.account_id
   name       = "nitrovin-tfstate"
@@ -115,6 +109,21 @@ resource "cloudflare_r2_bucket" "state" {
   lifecycle {
     prevent_destroy = true
   }
+}
+
+# The state's credentials, for both roots, CI and a person: objects in this
+# bucket alone. R2's S3 API takes an API token as an access key: its id, and
+# the SHA-256 of its value as the secret. Replacing it cuts off the backend
+# holding this state, so rotate it as a new resource beside this one, then
+# remove this one.
+resource "cloudflare_account_token" "state" {
+  account_id = var.account_id
+  name       = "nitrovin Terraform state (R2 nitrovin-tfstate)"
+  policies = [{
+    effect            = "allow"
+    permission_groups = [{ id = one([for g in local.groups : g.id if g.name == "Workers R2 Storage Bucket Item Write"]) }]
+    resources         = jsonencode({ "com.cloudflare.edge.r2.bucket.${var.account_id}_default_${cloudflare_r2_bucket.state.name}" = "*" })
+  }]
 }
 
 # R2 keeps no object versions. deploy.yml copies the state to history/
@@ -135,5 +144,16 @@ resource "cloudflare_r2_bucket_lifecycle" "state" {
 output "ci_token" {
   description = "The CI token's value: terraform output -raw ci_token | gh secret set CLOUDFLARE_API_TOKEN"
   value       = cloudflare_account_token.ci.value
+  sensitive   = true
+}
+
+output "r2_access_key_id" {
+  description = "AWS_ACCESS_KEY_ID for the state: terraform output -raw r2_access_key_id | gh secret set R2_ACCESS_KEY_ID"
+  value       = cloudflare_account_token.state.id
+}
+
+output "r2_secret_access_key" {
+  description = "AWS_SECRET_ACCESS_KEY for the state: terraform output -raw r2_secret_access_key | gh secret set R2_SECRET_ACCESS_KEY"
+  value       = sha256(cloudflare_account_token.state.value)
   sensitive   = true
 }
