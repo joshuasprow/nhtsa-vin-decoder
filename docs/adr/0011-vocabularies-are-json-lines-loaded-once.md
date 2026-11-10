@@ -80,8 +80,8 @@ check` fails on drift as well as faults, for authors' CI.
   names, and `vocab check`'s output.
 - Detecting text-qualifier drift means collecting each text element's values
   from the month's pattern rows at load.
-- How long a large vocabulary takes to load is unmeasured. The performance
-  budget on the map's Not yet specified list owns it.
+- How long a large vocabulary takes to load was unmeasured here; the
+  performance budget has since measured it (amendment below).
 
 ## Amendment: `vpic` is a reserved name
 
@@ -89,3 +89,24 @@ check` fails on drift as well as faults, for authors' CI.
 every kind through one `/v1/vocabularies/{name}` family, vPIC included as
 `vpic`. A file named `vpic` is therefore a fault, like two files with one
 name.
+
+## Amendment: load is measured; the compiled form stays deferred
+
+[The performance budget](https://github.com/joshuasprow/nitrovin/issues/142)
+sets load (`vocab.Open` and `NewTranslator`) at under 2 s and 1 GB peak for
+a million-entry vocabulary, the scale of eBay's Master Vehicle List, and
+under 100 ms for one the EPA's size, on the reference machine (an Apple M5
+Pro). Reading each line through a map missed it: a synthetic 1,000,000-entry,
+162 MB file took 4.9 s and 1.3 GB.
+[Streaming parsing](https://github.com/joshuasprow/nitrovin/issues/158) meets
+it in the text format. Each line is scanned in place, its fields into fixed
+slots, with no map or reflection; unknown fields are still refused and every
+fault is reported at the same line with the same detail. Lines are read in
+chunks in parallel, each into its own slot, then indexed in file order. The
+month's makes and models are found by binary search in the artifact's
+sorted tables, so `NewTranslator` builds no index of them. The same file now
+loads in 0.6 s with 0.7 GB peak (1.4 s on one core), and the EPA's 5,747
+entries in under 15 ms.
+
+So the compiled form stays deferred. It is reconsidered only if a measured
+load misses this budget.
