@@ -62,7 +62,7 @@ locals {
   account_permissions = [
     "Account Settings Read",
     "Workers Scripts Write",
-    "Containers Write",
+    "Workers Containers Write",
     "Cloudchamber Write",
   ]
   zone_permissions = [
