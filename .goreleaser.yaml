@@ -259,7 +259,11 @@ winget:
     license_url: https://github.com/joshuasprow/nitrovin/blob/main/LICENSE
     release_notes_url: "https://github.com/joshuasprow/nitrovin/releases/tag/{{ .Tag }}"
     tags: [vin, nhtsa, vpic, vehicle, decoder, cli]
-    commit_author: *bot
+    # Microsoft's CLA bot attaches a signature to the commit author, so the
+    # winget commits are Josh's, not the bot's; the tap and bucket stay the bot's.
+    commit_author:
+      name: Joshua Sprow
+      email: jsprow@gmail.com
     commit_msg_template: "New version: JoshuaSprow.Nitrovin {{ .Version }}"
     skip_upload: '{{ if index .Env "WINGET_GITHUB_TOKEN" }}false{{ else }}true{{ end }}'
     repository:
