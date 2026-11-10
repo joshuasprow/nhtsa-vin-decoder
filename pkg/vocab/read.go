@@ -281,14 +281,16 @@ func (r *reader) read(c *chunk, header int, keys []string) {
 
 // index keeps, of f's lines, those that read and repeat no earlier line's
 // entry or id, indexed, and returns every fault in line order: the
-// chunks', and the repeats'. keys are the entry slots' keys.
+// chunks', and the repeats'. keys are the entry slots' keys, needed only
+// here: an entry is found by its list order (Entry).
 func (f *File) index(chunks []*chunk, keys []string) Faults {
 	var faults Faults
 	switch f.Kind {
 	case KindVocabulary:
-		f.entries, f.targets = make(map[string]int, len(f.Entries)), map[Target][]int{}
+		seen := make(map[string]int, len(f.Entries))
+		f.targets = map[Target][]int{}
 		f.Entries, faults = keep(f.Path, chunks, f.Entries, func(e *Entry) int { return e.Line },
-			func(e *Entry, i, slot int) error { return f.addEntry(e, i, keys[slot]) })
+			func(e *Entry, i, slot int) error { return f.addEntry(seen, e, i, keys[slot]) })
 	case KindExtensionSet:
 		f.extensions = make(map[string]int, len(f.Extensions))
 		f.Extensions, faults = keep(f.Path, chunks, f.Extensions, func(x *Extension) int { return x.Line }, f.addExtension)
@@ -336,13 +338,13 @@ func keep[T any](path string, chunks []*chunk, items []T, line func(*T) int, add
 	return items[:i], faults
 }
 
-// addEntry indexes e, about to be entry i, under its key k, refusing it
-// when an earlier entry has the key.
-func (f *File) addEntry(e *Entry, i int, k string) error {
-	if j, dup := f.entries[k]; dup {
+// addEntry indexes e, about to be entry i, under its key k in seen,
+// refusing it when an earlier entry has the key.
+func (f *File) addEntry(seen map[string]int, e *Entry, i int, k string) error {
+	if j, dup := seen[k]; dup {
 		return errAt("/entry", "duplicate entry: line %d names it too, after normalization", f.Entries[j].Line)
 	}
-	f.entries[k] = i
+	seen[k] = i
 	for _, mp := range e.Mappings {
 		idx := f.targets[mp.Target]
 		if len(idx) == 0 || idx[len(idx)-1] != i {

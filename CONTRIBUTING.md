@@ -285,7 +285,7 @@ reads a decode's items, when there is a decode, against the same `Month`.
 decoder: `pkg/nitrovin`'s `Translator` gives it the engine, the browser's
 Service Worker `/v1/decode`. So every surface answers through one
 translator. `GOOS=js GOARCH=wasm go build ./pkg/vocab ./pkg/contract
-./pkg/ui` must keep compiling (`contract.yml` builds it).
+./pkg/ui ./cmd/nitrovin-sw` must keep compiling (`contract.yml` builds it).
 
 The worker's `Month` is the **spine bundle**: `vocab.WriteBundle` writes a
 `vocab.BundleSource` (a `Month` that also lists its model ids, elements and
@@ -374,9 +374,10 @@ and `cmd/nitrovin/mcp-tools.json` are generated copies of the files in
 `pkg/ui` is the pages for browsers, the entry page at `/` and everything
 under `/ui`
 ([ADR 0013](docs/adr/0013-browser-vocabularies-in-a-service-worker.md)),
-which `serve` hands those paths to and the browser's Service Worker will run
-too, so it reaches its data through interfaces (`ui.Backend`) and builds
-for `js/wasm`. Each route answers a fragment of its templates (`ui.html`,
+which `serve` hands those paths to (and `/vocab` and `/sw.js`) and the
+browser's Service Worker runs too, so it reaches its data through
+interfaces (`ui.Pages`, the server's `ui.Backend`) and builds for
+`js/wasm`. Each route answers a fragment of its templates (`ui.html`,
 `decode.html`) for a request with `HX-Request`, its page's title first, and
 the same fragment in the one layout for any other, with
 `Vary: HX-Request` and the CSP (`ui.CSP`, `script-src 'self'`). Every error
@@ -400,6 +401,31 @@ assets, the published files and the decode form's routes; `TestUI` and
 `TestServePublished` in
 `cmd/nitrovin` the same through `serve`.
 
+The vocabulary pages (`vocab.go`, `vocab.html`: `/vocab`, `/ui/translate`,
+`/ui/vocabularies[/{name}]`, the browser's `/ui/files`) answer the same on
+the server and in the browser's Service Worker
+([ADR 0013](docs/adr/0013-browser-vocabularies-in-a-service-worker.md)).
+In the browser they answer from a `ui.Library`: the release's spine
+bundle, the server's files linked from their published URLs, and the
+browser's own files in IndexedDB, each with its parsed index
+(`vocab.WriteIndex`, read back by `vocab.ReadIndex` instead of parsing the
+file on every cold start), keyed by blake3 and release. Its rules (batch
+loads that link or change nothing, replace by name, refused removes with
+dependants, stored files that fault left out and listed, the decode's data
+month checked) are plain Go, tested with an in-memory `ui.Disk`
+(`library_test.go`). `cmd/nitrovin-sw` is the module: `ui.NewInBrowser`
+over a `Library`, given IndexedDB and `fetch` by `pkg/ui/static/worker.js`,
+the worker script that `/sw.js` (its release and the server's files, never
+cached without asking, the only response allowed `'wasm-unsafe-eval'`)
+imports. `scripts/sw.sh [<dir>]` builds the module reproducibly
+(`-trimpath -buildvcs=false`) into `cmd/nitrovin/sw`, which git ignores
+and `serve` embeds; goreleaser's before hook runs it, so release builds
+serve the worker and others serve `/vocab` without it. `vocab.js` is
+`/vocab`'s script: it registers the worker, says its state (ready, paused
+after a hard reload, an update waiting for the old release's tabs to
+close) and hands picked files to it by `postMessage`, never in a request,
+giving up on a load after a minute without progress.
+
 `TestForm` then runs the form in headless Chrome or Chromium
 (`browser_test.go`, over the DevTools protocol with chromedp), twice, each
 in a browser with a fresh profile: an installed Service Worker survives
@@ -413,6 +439,24 @@ held to its sha256 by `TestAxePin`, reported by the weekly tools issue
 too). The browser is `$NITROVIN_CHROME`, else Chrome or Chromium on `PATH`
 or in `/Applications`; without one the browser runs skip, except in CI
 (`CI` set), where they fail.
+
+`TestWorker` (`worker_test.go`) builds the module twice with
+`scripts/sw.sh` (the builds must be the same bytes) and runs it in a fresh
+profile against a server that loaded `classics` alone: it loads `listing`,
+`yard` and `parts` as one batch, in an order that links only as a whole,
+and holds every translation and list page and fragment to a server that
+loaded the same files; stops the worker and checks it answers again; checks
+a hard reload says the files are paused; stops the worker during a load,
+which the page gives up on (after `#browser`'s `data-stall`, here 3 s, in
+place of the minute) with nothing stored; loads a 150,000-entry synthetic
+vocabulary and times cold starts (the worker stopped, then a translation
+naming the file), logging the worker's `Server-Timing` (module start, spine
+bundle, indexes, link); serves a changed `/sw.js` and checks the new
+worker waits beside the old one, which keeps answering, and the page says
+so; and checks from the server's side that it got no
+request with a body and none naming a browser file. Set
+`NITROVIN_COLD_START_BUDGET=1s` to hold the cold start to a budget, on the
+reference machine.
 
 `cmd/libnitrovin` is the C library (`-buildmode=c-shared`, no data).
 `scripts/libnitrovin.sh <dir> [<goos>/<goarch>…]` builds it for all six

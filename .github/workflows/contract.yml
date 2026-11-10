@@ -7,10 +7,11 @@
 # the EPA vocabulary builder on a sample of vehicles.csv, against the same;
 # the pages (pkg/ui), the decode form among them in the runner's headless
 # Chrome, with JavaScript and without, audited by axe (TestForm, which CI
-# set makes fail without a browser); and the packages the browser's Service
-# Worker runs (ADR 0013) built for js/wasm. The same decodes on the engine's
-# output, and the CLI's decodes of the answer key, need an artifact:
-# import.yml's artifact job runs them.
+# set makes fail without a browser); the browser's Service Worker (ADR
+# 0013) built for js/wasm and run in the same Chrome against the server's
+# answers (TestWorker); and the packages it runs built for js/wasm. The
+# same decodes on the engine's output, and the CLI's decodes of the answer
+# key, need an artifact: import.yml's artifact job runs them.
 name: Contract
 
 on:
@@ -23,6 +24,8 @@ on:
       - pkg/ui/**
       - cmd/nitrovin/**
       - cmd/nitrovin-epa/**
+      - cmd/nitrovin-sw/**
+      - scripts/sw.sh
       - testdata/vocab/**
       - docs/api/decode.schema.json
       - docs/api/mcp-tools.json
@@ -70,5 +73,7 @@ jobs:
       - run: go vet ./pkg/contract/ ./pkg/nitrovin/ ./pkg/vocab/ ./pkg/ui/ ./cmd/nitrovin/ ./cmd/nitrovin-epa/
       - run: go test -count=1 ./pkg/contract/ ./pkg/nitrovin/ ./pkg/vocab/ ./pkg/ui/ ./cmd/nitrovin/ ./cmd/nitrovin-epa/
       # The Service Worker's packages never import the embedded data, the
-      # decoder or pkg/nitrovin, so they build for the browser.
-      - run: GOOS=js GOARCH=wasm go build ./pkg/vocab/ ./pkg/contract/ ./pkg/ui/
+      # decoder or pkg/nitrovin, so they build for the browser; the module
+      # itself (cmd/nitrovin-sw) is js/wasm alone.
+      - run: GOOS=js GOARCH=wasm go vet ./cmd/nitrovin-sw/
+      - run: GOOS=js GOARCH=wasm go build ./pkg/vocab/ ./pkg/contract/ ./pkg/ui/ ./cmd/nitrovin-sw/

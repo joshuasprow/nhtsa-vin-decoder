@@ -14,6 +14,9 @@ inline script or style: CSP refuses both. */}}
 <link rel="stylesheet" href="{{.Assets}}/ui.css">
 <script src="{{.Assets}}/htmx.min.js" defer></script>
 <script src="{{.Assets}}/copy.js" defer></script>
+{{- if .Vocab}}
+<script src="{{.Assets}}/vocab.js" defer></script>
+{{- end}}
 {{- end}}
 </head>
 <body>

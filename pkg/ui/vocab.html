@@ -1,0 +1,141 @@
+{{/* The vocabulary pages (vocab.go): /vocab, /ui/translate,
+/ui/vocabularies[/{name}] and the browser's /ui/files. The same templates
+render on the server and in the browser's Service Worker. */}}
+{{define "vocab" -}}
+<h1>Vocabularies</h1>
+<p>A vocabulary names vehicles or parts in someone's own terms and maps each name onto a spine: vPIC's makes and models, or a declared parts spine. nitrovin translates between vocabularies through the spine, and from a VIN's decode.</p>
+<p hx-boost="true" hx-target="#ui-main"><a href="/ui/translate">Translate</a> · <a href="/ui/vocabularies">every vocabulary loaded here</a></p>
+<h2>On this server</h2>
+{{template "catalog" .Catalog}}
+<section id="browser" aria-labelledby="browser-h"{{if .Worker}} data-worker="/sw.js"{{end}}>
+<h2 id="browser-h">Your own files</h2>
+<p id="browser-status" role="status" aria-live="polite">{{if .Worker -}}
+Loading your own vocabulary files needs JavaScript: they are kept in this browser (IndexedDB) and translated here by WebAssembly in a Service Worker, so they are never uploaded. Translation through vPIC and this server's own files works without it.
+{{- else -}}
+This nitrovin was built without its browser translator (scripts/sw.sh builds it; release builds include it), so it cannot load your own files. Translation through vPIC and this server's own files works.
+{{- end}}</p>
+<div id="browser-files"></div>
+</section>
+{{- end}}
+
+{{define "catalog" -}}
+<table class="catalog">
+<thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Version</th><th scope="col">Names</th><th scope="col">Spine or fields</th></tr></thead>
+<tbody>
+{{range .}}<tr><th scope="row"><a href="/ui/vocabularies/{{.Name}}">{{.Name}}</a></th><td>{{.Kind}}</td><td>{{.Version}}</td><td>{{.Subject}}</td><td>{{with .Fields}}{{range $i, $f := .}}{{if $i}}, {{end}}{{$f}}{{end}} → {{end}}{{.Spine}}</td></tr>
+{{end}}</tbody>
+</table>
+{{- end}}
+
+{{define "catalog-page" -}}
+<h1>Vocabularies</h1>
+<p>Everything loaded here, vPIC's spine first. <a href="/vocab">Load your own</a>.</p>
+{{template "catalog" .}}
+{{- end}}
+
+{{define "entries" -}}
+<h1>{{.Name}}</h1>
+<p hx-boost="true" hx-target="#ui-main"><a href="/ui/vocabularies">Every vocabulary</a></p>
+<div class="wide"><table>
+<thead><tr>{{range .Columns}}<th scope="col">{{.}}</th>{{end}}</tr></thead>
+<tbody>
+{{range .Rows}}{{$link := .Link}}<tr>{{range $i, $c := .Cells}}<td>{{if and (eq $i 0) $link}}<a href="{{$link}}">{{$c}}</a>{{else}}{{$c}}{{end}}</td>{{end}}</tr>
+{{end}}</tbody>
+</table></div>
+{{with .Next}}<p hx-boost="true" hx-target="#ui-main"><a href="{{.}}">Next page</a></p>{{end}}
+{{- end}}
+
+{{define "translate" -}}
+<h1>Translate</h1>
+<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-push-url="true" aria-labelledby="from-vin-h">
+<h2 id="from-vin-h">From a VIN</h2>
+<div>
+<label for="from-vin">VIN</label>
+<input type="text" id="from-vin" name="from.vin" value="{{.FromVIN}}" autocomplete="off" spellcheck="false">
+</div>
+<div>
+<label for="vin-model-year">Model year <span class="hint">(optional hint)</span></label>
+<input type="text" id="vin-model-year" name="model_year" value="{{if .FromVIN}}{{.ModelYear}}{{end}}" inputmode="numeric" autocomplete="off">
+</div>
+{{template "targets" .Targets}}
+<button type="submit">Translate the VIN</button>
+</form>
+
+<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-push-url="true" aria-labelledby="from-entry-h">
+<h2 id="from-entry-h">From a vocabulary's entry</h2>
+<div>
+<label for="from-vocabulary">Vocabulary</label>
+<select id="from-vocabulary" name="from.vocabulary">
+{{range .Vocabularies}}<option value="{{.Name}}"{{if and $.From (eq .Name $.From.Name)}} selected{{end}}>{{.Name}}</option>
+{{end}}</select>
+</div>
+{{if .From -}}
+{{range .Fields}}<div>
+<label for="entry-{{.Name}}">{{.Name}}</label>
+<input type="text" id="entry-{{.Name}}" name="from.entry.{{.Name}}" value="{{.Value}}" autocomplete="off">
+</div>
+{{end}}{{if eq .From.Spine "vpic"}}<div>
+<label for="context-vin">VIN <span class="hint">(optional: its decode checks qualifiers)</span></label>
+<input type="text" id="context-vin" name="vin" value="{{.VIN}}" autocomplete="off" spellcheck="false">
+</div>
+<div>
+<label for="entry-model-year">Model year <span class="hint">(optional)</span></label>
+<input type="text" id="entry-model-year" name="model_year" value="{{if not .FromVIN}}{{.ModelYear}}{{end}}" inputmode="numeric" autocomplete="off">
+</div>
+{{end}}{{template "targets" .Targets}}
+<button type="submit">Translate the entry</button>
+{{- else -}}
+<button type="submit">Choose</button>
+{{- end}}
+</form>
+{{with .Result}}{{template "translation" .}}{{end}}
+{{- end}}
+
+{{define "targets" -}}
+{{if .}}<fieldset>
+<legend>To</legend>
+{{range .}}<label><input type="checkbox" name="to" value="{{.Name}}"{{if .Checked}} checked{{end}}> {{.Name}}</label>
+{{end}}</fieldset>{{end}}
+{{- end}}
+
+{{define "translation" -}}
+<section id="translation" aria-labelledby="translation-h">
+<h2 id="translation-h">Translation</h2>
+<p>From {{.From}}: <strong>{{.Status}}</strong>{{with .Note}} ({{.}}){{end}}</p>
+{{with .Vehicle}}<p>{{.}}</p>{{end}}
+<h3>Spine</h3>
+{{if .Spine}}<ul>{{range .Spine}}<li>{{.}}</li>{{end}}</ul>{{else}}<p>Nothing on the spine.</p>{{end}}
+{{range .To}}<h3>{{.Vocabulary}}</h3>
+{{if .Entries}}<ul>{{range .Entries}}<li>{{.}}</li>{{end}}</ul>{{else}}<p>No entry.</p>{{end}}
+{{end}}<p class="hint">Files: {{range $i, $f := .Files}}{{if $i}}, {{end}}{{$f}}{{else}}none{{end}} · data {{.DataMonth}} · decoder {{.DecoderVersion}}</p>
+</section>
+{{- end}}
+
+{{define "files" -}}
+{{with .Refusal}}<div class="refusal" role="alert">
+<p>{{.Error}} Remove them too?</p>
+<form method="post" action="/ui/files/remove" hx-post="/ui/files/remove" hx-target="#browser-files">
+{{range .Names}}<input type="hidden" name="name" value="{{.}}">{{end}}
+<input type="hidden" name="all" value="true">
+<button type="submit">Remove all of them</button>
+</form>
+</div>{{end}}
+<div class="load">
+<label for="vocab-files">Load vocabulary files</label>
+<input type="file" id="vocab-files" multiple accept=".jsonl,application/jsonl" aria-describedby="vocab-files-hint">
+<p id="vocab-files-hint" class="hint">Files picked together are linked as one batch; a file named like a stored one replaces it. They stay in this browser.</p>
+</div>
+<p id="load-status" role="status" aria-live="polite"></p>
+{{if .Files}}<table class="files">
+<thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Version</th><th scope="col">Lines</th><th scope="col">Bytes</th><th scope="col">Stored</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+<tbody>
+{{range .Files}}<tr><th scope="row">{{.Name}}<br><span class="hint">{{.FileName}}</span></th><td>{{.Kind}}</td><td>{{.Version}}</td><td>{{.Lines}}</td><td>{{.Size}}</td><td>{{.Stored.Format "2006-01-02 15:04"}}</td>
+<td>{{with .Fault}}<span class="error">left out: {{.}}</span>{{else}}linked{{end}}</td>
+<td>{{if and (not .Fault) (eq .Kind "vocabulary")}}<a href="/ui/translate?from.vocabulary={{.Name}}">Translate</a> · {{end}}{{if not .Fault}}<a href="/ui/vocabularies/{{.Name}}">List</a>{{end}}
+<form method="post" action="/ui/files/remove" hx-post="/ui/files/remove" hx-target="#browser-files" class="inline">
+<input type="hidden" name="name" value="{{.Name}}"><button type="submit">Remove {{.Name}}</button>
+</form></td></tr>
+{{end}}</tbody>
+</table>{{else}}<p>No files are kept in this browser yet.</p>{{end}}
+<p class="hint">Translated here by release {{.Release}}, data {{.DataMonth}}{{with .Server}}, linked with this server's {{range $i, $f := .}}{{if $i}}, {{end}}{{$f.Name}}{{with $f.Fault}} (left out: {{.}}){{end}}{{end}}{{end}}.</p>
+{{- end}}

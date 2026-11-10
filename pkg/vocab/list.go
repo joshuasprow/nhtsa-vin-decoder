@@ -184,7 +184,7 @@ func (s *Set) pager(q ListQuery, l *Listing) (pager, int, error) {
 		}
 		values[i] = Normalize(q.Where[k])
 	}
-	es := s.sorted[f]
+	es := f.listOrder()
 	// The entries a where on leading fields selects are one run of the
 	// sorted entries: narrow to it, and filter by the other fields.
 	var prefix []string
