@@ -7,7 +7,8 @@ Every surface decodes through one contract. This directory holds it:
 | [`decode.schema.json`](decode.schema.json) | JSON Schema 2020-12 for every wire type: the decode, requests, stdio lines, problems, info |
 | [`openapi.yaml`](openapi.yaml) | OpenAPI 3.1 for `nitrovin serve`, referencing the schema |
 | [`mcp-tools.json`](mcp-tools.json) | The tools `nitrovin mcp` lists: `decode_vin`, the description an assistant reads, its bundled schemas |
-| this file | what none of them can express: layouts, item order, the clock, stdio framing, MCP results, the CLI mapping, the C ABI, versioning |
+| [`vocabulary.schema.json`](vocabulary.schema.json) | One line of a vocabulary, extension set or declared spine file, as `--vocab` loads it |
+| this file | what none of them can express: layouts, item order, the clock, stdio framing, MCP results, the CLI mapping, loading vocabularies, the C ABI, versioning |
 
 Words are `GLOSSARY.md`'s. The why behind the surprising choices is
 [ADR 0004](../adr/0004-decode-contract.md).
@@ -268,8 +269,60 @@ exactly as the Go module marshals it.
   and value per row, by element id, one row per value of a multi-valued
   element, non-empty attributes only. `--full` has no text form.
 
-`--data` is accepted before the command or after it; after wins.
+`--data` is accepted before the command or after it; after wins. `--vocab`
+is accepted in both places too, and every use adds to the files loaded.
 `nitrovin info` prints the `/v1/info` object, pretty-printed on a terminal.
+
+## Vocabularies (`--vocab`)
+
+Vocabularies, extension sets and declared spines (ADR 0009, 0010, 0011) are
+JSON Lines files: a header, then one line per entry, extension or spine
+entry, each as [`vocabulary.schema.json`](vocabulary.schema.json) specifies.
+
+- **Loading.** `--vocab <file|dir>` names them, on the root or any command,
+  repeatable; a directory loads every `*.jsonl` directly in it, in name
+  order. Without `--vocab`, `NITROVIN_VOCAB` is a path list (`:`-separated,
+  `;` on Windows); flags replace it, as `--data` replaces `NITROVIN_DATA`.
+  Files load once, with the data, and never change for the life of the
+  process: `serve` picks up new files on restart.
+- **Matching.** An entry's fields match after trimming, collapsing every
+  run of white space to one space and Unicode lower-casing, nothing more.
+  Qualifier values match exactly.
+- **Faults refuse.** A fault stops every command before it answers: exit 1
+  and an `#internal` problem whose `detail` names the flag or variable, the
+  file and line, and a JSON Pointer into the line where there is one, then
+  counts any further faults (`--vocab: /srv/yard.jsonl:7: /mappings/0:
+  first year 2014 is after last year 2012 (and 2 more)`). Faults are a file
+  that cannot be read; a malformed line; an unknown format, kind, subject or
+  field; a missing or ill-typed field; entry fields other than the header's;
+  two entries equal after normalization, or two extensions or spine entries
+  with one id; a mapping naming no spine entry, or two; a first year after
+  the last; qualifiers on an extension mapping; a reference to an extension
+  or spine id no loaded file defines; a part vocabulary whose spine is not
+  loaded; two files with one name, or one named `vpic`.
+- **Drift warns and serves.** Measured against the loaded data month: a
+  vPIC make or model id it lacks; a qualifier its decode cannot satisfy (an
+  element that is not one of its public elements, a value of the wrong type
+  for the element, or an attribute id or text that none of the month's
+  pattern, engine-model, vehicle-spec or default-value rows, nor for Make,
+  Manufacturer Name and Vehicle Type its WMI tables, produce; values a
+  formula pattern computes from a VIN are not known); an extension named,
+  after normalization, like a vPIC make, or like a vPIC model under the same
+  make. Each finding is one line on stderr at load,
+  `{"file", "line", "severity": "drift", "detail"}`, and the files are
+  served as written.
+- **`/v1/info`** (and `nitrovin info`, `nitrovin_info`) lists every loaded
+  file in `vocabularies`, in load order: `name`, `kind`, `version`, `blake3`
+  (hex, of the file's bytes), `path` (absolute) and `drift`, a count per
+  kind of drift the file has (`make`, `model`, `qualifier`, `extension`,
+  in that order) with its first three findings as `{"line", "detail"}`. It
+  is `[]` when nothing is loaded, as for every `nitrovin_open` handle.
+- **`nitrovin vocab check <file|dir>…`** loads its arguments, and only
+  them, beside the data (`--data` as for any command) and prints every
+  finding on stdout as a JSON line,
+  `{"file", "line", "severity": "fault"|"drift", "detail"}`: the faults
+  when there are any, otherwise the drift. Exit 0 with no output when there
+  is none, 1 when there is any. Line 0 is a file that cannot be read.
 
 ## C ABI (`libnitrovin`, `nitrovin.h`)
 

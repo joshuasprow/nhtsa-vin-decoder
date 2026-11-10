@@ -63,12 +63,12 @@ type result struct {
 }
 
 // cli runs the binary with args and stdin, in an environment without
-// NITROVIN_DATA plus env.
+// NITROVIN_DATA and NITROVIN_VOCAB plus env.
 func cli(t *testing.T, env []string, stdin string, args ...string) result {
 	t.Helper()
 	cmd := exec.Command(binary, args...)
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "NITROVIN_DATA=") {
+		if !strings.HasPrefix(kv, "NITROVIN_DATA=") && !strings.HasPrefix(kv, "NITROVIN_VOCAB=") {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}

@@ -226,3 +226,10 @@ data month: a vPIC id the month lacks, a qualifier value its decode cannot
 produce, an extension named like a vPIC entry under the same make. Reported,
 never refused: NHTSA's monthly changes are not the author's mistakes.
 _Avoid_: stale, invalid, broken mapping
+
+**Fault**:
+What refuses a vocabulary, extension set or declared spine whatever the data
+month: a malformed line, an unknown field, a duplicate entry or id, a
+reference no loaded file defines. A fault stops nitrovin from starting;
+drift never does.
+_Avoid_: error (a decode's error codes are about the VIN), invalid

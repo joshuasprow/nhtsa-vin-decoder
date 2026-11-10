@@ -1,0 +1,4 @@
+{"format":1,"kind":"extension-set","name":"classics","version":"2026.11","data_month":"2026_10"}
+{"id":"packard","make_name":"Packard"}
+{"id":"packard-clipper","make":"ext:classics/packard","name":"Clipper"}
+{"id":"corvair","make":467,"name":"Corvair"}

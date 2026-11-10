@@ -45,6 +45,7 @@ on:
       - mise.lock
       - .github/actions/mise/**
       - testdata/parity/**
+      - testdata/vocab/**
       - scripts/oracle.sh
       - .github/workflows/import.yml
       - "!**/*.md"
@@ -61,6 +62,7 @@ on:
       - mise.lock
       - .github/actions/mise/**
       - testdata/parity/**
+      - testdata/vocab/**
       - scripts/oracle.sh
       - .github/workflows/import.yml
       - "!**/*.md"

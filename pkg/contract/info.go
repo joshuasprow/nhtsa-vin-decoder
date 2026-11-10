@@ -25,6 +25,45 @@ type Info struct {
 	// artifact loaded with --data, NITROVIN_DATA or nitrovin_open.
 	DataSource string   `json:"data_source"`
 	Elements   Elements `json:"elements"`
+	// Vocabularies are the files loaded beside the data with --vocab,
+	// NITROVIN_VOCAB or nitrovin.NewTranslator, in load order; empty, never
+	// null, when there are none.
+	Vocabularies []VocabularyFile `json:"vocabularies"`
+}
+
+// VocabularyFile is one loaded vocabulary, extension set or declared spine
+// in Info, with its drift against the data month (ADR 0011).
+type VocabularyFile struct {
+	Name string `json:"name"`
+	// Kind is "vocabulary", "extension-set" or "spine".
+	Kind    string `json:"kind"`
+	Version string `json:"version"`
+	// Blake3 is the hex blake3 hash of the file's bytes.
+	Blake3 string `json:"blake3"`
+	// Path is where the file was loaded from: an absolute path for --vocab
+	// and NITROVIN_VOCAB, the name given to vocab.Read otherwise.
+	Path string `json:"path"`
+	// Drift counts the file's drift findings by kind ("make", "model",
+	// "qualifier", "extension"), only the kinds it has, in that order;
+	// empty when the file agrees with the data month.
+	Drift []DriftCount `json:"drift"`
+}
+
+// DriftCount is how many drift findings of one kind a file has, with the
+// first few as examples.
+type DriftCount struct {
+	Kind     string         `json:"kind"`
+	Count    int            `json:"count"`
+	Examples []DriftExample `json:"examples"`
+}
+
+// MaxDriftExamples is the most examples a DriftCount carries.
+const MaxDriftExamples = 3
+
+// DriftExample is one drift finding: its line in the file and what drifted.
+type DriftExample struct {
+	Line   int    `json:"line"`
+	Detail string `json:"detail"`
 }
 
 // Element is one public element of a data month.
@@ -70,6 +109,7 @@ func NewInfo(a *artifact.Artifact, source, version string) (Info, error) {
 		ArtifactHash:   "blake3:" + hex.EncodeToString(h[:]),
 		DataSource:     source,
 		Elements:       elements,
+		Vocabularies:   []VocabularyFile{},
 	}, nil
 }
 

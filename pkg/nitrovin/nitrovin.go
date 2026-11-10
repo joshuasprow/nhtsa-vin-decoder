@@ -34,6 +34,9 @@ const modulePath = "github.com/joshuasprow/nitrovin"
 type Decoder struct {
 	info   contract.Info
 	engine *decoder.Engine
+	// artifact is the data, for the vocab.Month a Translator measures
+	// drift against.
+	artifact *artifact.Artifact
 }
 
 // Embedded loads the artifact built into the binary, nitrovin-data's
@@ -69,7 +72,7 @@ func Load(data []byte, source string) (*Decoder, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Decoder{info: info, engine: decoder.NewEngine(a)}, nil
+	return &Decoder{info: info, engine: decoder.NewEngine(a), artifact: a}, nil
 }
 
 // Info describes the decoder's build and data, GET /v1/info.

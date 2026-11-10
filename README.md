@@ -395,6 +395,21 @@ month and the decoder version, and it carries all five; the same five give
 the same bytes. Live vPIC runs on newer data than any monthly dump, so it
 can answer differently from nitrovin on the same day.
 
+Your own names for vehicles and part types (a yard's inventory, a catalog's
+codes) load beside the data as vocabulary files, JSON Lines mapped onto
+vPIC's makes and models or onto a part-type spine you declare
+([`vocabulary.schema.json`](docs/api/vocabulary.schema.json)). Name files or
+directories with `--vocab` (repeatable, any command) or `NITROVIN_VOCAB`. A
+file with a fault stops nitrovin from starting; where a file disagrees with
+the data month (an id NHTSA dropped, say) nitrovin warns on stderr and in
+`nitrovin info`, and serves it anyway. `nitrovin vocab check` fails on both,
+for your CI:
+
+```sh
+nitrovin vocab check vocabularies/
+nitrovin --vocab vocabularies/ serve
+```
+
 ## Parity
 
 nitrovin's answer for a VIN is NHTSA's procedure's answer, not an

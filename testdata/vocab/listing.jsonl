@@ -1,0 +1,6 @@
+{"format":1,"kind":"vocabulary","name":"listing","version":"2026.11","data_month":"2026_10","subject":"part","fields":["category"],"spine":"parts"}
+{"entry":{"category":"Brake Pads"},"mappings":[{"id":"brake-pads","qualifiers":{"39":[2,3,7]},"origin":"curated"},{"id":"brake-pads-motorcycle","qualifiers":{"39":[1]},"origin":"curated"}]}
+{"entry":{"category":"Brake Parts"},"mappings":[{"id":"brake-pads"},{"id":"brake-pads-motorcycle"},{"id":"brake-rotor"}],"note":"a coarse category maps to every entry it covers"}
+{"entry":{"category":"Fenders"},"mappings":[{"id":"fender-lf"},{"id":"fender-rf"}]}
+{"entry":{"category":"Engine"},"mappings":[{"id":"300","origin":"seed"}]}
+{"entry":{"category":"Mystery Box"},"mappings":[],"note":"listed, not yet placed"}

@@ -22,6 +22,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
+	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
 )
 
 // openAPI is GET /v1/openapi.json: docs/api/openapi.yaml as JSON, with
@@ -82,14 +83,16 @@ func listenAddr(addr string, getenv func(string) string) string {
 	return "127.0.0.1:8080"
 }
 
-// serve loads the data, then listens on addr and serves the API until
-// SIGINT or SIGTERM, when it stops accepting and lets requests in flight
-// finish. A cors origin other than "" lets browsers there call /v1 and /mcp.
+// serve loads the data and the vocabularies beside it, then listens on
+// addr and serves the API until SIGINT or SIGTERM, when it stops accepting
+// and lets requests in flight finish. A cors origin other than "" lets
+// browsers there call /v1 and /mcp.
 func serve(e *env, addr, cors string) error {
-	d, data, err := e.load()
+	t, data, err := e.load()
 	if err != nil {
 		return err
 	}
+	d := loaded{t.Decoder(), t.Info()}
 	texts, err := errorTexts(data) // the bytes d opened: no error
 	if err != nil {
 		return err
@@ -126,7 +129,17 @@ func serve(e *env, addr, cors string) error {
 	return srv.Shutdown(ctx)
 }
 
-// decodeService is what the API answers with: a *nitrovin.Decoder.
+// loaded is the decoder with the Info of everything loaded beside it:
+// /v1/info lists the vocabularies.
+type loaded struct {
+	*nitrovin.Decoder
+	info contract.Info
+}
+
+func (l loaded) Info() contract.Info { return l.info }
+
+// decodeService is what the API answers with: a *nitrovin.Decoder, or
+// loaded.
 type decodeService interface {
 	Info() contract.Info
 	Decode(contract.Request) (contract.Decode, error)

@@ -22,6 +22,7 @@ on:
       - pkg/nitrovin/**
       - pkg/contract/**
       - pkg/decoder/**
+      - pkg/vocab/**
       - go.mod
       - mise.toml
       - mise.lock
