@@ -17,7 +17,7 @@ flowchart LR
 | --- | --- | --- |
 | Worker, Durable Object, container, keep-warm cron | `worker/` (`wrangler.jsonc`, `src/index.ts`, `Dockerfile`) | `wrangler deploy` in `deploy.yml` |
 | Zone settings (Full strict, always HTTPS, TLS ≥ 1.2, HSTS), the custom domain, `www` and its redirect, the rate limit | `terraform/` | `terraform apply` in `deploy.yml` |
-| The CI token, the state bucket | `terraform/token/` | a person, at bootstrap |
+| The CI token, the state bucket and its R2 token | `terraform/token/` | a person, at bootstrap |
 
 - **Image.** Containers cannot pull from ghcr.io, so `worker/Dockerfile` is
   `FROM ghcr.io/joshuasprow/nitrovin:<tag>@<digest>` plus the command, and
@@ -87,30 +87,38 @@ company's). Secrets go into the repository with `op read … | gh secret set`.
    `serve --cors '*'`; v0.1.5 and older exit 2 on it. Merge
    [#105](https://github.com/joshuasprow/nitrovin/pull/105) and tag the next
    release.
-2. **Workers Paid** on the account (Containers need it).
-3. **R2**: enable it, then create the bucket `nitrovin-tfstate` (dashboard,
-   or `npx wrangler r2 bucket create nitrovin-tfstate` logged in to that
-   account).
-4. **An R2 API token** for that bucket alone, *Object Read & Write*:
-   ```sh
-   op read 'op://<vault>/<item>/access key id' | gh secret set R2_ACCESS_KEY_ID -R joshuasprow/nitrovin
-   op read 'op://<vault>/<item>/secret access key' | gh secret set R2_SECRET_ACCESS_KEY -R joshuasprow/nitrovin
-   gh variable set CLOUDFLARE_ACCOUNT_ID -R joshuasprow/nitrovin --body <account id>
-   ```
-5. **The CI token**, made by `terraform/token/` with a short-lived bootstrap
-   API token of yours: *Account API Tokens Write*, *Workers R2 Storage Write*
-   and *Zone Read* on `nitrovin.app`. It imports the bucket, sets its
-   90-day expiry on `history/`, and creates the CI token with exactly the
-   scopes in `token/main.tf`:
+2. **Workers Paid** on the account (Containers need it), and **R2**
+   enabled.
+3. **Everything else account-level, by `terraform/token/`**: the state
+   bucket `nitrovin-tfstate` (with its 90-day expiry on `history/`), the R2
+   token for it (objects in that bucket only; its id is the S3 access key,
+   the SHA-256 of its value the secret), and the CI token with exactly the
+   scopes in `token/main.tf`. Run it with a short-lived bootstrap API token
+   of yours (*Account API Tokens Write*, *Workers R2 Storage Write*, and
+   *Zone Read* on `nitrovin.app`). The bucket does not exist before this
+   apply, so it runs on local state, which then moves into the bucket:
    ```sh
    cd deploy/cloudflare/terraform/token
-   export TF_VAR_account_id=<account id> AWS_ENDPOINT_URL_S3=https://<account id>.r2.cloudflarestorage.com
-   export AWS_ACCESS_KEY_ID=$(op read …) AWS_SECRET_ACCESS_KEY=$(op read …) CLOUDFLARE_API_TOKEN=$(op read …)
+   export TF_VAR_account_id=<account id> CLOUDFLARE_API_TOKEN=$(op read 'op://<bootstrap token>')
+   printf 'terraform {\n  backend "local" {}\n}\n' >backend_override.tf   # ignored by git
    terraform init && terraform apply
+
+   # The state's credentials: the repository's, and yours (1Password) for later applies here.
+   export AWS_ENDPOINT_URL_S3=https://$TF_VAR_account_id.r2.cloudflarestorage.com
+   export AWS_ACCESS_KEY_ID=$(terraform output -raw r2_access_key_id) AWS_SECRET_ACCESS_KEY=$(terraform output -raw r2_secret_access_key)
+   op item create --category 'API Credential' --title 'nitrovin tfstate (R2)' "username=$AWS_ACCESS_KEY_ID" "credential=$AWS_SECRET_ACCESS_KEY"
+   gh secret set R2_ACCESS_KEY_ID -R joshuasprow/nitrovin --body "$AWS_ACCESS_KEY_ID"
+   printenv AWS_SECRET_ACCESS_KEY | gh secret set R2_SECRET_ACCESS_KEY -R joshuasprow/nitrovin
    terraform output -raw ci_token | gh secret set CLOUDFLARE_API_TOKEN -R joshuasprow/nitrovin
+   gh variable set CLOUDFLARE_ACCOUNT_ID -R joshuasprow/nitrovin --body "$TF_VAR_account_id"
+
+   # Move the state into the bucket; the local copy holds the tokens, so it goes.
+   rm backend_override.tf
+   terraform init -migrate-state -force-copy && rm -f terraform.tfstate terraform.tfstate.backup
    ```
-   Then delete the bootstrap token. Changing the CI token's scopes later is
-   the same apply with a new short-lived one.
-6. **The first deploy**: `gh workflow run deploy.yml -R joshuasprow/nitrovin -f tag=<release from step 1>`.
+   Then delete the bootstrap token. A later apply here (a token's scopes)
+   is `terraform init` with the R2 credentials from 1Password and a new
+   short-lived token; no override.
+4. **The first deploy**: `gh workflow run deploy.yml -R joshuasprow/nitrovin -f tag=<release from step 1>`.
    It creates the Worker and its container, then Terraform attaches
    `nitrovin.app` to it.
