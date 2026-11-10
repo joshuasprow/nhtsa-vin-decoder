@@ -142,15 +142,24 @@ cmd_go() {
   record "$work" nitrovin-go "{\"workers\":$workers,\"input\":\"$order\"}" "$result" "$host"
 }
 
+# `nitrovin decode -` stops at a VIN whose decode fails (#165), so this row
+# decodes the corpus without the VINs the Go module refuses
+# (corpus-cli.txt, refused.txt), and checks it wrote one line per VIN.
 cmd_cli() {
   local work="${1:?work}" nitrovin="${2:?nitrovin}" bin host run vins
   bin=$(harness "$work")
-  vins=$(wc -l <"$work/corpus.txt" | tr -d ' ')
+  if [ ! -e "$work/corpus-cli.txt" ]; then
+    "$bin" refused -now "$NOW" "$work/corpus.txt" >"$work/refused.txt"
+    grep -vxFf "$work/refused.txt" "$work/corpus.txt" >"$work/corpus-cli.txt" || true
+  fi
+  vins=$(wc -l <"$work/corpus-cli.txt" | tr -d ' ')
   host=$(quiet)
-  run=$(GOMAXPROCS=1 "$bin" time -in "$work/corpus.txt" -- "$nitrovin" decode --now "$NOW" -)
+  run=$(GOMAXPROCS=1 "$bin" time -in "$work/corpus-cli.txt" -- "$nitrovin" decode --now "$NOW" -)
+  [ "$(jq .stdout_lines <<<"$run")" -eq "$vins" ] || die "nitrovin decode - wrote $(jq .stdout_lines <<<"$run") lines for $vins VINs"
   record "$work" nitrovin-cli '{"workers":1,"input":"random"}' \
-    "$(jq -c --argjson vins "$vins" --arg version "$("$nitrovin" --version)" \
-      '. + {vins: $vins, vins_per_second: ($vins / .wall_seconds), version: $version}' <<<"$run")" "$host"
+    "$(jq -c --argjson vins "$vins" --argjson refused "$(wc -l <"$work/refused.txt" | tr -d ' ')" \
+      --arg version "$("$nitrovin" --version)" \
+      '. + {vins: $vins, refused: $refused, vins_per_second: ($vins / .wall_seconds), version: $version}' <<<"$run")" "$host"
 }
 
 cmd_ultravin() {

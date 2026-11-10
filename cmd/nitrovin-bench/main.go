@@ -5,6 +5,7 @@
 // scripts/bench.sh runs the other engines' rows with. It is not shipped.
 //
 //	nitrovin-bench throughput [-workers N] [-now T] [-warm N] [-seconds S] [-cpuprofile F] CORPUS
+//	nitrovin-bench refused [-workers N] [-now T] CORPUS
 //	nitrovin-bench values [-now T] VINS
 //	nitrovin-bench agree KEY.csv VALUES.jsonl
 //	nitrovin-bench time [-in FILE] [-n N] -- COMMAND [ARG]...
@@ -18,7 +19,11 @@
 // github.com/blackthorn-interstellar/ultravin, MIT): a frozen clock, a
 // warm-up, complete passes, total rows over elapsed time. ultravin warms on
 // the whole corpus to fill its per-thread caches; nitrovin keeps none, so a
-// prefix warms it as well.
+// prefix warms it as well. A decode that fails, which is always a nitrovin
+// bug, is counted in "errors" and the pass goes on.
+//
+// refused prints the VINs of CORPUS whose decode fails, one per line:
+// `nitrovin decode -` stops at the first, so its row decodes without them.
 //
 // values decodes each line of VINS (full) and prints one JSON line per VIN:
 // {"vin", "values": [[element id, value], ...]}, NULL as "". agree compares
@@ -28,7 +33,8 @@
 // that agree.
 //
 // time runs COMMAND -n times, stdin from -in, stdout discarded, and prints
-// one JSON line per run: wall and CPU seconds and peak resident memory.
+// one JSON line per run: wall and CPU seconds, peak resident memory and the
+// lines COMMAND wrote.
 package main
 
 import (
@@ -59,6 +65,7 @@ import (
 
 const usage = `usage:
   nitrovin-bench throughput [-workers N] [-now T] [-warm N] [-seconds S] [-cpuprofile F] CORPUS
+  nitrovin-bench refused [-workers N] [-now T] CORPUS
   nitrovin-bench values [-now T] VINS
   nitrovin-bench agree KEY.csv VALUES.jsonl
   nitrovin-bench time [-in FILE] [-n N] -- COMMAND [ARG]...`
@@ -99,6 +106,34 @@ func run(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		return throughput(stdout, fs.Arg(0), *workers, at, *warm, *seconds, *profile)
+	case "refused":
+		workers := fs.Int("workers", runtime.NumCPU(), "decoding goroutines")
+		now := fs.String("now", defaultNow, "frozen decode clock, RFC 3339")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 || *workers < 1 {
+			return errors.New(usage)
+		}
+		at, err := contract.ParseNow(*now)
+		if err != nil {
+			return err
+		}
+		vins, err := readVINs(fs.Arg(0))
+		if err != nil {
+			return err
+		}
+		d, err := nitrovin.Embedded()
+		if err != nil {
+			return err
+		}
+		failed := pass(d, vins, *workers, at)
+		slices.Sort(failed.vins)
+		w := bufio.NewWriter(stdout)
+		for _, vin := range failed.vins {
+			fmt.Fprintln(w, vin)
+		}
+		return w.Flush()
 	case "values":
 		now := fs.String("now", defaultNow, "frozen decode clock, RFC 3339")
 		if err := fs.Parse(args); err != nil {
@@ -166,9 +201,7 @@ func throughput(stdout io.Writer, path string, workers int, now time.Time, warm 
 	load := time.Since(loadStarted)
 
 	warm = min(warm, len(vins))
-	if err := pass(d, vins[:warm], workers, now); err != nil {
-		return err
-	}
+	pass(d, vins[:warm], workers, now)
 	if profile != "" {
 		f, err := os.Create(profile)
 		if err != nil {
@@ -182,10 +215,9 @@ func throughput(stdout io.Writer, path string, workers int, now time.Time, warm 
 	before := rusage()
 	started := time.Now()
 	passes := 0
+	var failed passErrors
 	for time.Since(started).Seconds() < seconds {
-		if err := pass(d, vins, workers, now); err != nil {
-			return err
-		}
+		failed = pass(d, vins, workers, now)
 		passes++
 	}
 	elapsed := time.Since(started).Seconds()
@@ -204,6 +236,8 @@ func throughput(stdout io.Writer, path string, workers int, now time.Time, warm 
 		"warm_vins":          warm,
 		"passes":             passes,
 		"rows":               rows,
+		"errors":             failed.n,
+		"first_errors":       failed.first,
 		"seconds":            elapsed,
 		"vins_per_second":    float64(rows) / elapsed,
 		"load_seconds":       load.Seconds(),
@@ -220,12 +254,23 @@ func throughput(stdout io.Writer, path string, workers int, now time.Time, warm 
 // chunk is how many VINs a worker takes at a time.
 const chunk = 256
 
+// passErrors counts the decodes of one pass that ended in an error, a
+// *contract.Problem, and keeps the first few.
+type passErrors struct {
+	n     int
+	first []string // the first few errors
+	vins  []string // every VIN that failed
+}
+
 // pass decodes every VIN once on workers goroutines, discarding the decodes.
-func pass(d *nitrovin.Decoder, vins []string, workers int, now time.Time) error {
+// A decode that fails is counted and the pass goes on: the error is
+// nitrovin's (a VIN is never an error), and the rows still measure it.
+func pass(d *nitrovin.Decoder, vins []string, workers int, now time.Time) passErrors {
 	var next atomic.Int64
 	var wg sync.WaitGroup
-	errs := make([]error, workers)
-	for w := range workers {
+	var mu sync.Mutex
+	var failed passErrors
+	for range workers {
 		wg.Go(func() {
 			for {
 				lo := int(next.Add(chunk)) - chunk
@@ -234,15 +279,20 @@ func pass(d *nitrovin.Decoder, vins []string, workers int, now time.Time) error 
 				}
 				for _, vin := range vins[lo:min(lo+chunk, len(vins))] {
 					if _, err := d.Decode(contract.Request{VIN: vin, Now: now}); err != nil {
-						errs[w] = fmt.Errorf("%s: %w", vin, err)
-						return
+						mu.Lock()
+						failed.n++
+						failed.vins = append(failed.vins, vin)
+						if len(failed.first) < 5 {
+							failed.first = append(failed.first, vin+": "+err.Error())
+						}
+						mu.Unlock()
 					}
 				}
 			}
 		})
 	}
 	wg.Wait()
-	return errors.Join(errs...)
+	return failed
 }
 
 // cpuUsage is CPU time and peak resident memory.
@@ -274,6 +324,8 @@ func fromRusage(ru *syscall.Rusage) cpuUsage {
 type valuesLine struct {
 	VIN    string      `json:"vin"`
 	Values [][2]string `json:"values"`
+	// Error is why the decode failed; such a VIN never agrees.
+	Error string `json:"error,omitempty"`
 }
 
 func values(stdout io.Writer, path string, now time.Time) error {
@@ -290,7 +342,10 @@ func values(stdout io.Writer, path string, now time.Time) error {
 	for _, vin := range vins {
 		dec, err := d.Decode(contract.Request{VIN: vin, Full: true, Now: now})
 		if err != nil {
-			return fmt.Errorf("%s: %w", vin, err)
+			if err := enc.Encode(valuesLine{VIN: vin, Values: [][2]string{}, Error: err.Error()}); err != nil {
+				return err
+			}
+			continue
 		}
 		line := valuesLine{VIN: vin, Values: make([][2]string, len(dec.Items))}
 		for i, it := range dec.Items {
@@ -337,7 +392,7 @@ func agree(stdout io.Writer, keyPath, valuesPath string) error {
 	}
 	defer f.Close()
 	dec := json.NewDecoder(bufio.NewReader(f))
-	n, agreed := 0, 0
+	n, agreed, failed := 0, 0, 0
 	var differ []string
 	for {
 		var line valuesLine
@@ -356,7 +411,10 @@ func agree(stdout io.Writer, keyPath, valuesPath string) error {
 		for _, v := range line.Values {
 			got.add(v[0], v[1])
 		}
-		if got.equal(key[n]) {
+		if line.Error != "" {
+			failed++
+		}
+		if line.Error == "" && got.equal(key[n]) {
 			agreed++
 		} else if len(differ) < 20 {
 			differ = append(differ, line.VIN)
@@ -372,6 +430,7 @@ func agree(stdout io.Writer, keyPath, valuesPath string) error {
 		"vins":         n,
 		"agree":        agreed,
 		"share":        float64(agreed) / float64(n),
+		"errors":       failed,
 		"first_differ": differ,
 	})
 }
@@ -420,12 +479,22 @@ func readKey(path string) ([]decodeValues, []string, error) {
 	return key, vins, nil
 }
 
+// lineCounter counts the newlines written to it, discarding the bytes.
+type lineCounter int
+
+func (c *lineCounter) Write(p []byte) (int, error) {
+	*c += lineCounter(bytes.Count(p, []byte{'\n'}))
+	return len(p), nil
+}
+
 func timeRuns(stdout, stderr io.Writer, in string, n int, argv []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	enc := json.NewEncoder(stdout)
 	for i := range n {
+		var lines lineCounter
 		c := exec.CommandContext(ctx, argv[0], argv[1:]...)
+		c.Stdout = &lines
 		c.Stderr = stderr
 		if in != "" {
 			f, err := os.Open(in)
@@ -448,6 +517,7 @@ func timeRuns(stdout, stderr io.Writer, in string, n int, argv []string) error {
 			"user_cpu_seconds":   u.user,
 			"system_cpu_seconds": u.system,
 			"max_rss_bytes":      u.maxRSS,
+			"stdout_lines":       int(lines),
 		}); err != nil {
 			return err
 		}
