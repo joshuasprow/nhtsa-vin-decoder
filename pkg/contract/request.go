@@ -76,20 +76,34 @@ func (r Request) Validate() error {
 }
 
 func (r Request) validate(prefix string) *Problem {
-	switch n := utf8.RuneCountInString(trimVIN(r.VIN)); {
-	case n == 0:
-		return NewProblem(InvalidRequest, prefix+"/vin", "vin is empty after trimming spaces")
-	case n > MaxVINChars:
-		return NewProblem(InvalidRequest, prefix+"/vin", fmt.Sprintf("vin is %d characters after trimming spaces; the limit is %d", n, MaxVINChars))
+	if p := checkVIN(r.VIN, prefix+"/vin", "vin"); p != nil {
+		return p
 	}
 	switch r.Shape {
 	case "", ShapeVPIC, ShapeNitrovin:
 	default:
 		return NewProblem(InvalidRequest, prefix+"/shape", fmt.Sprintf("shape must be %q or %q", ShapeVPIC, ShapeNitrovin))
 	}
-	if !r.Now.IsZero() {
-		if y := r.Now.UTC().Year(); y < 0 || y > 9999 {
-			return NewProblem(InvalidRequest, prefix+"/now", "now must fall in years 0000-9999 UTC")
+	return checkNow(r.Now, prefix+"/now")
+}
+
+// checkVIN refuses, at ptr, a VIN (the request's field name) that is empty
+// or over MaxVINChars after trimming.
+func checkVIN(vin, ptr, name string) *Problem {
+	switch n := utf8.RuneCountInString(trimVIN(vin)); {
+	case n == 0:
+		return NewProblem(InvalidRequest, ptr, name+" is empty after trimming spaces")
+	case n > MaxVINChars:
+		return NewProblem(InvalidRequest, ptr, fmt.Sprintf("%s is %d characters after trimming spaces; the limit is %d", name, n, MaxVINChars))
+	}
+	return nil
+}
+
+// checkNow refuses, at ptr, a clock outside years 0000-9999 UTC.
+func checkNow(now time.Time, ptr string) *Problem {
+	if !now.IsZero() {
+		if y := now.UTC().Year(); y < 0 || y > 9999 {
+			return NewProblem(InvalidRequest, ptr, "now must fall in years 0000-9999 UTC")
 		}
 	}
 	return nil

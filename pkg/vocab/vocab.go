@@ -4,13 +4,15 @@
 //
 //	files, err := vocab.Open("yard.jsonl", "vocabularies/") // a directory loads its *.jsonl
 //	findings := vocab.Drift(month, files)                  // against a data month
+//	set, err := vocab.NewSet(month, files)                 // to translate and list
 //
 // Read reads one file and refuses its faults; Open reads files and
 // directories and also checks them against each other (Link): names
 // unique, references resolved. Every fault is a Finding naming the file and
 // line, and the error is Faults. Drift measures loaded files against a data
 // month, reached through the Month interface, and is reported, never
-// refused.
+// refused. A Set answers translations and lists (ADR 0012) over them:
+// routing, year scope, qualifiers checked against a Decoded, paging.
 //
 // The package reads no artifact: a Month can be backed by one (package
 // nitrovin) or by anything else that knows the month's makes, models and
@@ -217,6 +219,15 @@ func (f *File) Entry(fields map[string]string) (*Entry, bool) {
 		return nil, false
 	}
 	return &f.Entries[i], true
+}
+
+// FieldsOf is a vocabulary entry's fields by name, as written.
+func (f *File) FieldsOf(e *Entry) map[string]string {
+	m := make(map[string]string, len(f.Fields))
+	for i, name := range f.Fields {
+		m[name] = e.Fields[i]
+	}
+	return m
 }
 
 // EntriesFor returns, in file order, a vocabulary's entries with a mapping

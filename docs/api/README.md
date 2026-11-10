@@ -4,11 +4,11 @@ Every surface decodes through one contract. This directory holds it:
 
 | File | What it fixes |
 | --- | --- |
-| [`decode.schema.json`](decode.schema.json) | JSON Schema 2020-12 for every wire type: the decode, requests, stdio lines, problems, info |
+| [`decode.schema.json`](decode.schema.json) | JSON Schema 2020-12 for every wire type: the decode, requests, stdio lines, problems, info, translations and lists |
 | [`openapi.yaml`](openapi.yaml) | OpenAPI 3.1 for `nitrovin serve`, referencing the schema |
 | [`mcp-tools.json`](mcp-tools.json) | The tools `nitrovin mcp` lists: `decode_vin`, the description an assistant reads, its bundled schemas |
 | [`vocabulary.schema.json`](vocabulary.schema.json) | One line of a vocabulary, extension set or declared spine file, as `--vocab` loads it |
-| this file | what none of them can express: layouts, item order, the clock, stdio framing, MCP results, the CLI mapping, loading vocabularies, the C ABI, versioning |
+| this file | what none of them can express: layouts, item order, the clock, stdio framing, MCP results, the CLI mapping, loading vocabularies, translating and listing, the C ABI, versioning |
 
 Words are `GLOSSARY.md`'s. The why behind the surprising choices is
 [ADR 0004](../adr/0004-decode-contract.md).
@@ -174,7 +174,7 @@ status is 200. A refusal is an RFC 9457 `application/problem+json` body whose
 | `type` (fragment of this file's URL) | Status | When |
 | --- | --- | --- |
 | <a id="malformed-json"></a>`#malformed-json` | 400 | The body is not JSON |
-| <a id="invalid-request"></a>`#invalid-request` | 400 | Valid JSON that breaks the request schema: wrong type, unknown field or query parameter, empty or over-long VIN, bad `model_year`, `full`, `shape` or `now`; an empty batch |
+| <a id="invalid-request"></a>`#invalid-request` | 400 | Valid JSON that breaks the request schema: wrong type, unknown field or query parameter, empty or over-long VIN, bad `model_year`, `full`, `shape` or `now`; an empty batch. For translate and list, also what the loaded files refuse (below) |
 | <a id="too-large"></a>`#too-large` | 413 | More than 1,000 items, or a body over 1 MiB |
 | <a id="not-found"></a>`#not-found` | 404 | No such route |
 | <a id="method-not-allowed"></a>`#method-not-allowed` | 405 | The route exists; the method does not (`Allow` lists the methods) |
@@ -323,6 +323,101 @@ entry, each as [`vocabulary.schema.json`](vocabulary.schema.json) specifies.
   `{"file", "line", "severity": "fault"|"drift", "detail"}`: the faults
   when there are any, otherwise the drift. Exit 0 with no output when there
   is none, 1 when there is any. Line 0 is a file that cannot be read.
+
+## Translation (`translate`)
+
+One request object, `TranslateRequest` in the schema, resolves a VIN or an
+entry through exactly one spine to the entries of target vocabularies
+([ADR 0012](../adr/0012-translation-and-listing-are-requests-beside-decode.md),
+with ADR 0009's and ADR 0010's semantics). In Go it is
+`nitrovin.NewTranslator(d, files…)`'s `Translate`; the HTTP, stdio, CLI,
+MCP and C surfaces carry the same object.
+
+| Field | Type | Default | Rule |
+| --- | --- | --- | --- |
+| `from` | string \| object | required | A VIN (as a decode's `vin`); a vocabulary entry, `{"vocabulary", "entry": {…}}`, with exactly the vocabulary's fields; or a spine entry as a mapping target names it: `{"make"}`, `{"model"}`, `{"ext"}` or `{"spine", "id"}` |
+| `to` | string[] | none | Target vocabularies, each loaded and on the same spine as `from`. None answers the spine alone |
+| `model_year` | int \| null | none | The VIN's decode hint, and the year when no VIN decodes one. A VIN's decoded year wins over it |
+| `vin` | string | none | A context VIN when `from` is an entry: its decode checks qualifiers and gives the year |
+| `now` | string | wall clock | The VIN's decode clock, as a decode request's |
+
+- **One spine.** A VIN, a vPIC id, an extension and a vehicle vocabulary
+  route through vPIC (`vpic`); a declared spine's ids and its part
+  vocabularies through that spine. A target on another spine is refused:
+  nothing chains from one spine to another.
+- **The spine reached.** From a VIN: its decoded model, then its make.
+  From an entry: each of its mappings that holds, in file order. From a
+  spine entry: itself. A vPIC model, or an extension model, also reaches
+  the make it sits under, so a make vocabulary answers for a model; a make
+  never reaches its models. Each spine entry appears once, named from the
+  data month or its file, with `under` (its make) for a model. A vPIC id
+  the data month lacks is served with `"drift": true` and no name.
+- **Year scope and qualifiers** (ADR 0009). The year is the VIN's decoded
+  model year, else `model_year`. A known year outside a mapping's range
+  rules it out; a decoded value outside a qualifier's set does too, any
+  decoded value of a multi-valued element satisfying it. An unknown year,
+  no decode, or an element the decode left empty keeps the mapping, and
+  what went unchecked is listed in `unconfirmed`: qualifier element ids
+  ascending, then `"model_year"`. A translation from a name never
+  checks a qualifier, so it returns the union of the entry's mappings.
+- **`via`.** A spine entry reached from an entry carries `via`, the
+  entry's mappings that reached it; a target entry carries `via`, its own
+  mappings that hold, each naming the spine entry that led to it. A via is
+  that spine entry plus the mapping's `first`, `last`, `origin` and `note`
+  as the file has them, and `unconfirmed` for the route through it (both
+  mappings' unchecked conditions). A target entry appears once per target
+  vocabulary however many ways it is reached, ordered by its normalized
+  fields, with its own `note`. Its `unconfirmed` is absent when one via
+  checked everything, else the union of its vias', so keeping entries
+  without `unconfirmed` keeps only fully confirmed results.
+- **The answer** (`Translation`): `from`, echoing the request's (the VIN as
+  decoded; the entry as its vocabulary writes it, with the entry's `note`)
+  with `status`: `mapped`, `unmapped` (listed without mappings) or
+  `unknown` (not in the vocabulary or spine, or a VIN that decodes to no
+  make or model); `vehicle` (`vin`, `make`, `model`, `model_year`) when a
+  VIN was given, never the whole decode; `spine`; `to`, one
+  `{"vocabulary", "entries"}` per target in request order, each named once;
+  `vocabularies`, the name and version of every file used, in load order;
+  `now`, `data_month`, `decoder_version`.
+- **Nothing to translate is never a refusal.** An unknown or unmapped
+  entry, or a target with no entries, answers with a status and empty
+  lists. `#invalid-request`, with a pointer into the request, is only for
+  a malformed request: a `vocabulary`, `to` name, `spine` or extension set
+  nothing loaded has (or a name of the wrong kind: `vpic` and spines are
+  not vocabularies), entry fields other than the vocabulary's, a target on
+  another spine, or `vin` given both as `from` and as context.
+
+## Listing (`list`)
+
+`ListRequest` pages through what is loaded; in Go, the Translator's `List`.
+
+| Field | Type | Default | Rule |
+| --- | --- | --- | --- |
+| `of` | string | none | `vpic` or a loaded file's name. None asks for the catalog |
+| `where` | object | none | Fields matched exactly after the fixed normalization: a vocabulary's fields; for `vpic` only `make`, a make id, which lists that make's models. Spines and extension sets take none |
+| `limit` | int | 100 | 1 to 1,000 entries a page |
+| `after` | string | none | The previous page's `next` |
+
+- **The catalog** (no `of`, and then no `where`, `limit` or `after`) is
+  vPIC, then every loaded file in load order, each a `CatalogEntry`:
+  `name`, `kind` (vPIC is a `spine`), `version` (vPIC's is the data
+  month), `subject` (`vehicle` or `part`), a vocabulary's `fields`, and the
+  `spine` a vocabulary or extension set routes through.
+- **Entries.** A vocabulary's are `VocabularyEntry` values, its entries
+  with their mappings as the file has them, ordered by normalized fields.
+  vPIC's makes, or one make's models, are `SpineEntry` values ordered by
+  normalized name, then id; vPIC records no year span per model, so there
+  is no year filter. A spine's entries and an extension set's extensions
+  are `SpineEntry` values ordered by id.
+- **Paging.** The order is stable for a given set of loaded files. `next`
+  is an opaque cursor, present when more entries follow; passing it as
+  `after` continues after the last entry returned, so paging end to end
+  loses and repeats nothing.
+- **The answer** (`List`): `of`, `entries`, `next`, `vocabularies` (every
+  file for the catalog, the listed file, none for `vpic`), `data_month`,
+  `decoder_version`. An `of` nothing loaded has, a `where` field the
+  listing lacks, a `limit` out of range or an `after` that is not a cursor
+  of the listing's shape is `#invalid-request`.
 
 ## C ABI (`libnitrovin`, `nitrovin.h`)
 
