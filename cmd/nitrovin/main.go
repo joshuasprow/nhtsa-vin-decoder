@@ -1,19 +1,23 @@
 // Command nitrovin decodes VINs the way NHTSA's vPIC does, offline, against
 // one month of its data.
 //
-//	nitrovin [--data FILE] <command> [flags] [arguments]
-//	nitrovin [--data FILE] --version
+//	nitrovin [--data FILE] [--vocab PATH]... <command> [flags] [arguments]
+//	nitrovin [--data FILE] [--vocab PATH]... --version
 //
 // The data is the artifact named by --data (on the root or any command),
-// then $NITROVIN_DATA, then the one embedded in the binary. Run
-// `nitrovin -h` for the commands and `nitrovin <command> -h` for their flags;
-// docs/api/README.md is the contract they follow.
+// then $NITROVIN_DATA, then the one embedded in the binary. Vocabularies,
+// extension sets and declared spines load beside it from every --vocab
+// file or directory (repeatable, on the root and any command), or else from
+// $NITROVIN_VOCAB, a path list. Run `nitrovin -h` for the commands and
+// `nitrovin <command> -h` for their flags; docs/api/README.md is the
+// contract they follow.
 //
 // Exit codes: 0 when every request was answered, whatever error codes the
-// VINs decode to; 1 when nitrovin could not answer (data that will not load,
-// a refused stdin line, a write failure), with a problem on stderr; 2 for a
-// mistake on the command line, a refused argument VIN included, with nothing
-// on stdout.
+// VINs decode to; 1 when nitrovin could not answer (data or a vocabulary
+// that will not load, a refused stdin line, a write failure), with a
+// problem on stderr, or when `vocab check` has findings; 2 for a mistake
+// on the command line, a refused argument VIN included, with nothing on
+// stdout.
 package main
 
 import (
@@ -32,6 +36,7 @@ import (
 	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
+	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
 // command is one subcommand. Each lives in its own file, cmd/nitrovin/<name>.go,
@@ -75,7 +80,27 @@ type env struct {
 	terminal bool
 	// data is --data, empty when not given.
 	data string
+	// vocab is every --vocab, the root's then the command's; none means
+	// $NITROVIN_VOCAB.
+	vocab []string
 }
+
+// paths is a repeatable flag, each use appending its value.
+type paths []string
+
+func (p *paths) String() string { return strings.Join(*p, string(filepath.ListSeparator)) }
+
+func (p *paths) Set(s string) error {
+	*p = append(*p, s)
+	return nil
+}
+
+// vocabUsage is --vocab's line in the usage.
+const vocabUsage = "load the vocabulary, extension set or spine at `path`, a file or a directory of *.jsonl; repeatable (default $NITROVIN_VOCAB, a path list)"
+
+// errFindings ends a command that has already written why it failed: exit
+// 1, nothing more on stderr.
+var errFindings = errors.New("findings written")
 
 // usageError is a mistake on the command line: exit 2, the message and the
 // command's usage on stderr, nothing on stdout.
@@ -109,6 +134,7 @@ func run(args []string, e *env) int {
 	root := flag.NewFlagSet("nitrovin", flag.ContinueOnError)
 	root.SetOutput(io.Discard)
 	root.StringVar(&e.data, "data", "", "load the data artifact `file` (default $NITROVIN_DATA, then the embedded one)")
+	root.Var((*paths)(&e.vocab), "vocab", vocabUsage)
 	version := root.Bool("version", false, "print the version and data month, and exit")
 	switch err := root.Parse(args); {
 	case errors.Is(err, flag.ErrHelp):
@@ -132,6 +158,7 @@ func run(args []string, e *env) int {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&e.data, "data", e.data, "load the data artifact `file` (default $NITROVIN_DATA, then the embedded one)")
+	fs.Var((*paths)(&e.vocab), "vocab", vocabUsage)
 	body := c.setup(fs)
 	pos, err := parseInterspersed(fs, root.Args()[1:])
 	switch {
@@ -178,6 +205,9 @@ func finish(e *env, err error) int {
 		writeProblem(e.stderr, r.Problem)
 		return 2
 	}
+	if errors.Is(err, errFindings) {
+		return 1
+	}
 	writeProblem(e.stderr, contract.AsProblem(err))
 	return 1
 }
@@ -198,7 +228,7 @@ func usageExit(e *env, msg, usage string) int {
 
 func rootUsage(fs *flag.FlagSet) string {
 	var b strings.Builder
-	b.WriteString("usage: nitrovin [--data FILE] <command> [flags] [arguments]\n       nitrovin [--data FILE] --version\n\ncommands:\n")
+	b.WriteString("usage: nitrovin [--data FILE] [--vocab PATH]... <command> [flags] [arguments]\n       nitrovin [--data FILE] [--vocab PATH]... --version\n\ncommands:\n")
 	tw := tabwriter.NewWriter(&b, 0, 8, 2, ' ', 0)
 	for _, name := range slices.Sorted(maps.Keys(commands)) {
 		fmt.Fprintf(tw, "  %s\t%s\n", name, commands[name].summary)
@@ -220,17 +250,68 @@ func commandUsage(c command, fs *flag.FlagSet) string {
 	return b.String()
 }
 
-// decoder loads the data: --data, then $NITROVIN_DATA, then the artifact
-// embedded in the binary.
+// decoder loads the data and the vocabularies beside it (translator).
 func (e *env) decoder() (*nitrovin.Decoder, error) {
-	d, _, err := e.load()
-	return d, err
+	t, _, err := e.load()
+	if err != nil {
+		return nil, err
+	}
+	return t.Decoder(), nil
 }
 
-// load is decoder with the artifact's bytes, for a command that reads more
-// of the data than a decode carries: serve's form reads the error-code
-// table.
-func (e *env) load() (*nitrovin.Decoder, []byte, error) {
+// translator loads the data, then the vocabularies beside it: every
+// --vocab, or else $NITROVIN_VOCAB. A fault in a file is an internal
+// problem naming the flag or variable, the file and the line; drift is
+// written to stderr, one vocab.Finding per line, and served.
+func (e *env) translator() (*nitrovin.Translator, error) {
+	t, _, err := e.load()
+	return t, err
+}
+
+// load is translator with the artifact's bytes, for a command that reads
+// more of the data than a decode carries: serve's form reads the
+// error-code table.
+func (e *env) load() (*nitrovin.Translator, []byte, error) {
+	d, data, err := e.loadData()
+	if err != nil {
+		return nil, nil, err
+	}
+	paths, from := e.vocab, "--vocab"
+	if len(paths) == 0 {
+		paths, from = nil, "NITROVIN_VOCAB"
+		for _, p := range filepath.SplitList(e.getenv("NITROVIN_VOCAB")) {
+			if p != "" {
+				paths = append(paths, p)
+			}
+		}
+	}
+	files, err := vocab.Open(paths...)
+	var t *nitrovin.Translator
+	if err == nil {
+		t, err = nitrovin.NewTranslator(d, files...)
+	}
+	if err != nil {
+		return nil, nil, contract.NewProblem(contract.Internal, "", fmt.Sprintf("%s: %v", from, err))
+	}
+	for _, f := range t.Drift() {
+		writeFinding(e.stderr, f)
+	}
+	return t, data, nil
+}
+
+// writeFinding writes f to w as one line of compact JSON.
+func writeFinding(w io.Writer, f vocab.Finding) error {
+	b, err := json.Marshal(f)
+	if err != nil { // a Finding is strings and an int: unreachable
+		panic(err)
+	}
+	_, err = w.Write(append(b, '\n'))
+	return err
+}
+
+// loadData loads the data alone: --data, then $NITROVIN_DATA, then the
+// artifact embedded in the binary. It returns the artifact's bytes too.
+func (e *env) loadData() (*nitrovin.Decoder, []byte, error) {
 	path, from := e.data, "--data"
 	if path == "" {
 		path, from = e.getenv("NITROVIN_DATA"), "NITROVIN_DATA"

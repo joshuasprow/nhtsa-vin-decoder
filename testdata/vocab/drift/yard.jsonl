@@ -1,0 +1,6 @@
+{"format":1,"kind":"vocabulary","name":"yard","version":"2026.11-drift","data_month":"2026_10","subject":"vehicle","fields":["make","model"]}
+{"entry":{"make":"Dodge","model":"Ram 1500"},"mappings":[{"model":1938,"last":2012,"qualifiers":{"34":["1500","1500 Megacab"]}},{"model":13620,"first":2013}]}
+{"entry":{"make":"Dodge","model":"Ram 1500 4x4"},"mappings":[{"model":13620,"first":2013,"qualifiers":{"15":[2,99]}}]}
+{"entry":{"make":"Imperial","model":"Other"},"mappings":[{"make":99999}]}
+{"entry":{"make":"Dodge","model":"Phantom"},"mappings":[{"model":99999}]}
+{"entry":{"make":"Chevrolet","model":"Silverado"},"mappings":[{"ext":"ext:classics/silverado"}]}

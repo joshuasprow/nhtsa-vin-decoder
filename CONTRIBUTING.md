@@ -90,12 +90,13 @@ alone, except the API documents the contract tests read and the deviation
 witnesses the oracle reads.
 
 - `contract.yml` (schemas and the no-data tests): `pkg/contract`,
-  `pkg/nitrovin`, `pkg/decoder`, `cmd/nitrovin`, `docs/api`'s three
-  documents, `go.mod`, `go.sum`.
+  `pkg/nitrovin`, `pkg/decoder`, `pkg/vocab`, `cmd/nitrovin`,
+  `testdata/vocab/`, `docs/api`'s four schema documents, `go.mod`, `go.sum`.
 - `import.yml`, **Tests**, on `pkg/`, `cmd/`, `go.mod`, `go.sum`,
-  `testdata/parity/`, `scripts/oracle.sh`, in three jobs. *Changed paths*
-  decides whether Postgres is needed. *Artifact* always runs, without
-  Postgres, on the artifact `go.mod` pins (read from the module cache): the
+  `testdata/parity/`, `testdata/vocab/`, `scripts/oracle.sh`, in three
+  jobs. *Changed paths* decides whether Postgres is needed. *Artifact*
+  always runs, without Postgres, on the artifact `go.mod` pins (read from
+  the module cache): the
   contract, CLI, HTTP, stdio, MCP and form tests, `TestParity` offline and
   `TestVinsCoversTheMonth`, each required to pass, not skip, in about two
   minutes. *Postgres* restores the dump and runs the importer's
@@ -107,7 +108,7 @@ witnesses the oracle reads.
   full=true` runs Postgres anyway.
 - `libnitrovin.yml` (the C library on six native runners, on the pinned
   artifact): `cmd/libnitrovin`, the packages it links (`pkg/stdio`,
-  `pkg/nitrovin`, `pkg/contract`, `pkg/decoder`), `go.mod`,
+  `pkg/nitrovin`, `pkg/contract`, `pkg/decoder`, `pkg/vocab`), `go.mod`,
   `scripts/libnitrovin.sh`.
 - `oracle-smoke.yml` (the Postgres oracle end to end): `oracle.yml`,
   `scripts/oracle.sh`, `testdata/oracle/`, `docs/deviations/`.
@@ -261,6 +262,29 @@ bytes:
 NITROVIN_ARTIFACT=$PWD/nitrovin.artifact go test ./pkg/contract -run 'TestInfo|TestEngineAnswerKey'
 ```
 
+## Vocabularies
+
+`pkg/vocab` reads, validates and indexes the files `--vocab` loads
+([ADR 0011](docs/adr/0011-vocabularies-are-json-lines-loaded-once.md),
+`docs/api/vocabulary.schema.json`): `Read` checks one file, `Open` files and
+directories and `Link` them against each other, every fault a `Finding`
+naming the file and line. `Drift` measures files against a data month
+through the `Month` interface, which `pkg/nitrovin` implements on the
+artifact (`NewTranslator`). `pkg/vocab` imports no artifact, decoder or
+nitrovin-data, so it also builds for a browser:
+`GOOS=js GOARCH=wasm go build ./pkg/vocab` must keep compiling.
+
+`testdata/vocab` is the synthetic fixture every vocabulary test shares,
+built against 2026_10: a vehicle vocabulary (`yard`: Dodge's Ram 1500
+split by year across vPIC models 1938 and 13620, with Series and Drive
+Type qualifiers, extension mappings, make mappings and an unmapped entry),
+an extension set (`classics`), a declared spine (`parts`) and a part
+vocabulary on it (`listing`, with Vehicle Type qualifiers and an unmapped
+entry). It loads with no drift; `testdata/vocab/drift/` has one drift of
+each kind. `go test ./pkg/vocab` refuses one file per fault class and
+validates the fixture against the schema; `go test ./pkg/nitrovin` loads
+the fixture and its drift variant against the embedded data.
+
 ## The surfaces
 
 `cmd/nitrovin` is the binary. Each command lives in its own file and
@@ -269,7 +293,8 @@ surface adds one file and leaves `main.go` alone. Its data is `--data
 <file>`, then `NITROVIN_DATA`, then the artifact embedded from
 `github.com/joshuasprow/nitrovin-data/pkg/embedded`, the month `go.mod`
 pins (ADR 0007); a data month moves only by bumping that pin, which the
-monthly refresh does.
+monthly refresh does. Beside the data, every command loads `--vocab`, or
+else `NITROVIN_VOCAB` (`env.load`).
 
 `go test ./cmd/nitrovin` runs the built binary: usage, refusal and
 unloadable-data cases, and `info`, `--version` and a decode on the embedded

@@ -99,3 +99,32 @@ func TestInfo(t *testing.T) {
 		t.Errorf("multi-valued elements %v, want %v", multi, want)
 	}
 }
+
+// TestInfoVocabularies: an Info listing loaded files, one with drift and
+// one without, validates against the contract's schema, and so does one
+// with none.
+func TestInfoVocabularies(t *testing.T) {
+	info := Info{
+		DecoderVersion: "(devel)",
+		DataMonth:      "2026_10",
+		ArtifactHash:   "blake3:7518c5b46c4264fe94a8e5158cb1949b000e50803b36d388fec9ebe914a780cb",
+		DataSource:     DataSourceEmbedded,
+		Elements:       loadElements(t),
+		Vocabularies: []VocabularyFile{
+			{Name: "parts", Kind: "spine", Version: "2026.11", Blake3: "8f91f3ee24e7fc60ee1bb813ea5302bbb323175ce323146683801b5718e17afa", Path: "/vocab/parts.jsonl", Drift: []DriftCount{}},
+			{Name: "yard", Kind: "vocabulary", Version: "2026.11", Blake3: "579d688449a9bc496d26049222802c68af4ea6968257f0d97e54bcbad707d8e2", Path: "/vocab/yard.jsonl", Drift: []DriftCount{
+				{Kind: "model", Count: 4, Examples: []DriftExample{{Line: 5, Detail: "/mappings/0/model: vPIC model 99999 is not in data month 2026_10"}}},
+			}},
+		},
+	}
+	for _, vs := range [][]VocabularyFile{info.Vocabularies, {}} {
+		info.Vocabularies = vs
+		b, err := json.Marshal(info)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validate(schemaDef(t, "Info"), b); err != nil {
+			t.Errorf("info with %d vocabularies does not validate: %v", len(vs), err)
+		}
+	}
+}

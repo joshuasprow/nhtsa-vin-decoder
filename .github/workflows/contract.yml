@@ -1,9 +1,11 @@
 # The decode contract layer without a dump: pkg/contract's request parsing
 # and both layouts, every decode of the committed oracle answer key checked
-# against docs/api/decode.schema.json; pkg/nitrovin vetted; the CLI's usage,
-# refusal and unloadable-data cases, and a decode on its embedded data. The
-# same decodes on the engine's output, and the CLI's decodes of the answer
-# key, need an artifact: import.yml's artifact job runs them.
+# against docs/api/decode.schema.json; pkg/vocab's faults, the synthetic
+# vocabulary fixture against docs/api/vocabulary.schema.json and its drift
+# against the embedded data; pkg/nitrovin vetted; the CLI's usage, refusal,
+# unloadable-data and vocabulary cases, and a decode on its embedded data.
+# The same decodes on the engine's output, and the CLI's decodes of the
+# answer key, need an artifact: import.yml's artifact job runs them.
 name: Contract
 
 on:
@@ -12,10 +14,13 @@ on:
       - pkg/contract/**
       - pkg/nitrovin/**
       - pkg/decoder/**
+      - pkg/vocab/**
       - cmd/nitrovin/**
+      - testdata/vocab/**
       - docs/api/decode.schema.json
       - docs/api/mcp-tools.json
       - docs/api/openapi.yaml
+      - docs/api/vocabulary.schema.json
       - go.mod
       - go.sum
       - mise.toml
@@ -55,5 +60,5 @@ jobs:
             go-contract-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
             go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
             go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
-      - run: go vet ./pkg/contract/ ./pkg/nitrovin/ ./cmd/nitrovin/
-      - run: go test -count=1 ./pkg/contract/ ./pkg/nitrovin/ ./cmd/nitrovin/
+      - run: go vet ./pkg/contract/ ./pkg/nitrovin/ ./pkg/vocab/ ./cmd/nitrovin/
+      - run: go test -count=1 ./pkg/contract/ ./pkg/nitrovin/ ./pkg/vocab/ ./cmd/nitrovin/
