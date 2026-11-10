@@ -35,6 +35,12 @@ type model struct {
 
 var _ vocab.Month = (*month)(nil)
 
+// Month is d's data month as a vocab.Month, the one NewTranslator measures
+// drift against: vPIC's makes and models, and the values its decode can
+// give each element. A builder matches an author's names to vPIC ids
+// through it.
+func (d *Decoder) Month() vocab.Month { return newMonth(d.artifact, d.info.Elements) }
+
 func newMonth(a *artifact.Artifact, elements contract.Elements) *month {
 	m := &month{a: a, elements: elements, makes: map[int32]string{}, models: map[int32]model{}, byMake: map[int32][]int32{}, values: map[int32]map[string]bool{}}
 	t := a.Table("lookup")

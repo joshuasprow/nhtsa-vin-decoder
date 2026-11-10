@@ -91,7 +91,8 @@ witnesses the oracle reads.
 
 - `contract.yml` (schemas and the no-data tests): `pkg/contract`,
   `pkg/nitrovin`, `pkg/decoder`, `pkg/vocab`, `cmd/nitrovin`,
-  `testdata/vocab/`, `docs/api`'s four schema documents, `go.mod`, `go.sum`.
+  `cmd/nitrovin-epa`, `testdata/vocab/`, `docs/api`'s four schema documents,
+  `go.mod`, `go.sum`.
 - `import.yml`, **Tests**, on `pkg/`, `cmd/`, `go.mod`, `go.sum`,
   `testdata/parity/`, `testdata/vocab/`, `scripts/oracle.sh`, in three
   jobs. *Changed paths* decides whether Postgres is needed. *Artifact*
@@ -284,6 +285,36 @@ entry). It loads with no drift; `testdata/vocab/drift/` has one drift of
 each kind. `go test ./pkg/vocab` refuses one file per fault class and
 validates the fixture against the schema; `go test ./pkg/nitrovin` loads
 the fixture and its drift variant against the embedded data.
+
+### The EPA vocabulary
+
+`cmd/nitrovin-epa` is a vocabulary builder: it writes `epa-vehicles`
+(fields `make`, `model`) from EPA's
+[vehicles.csv](https://www.fueleconomy.gov/feg/epadata/vehicles.csv.zip)
+and a data month, by the rules the EPA research chose
+([#144](https://github.com/joshuasprow/nitrovin/issues/144)): exact,
+stripped model, longest prefix (guarded by baseModel), baseModel,
+punctuation-insensitive, make-name prefix, slash alternatives, each named in
+its mapping's note. Every mapping holds for the years of the entry's EPA
+rows. Drive Type and Series qualifiers come from EPA's `drive` column and the
+tonnage in the name, narrowed to the values the model's VIN schemas emit.
+`cmd/nitrovin-epa/curated.jsonl`, built in, is the curated overrides: a
+vehicle vocabulary whose entries replace the derived ones (`origin:
+curated`), taking the EPA years and derived qualifiers where they state
+none. The version is the newest `createdOn`/`modifiedOn` date in the file
+and the data month, so the same inputs give the same bytes.
+
+```sh
+curl -sSLO https://www.fueleconomy.gov/feg/epadata/vehicles.csv.zip
+go run ./cmd/nitrovin-epa -o epa-vehicles.jsonl vehicles.csv.zip   # coverage on stderr
+go run ./cmd/nitrovin vocab check epa-vehicles.jsonl
+```
+
+`go test ./cmd/nitrovin-epa` builds a 78-row sample of vehicles.csv
+(`testdata/`) twice, from the CSV and from a zip, against its golden file
+(`-update` rewrites it), loads it against the embedded data with no drift,
+and checks the built-in overrides for drift. Publishing the vocabulary is
+nitrovin-data's.
 
 ## The surfaces
 
