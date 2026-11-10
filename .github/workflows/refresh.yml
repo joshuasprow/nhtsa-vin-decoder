@@ -1,12 +1,13 @@
 # The monthly refresh, unattended (ADR 0006, 0007, 0008): detect a new or
 # re-touched dump, build the artifact, gate it against the freshened Postgres
 # oracle on every WMI (one oracle.yml job per file of the generated VIN list),
-# report, and on green publish the nitrovin-data release, bump go.mod in a PR
-# that merges once its checks pass, and tag the patch release that
-# release.yml (goreleaser) ships through every channel. Red publishes
-# nothing: no data release, the pinned month stays, and the report goes to
-# an issue named "Refresh <month> is red" (a comment there on each red run;
-# the next green run closes it).
+# build the EPA vocabulary against it and gate that on `nitrovin vocab check`
+# finding no fault, report, and on green publish the nitrovin-data release,
+# bump go.mod in a PR that merges once its checks pass, and tag the patch
+# release that release.yml (goreleaser) ships through every channel. Red
+# publishes nothing: no data release, the pinned month stays, and the report
+# goes to an issue named "Refresh <month> is red" (a comment there on each
+# red run; the next green run closes it).
 #
 # Credentials, beside this run's GITHUB_TOKEN:
 #   NITROVIN_DATA_DEPLOY_KEY  write deploy key of joshuasprow/nitrovin-data: pushes
@@ -147,6 +148,32 @@ jobs:
           path: ${{ runner.temp }}/vins
           if-no-files-found: error
 
+  # The EPA vocabulary (epa-vehicles.jsonl) from EPA's vehicles.csv of today
+  # against this month's artifact: gated on no fault, its drift reported. It
+  # goes to the data release with the frozen key.
+  epa:
+    needs: [detect, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      MONTH: ${{ needs.detect.outputs.month }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/mise
+        with:
+          tools: go jq
+      - uses: actions/download-artifact@v8
+        with:
+          name: refresh-data
+          path: ${{ runner.temp }}/data
+      - name: Build and check
+        run: scripts/refresh.sh epa "$RUNNER_TEMP/data/nitrovin-$MONTH.artifact" "$RUNNER_TEMP/epa"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: refresh-epa
+          path: ${{ runner.temp }}/epa
+
   oracle:
     needs: [detect, build]
     strategy:
@@ -208,7 +235,7 @@ jobs:
           path: ${{ runner.temp }}/parity
 
   report:
-    needs: [detect, build, oracle, gate]
+    needs: [detect, build, oracle, gate, epa]
     if: always() && needs.build.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -252,8 +279,8 @@ jobs:
   # Re-freeze from file 1's run, whose list opens with the committed corpus
   # (TestParity -update-parity), cut the contract key from it, and rewrite
   # the -o text transcript; then run what the bump PR's checks will run on
-  # them. The diff goes to the bump PR; the frozen key and the stale-cache
-  # list go to the data release.
+  # them. The diff goes to the bump PR; the frozen key, the stale-cache list
+  # and the EPA vocabulary go to the data release.
   freeze:
     needs: [detect, build, report]
     if: always() && needs.report.outputs.green == 'true'
@@ -280,6 +307,10 @@ jobs:
         with:
           name: refresh-report
           path: ${{ runner.temp }}/report
+      - uses: actions/download-artifact@v8
+        with:
+          name: refresh-epa
+          path: ${{ runner.temp }}/epa
       - name: Freeze the keys
         run: |
           go test -count=1 -v ./pkg/decoder -run 'TestParity$' -update-parity="$RUNNER_TEMP/run" | tee "$RUNNER_TEMP/freeze.log"
@@ -301,7 +332,7 @@ jobs:
           git diff --cached --binary >"$RUNNER_TEMP/freeze/freeze.patch"
           # ADR 0008: a month's frozen key lives on as an asset of its release.
           tar -C testdata/parity -czf "$RUNNER_TEMP/extras/parity-$MONTH.tar.gz" "$MONTH"
-          cp "$RUNNER_TEMP/report/stale-cache.jsonl" "$RUNNER_TEMP/extras/"
+          cp "$RUNNER_TEMP/report/stale-cache.jsonl" "$RUNNER_TEMP/epa/epa-vehicles.jsonl" "$RUNNER_TEMP/extras/"
       - uses: actions/upload-artifact@v7
         with:
           name: refresh-freeze
@@ -571,7 +602,7 @@ jobs:
   # Red anywhere after detect: comment the report on the month's issue,
   # opening it if need be. Green: close it.
   notify:
-    needs: [detect, build, oracle, gate, report, freeze, publish-data, bump, release]
+    needs: [detect, build, epa, oracle, gate, report, freeze, publish-data, bump, release]
     if: always() && needs.detect.outputs.build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10

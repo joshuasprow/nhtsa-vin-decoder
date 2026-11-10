@@ -362,7 +362,8 @@ releases it as `v<format>.<YYYYMM>.<rebuild>` (`v1.202610.1`). Each data
 release keeps, forever: the artifact, NHTSA's dump zip (so a month can be
 re-checked after NHTSA stops hosting it), `manifest.json` (the dump's URL,
 size and SHA-256, the artifact's blake3, row counts, the importer commit),
-the month's frozen parity key and its stale-cache list.
+the month's frozen parity key, its stale-cache list and the EPA vocabulary
+(below).
 
 ```console
 $ nitrovin info | jq '{decoder_version, data_month, data_source, artifact_hash}'
@@ -409,6 +410,26 @@ for your CI:
 nitrovin vocab check vocabularies/
 nitrovin --vocab vocabularies/ serve
 ```
+
+Each data release also carries `epa-vehicles.jsonl`, a vocabulary of the
+names EPA's fuel-economy data
+([vehicles.csv](https://www.fueleconomy.gov/feg/download.shtml)) gives makes
+and models, mapped onto that month's vPIC makes and models with Drive Type
+and Series qualifiers where the name implies them. The monthly refresh builds
+it from that day's vehicles.csv against the new month and publishes it only
+if it loads with no fault; its version is EPA's newest record date and the
+data month (`2026-11-03+2026_10`), and the refresh PR reports its drift.
+Download it from the release of the month your binary embeds (`nitrovin
+--version` names it), or the latest:
+
+```sh
+curl -fsSLO https://github.com/joshuasprow/nitrovin-data/releases/latest/download/epa-vehicles.jsonl
+nitrovin --vocab epa-vehicles.jsonl info | jq '.vocabularies[] | {name, version, drift}'
+```
+
+A vocabulary built against another month loads too, with a drift warning for
+each id NHTSA has changed since. `checksums.txt` on the same release covers
+it ([Verify a release](#verify-a-release)).
 
 ## Parity
 

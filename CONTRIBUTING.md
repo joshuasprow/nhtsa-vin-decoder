@@ -313,8 +313,9 @@ go run ./cmd/nitrovin vocab check epa-vehicles.jsonl
 `go test ./cmd/nitrovin-epa` builds a 78-row sample of vehicles.csv
 (`testdata/`) twice, from the CSV and from a zip, against its golden file
 (`-update` rewrites it), loads it against the embedded data with no drift,
-and checks the built-in overrides for drift. Publishing the vocabulary is
-nitrovin-data's.
+and checks the built-in overrides for drift. Every data month publishes the
+vocabulary: the monthly refresh builds it against the new month and its
+data release carries `epa-vehicles.jsonl` (below).
 
 ## The surfaces
 
@@ -358,16 +359,22 @@ the one `go.mod` pins: a newer month, or the pinned month's dump re-touched
    with every witness, mutations, and generated VINs until every WMI and
    VinSchema is reached, in files of at most 5,000.
 2. One `oracle.yml` job per file decodes it on stock and freshened Postgres;
-   `TestParity -parity-run` gates each file, zero tolerance.
+   `TestParity -parity-run` gates each file, zero tolerance. Beside them,
+   `scripts/refresh.sh epa` downloads EPA's vehicles.csv, builds
+   `epa-vehicles.jsonl` against the new artifact with `cmd/nitrovin-epa`,
+   and runs `nitrovin vocab check` on it: a fault is red, drift is
+   reported.
 3. `scripts/refresh.sh report` writes the report: per-file parity, coverage
-   of `pkg/decoder`, what the list reaches (`coverage.json`), the stale-cache
-   class and the witnesses against live vPIC.
+   of `pkg/decoder`, the EPA vocabulary's check (its drift, one row per
+   finding) and coverage, what the list reaches (`coverage.json`), the
+   stale-cache class and the witnesses against live vPIC.
 4. Green: `TestParity -update-parity` re-freezes `testdata/parity/<month>`
    from file 1, `scripts/refresh.sh contract-key` cuts
    `pkg/contract/testdata/oracle` from it, and `TestText -update` rewrites
    the transcript. The month is pushed to nitrovin-data's `main`, whose
    `release.yml` rebuilds it, requires the same bytes and publishes
-   `v<format>.<YYYYMM>.<n>` with the stale-cache list and the frozen key.
+   `v<format>.<YYYYMM>.<n>` with the stale-cache list, the frozen key and
+   `epa-vehicles.jsonl`.
 5. Once proxy.golang.org serves that tag, a PR bumps `go.mod` with the new
    keys and the report as its body; it is squash-merged when every check on
    it passes, and the next patch tag starts `release.yml`, which the refresh
