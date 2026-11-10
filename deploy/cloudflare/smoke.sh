@@ -11,7 +11,9 @@
 # release, and a decode through the host must equal the image's own decode
 # of the same request, byte for byte. NOW (default: now, to the second) is
 # the decode's frozen clock, which makes its URL new, so its first GET is a
-# MISS; FIRST=HIT expects that GET to find the cache filled already. TOOLS
+# MISS and its second a HIT; FIRST and SECOND name others (HIT: the cache
+# was filled already; BYPASS: the container is not the release the Worker
+# was deployed with, so nothing is stored). TOOLS
 # is the release's docs/api/mcp-tools.json (default this tree's), whose
 # tools /mcp must list. Over https it also checks HSTS, always-HTTPS, the
 # www redirect and the TLS floor.
@@ -66,16 +68,18 @@ got=$(identity "$tmp/info.b")
 [[ $got == "$want" ]] || fail "GET /v1/info: $got; the image reports $want"
 pass "GET /v1/info: $got"
 
-# A decode: the image's bytes, a MISS (or FIRST), then a HIT.
+# A decode: the image's bytes, a MISS (or FIRST), then a HIT (or SECOND).
 docker_run decode --now "$now" "$vin" >"$tmp/want-decode.json"
 target="/v1/decode/$vin?now=$now"
-for want_cache in "${FIRST:-MISS}" HIT; do
+for want_cache in "${FIRST:-MISS}" "${SECOND:-HIT}"; do
 	status=$(req decode "$base$target")
 	cache=$(header decode cf-cache-status)
+	want_control="public, max-age=86400"
+	[[ $want_cache == BYPASS ]] && want_control=no-store
 	[[ $status == 200 ]] || fail "GET $target: $status"
 	cmp -s "$tmp/decode.b" "$tmp/want-decode.json" || fail "GET $target: body differs from \`nitrovin decode --now $now $vin\`"
 	[[ $cache == "$want_cache" ]] || fail "GET $target: cf-cache-status $cache; want $want_cache"
-	[[ $(header decode cache-control) == "public, max-age=86400" ]] || fail "GET $target: cache-control $(header decode cache-control)"
+	[[ $(header decode cache-control) == "$want_control" ]] || fail "GET $target: cache-control $(header decode cache-control); want $want_control"
 	pass "GET $target: 200, the image's bytes, cf-cache-status $cache"
 done
 

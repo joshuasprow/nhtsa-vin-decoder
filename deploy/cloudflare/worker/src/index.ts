@@ -26,12 +26,8 @@ const INSTANCE = "nitrovin";
 // names the release that computed it, so a new one never meets it.
 const CACHE_CONTROL = "public, max-age=86400";
 
-// How long an isolate trusts the release it last read from /v1/info before
-// reading it again.
-const IDENTITY_TTL_MS = 30_000;
-
 export default {
-	async fetch(request, env, ctx): Promise<Response> {
+	async fetch(request, env): Promise<Response> {
 		const url = new URL(request.url);
 		const container = getContainer(env.NITROVIN, INSTANCE);
 		if (request.method !== "GET" || !cacheable(url)) {
@@ -42,8 +38,9 @@ export default {
 			return withHeaders(response, { "Cache-Control": "no-store" });
 		}
 
-		const id = await identity(container, false);
-		const key = id && cacheKey(url, id);
+		// A hit never reaches the container: the key's release is the one
+		// this deploy pinned (RELEASE), not one read from it.
+		const key = env.RELEASE ? cacheKey(url, env.RELEASE) : undefined;
 		if (key) {
 			const hit = await caches.default.match(key);
 			if (hit) {
@@ -51,18 +48,13 @@ export default {
 			}
 		}
 		const response = await container.fetch(forward(request, url));
-		if (response.status !== 200 || !key) {
+		// Store a 200 only from the release the key names: during a rollout
+		// the container can still be the previous one.
+		if (response.status !== 200 || !key || (await identity(container)) !== env.RELEASE) {
 			return withHeaders(response, { "Cache-Control": "no-store", "Cf-Cache-Status": "BYPASS" });
 		}
 		const out = withHeaders(response, { "Cache-Control": CACHE_CONTROL, "Cf-Cache-Status": "MISS" });
-		// Store it only if the release that answered is still the one the key
-		// names: a rollout can replace the container between the two reads.
-		const stored = out.clone();
-		ctx.waitUntil(
-			identity(container, true).then((now) =>
-				now && cacheKey(url, now) === key ? caches.default.put(key, stored) : stored.body?.cancel(),
-			),
-		);
+		await caches.default.put(key, out.clone());
 		return out;
 	},
 
@@ -103,34 +95,23 @@ function cacheable(url: URL): boolean {
 	);
 }
 
-/** The release answering: what /v1/info says, the cache key's prefix. */
-type Identity = string;
-
-let known: { at: number; id: Identity } | undefined;
-
 /**
- * The release the container serves, from its /v1/info: decoder version,
- * data month and artifact hash. Read again after IDENTITY_TTL_MS, or now
- * when fresh; undefined when the container cannot say.
+ * The release the container serves, as RELEASE names one: decoder version,
+ * data month and artifact hash from its /v1/info; undefined when it cannot
+ * say.
  */
-async function identity(container: DurableObjectStub<Nitrovin>, fresh: boolean): Promise<Identity | undefined> {
-	const now = Date.now();
-	if (!fresh && known && now - known.at < IDENTITY_TTL_MS) {
-		return known.id;
-	}
+async function identity(container: DurableObjectStub<Nitrovin>): Promise<string | undefined> {
 	const response = await container.fetch("http://localhost/v1/info");
 	if (!response.ok) {
 		return undefined;
 	}
 	const info = (await response.json()) as { decoder_version: string; data_month: string; artifact_hash: string };
-	const id = [info.decoder_version, info.data_month, info.artifact_hash].join("/");
-	known = { at: now, id };
-	return id;
+	return [info.decoder_version, info.data_month, info.artifact_hash].join("/");
 }
 
 /** The cache key: the release, then the path and query as sent. */
-function cacheKey(url: URL, id: Identity): string {
-	return `${url.origin}/.cache/${encodeURIComponent(id)}${url.pathname}${url.search}`;
+function cacheKey(url: URL, release: string): string {
+	return `${url.origin}/.cache/${encodeURIComponent(release)}${url.pathname}${url.search}`;
 }
 
 function withHeaders(response: Response, headers: Record<string, string>): Response {

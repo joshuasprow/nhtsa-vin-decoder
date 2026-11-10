@@ -130,9 +130,14 @@ jobs:
           cosign verify "$IMAGE@$digest" \
             --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/$tag" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null
+          # The release the Worker caches under: the image's own /v1/info identity.
+          release=$(docker run --rm --platform linux/amd64 "$IMAGE@$digest" info |
+            jq -r '[.decoder_version, .data_month, .artifact_hash] | join("/")')
+          [[ $release == "$tag/"* ]] || { echo "deploy: $IMAGE@$digest reports $release, not $tag" >&2; exit 1; }
           {
             echo "TAG=$tag"
             echo "DIGEST=$digest"
+            echo "RELEASE=$release"
           } | tee -a "$GITHUB_ENV"
 
       - name: Pin the Dockerfile to the release
@@ -145,7 +150,8 @@ jobs:
         working-directory: deploy/cloudflare/worker
         run: |
           npm ci
-          npx wrangler deploy --message "$TAG ($DIGEST), ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          npx wrangler deploy --var "RELEASE:$RELEASE" \
+            --message "$TAG ($DIGEST), ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       # After the Worker exists: the custom domain names it.
       - name: Terraform

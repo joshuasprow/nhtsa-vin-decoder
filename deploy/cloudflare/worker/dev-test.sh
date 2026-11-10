@@ -7,11 +7,13 @@
 #
 # Two images of this tree's nitrovin, differing only in decoder_version
 # (one VCS-stamped, one built with -buildvcs=false, "(devel)"), are served
-# in turn under one persisted wrangler dev state, and ../smoke.sh runs
-# against each with the same frozen clock. The second image's first decode
-# is a MISS though the URL already sits in the cache, under the first
-# release's key; the first image again finds it there (a HIT), so the state
-# did persist.
+# in turn under one persisted wrangler dev state, each with the Worker's
+# RELEASE set as deploy.yml sets it, and ../smoke.sh runs against each with
+# the same frozen clock. The second image's first decode is a MISS though
+# the URL already sits in the cache, under the first release's key; the
+# first image again finds it there (a HIT), so the state did persist. Last,
+# a rollout not yet done: RELEASE names the first image, the second still
+# answers, and a new URL is never stored (BYPASS).
 set -euo pipefail
 # Job control: wrangler dev runs in a process group of its own, so stop()
 # ends workerd and its container proxies with it, not npx alone.
@@ -41,12 +43,17 @@ image() {
 	echo "$tag: $(docker run --rm --platform linux/amd64 "$tag" info | jq -r .decoder_version)"
 }
 
-# serve <image>: wrangler dev with the worker's Dockerfile on <image>, its
-# state in $tmp/state across runs.
+# release <image>: the release it is, as deploy.yml writes RELEASE.
+release() {
+	docker run --rm --platform linux/amd64 "$1" info | jq -r '[.decoder_version, .data_month, .artifact_hash] | join("/")'
+}
+
+# serve <image> <release> <state>: wrangler dev with the worker's Dockerfile
+# on <image>, RELEASE <release>, its state (the cache) in $tmp/<state>.
 serve() {
 	sed "s|^FROM .*|FROM $1|" "$tmp/Dockerfile" >"$worker/Dockerfile"
-	(cd "$worker" && exec npx wrangler dev --port "$port" --persist-to "$tmp/state" --show-interactive-dev-session=false) \
-		>"$tmp/dev.log" 2>&1 &
+	(cd "$worker" && exec npx wrangler dev --port "$port" --persist-to "$tmp/$3" --show-interactive-dev-session=false \
+		--var "RELEASE:$2") >"$tmp/dev.log" 2>&1 &
 	dev=$!
 	for _ in $(seq 300); do
 		grep -q 'Ready on' "$tmp/dev.log" && return
@@ -73,13 +80,25 @@ stop() {
 
 image nitrovin-dev:vcs
 image nitrovin-dev:devel -buildvcs=false
-export NOW
+vcs=$(release nitrovin-dev:vcs)
+devel=$(release nitrovin-dev:devel)
+export NOW FIRST SECOND
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-for run in nitrovin-dev:vcs:MISS nitrovin-dev:devel:MISS nitrovin-dev:vcs:HIT; do
-	tag=${run%:*}
-	echo "--- wrangler dev on $tag"
-	serve "$tag"
-	FIRST=${run##*:} "$worker/../smoke.sh" "http://localhost:$port" "$tag"
+# image, the RELEASE it is deployed with, the cache, the decode's first and
+# second status. The rollout run starts from an empty cache: what the first
+# image's runs stored under its release is right to serve, so only an empty
+# cache shows the second image's answers are never stored.
+runs=(
+	"nitrovin-dev:vcs $vcs state MISS HIT"
+	"nitrovin-dev:devel $devel state MISS HIT"
+	"nitrovin-dev:vcs $vcs state HIT HIT"
+	"nitrovin-dev:devel $vcs rollout BYPASS BYPASS"
+)
+for run in "${runs[@]}"; do
+	read -r tag rel state FIRST SECOND <<<"$run"
+	echo "--- wrangler dev on $tag, RELEASE $rel, cache $state"
+	serve "$tag" "$rel" "$state"
+	"$worker/../smoke.sh" "http://localhost:$port" "$tag"
 	# The keep-warm cron's handler.
 	status=$(curl -sS -o /dev/null -w '%{http_code}' "http://localhost:$port/cdn-cgi/local/scheduled")
 	[[ $status == 200 ]] || { echo "FAIL  scheduled: $status" >&2; exit 1; }
