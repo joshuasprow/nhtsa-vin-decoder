@@ -148,3 +148,5 @@ func nitrovin_close(h *C.nitrovin_t) {
 }
 
 func main() {}
+
+// ci-matrix probe
