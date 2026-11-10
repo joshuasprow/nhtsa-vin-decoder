@@ -21,6 +21,8 @@
 			"instance_type": "lite",
 			// One named instance serves; the cap bounds a runaway at three.
 			"max_instances": 3,
+			// Callers are in the central US (#124): never start it elsewhere.
+			"constraints": { "regions": ["ENAM", "WNAM"], "jurisdiction": "us" },
 		},
 	],
 	"durable_objects": {
