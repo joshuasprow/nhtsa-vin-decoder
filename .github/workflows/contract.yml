@@ -9,7 +9,9 @@
 # Chrome, with JavaScript and without, audited by axe (TestForm, which CI
 # set makes fail without a browser); the browser's Service Worker (ADR
 # 0013) built for js/wasm and run in the same Chrome against the server's
-# answers (TestWorker); and the packages it runs built for js/wasm. The
+# answers (TestWorker), and /vocab's page with JavaScript and without,
+# audited by axe, each finding of the browser prototype's review a step
+# (TestVocabPage); and the packages it runs built for js/wasm. The
 # same decodes on the engine's output, and the CLI's decodes of the answer
 # key, need an artifact: import.yml's artifact job runs them.
 name: Contract

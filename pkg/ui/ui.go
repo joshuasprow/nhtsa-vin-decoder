@@ -62,8 +62,12 @@ const htmxVersion = "2.0.11"
 
 // htmxConfig is the layout's htmx configuration (the htmx-config meta):
 // a 4xx or 5xx fragment is an error, swapped into the error slot; htmx
-// adds no inline style, which CSP refuses, and evaluates nothing.
-const htmxConfig = `{"allowEval":false,"includeIndicatorStyles":false,"responseHandling":[` +
+// adds no inline style, which CSP refuses, and evaluates nothing. A swap
+// settles at once (no settle delay, which only serves CSS transitions the
+// pages have none of), so what a swap brings is live, its forms htmx's,
+// the moment the swap is done: a button clicked right away never posts
+// as a page.
+const htmxConfig = `{"allowEval":false,"includeIndicatorStyles":false,"defaultSettleDelay":0,"responseHandling":[` +
 	`{"code":"204","swap":false},` +
 	`{"code":"[23]..","swap":true},` +
 	`{"code":"[45]..","swap":true,"error":true,"target":"#ui-error","swapOverride":"innerHTML"}]}`
@@ -197,8 +201,8 @@ type Handler struct {
 	// has none and in the browser.
 	worker *Worker
 	// offer is the vocabulary /vocab offers to load into the browser,
-	// EPA's; nil for none.
-	offer *Offer
+	// EPA's, nil for none; on the server, read on first need.
+	offer func() *Offer
 	log   *log.Logger
 	// spine is the Backend's spine bundle, asked for once.
 	spine func() ([]byte, error)
@@ -241,7 +245,7 @@ func New(b Backend, log *log.Logger) *Handler {
 // what the server offers (ReadWorkerConfig): the vocabulary pages alone,
 // since the worker forwards every other request.
 func NewInBrowser(lib *Library, offer *Offer, log *log.Logger) *Handler {
-	h := &Handler{p: lib, lib: lib, offer: offer, log: log, routes: map[string]route{}, posts: map[string]route{}}
+	h := &Handler{p: lib, lib: lib, offer: func() *Offer { return offer }, log: log, routes: map[string]route{}, posts: map[string]route{}}
 	h.vocabRoutes()
 	return h
 }
@@ -252,10 +256,19 @@ func NewInBrowser(lib *Library, offer *Offer, log *log.Logger) *Handler {
 // the server's data month.
 func (h *Handler) WithWorker(w Worker) *Handler {
 	h.worker = &w
+	h.offer = nil
 	if len(w.EPA) > 0 {
-		h.offer = h.epaOffer(w.EPA)
+		h.offer = sync.OnceValue(func() *Offer { return h.epaOffer(w.EPA) })
 	}
 	return h
+}
+
+// offered is the vocabulary the handler offers, nil for none.
+func (h *Handler) offered() *Offer {
+	if h.offer == nil {
+		return nil
+	}
+	return h.offer()
 }
 
 // fragment reports whether r asks for a fragment: htmx sent it, and not to
@@ -388,7 +401,7 @@ func (h *Handler) published(info contract.Info, name string, missing *pageError)
 	if !ok || !ok2 || !ok3 {
 		return "", nil, missing
 	}
-	if o := h.offer; o != nil && fileName == o.Name && hash == o.Blake3 {
+	if o := h.offered(); o != nil && fileName == o.Name && hash == o.Blake3 {
 		return "application/jsonl", func() ([]byte, error) { return h.worker.EPA, nil }, nil
 	}
 	for _, f := range info.Vocabularies {

@@ -12,10 +12,10 @@ Loading your own vocabulary files needs JavaScript: they are kept in this browse
 {{- else -}}
 This nitrovin was built without its browser translator (scripts/sw.sh builds it; release builds include it), so it cannot load your own files. Translation through vPIC and this server's own files works.
 {{- end}}</p>
+<p id="load-status" role="status" aria-live="polite"></p>
 <div id="browser-files">
 {{template "catalog" .Catalog}}
 </div>
-<p id="load-status" role="status" aria-live="polite"></p>
 </section>
 {{- end}}
 
@@ -23,12 +23,12 @@ This nitrovin was built without its browser translator (scripts/sw.sh builds it;
 this server, this browser), with its drift or the fault that left it out.
 Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 {{define "catalog" -}}
-<table class="catalog">
-<thead><tr><th scope="col">Name</th><th scope="col">Kept in</th><th scope="col">Kind</th><th scope="col">Version</th><th scope="col">Names</th><th scope="col">Spine or fields</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+<div class="scroll"><table class="catalog">
+<thead><tr><th scope="col">Name</th><th scope="col">What it is</th><th scope="col">Version</th><th scope="col">Kept in</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
 <tbody>
 {{range .Rows}}<tr data-where="{{.Where}}"><th scope="row">{{if .Fault}}{{.Name}}{{else}}<a href="/ui/vocabularies/{{.Name}}">{{.Name}}</a>{{end}}</th>
+<td>{{.What}}</td><td class="version">{{.Version}}</td>
 <td>{{.WhereText}}{{with .File}}<br><span class="hint">{{.FileName}}, {{.SizeText}}{{if .Lines}}, {{.Lines}} lines{{end}}, stored {{.Stored.Format "2006-01-02 15:04"}} UTC</span>{{end}}</td>
-<td>{{.Kind}}</td><td>{{.Version}}</td><td>{{.Subject}}</td><td>{{with .Fields}}{{range $i, $f := .}}{{if $i}}, {{end}}{{$f}}{{end}} → {{end}}{{.Spine}}</td>
 <td>{{if .Fault}}<span class="error">Left out: {{.Fault}}</span>{{else if eq .Where "vpic"}}the data month{{else if .Drift}}<details><summary>Drift: {{.DriftText}}</summary><ul>{{range .DriftExamples}}<li>{{.}}</li>{{end}}</ul></details>{{else}}linked, no drift{{end}}</td>
 <td>{{if not .Fault}}{{if eq .Where "vpic"}}<a href="/ui/translate">Translate<span class="visually-hidden"> a VIN</span></a>{{else if eq .Kind "vocabulary"}}<a href="/ui/translate?from.vocabulary={{.Name}}">Translate<span class="visually-hidden"> from {{.Name}}</span></a>{{end}}{{end}}
 {{- if and $.Manage .File}}
@@ -36,7 +36,7 @@ Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 <input type="hidden" name="name" value="{{.Name}}"><button type="submit">Remove {{.Name}}</button>
 </form>{{end}}</td></tr>
 {{end}}</tbody>
-</table>
+</table></div>
 {{- end}}
 
 {{define "catalog-page" -}}
@@ -123,10 +123,10 @@ Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 </section>
 {{- end}}
 
-{{/* files is the worker's /vocab panel: the merged catalog with Remove on
-the browser's files, a refused remove, EPA's vocabulary to load, and the
-loader. vocab.js fills storage-usage, and says how a load went in
-#load-status, outside the panel, which a swap never replaces. */}}
+{{/* files is the worker's /vocab panel: a refused remove, the loader and
+EPA's vocabulary to load, then the merged catalog with Remove on the
+browser's files. vocab.js fills storage-usage, and says how a load went in
+#load-status, just above the panel, which a swap never replaces. */}}
 {{define "files" -}}
 {{with .Refusal}}<div class="refusal" role="alert">
 <p>{{.Error}} Remove them too?</p>
@@ -136,18 +136,18 @@ loader. vocab.js fills storage-usage, and says how a load went in
 <button type="submit">Remove all of them</button>
 </form>
 </div>{{end}}
-{{template "catalog" .Catalog}}
-{{if .NoneStored}}<p>No files are kept in this browser yet.</p>{{end}}
-{{with .Offer}}<div class="offer">
-{{if .Held}}<p>EPA's vocabulary, {{.Name}} {{.Version}}, is kept in this browser.</p>
-{{else}}<button type="button" id="load-epa" data-url="{{.URL}}" data-file="{{.Name}}.jsonl" aria-describedby="load-epa-hint">Load EPA's vocabulary</button>
-<p id="load-epa-hint" class="hint">{{.Name}} {{.Version}}, {{.SizeText}}: the make and model names of EPA's fuel-economy data, mapped onto this data month's vPIC makes and models. It is public, published with nitrovin's data; loaded, it is kept in this browser like your own files{{with .Replaces}}, replacing version {{.}}{{end}}.</p>
-{{end}}</div>{{end}}
 <div class="load">
 <label for="vocab-files">Load vocabulary files</label>
 <input type="file" id="vocab-files" multiple accept=".jsonl,application/jsonl" aria-describedby="vocab-files-hint">
 <p id="vocab-files-hint" class="hint">Or drop them anywhere on this page. Files loaded together are linked as one batch, and a file named like a stored one replaces it. They stay in this browser.</p>
 </div>
+{{with .Offer}}<div class="offer">
+{{if .Held}}<p>EPA's vocabulary, {{.Name}} {{.Version}}, is kept in this browser.</p>
+{{else}}<button type="button" id="load-epa" data-url="{{.URL}}" data-file="{{.Name}}.jsonl" aria-describedby="load-epa-hint">Load EPA's vocabulary</button>
+<p id="load-epa-hint" class="hint">{{.Name}} {{.Version}}, {{.SizeText}}: the make and model names of EPA's fuel-economy data, mapped onto this data month's vPIC makes and models. It is public, published with nitrovin's data; loaded, it is kept in this browser like your own files{{with .Replaces}}, replacing version {{.}}{{end}}.</p>
+{{end}}</div>{{end}}
+{{template "catalog" .Catalog}}
+{{if .NoneStored}}<p>No files are kept in this browser yet.</p>{{end}}
 <p id="storage-usage" class="hint"></p>
-<p class="hint">Translated in this browser by release {{.Release}}, data month {{.DataMonth}}.</p>
+<p class="hint">Translated in this browser by release <code>{{.Release}}</code>, data month {{.DataMonth}}.</p>
 {{- end}}

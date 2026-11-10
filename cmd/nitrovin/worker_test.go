@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -46,6 +47,9 @@ type wireLog struct {
 	// swTail, when not "", is added to /sw.js: another worker, as a new
 	// release or a restart with other files makes.
 	swTail string
+	// cutDecodes drops the connection of every /v1/decode request, as an
+	// unreachable server does.
+	cutDecodes bool
 }
 
 type wireRequest struct {
@@ -58,8 +62,14 @@ func (l *wireLog) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	l.mu.Lock()
 	l.seen = append(l.seen, wireRequest{r.Method, r.URL.RequestURI(), len(body)})
-	tail := l.swTail
+	tail, cut := l.swTail, l.cutDecodes
 	l.mu.Unlock()
+	if cut && strings.HasPrefix(r.URL.Path, "/v1/decode/") {
+		if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+			_ = conn.Close()
+		}
+		return
+	}
 	if r.URL.Path != "/sw.js" || tail == "" {
 		l.h.ServeHTTP(w, r)
 		return
@@ -80,30 +90,41 @@ func (l *wireLog) all() []wireRequest {
 	return slices.Clone(l.seen)
 }
 
-// buildWorker builds the module as a release does (scripts/sw.sh), twice,
-// and checks that both builds are the same bytes.
+// buildWorker is the module as a release builds it (scripts/sw.sh), built
+// twice, once per test binary, the two builds held to the same bytes.
 func buildWorker(t *testing.T) ui.Worker {
 	t.Helper()
+	w, err := builtWorker()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w
+}
+
+var builtWorker = sync.OnceValues(func() (ui.Worker, error) {
 	var builds [2]ui.Worker
 	for i := range builds {
-		dir := t.TempDir()
+		dir, err := os.MkdirTemp("", "nitrovin-sw")
+		if err != nil {
+			return ui.Worker{}, err
+		}
+		defer os.RemoveAll(dir)
 		cmd := exec.Command("bash", "../../scripts/sw.sh", dir)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("scripts/sw.sh: %v\n%s", err, out)
+			return ui.Worker{}, fmt.Errorf("scripts/sw.sh: %v\n%s", err, out)
 		}
-		var err error
 		if builds[i].Module, err = os.ReadFile(filepath.Join(dir, "sw.wasm")); err != nil {
-			t.Fatal(err)
+			return ui.Worker{}, err
 		}
 		if builds[i].Exec, err = os.ReadFile(filepath.Join(dir, "wasm_exec.js")); err != nil {
-			t.Fatal(err)
+			return ui.Worker{}, err
 		}
 	}
 	if !bytes.Equal(builds[0].Module, builds[1].Module) {
-		t.Error("two builds of the module differ: it is not reproducible")
+		return ui.Worker{}, errors.New("two builds of the module differ: it is not reproducible")
 	}
-	return builds[0]
-}
+	return builds[0], nil
+})
 
 // vocabServer serves the API with the embedded data and the files at
 // paths loaded, with the worker's module when w is not nil.
@@ -199,7 +220,7 @@ func TestWorker(t *testing.T) {
 	}))
 	tb.waitPrefix("#load-status", "Loaded ")
 	t.Logf("loaded the fixture batch in %v", time.Since(start).Round(time.Millisecond))
-	if got := eval[[]string](tb, `[...document.querySelectorAll("table.files tbody th")].map(th => th.firstChild.textContent)`); !slices.Equal(got, []string{"listing", "parts", "yard"}) {
+	if got := eval[[]string](tb, `[...document.querySelectorAll("table.catalog tr[data-where=browser] th")].map(th => th.firstChild.textContent)`); !slices.Equal(got, []string{"listing", "parts", "yard"}) {
 		t.Errorf("stored files %q; want listing, parts, yard", got)
 	}
 
@@ -267,7 +288,7 @@ func TestWorker(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	tb.stopWorkers()
 	tb.waitPrefix("#load-status", "Nothing was loaded: The load stalled")
-	if got := eval[[]string](tb, `[...document.querySelectorAll("table.files tbody th")].map(th => th.firstChild.textContent)`); !slices.Equal(got, []string{"listing", "parts", "yard"}) {
+	if got := eval[[]string](tb, `[...document.querySelectorAll("table.catalog tr[data-where=browser] th")].map(th => th.firstChild.textContent)`); !slices.Equal(got, []string{"listing", "parts", "yard"}) {
 		t.Errorf("after a stalled load: stored files %q; want listing, parts, yard", got)
 	}
 

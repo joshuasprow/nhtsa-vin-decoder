@@ -161,6 +161,25 @@ func (r catalogRow) WhereText() string {
 	return "this browser"
 }
 
+// What says what the row's file is, in words: "vocabulary of vehicles:
+// make, model → vpic", "spine of parts"; "" for a file left out unread.
+func (r catalogRow) What() string {
+	if r.Kind == "" {
+		return ""
+	}
+	s := strings.ReplaceAll(r.Kind, "-", " ")
+	if r.Subject != "" {
+		s += " of " + r.Subject + "s"
+	}
+	switch {
+	case len(r.Fields) > 0:
+		s += ": " + strings.Join(r.Fields, ", ") + " → " + r.Spine
+	case r.Spine != "":
+		s += " → " + r.Spine
+	}
+	return s
+}
+
 // DriftText is the row's drift counted by kind: "1 make, 2 qualifier".
 func (r catalogRow) DriftText() string {
 	var out []string
@@ -602,11 +621,11 @@ func (h *Handler) panel() (filesPanel, error) {
 		return filesPanel{}, err
 	}
 	p := filesPanel{Catalog: catalogTable{Rows: h.rows(cat), Manage: true}, DataMonth: h.lib.Month(), Release: Release(h.lib.Info())}
-	if h.offer != nil {
-		p.Offer = &offerView{Offer: h.offer}
+	if o := h.offered(); o != nil {
+		p.Offer = &offerView{Offer: o}
 		for _, f := range h.lib.Files() {
-			if f.Name == h.offer.Name {
-				p.Offer.Held = f.Blake3 == h.offer.Blake3
+			if f.Name == o.Name {
+				p.Offer.Held = f.Blake3 == o.Blake3
 				p.Offer.Replaces = f.Version
 			}
 		}
@@ -748,7 +767,7 @@ func ReadWorkerConfig(config []byte) (contract.Info, *Offer, error) {
 // the old one and starts once the old one's pages close. It is never
 // cached without asking (no-cache), and it alone may run WebAssembly.
 func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info, base string) {
-	c := workerConfig{Assets: base, Release: Release(info), DecoderVersion: info.DecoderVersion, DataMonth: info.DataMonth, ArtifactHash: info.ArtifactHash, Files: []workerFile{}, EPA: h.offer}
+	c := workerConfig{Assets: base, Release: Release(info), DecoderVersion: info.DecoderVersion, DataMonth: info.DataMonth, ArtifactHash: info.ArtifactHash, Files: []workerFile{}, EPA: h.offered()}
 	for _, f := range info.Vocabularies {
 		c.Files = append(c.Files, workerFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3, URL: FilePath(info, f)})
 	}

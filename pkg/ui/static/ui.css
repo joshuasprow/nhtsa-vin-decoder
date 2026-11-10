@@ -57,10 +57,14 @@ a.example { display: inline-block; font-family: ui-monospace, monospace; padding
 }
 
 /* The vocabulary pages (vocab.html). */
-table.catalog { margin: .5rem 0 1rem; }
+/* The catalog scrolls sideways on a narrow screen rather than breaking
+   words; a drift example may break anywhere. */
+.scroll { overflow-x: auto; margin: .5rem 0 1rem; }
+table.catalog { min-width: 44rem; }
+table.catalog th, table.catalog td { overflow-wrap: normal; }
 table.catalog details { border: 0; padding: 0; margin: 0; }
 table.catalog summary { font-weight: 400; padding: 0; }
-table.catalog details ul { margin: .25rem 0 0; padding-left: 1.1rem; }
+table.catalog details ul { margin: .25rem 0 0; padding-left: 1.1rem; overflow-wrap: anywhere; }
 form.inline { display: inline; padding: 0; border: 0; }
 form.inline button { font-size: 13px; padding: .15rem .6rem; }
 .load, .offer { display: grid; gap: .25rem; margin: .75rem 0; }

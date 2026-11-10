@@ -482,9 +482,10 @@ func TestBrowserPages(t *testing.T) {
 	h := NewInBrowser(l, offer, log.New(io.Discard, "", 0))
 	status, _, body := response(t, h, "GET", "/ui/files", htmx)
 	for _, want := range []string{
-		`<tr data-where="vpic"><th scope="row"><a href="/ui/vocabularies/vpic">vpic</a></th>` + "\n<td>built in</td>",
-		`<tr data-where="server"><th scope="row"><a href="/ui/vocabularies/parts">parts</a></th>` + "\n<td>this server</td>",
-		`<tr data-where="browser"><th scope="row"><a href="/ui/vocabularies/classics">classics</a></th>` + "\n<td>this browser<br><span class=\"hint\">classics.jsonl, ",
+		`<tr data-where="vpic"><th scope="row"><a href="/ui/vocabularies/vpic">vpic</a></th>` + "\n<td>spine of vehicles</td><td class=\"version\">2026_10</td>\n<td>built in</td>",
+		`<tr data-where="server"><th scope="row"><a href="/ui/vocabularies/parts">parts</a></th>` + "\n<td>spine of parts</td><td class=\"version\">2026.11</td>\n<td>this server</td>",
+		`<tr data-where="browser"><th scope="row"><a href="/ui/vocabularies/classics">classics</a></th>` + "\n<td>extension set of vehicles → vpic</td><td class=\"version\">2026.11</td>\n<td>this browser<br><span class=\"hint\">classics.jsonl, ",
+		`<td>vocabulary of vehicles: make, model → vpic</td>`,
 		`<button type="submit">Remove yard</button>`,
 		`id="vocab-files"`,
 		`id="load-epa" data-url="` + testAssetsAttr + `/vocab/ff00/yard.jsonl" data-file="yard.jsonl"`,
