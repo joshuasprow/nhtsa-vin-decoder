@@ -21,6 +21,9 @@
 # - The postgres:17 server image: a container, pinned by tag and digest in
 #   import.yml, oracle.yml, refresh.yml and scripts/oracle.sh (one digest;
 #   scripts/tools.sh check refuses two).
+# - htmx: vendored, one file (pkg/ui/static/htmx.min.js, npm's htmx.org at
+#   pkg/ui/ui.go's htmxVersion), held to its sha256 by TestHTMXPin. The
+#   pages load it from the server, so nothing installs it.
 #
 # Not pinned, on purpose:
 # - Docker: a daemon (Docker Desktop locally, preinstalled on runners).
@@ -37,7 +40,7 @@
 # Bump: edit a version here, then
 #   mise lock --platform macos-arm64,macos-x64,linux-x64,linux-arm64,windows-x64
 # and commit both files. Every Monday tools.yml lists newer releases (these,
-# wrangler and postgres:17) in one issue; it never bumps.
+# wrangler, postgres:17 and htmx) in one issue; it never bumps.
 
 [tools]
 go = "1.27.3"

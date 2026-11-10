@@ -23,6 +23,7 @@ import (
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
+	"github.com/joshuasprow/nitrovin/pkg/ui"
 )
 
 // openAPI is GET /v1/openapi.json: docs/api/openapi.yaml as JSON, with
@@ -149,15 +150,18 @@ type decodeService interface {
 	List(contract.ListRequest) (contract.List, error)
 }
 
-// api serves the routes of docs/api/openapi.yaml, /mcp among them, and the
-// decode form at / with its script at /copy.js (form.go). Every refusal but
-// the form's own and the MCP transport's is an RFC 9457 problem. CORS
-// headers are set only with a cors origin, and only under /v1/ and on /mcp.
+// api serves the routes of docs/api/openapi.yaml, /mcp among them, the
+// decode form at / with its script at /copy.js (form.go), and the pages
+// under /ui (pkg/ui). Every refusal but the form's own, the pages' and the
+// MCP transport's is an RFC 9457 problem. CORS headers are set only with a
+// cors origin, and only under /v1/ and on /mcp.
 type api struct {
 	d   decodeService
 	log *log.Logger
 	// mcp is `nitrovin mcp`'s server over Streamable HTTP, stateless.
 	mcp http.Handler
+	// ui serves /ui and everything under it, its errors included.
+	ui http.Handler
 	// cors is the origin browsers may call /v1 and /mcp from, * for any;
 	// "" sets no CORS header.
 	cors string
@@ -181,7 +185,7 @@ func newAPI(d decodeService, log *log.Logger, stderr io.Writer, errorTexts map[i
 		JSONResponse:        true,
 		MaxRequestBodyBytes: contract.MaxBody,
 	})
-	return &api{d: d, log: log, mcp: handler, cors: cors, errorTexts: errorTexts}, nil
+	return &api{d: d, log: log, mcp: handler, ui: ui.New(d, log), cors: cors, errorTexts: errorTexts}, nil
 }
 
 // corsAllowHeaders are the request headers a preflight allows: a POST's
@@ -199,6 +203,10 @@ func (a *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	path := r.URL.EscapedPath()
+	if path == "/ui" || strings.HasPrefix(path, "/ui/") {
+		a.ui.ServeHTTP(w, r)
+		return
+	}
 	cors := a.cors != "" && (path == "/mcp" || strings.HasPrefix(path, "/v1/"))
 	if cors {
 		w.Header().Set("Access-Control-Allow-Origin", a.cors)

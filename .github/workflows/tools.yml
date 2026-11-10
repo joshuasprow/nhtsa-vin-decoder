@@ -90,7 +90,7 @@ jobs:
               cat "$RUNNER_TEMP/rows.md"
               echo
               # shellcheck disable=SC2016 # Markdown code spans, not expansions
-              echo 'Bump in a pull request: edit `mise.toml`, run `mise lock --platform macos-arm64,macos-x64,linux-x64,linux-arm64,windows-x64` and commit both files; wrangler is `npm install -E wrangler@<version>` in `deploy/cloudflare/worker`; postgres:17 is its digest in the workflows and `scripts/oracle.sh`.'
+              echo 'Bump in a pull request: edit `mise.toml`, run `mise lock --platform macos-arm64,macos-x64,linux-x64,linux-arm64,windows-x64` and commit both files; wrangler is `npm install -E wrangler@<version>` in `deploy/cloudflare/worker`; postgres:17 is its digest in the workflows and `scripts/oracle.sh`; htmx is `dist/htmx.min.js` of `npm pack htmx.org@<version>` as `pkg/ui/static/htmx.min.js`, with `htmxVersion` in `pkg/ui/ui.go` and the hash in `TestHTMXPin`.'
             } >"$RUNNER_TEMP/body.md"
             cat "$RUNNER_TEMP/body.md" >>"$GITHUB_STEP_SUMMARY"
             if [ -n "$issue" ]; then

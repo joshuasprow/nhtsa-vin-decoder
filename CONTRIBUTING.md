@@ -19,7 +19,8 @@ itself; using it is the [README](README.md).
   are [GLOSSARY.md](GLOSSARY.md)'s. Use its terms (data month, artifact,
   oracle, item, pass) and update it when you add one.
 - **Go code lives under `pkg/`, never `internal/`**, and every `pkg/*`
-  package is v1 public API. Binaries are under `cmd/`.
+  package is v1 public API but `pkg/ui`, whose Go API, like its `/ui`
+  routes, is free to change. Binaries are under `cmd/`.
 - **ultravin is a reference, not a source.** Read it, cite it, credit it in
   [NOTICE](NOTICE) and in the file that adopts an idea; never copy its code.
 - **Corpora:** commit VINs only with their source credited in the file's
@@ -89,10 +90,10 @@ cancel), and none runs for Markdown, `GLOSSARY.md`, `NOTICE` or `docs/`
 alone, except the API documents the contract tests read and the deviation
 witnesses the oracle reads.
 
-- `contract.yml` (schemas and the no-data tests): `pkg/contract`,
-  `pkg/nitrovin`, `pkg/decoder`, `pkg/vocab`, `cmd/nitrovin`,
-  `cmd/nitrovin-epa`, `testdata/vocab/`, `docs/api`'s four schema documents,
-  `go.mod`, `go.sum`.
+- `contract.yml` (schemas, the no-data tests and the `js/wasm` build):
+  `pkg/contract`, `pkg/nitrovin`, `pkg/decoder`, `pkg/vocab`, `pkg/ui`,
+  `cmd/nitrovin`, `cmd/nitrovin-epa`, `testdata/vocab/`, `docs/api`'s four
+  schema documents, `go.mod`, `go.sum`.
 - `import.yml`, **Tests**, on `pkg/`, `cmd/`, `go.mod`, `go.sum`,
   `testdata/parity/`, `testdata/vocab/`, `scripts/oracle.sh`, in three
   jobs. *Changed paths* decides whether Postgres is needed. *Artifact*
@@ -274,8 +275,17 @@ directories and `Link` them against each other, every fault a `Finding`
 naming the file and line. `Drift` measures files against a data month
 through the `Month` interface, which `pkg/nitrovin` implements on the
 artifact (`NewTranslator`). `pkg/vocab` imports no artifact, decoder or
-nitrovin-data, so it also builds for a browser:
-`GOOS=js GOARCH=wasm go build ./pkg/vocab` must keep compiling.
+nitrovin-data, so it also builds for a browser.
+
+Translation's core is decoder-free
+([ADR 0013](docs/adr/0013-browser-vocabularies-in-a-service-worker.md)):
+a `vocab.Set` over a `Month` routes a translation, and `vocab.NewDecoded`
+reads a decode's items, when there is a decode, against the same `Month`.
+`contract.Translator` turns its answers into the contract's, given a
+decoder: `pkg/nitrovin`'s `Translator` gives it the engine, the browser's
+Service Worker `/v1/decode`. So every surface answers through one
+translator. `GOOS=js GOARCH=wasm go build ./pkg/vocab ./pkg/contract
+./pkg/ui` must keep compiling (`contract.yml` builds it).
 
 `testdata/vocab` is the synthetic fixture every vocabulary test shares,
 built against 2026_10: a vehicle vocabulary (`yard`: Dodge's Ram 1500
@@ -344,6 +354,23 @@ serve's Streamable HTTP `/mcp` (`TestMCPSession`). `cmd/nitrovin/openapi.json`
 and `cmd/nitrovin/mcp-tools.json` are generated copies of the files in
 `docs/api/`; tests fail when they drift (`-update-openapi`,
 `go generate ./cmd/nitrovin`).
+
+`pkg/ui` is the pages under `/ui`
+([ADR 0013](docs/adr/0013-browser-vocabularies-in-a-service-worker.md)),
+which `serve` hands every `/ui` path to and the browser's Service Worker
+will run too, so it reaches its data through interfaces and builds for
+`js/wasm`. Each route answers a fragment of `ui.html` for a request with
+`HX-Request` and the same fragment in the one layout for any other, with
+`Vary: HX-Request` and the CSP (`ui.CSP`, `script-src 'self'`). Every error
+has its real status: the one error page, or the error fragment that the
+layout's htmx configuration swaps into its error slot. The layout loads its
+stylesheet and htmx from `/ui/r/<release>/` (`ui.Release`: decoder version,
+data month and artifact hash, the Worker's cache key), immutable for a year.
+htmx is vendored, one file (`pkg/ui/static/htmx.min.js`, npm's `htmx.org`
+at `htmxVersion`), held to its sha256 by `TestHTMXPin`; the weekly tools
+issue reports a newer release ([Tools](#tools)). `go test ./pkg/ui` walks a
+stub route as page and fragment, the errors, and the assets; `TestUI` in
+`cmd/nitrovin` the same through `serve`.
 
 `cmd/libnitrovin` is the C library (`-buildmode=c-shared`, no data).
 `scripts/libnitrovin.sh <dir> [<goos>/<goarch>…]` builds it for all six

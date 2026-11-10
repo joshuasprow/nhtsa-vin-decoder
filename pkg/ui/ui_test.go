@@ -1,0 +1,275 @@
+package ui
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"html/template"
+	"io"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/joshuasprow/nitrovin/pkg/contract"
+)
+
+// The stub route's fragment, parsed into the package's templates before
+// any test executes them.
+var _ = template.Must(tpl.New("stub").Parse(`<p id="stub">{{.}}</p>`))
+
+// backend is a Backend answering a fixed Info.
+type backend struct{ info contract.Info }
+
+func (b backend) Info() contract.Info { return b.info }
+
+var testInfo = contract.Info{DecoderVersion: "v0.1.9-0.20261110120000-0123456789ab+dirty", DataMonth: "2026_10", ArtifactHash: "blake3:00ff"}
+
+// testAssets is where testInfo's release keeps its assets.
+const testAssets = "/ui/r/v0.1.9-0.20261110120000-0123456789ab+dirty/2026_10/blake3:00ff"
+
+// testAssetsAttr is testAssets in an attribute, as html/template escapes
+// it and a browser reads it back.
+var testAssetsAttr = strings.ReplaceAll(testAssets, "+", "&#43;")
+
+// stubHandler is a Handler on testInfo with the stub route at /ui/stub:
+// "hello" as its fragment, or err.
+func stubHandler(t *testing.T, err error) *Handler {
+	t.Helper()
+	h := New(backend{testInfo}, log.New(io.Discard, "", 0))
+	h.routes["/ui/stub"] = func(*http.Request) (view, error) {
+		return view{title: "Stub", template: "stub", data: "hello"}, err
+	}
+	return h
+}
+
+// response is one request to h: the status, headers and body.
+func response(t *testing.T, h http.Handler, method, target string, header http.Header) (int, http.Header, string) {
+	t.Helper()
+	r := httptest.NewRequest(method, target, nil)
+	for k, vs := range header {
+		r.Header[k] = vs
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w.Code, w.Result().Header, w.Body.String()
+}
+
+var htmx = http.Header{"Hx-Request": {"true"}}
+
+// checkHTML checks what every page and fragment carries: HTML, the CSP and
+// Vary: HX-Request.
+func checkHTML(t *testing.T, name string, header http.Header) {
+	t.Helper()
+	for k, want := range map[string]string{
+		"Content-Type":            "text/html; charset=utf-8",
+		"Content-Security-Policy": CSP,
+		"Vary":                    "HX-Request",
+		"X-Content-Type-Options":  "nosniff",
+	} {
+		if got := header.Get(k); got != want {
+			t.Errorf("%s: %s %q; want %q", name, k, got, want)
+		}
+	}
+	if !strings.Contains(header.Get("Content-Security-Policy"), "script-src 'self';") {
+		t.Errorf("%s: CSP %q lacks script-src 'self'", name, header.Get("Content-Security-Policy"))
+	}
+}
+
+// checkPage checks body is a whole page in the layout, titled title,
+// linking the release's htmx and stylesheet.
+func checkPage(t *testing.T, name, body, title string) {
+	t.Helper()
+	for _, want := range []string{
+		"<!doctype html>\n",
+		"<title>" + title + " · nitrovin</title>",
+		`<meta name="htmx-config" content="{&#34;allowEval&#34;:false,`,
+		`<link rel="stylesheet" href="` + testAssetsAttr + `/ui.css">`,
+		`<script src="` + testAssetsAttr + `/htmx.min.js" defer></script>`,
+		`<div id="ui-error" role="alert"></div>`,
+		"</html>\n",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("%s: page lacks %q:\n%s", name, want, body)
+		}
+	}
+	if strings.Contains(body, "<script>") || strings.Contains(body, "style=") || strings.Contains(body, "<style") {
+		t.Errorf("%s: inline script or style, which CSP refuses:\n%s", name, body)
+	}
+}
+
+// TestStubRoute walks a route as a page and as a fragment: without
+// HX-Request, or with it while htmx restores history, the fragment in the
+// layout; with it, the fragment alone, clearing the error slot.
+func TestStubRoute(t *testing.T) {
+	h := stubHandler(t, nil)
+
+	for name, header := range map[string]http.Header{
+		"page":            nil,
+		"history restore": {"Hx-Request": {"true"}, "Hx-History-Restore-Request": {"true"}},
+	} {
+		status, hdr, body := response(t, h, "GET", "/ui/stub", header)
+		if status != 200 {
+			t.Errorf("%s: %d; want 200", name, status)
+		}
+		checkHTML(t, name, hdr)
+		checkPage(t, name, body, "Stub")
+		if !strings.Contains(body, "<main id=\"ui-main\">\n<p id=\"stub\">hello</p>\n</main>") {
+			t.Errorf("%s: the fragment is not the page's main:\n%s", name, body)
+		}
+	}
+
+	status, hdr, body := response(t, h, "GET", "/ui/stub", htmx)
+	if status != 200 {
+		t.Errorf("fragment: %d; want 200", status)
+	}
+	checkHTML(t, "fragment", hdr)
+	if want := `<p id="stub">hello</p><div id="ui-error" role="alert" hx-swap-oob="true"></div>`; body != want {
+		t.Errorf("fragment:\n%s\nwant\n%s", body, want)
+	}
+
+	if status, _, _ := response(t, h, "HEAD", "/ui/stub", nil); status != 200 {
+		t.Errorf("HEAD: %d; want 200", status)
+	}
+	status, hdr, body = response(t, h, "POST", "/ui/stub", nil)
+	if status != 405 || hdr.Get("Allow") != "GET, HEAD" {
+		t.Errorf("POST: %d, Allow %q; want 405, GET, HEAD", status, hdr.Get("Allow"))
+	}
+	checkHTML(t, "POST", hdr)
+	checkPage(t, "POST", body, "Method Not Allowed")
+}
+
+// TestErrors: every error has its real status, as the one error page for
+// a page request and as the error fragment, for the error slot, for htmx.
+func TestErrors(t *testing.T) {
+	refused := stubHandler(t, contract.NewProblem(contract.InvalidRequest, "/from/vocabulary", `no vocabulary "yard" is loaded`))
+	faulty := stubHandler(t, io.ErrUnexpectedEOF)
+	for _, c := range []struct {
+		name    string
+		h       *Handler
+		target  string
+		status  int
+		title   string
+		message string
+	}{
+		{"unknown path", stubHandler(t, nil), "/ui/nothing", 404, "Not Found", "There is no page at /ui/nothing."},
+		{"/ui itself", stubHandler(t, nil), "/ui/", 404, "Not Found", "There is no page at /ui/."},
+		{"escaped path", stubHandler(t, nil), "/ui/%3Cscript%3E", 404, "Not Found", "There is no page at /ui/&lt;script&gt;."},
+		{"refusal", refused, "/ui/stub", 400, "Bad Request", "no vocabulary &#34;yard&#34; is loaded"},
+		{"fault", faulty, "/ui/stub", 500, "Internal Server Error", "nitrovin failed: unexpected EOF"},
+	} {
+		status, hdr, body := response(t, c.h, "GET", c.target, nil)
+		if status != c.status {
+			t.Errorf("%s: page %d; want %d", c.name, status, c.status)
+		}
+		checkHTML(t, c.name, hdr)
+		checkPage(t, c.name, body, c.title)
+		if want := "<h1>" + c.title + "</h1>\n<p>" + c.message + "</p>"; !strings.Contains(body, want) {
+			t.Errorf("%s: page lacks %q:\n%s", c.name, want, body)
+		}
+
+		status, hdr, body = response(t, c.h, "GET", c.target, htmx)
+		if status != c.status {
+			t.Errorf("%s: fragment %d; want %d", c.name, status, c.status)
+		}
+		checkHTML(t, c.name+" fragment", hdr)
+		if want := "<p><strong>" + c.title + ".</strong> " + c.message + "</p>"; body != want {
+			t.Errorf("%s: fragment\n%s\nwant\n%s", c.name, body, want)
+		}
+	}
+}
+
+// panicky is a Backend whose Info panics.
+type panicky struct{}
+
+func (panicky) Info() contract.Info { panic("injected fault") }
+
+// TestPanic: a panic is the 500 error page, which links no assets when the
+// release is what failed.
+func TestPanic(t *testing.T) {
+	h := New(panicky{}, log.New(io.Discard, "", 0))
+	status, hdr, body := response(t, h, "GET", "/ui/nothing", nil)
+	if status != 500 {
+		t.Errorf("%d; want 500", status)
+	}
+	checkHTML(t, "panic", hdr)
+	if !strings.Contains(body, "<h1>Internal Server Error</h1>\n<p>nitrovin failed: injected fault</p>") || strings.Contains(body, "/ui/r/") {
+		t.Errorf("page:\n%s", body)
+	}
+}
+
+// TestAssets: the release's assets are immutable at its URL; another
+// release's, or a file it lacks, is the error page.
+func TestAssets(t *testing.T) {
+	h := stubHandler(t, nil)
+	for name, contentType := range map[string]string{
+		"htmx.min.js": "text/javascript; charset=utf-8",
+		"ui.css":      "text/css; charset=utf-8",
+	} {
+		want, err := files.ReadFile("static/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		status, hdr, body := response(t, h, "GET", testAssets+"/"+name, nil)
+		if status != 200 || body != string(want) {
+			t.Errorf("%s: %d, %d bytes; want 200, %d bytes", name, status, len(body), len(want))
+		}
+		for k, v := range map[string]string{
+			"Content-Type":            contentType,
+			"Cache-Control":           "public, max-age=31536000, immutable",
+			"Content-Security-Policy": CSP,
+			"Vary":                    "",
+		} {
+			if got := hdr.Get(k); got != v {
+				t.Errorf("%s: %s %q; want %q", name, k, got, v)
+			}
+		}
+	}
+	for _, target := range []string{
+		"/ui/r/v0.1.8/2026_10/blake3:00ff/htmx.min.js",
+		testAssets + "/nothing.js",
+		testAssets + "/",
+		testAssets,
+		"/ui/r/",
+	} {
+		status, hdr, body := response(t, h, "GET", target, nil)
+		if status != 404 {
+			t.Errorf("%s: %d; want 404", target, status)
+		}
+		checkHTML(t, target, hdr)
+		checkPage(t, target, body, "Not Found")
+		if hdr.Get("Cache-Control") != "" {
+			t.Errorf("%s: Cache-Control %q", target, hdr.Get("Cache-Control"))
+		}
+	}
+	if status, hdr, _ := response(t, h, "POST", testAssets+"/ui.css", nil); status != 405 || hdr.Get("Allow") != "GET, HEAD" {
+		t.Errorf("POST: %d, Allow %q; want 405, GET, HEAD", status, hdr.Get("Allow"))
+	}
+}
+
+// htmxSHA256 is static/htmx.min.js's sha256: dist/htmx.min.js of npm's
+// htmx.org at htmxVersion, whose tarball npm lists with integrity
+// sha512-Thx/WtpeOQqSrqBCw/A1cwGJGg4UrVa3+sW0GmrM3p4gJgO89ecH4qtbnyzDDWFvBTqjnIMCgELTNt636dtamA==.
+const htmxSHA256 = "d6fdc75f204e6bdefa99b69bf1e6d4ac69b8a364f77929f45c13476b4000f717"
+
+// TestHTMXPin holds the vendored htmx to its pin: the file is the one
+// release's, unedited, and says it is htmxVersion.
+func TestHTMXPin(t *testing.T) {
+	b, err := files.ReadFile("static/htmx.min.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum := sha256.Sum256(b); hex.EncodeToString(sum[:]) != htmxSHA256 {
+		t.Errorf("static/htmx.min.js has sha256 %x; the pin is %s", sum, htmxSHA256)
+	}
+	if !strings.Contains(string(b), `version:"`+htmxVersion+`"`) {
+		t.Errorf("static/htmx.min.js does not say it is version %s", htmxVersion)
+	}
+}
+
+// TestRelease is the Worker's cache key.
+func TestRelease(t *testing.T) {
+	if got, want := Release(testInfo), "v0.1.9-0.20261110120000-0123456789ab+dirty/2026_10/blake3:00ff"; got != want {
+		t.Errorf("Release %q; want %q", got, want)
+	}
+}

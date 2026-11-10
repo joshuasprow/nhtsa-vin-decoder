@@ -1,0 +1,40 @@
+{{/* The one layout: every /ui page is a route's fragment in it. Its error
+slot (#ui-error) is where htmx swaps a 4xx or 5xx fragment (htmx-config's
+responseHandling); a fragment that is no error clears it (clear-error). No
+inline script or style: CSP refuses both. */}}
+{{define "page" -}}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · nitrovin</title>
+{{- if .Assets}}
+<meta name="htmx-config" content="{{.HTMXConfig}}">
+<link rel="stylesheet" href="{{.Assets}}/ui.css">
+<script src="{{.Assets}}/htmx.min.js" defer></script>
+{{- end}}
+</head>
+<body>
+<header><a href="/">nitrovin</a></header>
+<div id="ui-error" role="alert"></div>
+<main id="ui-main">
+{{.Body}}
+</main>
+</body>
+</html>
+{{end}}
+
+{{/* clear-error follows every fragment that is no error: htmx swaps it
+out of band over the page's error slot, emptying it. */}}
+{{define "clear-error"}}<div id="ui-error" role="alert" hx-swap-oob="true"></div>{{end}}
+
+{{/* error is an error as a fragment, for the error slot. */}}
+{{define "error"}}<p><strong>{{.Title}}.</strong> {{.Message}}</p>{{end}}
+
+{{/* error-page is the one full-page error, unknown paths included. */}}
+{{define "error-page" -}}
+<h1>{{.Title}}</h1>
+<p>{{.Message}}</p>
+<p><a href="/">nitrovin</a></p>
+{{- end}}

@@ -1,0 +1,8 @@
+/* The /ui pages' one stylesheet (pkg/ui). CSP allows no inline style. */
+:root { color-scheme: light dark; --muted: #6b7280; --line: #d1d5db; --bad: #b91c1c; }
+body { font: 15px/1.5 system-ui, sans-serif; max-width: 62rem; margin: 1rem auto; padding: 0 1rem; }
+header { margin: .5rem 0 1rem; }
+h1 { font-size: 1.4rem; margin: .5rem 0; }
+h2 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; }
+#ui-error:empty { display: none; }
+#ui-error { color: var(--bad); border-left: 4px solid var(--bad); padding-left: .6rem; margin: 0 0 1rem; }
