@@ -42,6 +42,7 @@ nitrovin is not affiliated with or endorsed by NHTSA.
 - [Use it](#use-it): [CLI](#cli), [HTTP](#http), [stdio](#stdio-json-lines), [MCP](#mcp), [Go](#go-module), [C](#c-library)
 - [Verify a release](#verify-a-release)
 - [The data](#the-data)
+- [Vocabularies](#vocabularies): translate your names for vehicles and part types
 - [Parity](#parity)
 - [Known limits](#known-limits)
 - [Performance](#performance)
@@ -165,7 +166,7 @@ change.
 `POST /v1/decode` takes up to 1,000 requests and returns an array of
 decodes in order; `POST /v1/translate` does the same for translate
 requests, and `GET /v1/translate` takes one as dotted query parameters
-(`from.vocabulary=yard&from.entry.make=Dodge&to=ebay`).
+(`from.vocabulary=yard&from.entry.make=Dodge&from.entry.model=Ram%201500`).
 `GET /v1/vocabularies` lists what is loaded and
 `GET /v1/vocabularies/{name}/entries` pages through one
 ([Translation](docs/api/README.md#translation-translate),
@@ -378,7 +379,7 @@ release keeps, forever: the artifact, NHTSA's dump zip (so a month can be
 re-checked after NHTSA stops hosting it), `manifest.json` (the dump's URL,
 size and SHA-256, the artifact's blake3, row counts, the importer commit),
 the month's frozen parity key, its stale-cache list and the EPA vocabulary
-(below).
+([Vocabularies](#vocabularies)).
 
 ```console
 $ nitrovin info | jq '{decoder_version, data_month, data_source, artifact_hash}'
@@ -411,22 +412,35 @@ month and the decoder version, and it carries all five; the same five give
 the same bytes. Live vPIC runs on newer data than any monthly dump, so it
 can answer differently from nitrovin on the same day.
 
-Your own names for vehicles and part types (a yard's inventory, a catalog's
-codes) load beside the data as vocabulary files, JSON Lines mapped onto
-vPIC's makes and models or onto a part-type spine you declare
-([`vocabulary.schema.json`](docs/api/vocabulary.schema.json)). Name files or
-directories with `--vocab` (repeatable, any command) or `NITROVIN_VOCAB`. A
-file with a fault stops nitrovin from starting; where a file disagrees with
-the data month (an id NHTSA dropped, say) nitrovin warns on stderr and in
-`nitrovin info`, and serves it anyway. `nitrovin vocab check` fails on both,
-for your CI:
+## Vocabularies
+
+Your own names for vehicles and part types (a yard's inventory, a parts
+catalog's codes) load beside the data as vocabulary files, and nitrovin
+translates a VIN or a name into every loaded vocabulary's names. A file is
+JSON Lines, a header and one line per entry
+([`vocabulary.schema.json`](docs/api/vocabulary.schema.json)), in one of
+three kinds: a **vocabulary** maps its entries onto vPIC's makes and models
+(by id, with optional model-year ranges and qualifiers such as Drive Type)
+or onto a part-type spine; an **extension set** mints the vehicles vPIC
+lacks; a **spine** declares the part types a part vocabulary maps onto.
+Matching is exact after one fixed normalization (case and spaces): rules
+and fuzzy matching belong to whoever builds the file.
+[docs/vocabularies.md](docs/vocabularies.md) is how to write one, check
+it, and translate and list on every surface.
+
+Name files or directories with `--vocab` (repeatable, any command) or
+`NITROVIN_VOCAB`. A file with a fault stops nitrovin from starting; where a
+file disagrees with the data month (an id NHTSA dropped, say) nitrovin
+warns on stderr and in `nitrovin info`, and serves it anyway. `nitrovin
+vocab check` fails on both, for your CI. From a checkout, with the
+synthetic vocabularies in [`testdata/vocab`](testdata/vocab):
 
 ```sh
-nitrovin vocab check vocabularies/
-nitrovin --vocab vocabularies/ serve
-nitrovin --vocab vocabularies/ list                                  # what is loaded
-nitrovin --vocab vocabularies/ list yard --where make=dodge          # a vocabulary's entries, paged
-nitrovin --vocab vocabularies/ translate --to yard 1C6RR7LT5FS123456  # a VIN to your names
+nitrovin vocab check testdata/vocab
+nitrovin --vocab testdata/vocab list                                  # what is loaded
+nitrovin --vocab testdata/vocab list yard --where make=dodge          # a vocabulary's entries, paged
+nitrovin --vocab testdata/vocab translate --to yard 1C6RR7LT5FS123456  # a VIN to your names
+nitrovin --vocab testdata/vocab serve                                 # /v1/translate, /v1/vocabularies
 ```
 
 Each data release also carries `epa-vehicles.jsonl`, a vocabulary of the
@@ -443,11 +457,13 @@ Download it from the release of the month your binary embeds (`nitrovin
 ```sh
 curl -fsSLO https://github.com/joshuasprow/nitrovin-data/releases/latest/download/epa-vehicles.jsonl
 nitrovin --vocab epa-vehicles.jsonl info | jq '.vocabularies[] | {name, version, drift}'
+nitrovin --vocab epa-vehicles.jsonl translate --to epa-vehicles 1C6RR7LT5FS123456
 ```
 
 A vocabulary built against another month loads too, with a drift warning for
 each id NHTSA has changed since. `checksums.txt` on the same release covers
-it ([Verify a release](#verify-a-release)).
+it ([Verify a release](#verify-a-release)). nitrovin ships no other
+vocabulary, and [nitrovin.app](https://nitrovin.app) loads none.
 
 ## Parity
 
