@@ -5,7 +5,8 @@
 #   from main (`gh workflow run deploy.yml -f tag=v0.1.6`, which is also the
 #   rollback: name the previous tag). Checks the tag's image digest is the
 #   one release.yml signed, deploys it, applies Terraform when its plan has
-#   changes, and smoke-tests https://nitrovin.app. One at a time.
+#   changes, waits for the container rollout to finish, and smoke-tests
+#   https://nitrovin.app. One at a time.
 # - drift: weekly, fails when Terraform's plan is not empty: a change made in
 #   the dashboard.
 # - check, on a pull request touching deploy/cloudflare: Terraform fmt and
@@ -99,7 +100,8 @@ jobs:
          github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v'))
       )
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # The rollout wait is bounded at 20 minutes of these.
+    timeout-minutes: 45
     concurrency:
       group: deploy-nitrovin-app
       cancel-in-progress: false
@@ -144,11 +146,13 @@ jobs:
           sed -i "s|^FROM .*|FROM $IMAGE:$TAG@$DIGEST|" Dockerfile
           grep '^FROM' Dockerfile
 
+      # Immediate: one step to 100% of instances. With one named instance
+      # the default [10, 100] steps hold nothing back (#127).
       - name: wrangler deploy
         working-directory: deploy/cloudflare/worker
         run: |
           npm ci
-          npx wrangler deploy --var "RELEASE:$RELEASE" \
+          npx wrangler deploy --containers-rollout=immediate --var "RELEASE:$RELEASE" \
             --message "$TAG ($DIGEST), ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       # After the Worker exists: the custom domain names it.
@@ -170,6 +174,12 @@ jobs:
               ;;
             *) exit "$code" ;;
           esac
+
+      # The Worker is live before the container rolls: until every instance
+      # runs the new image, /v1/info is the old release's and every miss is
+      # BYPASS (#127). wrangler names the application <worker>-<class>.
+      - name: Wait for the container rollout
+        run: deploy/cloudflare/rollout-wait.sh nitrovin-nitrovin
 
       - name: Smoke test https://nitrovin.app
         env:

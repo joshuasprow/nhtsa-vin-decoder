@@ -59,11 +59,14 @@ at most bound it near $12.
 ## Deploy, roll back
 
 Every green release (`release.yml` on a `v*` tag) deploys itself:
-`deploy.yml` resolves and verifies the image, `wrangler deploy`s it, applies
-Terraform when its plan has changes (copying the state to
-`history/main/` in the bucket first: R2 keeps no object versions), and runs
-`smoke.sh` against `https://nitrovin.app`, whose output is the run's summary.
-Runs are serialized.
+`deploy.yml` resolves and verifies the image, `wrangler deploy`s it
+(`--containers-rollout=immediate`), applies Terraform when its plan has
+changes (copying the state to `history/main/` in the bucket first: R2
+keeps no object versions), waits until the container rollout has finished
+(`rollout-wait.sh`: no rollout active and every instance on the
+application's image, at most 20 minutes, [#127](https://github.com/joshuasprow/nitrovin/issues/127)),
+and runs `smoke.sh` against `https://nitrovin.app`, whose output is the
+run's summary. Runs are serialized.
 
 ```sh
 gh workflow run deploy.yml -R joshuasprow/nitrovin -f tag=v0.1.6   # deploy (or redeploy) a release
