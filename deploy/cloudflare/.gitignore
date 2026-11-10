@@ -1,2 +1,6 @@
 # terraform init's working directories (the lock files are committed)
 .terraform/
+# The bootstrap's local backend and the state it holds until it moves to R2
+# (README.md): secrets, never committed.
+*_override.tf
+terraform.tfstate*
