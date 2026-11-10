@@ -153,7 +153,7 @@ scoop install nitrovin</pre></div></td><td>Windows amd64, arm64</td></tr>
 <p>Archives and the C library for linux, darwin and windows on amd64 and arm64 are on <a href="{{.Links.Release}}">{{if .Links.Tag}}the {{.Links.Tag}} release{{else}}GitHub Releases{{end}}</a>.</p>
 
 <h2 id="mcp">In an AI assistant (MCP)</h2>
-<p><code>nitrovin mcp</code> is an MCP server over stdio with one tool, <code>decode_vin</code>. For Claude Desktop (<code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS, <code>%APPDATA%\Claude\claude_desktop_config.json</code> on Windows) and Cursor (<code>~/.cursor/mcp.json</code>) the entry is the same.</p>
+<p><code>nitrovin mcp</code> is an MCP server over stdio with the tools <code>decode_vin</code>, <code>translate</code> and <code>list</code>. For Claude Desktop (<code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS, <code>%APPDATA%\Claude\claude_desktop_config.json</code> on Windows) and Cursor (<code>~/.cursor/mcp.json</code>) the entry is the same.</p>
 <h3>A local binary</h3>
 <p>Use the absolute path <code>which nitrovin</code> prints: desktop apps do not see your shell's <code>PATH</code>.</p>
 <div class="copyable"><pre id="mcp-local" data-copy="the MCP configuration for a local binary">{

@@ -24,6 +24,7 @@ import (
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
+	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
 // The MCP surface: the tool definition's drift checks need nothing; the
@@ -138,12 +139,18 @@ func TestMCPCommandLine(t *testing.T) {
 
 // mcpCall is one tools/call of the scripted session.
 type mcpCall struct {
-	tool string
+	tool string // "" is decode_vin
 	args string // the arguments, sent as written
-	// req is what args mean, for a decode; nil for a refusal.
+	// req is what args mean, for a decode; nil for a refusal or another
+	// tool's call.
 	req *contract.Request
-	// pointer is a refusal's pointer.
+	// pointer is a refusal's pointer; "" for an answer.
 	pointer string
+}
+
+// knownTool reports whether name is one of mcp-tools.json's tools.
+func knownTool(name string) bool {
+	return name == "decode_vin" || name == "translate" || name == "list"
 }
 
 // mcpCalls is the scripted session's calls after tools/list: a decode in
@@ -211,7 +218,7 @@ func runSession(t *testing.T, transport mcp.Transport, version string, calls []m
 	for _, c := range calls {
 		name := cmp.Or(c.tool, "decode_vin")
 		_, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: json.RawMessage(c.args)})
-		if (err != nil) != (name != "decode_vin") {
+		if (err != nil) != !knownTool(name) {
 			t.Errorf("call %s %s: error %v", name, c.args, err)
 		}
 	}
@@ -222,15 +229,21 @@ func runSession(t *testing.T, transport mcp.Transport, version string, calls []m
 
 // mcpSession runs the scripted session against `nitrovin mcp` with the
 // SDK's client speaking protocol revision version.
-func mcpSession(t *testing.T, path, version string, calls []mcpCall) session {
+// path "" is the embedded data; vocab is $NITROVIN_VOCAB, "" for none.
+func mcpSession(t *testing.T, path, vocab, version string, calls []mcpCall) session {
 	t.Helper()
 	cmd := exec.Command(binary, "mcp")
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "NITROVIN_DATA=") {
+		if !strings.HasPrefix(kv, "NITROVIN_DATA=") && !strings.HasPrefix(kv, "NITROVIN_VOCAB=") {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
-	cmd.Env = append(cmd.Env, "NITROVIN_DATA="+path)
+	if path != "" {
+		cmd.Env = append(cmd.Env, "NITROVIN_DATA="+path)
+	}
+	if vocab != "" {
+		cmd.Env = append(cmd.Env, "NITROVIN_VOCAB="+vocab)
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -364,7 +377,8 @@ func messages(t *testing.T, stream string) []message {
 	return msgs
 }
 
-// TestMCPSession runs the scripted session twice with a 2026-07-28 client
+// TestMCPSession runs the scripted decode session, with no vocabulary,
+// twice with a 2026-07-28 client
 // and twice with a 2025-11-25 one, over stdio against `nitrovin mcp` and
 // over Streamable HTTP against serve's /mcp. Both runs of a revision on a
 // transport write the same bytes. tools/list sends mcp-tools.json's tools
@@ -373,13 +387,73 @@ func messages(t *testing.T, stream string) []message {
 // outputSchema; a refusal is an isError Problem with its pointer; an
 // unknown tool is a JSON-RPC error.
 func TestMCPSession(t *testing.T) {
-	path, d := artifact(t)
-	calls := mcpCalls(t)
+	path, dec := artifact(t)
+	d := translating(t, dec)
+	runSessions(t, d, path, "", mcpCalls(t))
+}
+
+// translating is d with no vocabulary files loaded beside it, or files.
+func translating(t *testing.T, d *nitrovin.Decoder, files ...*vocab.File) loaded {
+	t.Helper()
+	tr, err := nitrovin.NewTranslator(d, files...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return loaded{d, tr}
+}
+
+// TestMCPVocabSession runs a scripted session against the embedded data
+// with testdata/vocab loaded, over stdio and Streamable HTTP as
+// TestMCPSession does: tools/list is still mcp-tools.json's tools array;
+// translate answers a VIN and an entry, list gives the catalog and pages a
+// listing end to end, each as the Translator answers in-process; a request
+// the loaded files refuse is an isError Problem.
+func TestMCPVocabSession(t *testing.T) {
+	fixtureData(t)
+	dec, err := nitrovin.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := vocab.Open(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := translating(t, dec, files...)
+	// The page after the first: the cursor the first page gives.
+	first, err := d.List(contract.ListRequest{Of: "parts", Limit: 3})
+	if err != nil || first.Next == "" {
+		t.Fatalf("list parts: %+v, %v; want a next page", first, err)
+	}
+	const ram2010 = "1D7RV1GT5AS123456"
+	calls := []mcpCall{
+		{tool: "list", args: `{}`},
+		{tool: "list", args: `{"of":"yard","where":{"make":"dodge"}}`},
+		{tool: "list", args: `{"of":"parts","limit":3}`},
+		{tool: "list", args: `{"of":"parts","limit":3,"after":"` + first.Next + `"}`},
+		{tool: "translate", args: `{"from":"` + ram2010 + `","to":["yard"],"now":"` + now + `"}`},
+		{tool: "translate", args: `{"from":{"vocabulary":"yard","entry":{"make":"Dodge","model":"Ram 1500"}},"vin":"` + ram2010 + `","to":["yard"],"now":"` + now + `"}`},
+		{tool: "translate", args: `{"from":{"vocabulary":"listing","entry":{"category":"Brake Pads"}},"to":["listing"]}`},
+
+		{tool: "translate", args: `{"from":"` + ram2010 + `","to":["listing"]}`, pointer: "/to/0"},
+		{tool: "translate", args: `{"from":{"vocabulary":"ebay","entry":{"make":"Dodge"}}}`, pointer: "/from/vocabulary"},
+		{tool: "translate", args: `{}`, pointer: "/from"},
+		{tool: "list", args: `{"of":"ebay"}`, pointer: "/of"},
+		{tool: "list", args: `{"of":"parts","limit":0}`, pointer: "/limit"},
+	}
+	runSessions(t, d, "", fixture, calls)
+}
+
+// runSessions runs the scripted session twice with a 2026-07-28 client and
+// twice with a 2025-11-25 one, over stdio against `nitrovin mcp` on the
+// data at path with vocab loaded, and over Streamable HTTP against serve's
+// /mcp on d; both runs of a revision on a transport write the same bytes.
+func runSessions(t *testing.T, d loaded, path, vocab string, calls []mcpCall) {
+	t.Helper()
 	for _, transport := range []struct {
 		name string
 		run  func(t *testing.T, version string) session
 	}{
-		{"stdio", func(t *testing.T, version string) session { return mcpSession(t, path, version, calls) }},
+		{"stdio", func(t *testing.T, version string) session { return mcpSession(t, path, vocab, version, calls) }},
 		{"http", func(t *testing.T, version string) session { return mcpHTTPSession(t, d, version, calls) }},
 	} {
 		for _, version := range []string{"2026-07-28", "2025-11-25"} {
@@ -395,13 +469,16 @@ func TestMCPSession(t *testing.T) {
 }
 
 // checkSession checks the responses of a run of the scripted session.
-func checkSession(t *testing.T, d *nitrovin.Decoder, calls []mcpCall, s session) {
+func checkSession(t *testing.T, d loaded, calls []mcpCall, s session) {
 	t.Helper()
 	tools, wantTools, err := parseTools(mcpTools)
 	if err != nil {
 		t.Fatal(err)
 	}
-	output := compileBundled(t, tools[0].OutputSchema)
+	output := map[string]*jsonschema.Schema{}
+	for _, tool := range tools {
+		output[tool.Name] = compileBundled(t, tool.OutputSchema)
+	}
 	problemSchema := problemSchema(t)
 
 	responses := map[string]message{}
@@ -474,9 +551,10 @@ func validates(s *jsonschema.Schema, b []byte) error {
 }
 
 // checkCall checks the response to one tools/call.
-func checkCall(t *testing.T, d *nitrovin.Decoder, c mcpCall, resp message, output, problem *jsonschema.Schema) {
+func checkCall(t *testing.T, d loaded, c mcpCall, resp message, outputs map[string]*jsonschema.Schema, problem *jsonschema.Schema) {
 	t.Helper()
-	if c.tool != "" {
+	name := cmp.Or(c.tool, "decode_vin")
+	if !knownTool(name) {
 		var e struct{ Code int }
 		if json.Unmarshal(resp.Error, &e) != nil || e.Code != -32602 || resp.Result != nil {
 			t.Errorf("unknown tool %s: result %s, error %s", c.tool, resp.Result, resp.Error)
@@ -498,15 +576,24 @@ func checkCall(t *testing.T, d *nitrovin.Decoder, c mcpCall, resp message, outpu
 	}
 	text := res.Content[0].Text
 
-	if c.req != nil {
-		dec, err := d.Decode(*c.req)
-		if err != nil {
-			t.Fatal(err)
+	if c.pointer == "" {
+		var want []byte
+		var err error
+		switch name {
+		case "decode_vin":
+			var dec contract.Decode
+			if dec, err = d.Decode(*c.req); err == nil {
+				want, err = json.Marshal(dec)
+			}
+		case "translate":
+			want, err = translateJSON(d, []byte(cmp.Or(c.args, "{}")))
+		case "list":
+			want, err = listJSON(d, []byte(cmp.Or(c.args, "{}")))
 		}
-		want, err := json.Marshal(dec)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("%s %s: %v", name, c.args, err)
 		}
+		output := outputs[name]
 		switch {
 		case res.IsError:
 			t.Errorf("%s: refused: %s", c.args, text)

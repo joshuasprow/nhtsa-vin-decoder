@@ -218,7 +218,7 @@
       "post": {
         "operationId": "mcp",
         "summary": "MCP over Streamable HTTP; the messages are opaque here.",
-        "description": "`nitrovin mcp`'s server, its one tool `decode_vin` as\n`mcp-tools.json` defines it, over MCP's Streamable HTTP transport.\nStateless: every POST is a session of its own, with no\n`Mcp-Session-Id`, and every response is `application/json`, never an\nevent stream, so `GET` and `DELETE` are 405. A POST carries one\nJSON-RPC message, with `Content-Type: application/json` and an\n`Accept` naming both `application/json` and `text/event-stream`, as\nthe transport requires. The messages are MCP's and the results\n`README.md`'s MCP section, not described here. The transport's own\nrefusals (a wrong `Content-Type` or `Accept`, an unsupported\n`MCP-Protocol-Version`, a body over 1 MiB) are the MCP SDK's, as\ntext.\n",
+        "description": "`nitrovin mcp`'s server, its tools `decode_vin`, `translate` and\n`list` as `mcp-tools.json` defines them, over MCP's Streamable HTTP transport.\nStateless: every POST is a session of its own, with no\n`Mcp-Session-Id`, and every response is `application/json`, never an\nevent stream, so `GET` and `DELETE` are 405. A POST carries one\nJSON-RPC message, with `Content-Type: application/json` and an\n`Accept` naming both `application/json` and `text/event-stream`, as\nthe transport requires. The messages are MCP's and the results\n`README.md`'s MCP section, not described here. The transport's own\nrefusals (a wrong `Content-Type` or `Accept`, an unsupported\n`MCP-Protocol-Version`, a body over 1 MiB) are the MCP SDK's, as\ntext.\n",
         "requestBody": {
           "required": true,
           "content": {

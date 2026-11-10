@@ -127,8 +127,8 @@ paths:
       operationId: mcp
       summary: MCP over Streamable HTTP; the messages are opaque here.
       description: |
-        `nitrovin mcp`'s server, its one tool `decode_vin` as
-        `mcp-tools.json` defines it, over MCP's Streamable HTTP transport.
+        `nitrovin mcp`'s server, its tools `decode_vin`, `translate` and
+        `list` as `mcp-tools.json` defines them, over MCP's Streamable HTTP transport.
         Stateless: every POST is a session of its own, with no
         `Mcp-Session-Id`, and every response is `application/json`, never an
         event stream, so `GET` and `DELETE` are 405. A POST carries one

@@ -201,7 +201,7 @@ func TestServeVocabularies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := newAPI(loaded{tr.Decoder(), tr.Info()}, log.New(io.Discard, "", 0), io.Discard, nil, "")
+	a, err := newAPI(loaded{tr.Decoder(), tr}, log.New(io.Discard, "", 0), io.Discard, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
