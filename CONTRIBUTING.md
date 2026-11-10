@@ -287,6 +287,21 @@ Service Worker `/v1/decode`. So every surface answers through one
 translator. `GOOS=js GOARCH=wasm go build ./pkg/vocab ./pkg/contract
 ./pkg/ui` must keep compiling (`contract.yml` builds it).
 
+The worker's `Month` is the **spine bundle**: `vocab.WriteBundle` writes a
+`vocab.BundleSource` (a `Month` that also lists its model ids, elements and
+element values) as one JSON document, columns per table, and
+`vocab.ReadBundle` reads it back as a `*vocab.Bundle`, itself a
+`BundleSource`. `Decoder.WriteSpineBundle` writes the artifact's month,
+every model included, those under no make too; `serve` publishes it at
+`/ui/r/<release>/spine.json`. Its JSON is read only by the release that
+wrote it, so it may change in any release (its `format` guards a mix-up).
+`TestSpineBundle` holds the embedded month's to 1 MB brotli and checks it
+answers every `Month` question as the artifact does, over every make,
+model and element and every value against every element;
+`TestSpineBundleTranslates` checks drift, translations and lists through
+it on the fixture, and `TestBundle` the cases 2026_10 lacks (a model with
+no `make_model` row, one under a make the lookup lacks).
+
 `testdata/vocab` is the synthetic fixture every vocabulary test shares,
 built against 2026_10: a vehicle vocabulary (`yard`: Dodge's Ram 1500
 split by year across vPIC models 1938 and 13620, with Series and Drive
@@ -368,8 +383,14 @@ stylesheet and htmx from `/ui/r/<release>/` (`ui.Release`: decoder version,
 data month and artifact hash, the Worker's cache key), immutable for a year.
 htmx is vendored, one file (`pkg/ui/static/htmx.min.js`, npm's `htmx.org`
 at `htmxVersion`), held to its sha256 by `TestHTMXPin`; the weekly tools
-issue reports a newer release ([Tools](#tools)). `go test ./pkg/ui` walks a
-stub route as page and fragment, the errors, and the assets; `TestUI` in
+issue reports a newer release ([Tools](#tools)). Beside them `/ui/r/<release>/`
+publishes what the Service Worker needs of the server: the spine bundle
+(`ui.SpinePath`, asked of the `Backend` once) and each loaded file, byte
+for byte (`ui.FilePath`: `vocab/<blake3>/<name>.jsonl`, since the release
+does not name the files a server loads). `serve` reads a file again from
+disk when asked and refuses bytes whose blake3 is not the one loaded.
+`go test ./pkg/ui` walks a stub route as page and fragment, the errors, the
+assets and the published files; `TestUI` and `TestServePublished` in
 `cmd/nitrovin` the same through `serve`.
 
 `cmd/libnitrovin` is the C library (`-buildmode=c-shared`, no data).

@@ -309,6 +309,19 @@ curl localhost:8080/v1/vocabularies
 curl 'localhost:8080/v1/vocabularies/yard/entries?where.make=dodge&limit=2'
 ```
 
+`serve` also publishes each loaded file, byte for byte, for a browser that
+translates locally
+([ADR 0013](adr/0013-browser-vocabularies-in-a-service-worker.md)), at
+`/ui/r/<release>/vocab/<blake3>/<name>.jsonl`, where the release is
+`/v1/info`'s `decoder_version`, `data_month` and `artifact_hash` joined by
+`/` and the blake3 is the file's there; beside it the data month's spine
+bundle at `/ui/r/<release>/spine.json`. Both are immutable for a year: a
+new release or a changed file is a new URL. This exposes nothing new, since
+`/v1/vocabularies/{name}/entries` already lists every line. `serve` reads a
+file again when it is asked for, and refuses with a 500 a file that
+changed on disk since it was loaded: restart `serve` to publish the new
+one.
+
 **stdio**: a line with `"op": "translate"` or `"op": "list"` carries that
 request, and its reply is keyed `translation` or `list`:
 
