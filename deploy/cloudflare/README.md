@@ -9,7 +9,7 @@ flowchart LR
     client[client] --> zone["zone nitrovin.app<br/>TLS, HSTS, rate limit,<br/>www → apex (terraform/)"]
     zone --> worker["Worker nitrovin<br/>(worker/src/index.ts)"]
     worker -- "cacheable GET" --> cache[(Cache API<br/>key: release + URL)]
-    worker --> do["Durable Object Nitrovin<br/>one instance, kept warm"]
+    worker --> do["Durable Object Nitrovin<br/>one instance, nitrovin-enam,<br/>kept warm"]
     do --> container["container, lite<br/>ghcr.io/joshuasprow/nitrovin:tag@digest<br/>serve --cors *"]
 ```
 
@@ -27,10 +27,13 @@ flowchart LR
 - **Container.** The `default` scheduling policy, `lite` (1/16 vCPU,
   256 MiB), `max_instances: 3`, placed in the US only (`regions` ENAM and
   WNAM, `jurisdiction: "us"`, [#124](https://github.com/joshuasprow/nitrovin/issues/124)).
-  Every request goes to one named instance;
-  a cron fetches `/healthz` every four minutes, inside `sleepAfter`'s ten,
-  so it never sleeps. Readiness is `/healthz`: `serve` listens only once the
-  data has loaded.
+  Every request goes to one named instance, through its Durable Object
+  `nitrovin-enam`, created with `locationHint: "enam"`: the object never
+  moves after it is created, and each container round trip passes through
+  it ([#126](https://github.com/joshuasprow/nitrovin/issues/126)). A new
+  place needs a new name. A cron fetches `/healthz` every four minutes,
+  inside `sleepAfter`'s ten, so it never sleeps. Readiness is `/healthz`:
+  `serve` listens only once the data has loaded.
 - **Cache.** `GET /v1/decode/*`, `GET /v1/info` and `GET /?…` are served
   from the Cache API under a key of the release and the URL. The release
   (`decoder_version/data_month/artifact_hash`) is the Worker's `RELEASE`,
@@ -38,7 +41,9 @@ flowchart LR
   reaches the container and a new data month is a new key, never last
   month's answer. A miss is stored only when the container answered 200
   and its own `/v1/info` is that release: during a rollout the old
-  container's answers pass through uncached (`BYPASS`). Cached answers
+  container's answers pass through uncached (`BYPASS`). Each Worker
+  isolate asks `/v1/info` on its misses only until it once answers the
+  release, which then holds for the deploy. Cached answers
   carry `Cache-Control: public, max-age=86400` and `Cf-Cache-Status`
   (`MISS`, `HIT`, `BYPASS`). Everything else, refusals included, is
   `no-store`; `POST` and `/mcp` never touch the cache.

@@ -2,7 +2,7 @@
 // warm container running the released image's `nitrovin serve`, and the
 // GETs whose answer is a function of the URL and the release are served
 // from the Cache API. It never reads or logs a VIN.
-import { Container, getContainer } from "@cloudflare/containers";
+import { Container } from "@cloudflare/containers";
 
 /** The container: the released image, serving the API, the form and /mcp. */
 export class Nitrovin extends Container<Env> {
@@ -20,7 +20,14 @@ export class Nitrovin extends Container<Env> {
 }
 
 // The service is stateless, so one name: one Durable Object, one container.
-const INSTANCE = "nitrovin";
+// The object stays where it is first created, and the container's every
+// request goes through it, so its place is chosen: Eastern North America,
+// beside the container and the callers (#126). A hint counts only when the
+// object is created, so a new place needs a new name. The object before this
+// one, "nitrovin", ran in Amsterdam; nothing calls it now, and its container
+// sleeps after sleepAfter.
+const INSTANCE = "nitrovin-enam";
+const LOCATION: DurableObjectLocationHint = "enam";
 
 // How long a cacheable answer is kept, and may be kept by clients. The key
 // names the release that computed it, so a new one never meets it.
@@ -29,7 +36,7 @@ const CACHE_CONTROL = "public, max-age=86400";
 export default {
 	async fetch(request, env): Promise<Response> {
 		const url = new URL(request.url);
-		const container = getContainer(env.NITROVIN, INSTANCE);
+		const container = nitrovin(env);
 		if (request.method !== "GET" || !cacheable(url)) {
 			const response = await container.fetch(forward(request, url));
 			if (request.method !== "GET" && request.method !== "HEAD") {
@@ -50,7 +57,7 @@ export default {
 		const response = await container.fetch(forward(request, url));
 		// Store a 200 only from the release the key names: during a rollout
 		// the container can still be the previous one.
-		if (response.status !== 200 || !key || (await identity(container)) !== env.RELEASE) {
+		if (response.status !== 200 || !key || !(await serves(container, env.RELEASE))) {
 			return withHeaders(response, { "Cache-Control": "no-store", "Cf-Cache-Status": "BYPASS" });
 		}
 		const out = withHeaders(response, { "Cache-Control": CACHE_CONTROL, "Cf-Cache-Status": "MISS" });
@@ -60,12 +67,35 @@ export default {
 
 	// Keep warm: starts the container if it stopped, renews its sleepAfter.
 	async scheduled(_controller, env): Promise<void> {
-		const response = await getContainer(env.NITROVIN, INSTANCE).fetch("http://localhost/healthz");
+		const response = await nitrovin(env).fetch("http://localhost/healthz");
 		if (!response.ok) {
 			throw new Error(`keep-warm: GET /healthz answered ${response.status}`);
 		}
 	},
 } satisfies ExportedHandler<Env>;
+
+/** The one Durable Object, created in LOCATION if this call creates it. */
+function nitrovin(env: Env): DurableObjectStub<Nitrovin> {
+	return env.NITROVIN.get(env.NITROVIN.idFromName(INSTANCE), { locationHint: LOCATION });
+}
+
+// The release this isolate has seen the container serve, once it was
+// RELEASE. An instance serves one image for its life and a rollout only
+// ends on this deploy's, while a new deploy is a new isolate: once seen, a
+// miss need not ask again (#126). Until then, every miss asks.
+let served: string | undefined;
+
+/** Whether the container serves release: asked of it until it once says so. */
+async function serves(container: DurableObjectStub<Nitrovin>, release: string): Promise<boolean> {
+	if (served === release) {
+		return true;
+	}
+	if ((await identity(container)) !== release) {
+		return false;
+	}
+	served = release;
+	return true;
+}
 
 /**
  * The request as the container gets it: plain HTTP, X-Forwarded-Proto
