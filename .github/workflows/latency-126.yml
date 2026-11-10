@@ -13,6 +13,12 @@ permissions:
 
 jobs:
   measure:
+    # Runners land in any Azure US region: several, one at a time, so one
+    # is likely us-east and none competes with another for the container.
+    strategy:
+      max-parallel: 1
+      matrix:
+        probe: [1, 2, 3, 4]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
