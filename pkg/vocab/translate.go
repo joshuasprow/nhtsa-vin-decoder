@@ -39,6 +39,7 @@ type From struct {
 
 // Decoded is what a VIN's decode says, as a translation reads it: its
 // make, model and model year, and the values of each element it decoded.
+// NewDecoded reads it from the decode's items.
 type Decoded struct {
 	// Make and Model are the decoded vPIC ids, 0 when undecoded.
 	Make, Model int32
@@ -47,6 +48,63 @@ type Decoded struct {
 	// Values holds the values of every element the decode gave a non-empty
 	// value: attribute ids for a lookup element, text for a text element.
 	Values map[int32][]Value
+}
+
+// Item is one item of a VIN's decode as a translation reads it: its
+// element, its value and its attribute id, each "" when null.
+type Item struct {
+	ElementID   int32
+	Value       string
+	AttributeID string
+}
+
+// Element ids a translation reads from a decode.
+const (
+	elementMake      = 26
+	elementModel     = 28
+	elementModelYear = 29
+)
+
+// NewDecoded is what a VIN's decode says to a translation: its items, read
+// against m, the month that decoded them. This is translation's
+// decoder-free core (ADR 0013): whatever decoded the VIN, the engine or
+// /v1/decode, its items mean the same here. m.Element tells a lookup
+// element, whose value is its attribute id, from a text element, whose
+// value is its text. An item with no value, of an element m lacks, or of
+// a lookup element whose attribute id is no number (Error Code's code
+// list) says nothing.
+func NewDecoded(m Month, items []Item) *Decoded {
+	d := &Decoded{Values: map[int32][]Value{}}
+	for _, it := range items {
+		if it.Value == "" {
+			continue
+		}
+		lookup, ok := m.Element(it.ElementID)
+		if !ok {
+			continue
+		}
+		if !lookup {
+			d.Values[it.ElementID] = append(d.Values[it.ElementID], Value{IsText: true, Text: it.Value})
+			if it.ElementID == elementModelYear {
+				if y, err := strconv.Atoi(it.Value); err == nil {
+					d.ModelYear = &y
+				}
+			}
+			continue
+		}
+		id, err := strconv.ParseInt(it.AttributeID, 10, 32)
+		if err != nil {
+			continue
+		}
+		d.Values[it.ElementID] = append(d.Values[it.ElementID], Value{Attribute: int32(id)})
+		switch it.ElementID {
+		case elementMake:
+			d.Make = int32(id)
+		case elementModel:
+			d.Model = int32(id)
+		}
+	}
+	return d
 }
 
 // Status is what a translation's from is to its vocabulary.

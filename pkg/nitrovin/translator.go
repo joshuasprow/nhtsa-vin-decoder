@@ -10,11 +10,12 @@ import (
 // Translator is a Decoder with the vocabularies, extension sets and
 // declared spines loaded beside it (ADR 0011, ADR 0012): the files never
 // change for its life, and the Decoder stays vocabulary-free. It
-// translates and lists through them (Translate, List). It is safe for
-// concurrent use.
+// translates and lists through them (Translate, List), wrapping
+// translation's decoder-free core (contract.Translator over a vocab.Set,
+// ADR 0013) with the Decoder's engine. It is safe for concurrent use.
 type Translator struct {
 	d     *Decoder
-	set   *vocab.Set
+	core  contract.Translator
 	drift []vocab.Finding
 	info  contract.Info
 }
@@ -30,7 +31,8 @@ func NewTranslator(d *Decoder, files ...*vocab.File) (*Translator, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := &Translator{d: d, set: set, info: d.Info()}
+	t := &Translator{d: d, info: d.Info()}
+	t.core = contract.Translator{Set: set, Decode: t.decode, DataMonth: t.info.DataMonth, DecoderVersion: t.info.DecoderVersion}
 	if len(files) > 0 {
 		t.drift = vocab.Drift(m, files)
 	}
