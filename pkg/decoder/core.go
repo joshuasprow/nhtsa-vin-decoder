@@ -597,7 +597,7 @@ func formulaValue(vk, keys string) string {
 	return vk[first:min(last+1, len(vk))]
 }
 
-// dedup is C8 (:176-196): per element outside contract.MultiValued (the
+// dedup is C8 (:176-196): per element outside contract.DedupExempt (the
 // procedure's dedup-exempt elements, :193), only the item ranked first by
 // RANK() over (Priority DESC, CreatedOn DESC, length of keys without '*'
 // ASC, keys without '[' and ']' ASC, id ASC) survives. CreatedOn DESC puts
@@ -607,7 +607,7 @@ func dedup(items []item) []item {
 	best := map[int32]int{}
 	for i := range items {
 		el := items[i].elementID
-		if contract.MultiValued(el) {
+		if contract.DedupExempt(el) {
 			continue
 		}
 		if b, ok := best[el]; !ok || dedupCompare(&items[i], &items[b]) < 0 {
@@ -616,7 +616,7 @@ func dedup(items []item) []item {
 	}
 	out := items[:0]
 	for i, it := range items {
-		if contract.MultiValued(it.elementID) || best[it.elementID] == i {
+		if contract.DedupExempt(it.elementID) || best[it.elementID] == i {
 			out = append(out, it)
 		}
 	}
@@ -777,8 +777,8 @@ func (e *engine) conversionItems(items []item) ([]item, error) {
 // row to the items of its element with an equal lower(AttributeId), the
 // join's row count equals its count of distinct items: every key row matches
 // and no two match the same item. The surviving patterns' non-key rows for
-// elements no item holds (elements 1, 114, 121, 129, 150, 154, 155, 169 and
-// 186 never count as held) become items, one per element, the latest
+// elements no item holds (contract.MultiValued's elements never count as
+// held) become items, one per element, the latest
 // ChangedOn first. Postgres leaves a tie on ChangedOn to the executor; ties
 // go to the higher VSpecSchemaPattern id, then the higher schema id, then
 // the earlier row, as ultravin breaks them.
@@ -847,9 +847,7 @@ func (e *engine) specItems(items []item, modelID int32, modelYear int, wlo, whi 
 
 	held := map[int32]bool{}
 	for i := range items {
-		switch el := items[i].elementID; el {
-		case 1, 114, 121, 129, 150, 154, 155, 169, 186:
-		default:
+		if el := items[i].elementID; !contract.MultiValued(el) {
 			held[el] = true
 		}
 	}

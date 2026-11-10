@@ -151,10 +151,19 @@ func PublicElements(a *artifact.Artifact) (Elements, error) {
 
 // MultiValued reports whether element id can resolve to several attributes
 // for one VIN: the elements spvindecode_core exempts from its per-element
-// dedup (spvindecode_core.sql:193), which package decoder's dedup reads from
-// here. It is the procedure's, not the data's; the data month decides which
-// of them are public (2026_10: all but 186).
+// dedup (DedupExempt), plus Other Battery Info (1), which its Vehicle Specs
+// step alone never counts as held, so a Vehicle Specs row can repeat an
+// element 1 a pattern already set (#165). Package decoder's Vehicle Specs
+// step reads it from here. It is the procedure's, not the data's; the data
+// month decides which of them are public (2026_10: all but 186).
 func MultiValued(id int32) bool {
+	return id == 1 || DedupExempt(id)
+}
+
+// DedupExempt reports whether spvindecode_core's per-element dedup keeps
+// every item of element id (spvindecode_core.sql:193), which package
+// decoder's dedup reads from here.
+func DedupExempt(id int32) bool {
 	switch id {
 	case 114, 121, 129, 150, 154, 155, 169, 186:
 		return true

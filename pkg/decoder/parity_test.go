@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/joshuasprow/nitrovin-data/pkg/artifact"
+	"github.com/joshuasprow/nitrovin/pkg/contract"
 )
 
 // TestParity is ADR 0008's offline gate: Project against an answer key of
@@ -29,8 +30,11 @@ import (
 // corpus, and manifest.json. Every input row of the key is one call,
 // spvindecode(vin, year => hint) at the instant the run started; its rows
 // must equal the key's on all 15 columns as a multiset, every value exactly
-// (element 144 included), and Project's items must keep the procedure's
-// group-rank order (the key, sorted, has no order of its own to compare).
+// (element 144 included), Project's items must keep the procedure's
+// group-rank order (the key, sorted, has no order of its own to compare),
+// and they must lay out in both shapes (contract.Vpic, contract.Nitrovin),
+// so an element the procedure repeats but the contract does not call
+// multi-valued fails here, not in a decode (#165).
 // The key never holds a raise, since scripts/oracle.sh decode stops on one,
 // so a Project error is a disagreement. One differing row fails the test.
 //
@@ -390,9 +394,14 @@ type parityResult struct {
 	bad   int
 }
 
-// checkParity decodes every call of src's key with e and compares.
+// checkParity decodes every call of src's key with e, compares, and lays
+// every decode out in both shapes.
 func checkParity(t *testing.T, e *engine, src paritySource) parityResult {
 	t.Helper()
+	elements, err := contract.PublicElements(e.a)
+	if err != nil {
+		t.Fatal(err)
+	}
 	calls, _ := parseParityKey(t, src.key, readFile(t, src.key))
 	corpus := corpusCalls(t, src.corpus, string(readFile(t, src.corpus)))
 	if len(corpus) != len(calls) {
@@ -420,7 +429,7 @@ func checkParity(t *testing.T, e *engine, src paritySource) parityResult {
 	}
 
 	now := src.now.UnixMicro()
-	misordered := 0
+	misordered, unlaid := 0, 0
 	for i, c := range calls {
 		res.rows += len(c.rows)
 		p, err := e.project(c.vin, c.hint, now)
@@ -442,6 +451,13 @@ func checkParity(t *testing.T, e *engine, src paritySource) parityResult {
 				last = rank
 			}
 		}
+		if _, err := contract.Vpic(p.Items, elements); err != nil {
+			unlaid++
+			t.Errorf("input row %d, %q hint %v: shape vpic: %v", c.row, c.vin, c.hint, err)
+		} else if _, err := contract.Nitrovin(p.Items, elements); err != nil {
+			unlaid++
+			t.Errorf("input row %d, %q hint %v: shape nitrovin: %v", c.row, c.vin, c.hint, err)
+		}
 		slices.Sort(got)
 		res.ours[i] = got
 		if !slices.Equal(got, c.rows) {
@@ -450,8 +466,8 @@ func checkParity(t *testing.T, e *engine, src paritySource) parityResult {
 			}
 		}
 	}
-	t.Logf("%s, %s at %s: %d calls, %d rows: %d disagree, %d misordered",
-		src.label, src.month, src.now.UTC().Format(time.RFC3339), len(calls), res.rows, res.bad, misordered)
+	t.Logf("%s, %s at %s: %d calls, %d rows: %d disagree, %d misordered, %d refused by a layout",
+		src.label, src.month, src.now.UTC().Format(time.RFC3339), len(calls), res.rows, res.bad, misordered, unlaid)
 	return res
 }
 

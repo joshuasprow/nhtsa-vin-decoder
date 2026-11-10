@@ -95,7 +95,7 @@ func TestInfo(t *testing.T) {
 	if len(info.Elements) != 141 {
 		t.Errorf("%d public elements, want 141", len(info.Elements))
 	}
-	if want := []int32{114, 121, 129, 150, 154, 155, 169}; !slices.Equal(multi, want) {
+	if want := []int32{1, 114, 121, 129, 150, 154, 155, 169}; !slices.Equal(multi, want) {
 		t.Errorf("multi-valued elements %v, want %v", multi, want)
 	}
 }
