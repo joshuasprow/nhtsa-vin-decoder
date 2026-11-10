@@ -3,7 +3,7 @@ module github.com/joshuasprow/nitrovin
 go 1.27
 
 require (
-	github.com/joshuasprow/nitrovin-data v1.202610.1
+	github.com/joshuasprow/nitrovin-data v1.202610.2
 	// The official MCP SDK serves `nitrovin mcp` (ADR 0005): it carries every
 	// protocol revision (2024-11-05 through 2026-07-28, initialize and
 	// server/discover) so nitrovin never ports MCP itself. Only cmd/nitrovin
