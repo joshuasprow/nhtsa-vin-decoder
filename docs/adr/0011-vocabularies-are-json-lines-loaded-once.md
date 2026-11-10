@@ -82,3 +82,10 @@ check` fails on drift as well as faults, for authors' CI.
   from the month's pattern rows at load.
 - How long a large vocabulary takes to load is unmeasured. The performance
   budget on the map's Not yet specified list owns it.
+
+## Amendment: `vpic` is a reserved name
+
+[ADR 0012](0012-translation-and-listing-are-requests-beside-decode.md) lists
+every kind through one `/v1/vocabularies/{name}` family, vPIC included as
+`vpic`. A file named `vpic` is therefore a fault, like two files with one
+name.
