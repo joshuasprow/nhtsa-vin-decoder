@@ -65,7 +65,11 @@ func listenAddr(addr string, getenv func(string) string) string {
 // SIGINT or SIGTERM, when it stops accepting and lets requests in flight
 // finish.
 func serve(e *env, addr string) error {
-	d, err := e.decoder()
+	d, data, err := e.load()
+	if err != nil {
+		return err
+	}
+	texts, err := errorTexts(data) // the bytes d opened: no error
 	if err != nil {
 		return err
 	}
@@ -75,7 +79,7 @@ func serve(e *env, addr string) error {
 	}
 	logger := log.New(e.stderr, "nitrovin: ", 0)
 	srv := &http.Server{
-		Handler:           &api{d: d, log: logger},
+		Handler:           &api{d: d, log: logger, errorTexts: texts},
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		ErrorLog:          logger,
@@ -105,11 +109,14 @@ type decodeService interface {
 }
 
 // api serves the routes of docs/api/openapi.yaml, and the decode form at /
-// (form.go). Every refusal but the form's own is an RFC 9457 problem; it
-// sets no CORS headers.
+// with its script at /copy.js (form.go). Every refusal but the form's own
+// is an RFC 9457 problem; it sets no CORS headers.
 type api struct {
 	d   decodeService
 	log *log.Logger
+	// errorTexts is the data's error-code table, each code's text by id,
+	// for the form; nil shows the codes alone.
+	errorTexts map[int]string
 }
 
 func (a *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -153,6 +160,8 @@ func (a *api) route(path string) (string, http.HandlerFunc) {
 	switch path {
 	case "/":
 		return "GET, HEAD", a.form
+	case "/copy.js":
+		return "GET, HEAD", a.copyScript
 	case "/v1/decode":
 		return http.MethodPost, a.decodeBatch
 	case "/v1/info":

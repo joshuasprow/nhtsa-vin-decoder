@@ -127,10 +127,17 @@ curl localhost:8080/v1/info
 ```
 
 Open the address in a browser for a decode form: a VIN, an optional model
-year, the shape and `full`, rendered on the server with no JavaScript, each
-decode a shareable URL (`/?vin=1HGCM82633A004352`) with a link to the same
-request on `/v1`. The form is not part of the API: it is not in the OpenAPI
-document and may change.
+year, the shape and `full`, rendered on the server, each decode a
+shareable URL (`/?vin=1HGCM82633A004352`). A decode shows its elements in
+vPIC's groups (empty values hidden in the `vpic` shape until asked), its
+error codes in NHTSA's words, a suggested VIN with the differing positions
+marked, a link to the same VIN on NHTSA's decoder, and the decode's JSON,
+URL, `curl` and `nitrovin decode` equivalents to copy. The empty form says
+how to install, configure MCP and verify this version, with links to its
+release and data month. The only script, `/copy.js`, adds copy buttons;
+without JavaScript everything else works and the text stays selectable.
+The form is not part of the API: it is not in the OpenAPI document and may
+change.
 
 `POST /v1/decode` takes up to 1,000 requests and returns an array of
 decodes in order. Refusals are `application/problem+json` (RFC 9457) with a
