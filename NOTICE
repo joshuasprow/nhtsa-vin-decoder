@@ -28,3 +28,9 @@ axe-core: TestForm audits the pages with axe-core
 Systems, Inc.), vendored unmodified, its license header intact, as
 cmd/nitrovin/testdata/axe.min.js. It is test data: no binary or image ships
 it.
+
+Benchmarks: the README's benchmarks (docs/benchmarks.md) follow ultravin's
+method (its docs/BENCHMARKS.md and scripts/bench/), and their corpus is made
+by ultravin's own generator, run from an ultravin checkout. nitrovin's
+harness (cmd/nitrovin-bench, scripts/bench.sh) is written fresh; no corpus
+is committed.
