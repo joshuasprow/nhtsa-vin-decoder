@@ -30,12 +30,16 @@ flowchart LR
   so it never sleeps. Readiness is `/healthz`: `serve` listens only once the
   data has loaded.
 - **Cache.** `GET /v1/decode/*`, `GET /v1/info` and `GET /?…` are served
-  from the Cache API when the container answered 200, under a key of the
-  release (`decoder_version`, `data_month`, `artifact_hash` from `/v1/info`,
-  read every 30 s) and the URL: a new data month is a new key, never last
-  month's answer. They carry `Cache-Control: public, max-age=86400` and
-  `Cf-Cache-Status` (`MISS`, `HIT`, `BYPASS`). Everything else, refusals
-  included, is `no-store`; `POST` and `/mcp` never touch the cache.
+  from the Cache API under a key of the release and the URL. The release
+  (`decoder_version/data_month/artifact_hash`) is the Worker's `RELEASE`,
+  which `deploy.yml` reads from the image it deploys, so a hit never
+  reaches the container and a new data month is a new key, never last
+  month's answer. A miss is stored only when the container answered 200
+  and its own `/v1/info` is that release: during a rollout the old
+  container's answers pass through uncached (`BYPASS`). Cached answers
+  carry `Cache-Control: public, max-age=86400` and `Cf-Cache-Status`
+  (`MISS`, `HIT`, `BYPASS`). Everything else, refusals included, is
+  `no-store`; `POST` and `/mcp` never touch the cache.
 - **CORS** is the container's (`serve --cors '*'`): `/v1` and `/mcp` only.
 - **Logs.** Workers Logs without invocation logs, which would record each
   URL and so each VIN. The Worker logs nothing itself.
@@ -74,9 +78,10 @@ tree that differ only in `decoder_version` and serves them in turn under
 `wrangler dev` with one persisted cache, running `smoke.sh` against each. A
 decode is a `MISS`, then a `HIT`; the second image's first decode of the
 same URL is a `MISS` again (the release is in the key), and the first
-image's, run again, a `HIT` (the cache did persist). Pull requests touching
-`deploy/cloudflare` run it, with Terraform's `validate` (and `plan` once
-the secrets exist).
+image's, run again, a `HIT` (the cache did persist). Last, the second
+image under the first one's `RELEASE`, a rollout not yet done, is
+`BYPASS` twice: nothing it answers is stored. Pull requests touching
+`deploy/cloudflare` run it, with Terraform's `validate` and `plan`.
 
 ## Bootstrap (once, by hand)
 

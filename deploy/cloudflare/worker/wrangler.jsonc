@@ -29,4 +29,8 @@
 	"exports": {
 		"Nitrovin": { "type": "durable-object", "storage": "sqlite" },
 	},
+	// The release this deploy serves, decoder_version/data_month/artifact_hash
+	// as /v1/info gives them: the cache key's prefix (src/index.ts).
+	// deploy.yml sets it with --var; empty, nothing is cached.
+	"vars": { "RELEASE": "" },
 }
