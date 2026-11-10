@@ -182,9 +182,10 @@ easiest way to keep one decoder process open from another language
 
 ### MCP
 
-`nitrovin mcp` is an MCP server over stdio with one tool, `decode_vin`,
-whose arguments are the request above
-([tool definition](docs/api/mcp-tools.json)). For Claude Desktop
+`nitrovin mcp` is an MCP server over stdio with the tools `decode_vin`,
+whose arguments are the request above, and `translate` and `list`, which
+answer from the vocabularies `--vocab` loads
+([tool definitions](docs/api/mcp-tools.json)). For Claude Desktop
 (`~/Library/Application Support/Claude/claude_desktop_config.json` on
 macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows) and Cursor
 (`~/.cursor/mcp.json`) the entry is the same:

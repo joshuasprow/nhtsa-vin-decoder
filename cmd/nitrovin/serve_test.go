@@ -593,6 +593,12 @@ func (faulty) Decode(contract.Request) (contract.Decode, error) {
 func (faulty) DecodeBatch([]contract.Request) ([]contract.Decode, error) {
 	return nil, errors.New("injected fault")
 }
+func (faulty) Translate(contract.TranslateRequest) (contract.Translation, error) {
+	return contract.Translation{}, errors.New("injected fault")
+}
+func (faulty) List(contract.ListRequest) (contract.List, error) {
+	return contract.List{}, errors.New("injected fault")
+}
 
 // faultCases are the 500s, against an API on faulty.
 func faultCases() []apiCase {

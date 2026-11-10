@@ -201,11 +201,13 @@ The problem objects are HTTP's, with the same `type` URIs and `status`.
 
 ## MCP (`nitrovin mcp`, `POST /mcp`)
 
-An MCP server with one tool, `decode_vin`, over stdio (`nitrovin mcp`) and
-over Streamable HTTP (`nitrovin serve`'s `/mcp`). Its definition (name,
-title, the description an assistant reads, schemas and annotations) is
+An MCP server with three tools over stdio (`nitrovin mcp`) and over
+Streamable HTTP (`nitrovin serve`'s `/mcp`): `decode_vin` decodes,
+`translate` translates ([Translation](#translation-translate)) and `list`
+lists ([Listing](#listing-list)). Their definitions (name, title, the
+description an assistant reads, schemas and annotations) are
 [`mcp-tools.json`](mcp-tools.json), whose `tools` array is exactly what
-`tools/list` returns on both. The why is
+`tools/list` returns on both, whatever `--vocab` loads. The why is
 [ADR 0005](../adr/0005-mcp-tool-is-the-decode-contract.md).
 
 - **Streamable HTTP is stateless**: every POST is a session of its own, no
@@ -213,22 +215,29 @@ title, the description an assistant reads, schemas and annotations) is
   `application/json` message, never an event stream (`GET` and `DELETE`
   are 405). Any instance answers any request.
 - **Arguments** are one request object, with the same fields, defaults and
-  refusal of unknown fields as everywhere else. One VIN per call.
+  refusal of unknown fields as everywhere else: a `DecodeRequest`, a
+  `TranslateRequest` or a `ListRequest`. One VIN, translation or page per
+  call.
 - **Schemas** are self-contained, because MCP forbids fetching a `$ref` over
   the network. Each is `{"type": "object", "$ref": …, "$defs": …}`, and every
   entry in `$defs` equals the same-named definition in
-  [`decode.schema.json`](decode.schema.json): the input bundles
-  `DecodeRequest`, the output bundles `Decode`.
-- **A decode** is the result's `structuredContent`, and the same JSON,
-  compact, is its one text block. Clients differ in which of the two they show
+  [`decode.schema.json`](decode.schema.json): `decode_vin` bundles
+  `DecodeRequest` and `Decode`, `translate` `TranslateRequest` and
+  `Translation`, `list` `ListRequest` and `List`.
+- **An answer** (a decode, translation or list) is the result's
+  `structuredContent`, and the same JSON, compact, is its one text block. Clients differ in which of the two they show
   the model, so the two must stay identical.
 - **A refusal** is a result with `isError: true` and one text block: the
   Problem as compact JSON, with stdio's `type` URIs and `status`, and `pointer`
-  into the arguments (`/vin`). It has no `structuredContent`. JSON-RPC errors
+  into the arguments (`/vin`, `/to/0`). It has no `structuredContent`. JSON-RPC errors
   are only for MCP faults, such as an unknown tool or a malformed request.
 - **Annotations:** read-only, not destructive, idempotent, closed-world.
-- **The description is static.** It does not name the data month, so
-  `--data` never changes `tools/list`; every decode carries `data_month`.
+- **The descriptions are static.** They name neither the data month nor
+  the loaded vocabularies, so `--data` and `--vocab` never change
+  `tools/list`; every answer carries `data_month`, and `translate`'s and
+  `list`'s descriptions tell the assistant to call `list` with no arguments
+  to discover what is loaded. Without `--vocab` both tools are still listed
+  and answer for vPIC alone.
 - **Protocol revisions** are whatever the official Go SDK serves, not part of
   this contract.
 - stdout carries only MCP messages; diagnostics go to stderr.

@@ -393,6 +393,1214 @@
         "idempotentHint": true,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "translate",
+      "title": "Translate vehicle or part",
+      "description": "Translate a VIN, or an entry of a loaded vocabulary, into the matching entries of other loaded vocabularies, offline. Every translation goes through one spine: vPIC's makes and models for vehicles, or a declared spine for parts.\n\nWhat is loaded differs from server to server: call list with no arguments first, and use only the vocabulary names and fields its catalog gives.\n\n- from: a VIN string; {\"vocabulary\": name, \"entry\": {...}} with exactly that vocabulary's fields; or a spine entry {\"make\": id}, {\"model\": id}, {\"ext\": id} or {\"spine\": name, \"id\": id}.\n- to: target vocabulary names, on the same spine as from. None answers the spine entries alone.\n- model_year: only a year the user knows apart from the VIN (title, registration); with an entry as from, the vehicle's year.\n- vin: with an entry as from, the vehicle's VIN, so the mappings' conditions are checked against its decode.\n- now: omit.\n\nAn unknown or unmapped entry is not an error: from.status says so and the lists are empty. A result with unconfirmed was not fully checked (the listed conditions were unknown): report it as possible, not certain. Each via names the mapping that led there, with its years, origin and note.",
+      "inputSchema": {
+        "type": "object",
+        "$ref": "#/$defs/TranslateRequest",
+        "$defs": {
+          "TranslateRequest": {
+            "type": "object",
+            "description": "One translate request (ADR 0012): from a VIN, a vocabulary entry or a spine entry, through exactly one spine, to the target vocabularies. Contract prose: docs/api/README.md, Translation.",
+            "required": [
+              "from"
+            ],
+            "properties": {
+              "from": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "A VIN, 1-17 characters after trimming spaces, as a decode request's vin."
+                  },
+                  {
+                    "$ref": "#/$defs/VocabularyEntryRef"
+                  },
+                  {
+                    "$ref": "#/$defs/SpineRef"
+                  }
+                ]
+              },
+              "to": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Target vocabulary names, each a loaded vocabulary on the same spine as from. Absent or empty: the spine alone."
+              },
+              "model_year": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": -2147483648,
+                "maximum": 2147483647,
+                "description": "The model year: the VIN's decode hint, and the year when no VIN decodes one. A VIN's decoded year wins over it."
+              },
+              "vin": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A context VIN when from is an entry: its decode checks qualifiers and gives the model year. Refused beside a VIN from."
+              },
+              "now": {
+                "type": "string",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?([Zz]|[+-][0-9]{2}:[0-9]{2}))?$",
+                "description": "Frozen clock for the VIN's decode, as a decode request's now."
+              }
+            },
+            "if": {
+              "required": [
+                "from"
+              ],
+              "properties": {
+                "from": {
+                  "type": "string"
+                }
+              }
+            },
+            "then": {
+              "not": {
+                "required": [
+                  "vin"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "VocabularyEntryRef": {
+            "type": "object",
+            "description": "An entry of a loaded vocabulary, by its fields: exactly the vocabulary's fields, matched after trimming, collapsing whitespace and Unicode lower-casing.",
+            "required": [
+              "vocabulary",
+              "entry"
+            ],
+            "properties": {
+              "vocabulary": {
+                "type": "string",
+                "minLength": 1
+              },
+              "entry": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "SpineRef": {
+            "$ref": "#/$defs/SpineRefFields",
+            "unevaluatedProperties": false
+          },
+          "SpineRefFields": {
+            "type": "object",
+            "description": "One spine entry as a mapping target names it: exactly one of a vPIC make id, a vPIC model id, an extension, or a declared spine's name with one of its ids.",
+            "properties": {
+              "make": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647,
+                "description": "A vPIC make id."
+              },
+              "model": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647,
+                "description": "A vPIC model id."
+              },
+              "ext": {
+                "type": "string",
+                "pattern": "^ext:[a-z0-9][a-z0-9._-]*/[^/\\s]+$",
+                "description": "An extension, ext:<set>/<id>."
+              },
+              "spine": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A declared spine's name, beside id."
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "An entry id of the declared spine."
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "make"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ext"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "spine"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "model"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "make"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ext"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "spine"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "ext"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "make"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "spine"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "spine",
+                  "id"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "make"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ext"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "$ref": "#/$defs/Translation",
+        "$defs": {
+          "Translation": {
+            "type": "object",
+            "description": "The answer to a TranslateRequest: the route from from through the spine to each target vocabulary. Nothing to translate is never a refusal: an unknown or unmapped entry, or a target with no entries, answers with a status and empty lists.",
+            "required": [
+              "from",
+              "spine",
+              "to",
+              "vocabularies",
+              "now",
+              "data_month",
+              "decoder_version"
+            ],
+            "properties": {
+              "from": {
+                "$ref": "#/$defs/TranslationFrom"
+              },
+              "vehicle": {
+                "$ref": "#/$defs/Vehicle"
+              },
+              "spine": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/SpineEntry"
+                },
+                "description": "Every spine entry reached, once each, in route order: each mapping's spine entry, then the make a vPIC or extension model sits under; for a VIN, its model then its make."
+              },
+              "to": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Translated"
+                },
+                "description": "One per target vocabulary, in request order, each named once."
+              },
+              "vocabularies": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/FileVersion"
+                },
+                "description": "The files the translation used, in load order."
+              },
+              "now": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+                "description": "The clock the VIN's decode used (resolved when there is no VIN), in UTC whole seconds."
+              },
+              "data_month": {
+                "type": "string",
+                "pattern": "^[0-9]{4}_(0[1-9]|1[0-2])$"
+              },
+              "decoder_version": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "TranslationFrom": {
+            "type": "object",
+            "description": "The request's from with its status: the VIN as decoded; the entry as its vocabulary writes it (as the request did when unknown) with the entry's note; or the spine entry.",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "vin": {
+                "type": "string"
+              },
+              "vocabulary": {
+                "type": "string"
+              },
+              "entry": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "make": {
+                "type": "integer"
+              },
+              "model": {
+                "type": "integer"
+              },
+              "ext": {
+                "type": "string"
+              },
+              "spine": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "mapped",
+                  "unmapped",
+                  "unknown"
+                ],
+                "description": "mapped: the entry has mappings, or the VIN or spine entry reaches the spine. unmapped: the vocabulary lists the entry without mappings. unknown: the vocabulary or spine has no such entry, or the VIN decodes to no vPIC make or model."
+              },
+              "note": {
+                "type": "string",
+                "description": "The entry's note, passed through."
+              }
+            },
+            "additionalProperties": false
+          },
+          "Vehicle": {
+            "type": "object",
+            "description": "What a translation reads from a VIN's decode, from or context: never the whole decode.",
+            "required": [
+              "vin",
+              "make",
+              "model",
+              "model_year"
+            ],
+            "properties": {
+              "vin": {
+                "type": "string",
+                "description": "The VIN as decoded."
+              },
+              "make": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "The decoded vPIC make id (element 26's attribute id)."
+              },
+              "model": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "The decoded vPIC model id (element 28's attribute id)."
+              },
+              "model_year": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "The decoded model year (element 29)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "SpineEntry": {
+            "description": "One spine entry in an answer, named from the data month or its file.",
+            "$ref": "#/$defs/SpineRefFields",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Absent for a declared-spine entry its file leaves unnamed, and with drift."
+              },
+              "drift": {
+                "const": true,
+                "description": "A vPIC id the data month lacks, named by a mapping and served anyway (ADR 0011)."
+              },
+              "under": {
+                "$ref": "#/$defs/SpineRef",
+                "description": "The make a vPIC or extension model sits under."
+              },
+              "via": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/Via"
+                },
+                "description": "In a translation from a vocabulary entry: the entry's mappings that reached this spine entry. A make reached because a model sits under it has the model's mapping."
+              },
+              "unconfirmed": {
+                "$ref": "#/$defs/Unconfirmed"
+              }
+            },
+            "unevaluatedProperties": false
+          },
+          "SpineRefFields": {
+            "type": "object",
+            "description": "One spine entry as a mapping target names it: exactly one of a vPIC make id, a vPIC model id, an extension, or a declared spine's name with one of its ids.",
+            "properties": {
+              "make": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647,
+                "description": "A vPIC make id."
+              },
+              "model": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647,
+                "description": "A vPIC model id."
+              },
+              "ext": {
+                "type": "string",
+                "pattern": "^ext:[a-z0-9][a-z0-9._-]*/[^/\\s]+$",
+                "description": "An extension, ext:<set>/<id>."
+              },
+              "spine": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A declared spine's name, beside id."
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "An entry id of the declared spine."
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "make"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ext"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "spine"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "model"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "make"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ext"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "spine"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "ext"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "make"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "spine"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "spine",
+                  "id"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "make"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ext"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "SpineRef": {
+            "$ref": "#/$defs/SpineRefFields",
+            "unevaluatedProperties": false
+          },
+          "Via": {
+            "description": "One mapping that held on a route: the spine entry it names, its years, origin and note as its file has them, and what could not be checked on the route through it.",
+            "$ref": "#/$defs/SpineRefFields",
+            "properties": {
+              "first": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
+              },
+              "origin": {
+                "enum": [
+                  "derived",
+                  "curated",
+                  "seed"
+                ]
+              },
+              "note": {
+                "type": "string"
+              },
+              "unconfirmed": {
+                "$ref": "#/$defs/Unconfirmed"
+              }
+            },
+            "unevaluatedProperties": false
+          },
+          "Unconfirmed": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "const": "model_year"
+                }
+              ]
+            },
+            "description": "What applied but could not be checked: qualifier element ids, ascending, with no decode or that the decode left empty, then \"model_year\" when a year range applied and no year was known. Absent when everything was checked."
+          },
+          "Translated": {
+            "type": "object",
+            "required": [
+              "vocabulary",
+              "entries"
+            ],
+            "properties": {
+              "vocabulary": {
+                "type": "string",
+                "minLength": 1
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/TranslatedEntry"
+                },
+                "description": "Each entry reached once, in list order (by normalized fields)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "TranslatedEntry": {
+            "type": "object",
+            "required": [
+              "entry",
+              "via"
+            ],
+            "properties": {
+              "entry": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "note": {
+                "type": "string",
+                "description": "The entry's own note."
+              },
+              "via": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/Via"
+                },
+                "description": "Every mapping of the entry that held, each naming the spine entry that led to it, in spine order."
+              },
+              "unconfirmed": {
+                "$ref": "#/$defs/Unconfirmed",
+                "description": "Absent when one via checked everything, so a client can keep only fully confirmed entries."
+              }
+            },
+            "additionalProperties": false
+          },
+          "FileVersion": {
+            "type": "object",
+            "required": [
+              "name",
+              "version"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list",
+      "title": "List vocabularies",
+      "description": "List what this server has loaded, or page through one part of it, offline.\n\nCall it with no arguments first: the catalog names vPIC and every loaded vocabulary, spine and extension set, with each vocabulary's fields and the spine it translates through. What is loaded differs from server to server, so never guess a name.\n\n- of: \"vpic\" for vPIC's makes, or a name from the catalog for its entries.\n- where: exact field matches after normalization: a vocabulary's fields; for vpic only make, a make id, to list that make's models.\n- limit: entries a page, 1-1000 (default 100).\n- after: the previous page's next, to continue. No next means the last page.",
+      "inputSchema": {
+        "type": "object",
+        "$ref": "#/$defs/ListRequest",
+        "$defs": {
+          "ListRequest": {
+            "type": "object",
+            "description": "One list request (ADR 0012). Without of: the catalog of what is loaded. With of: one page of vPIC ('vpic') or a loaded file. Contract prose: docs/api/README.md, Listing.",
+            "properties": {
+              "of": {
+                "type": "string",
+                "minLength": 1
+              },
+              "where": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ]
+                },
+                "description": "Fields to match after the fixed normalization: a vocabulary's fields, or for vpic only make, a vPIC make id, to list its models."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "default": 100
+              },
+              "after": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The previous page's next cursor."
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "$ref": "#/$defs/List",
+        "$defs": {
+          "List": {
+            "type": "object",
+            "description": "The answer to a ListRequest: the catalog, or one page of what of names.",
+            "required": [
+              "entries",
+              "vocabularies",
+              "data_month",
+              "decoder_version"
+            ],
+            "properties": {
+              "of": {
+                "type": "string"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/CatalogEntry"
+                    },
+                    {
+                      "$ref": "#/$defs/VocabularyEntry"
+                    },
+                    {
+                      "$ref": "#/$defs/SpineEntry"
+                    }
+                  ]
+                },
+                "description": "CatalogEntry for the catalog; VocabularyEntry for a vocabulary; SpineEntry for vpic, a declared spine or an extension set."
+              },
+              "next": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The after of the next page; absent on the last."
+              },
+              "vocabularies": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/FileVersion"
+                },
+                "description": "The files listed: every loaded file for the catalog, the one of names, none for vpic."
+              },
+              "data_month": {
+                "type": "string",
+                "pattern": "^[0-9]{4}_(0[1-9]|1[0-2])$"
+              },
+              "decoder_version": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "CatalogEntry": {
+            "type": "object",
+            "required": [
+              "name",
+              "kind",
+              "version",
+              "subject"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "enum": [
+                  "vocabulary",
+                  "extension-set",
+                  "spine"
+                ],
+                "description": "vpic is a spine."
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A file's version; vpic's is the data month."
+              },
+              "subject": {
+                "enum": [
+                  "vehicle",
+                  "part"
+                ]
+              },
+              "fields": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                },
+                "description": "A vocabulary's fields, in order."
+              },
+              "spine": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The spine a vocabulary or extension set routes through: vpic, or a declared spine's name."
+              }
+            },
+            "additionalProperties": false
+          },
+          "VocabularyEntry": {
+            "type": "object",
+            "description": "One vocabulary entry as its file has it.",
+            "required": [
+              "entry",
+              "mappings"
+            ],
+            "properties": {
+              "entry": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "mappings": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/VocabularyMapping"
+                },
+                "description": "Empty for an unmapped entry."
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "VocabularyMapping": {
+            "type": "object",
+            "description": "One mapping as its file has it: vocabulary.schema.json's Mapping.",
+            "properties": {
+              "make": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "model": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "ext": {
+                "type": "string",
+                "pattern": "^ext:[a-z0-9][a-z0-9._-]*/[^/\\s]+$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "first": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
+              },
+              "qualifiers": {
+                "type": "object",
+                "minProperties": 1,
+                "propertyNames": {
+                  "pattern": "^[1-9][0-9]*$"
+                },
+                "additionalProperties": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": [
+                      "integer",
+                      "string"
+                    ]
+                  }
+                }
+              },
+              "origin": {
+                "enum": [
+                  "derived",
+                  "curated",
+                  "seed"
+                ]
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "make"
+                ]
+              },
+              {
+                "required": [
+                  "model"
+                ]
+              },
+              {
+                "required": [
+                  "ext"
+                ]
+              },
+              {
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "additionalProperties": false
+          },
+          "SpineEntry": {
+            "description": "One spine entry in an answer, named from the data month or its file.",
+            "$ref": "#/$defs/SpineRefFields",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Absent for a declared-spine entry its file leaves unnamed, and with drift."
+              },
+              "drift": {
+                "const": true,
+                "description": "A vPIC id the data month lacks, named by a mapping and served anyway (ADR 0011)."
+              },
+              "under": {
+                "$ref": "#/$defs/SpineRef",
+                "description": "The make a vPIC or extension model sits under."
+              },
+              "via": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/Via"
+                },
+                "description": "In a translation from a vocabulary entry: the entry's mappings that reached this spine entry. A make reached because a model sits under it has the model's mapping."
+              },
+              "unconfirmed": {
+                "$ref": "#/$defs/Unconfirmed"
+              }
+            },
+            "unevaluatedProperties": false
+          },
+          "SpineRefFields": {
+            "type": "object",
+            "description": "One spine entry as a mapping target names it: exactly one of a vPIC make id, a vPIC model id, an extension, or a declared spine's name with one of its ids.",
+            "properties": {
+              "make": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647,
+                "description": "A vPIC make id."
+              },
+              "model": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647,
+                "description": "A vPIC model id."
+              },
+              "ext": {
+                "type": "string",
+                "pattern": "^ext:[a-z0-9][a-z0-9._-]*/[^/\\s]+$",
+                "description": "An extension, ext:<set>/<id>."
+              },
+              "spine": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A declared spine's name, beside id."
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "An entry id of the declared spine."
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "make"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ext"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "spine"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "model"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "make"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ext"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "spine"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "ext"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "make"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "spine"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "spine",
+                  "id"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "make"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ext"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "SpineRef": {
+            "$ref": "#/$defs/SpineRefFields",
+            "unevaluatedProperties": false
+          },
+          "Via": {
+            "description": "One mapping that held on a route: the spine entry it names, its years, origin and note as its file has them, and what could not be checked on the route through it.",
+            "$ref": "#/$defs/SpineRefFields",
+            "properties": {
+              "first": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
+              },
+              "origin": {
+                "enum": [
+                  "derived",
+                  "curated",
+                  "seed"
+                ]
+              },
+              "note": {
+                "type": "string"
+              },
+              "unconfirmed": {
+                "$ref": "#/$defs/Unconfirmed"
+              }
+            },
+            "unevaluatedProperties": false
+          },
+          "Unconfirmed": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "const": "model_year"
+                }
+              ]
+            },
+            "description": "What applied but could not be checked: qualifier element ids, ascending, with no decode or that the decode left empty, then \"model_year\" when a year range applied and no year was known. Absent when everything was checked."
+          },
+          "FileVersion": {
+            "type": "object",
+            "required": [
+              "name",
+              "version"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     }
   ]
 }

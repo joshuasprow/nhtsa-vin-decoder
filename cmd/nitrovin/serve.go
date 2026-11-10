@@ -92,7 +92,7 @@ func serve(e *env, addr, cors string) error {
 	if err != nil {
 		return err
 	}
-	d := loaded{t.Decoder(), t.Info()}
+	d := loaded{t.Decoder(), t}
 	texts, err := errorTexts(data) // the bytes d opened: no error
 	if err != nil {
 		return err
@@ -133,10 +133,10 @@ func serve(e *env, addr, cors string) error {
 // /v1/info lists the vocabularies.
 type loaded struct {
 	*nitrovin.Decoder
-	info contract.Info
+	*nitrovin.Translator
 }
 
-func (l loaded) Info() contract.Info { return l.info }
+func (l loaded) Info() contract.Info { return l.Translator.Info() }
 
 // decodeService is what the API answers with: a *nitrovin.Decoder, or
 // loaded.
@@ -144,6 +144,8 @@ type decodeService interface {
 	Info() contract.Info
 	Decode(contract.Request) (contract.Decode, error)
 	DecodeBatch([]contract.Request) ([]contract.Decode, error)
+	Translate(contract.TranslateRequest) (contract.Translation, error)
+	List(contract.ListRequest) (contract.List, error)
 }
 
 // api serves the routes of docs/api/openapi.yaml, /mcp among them, and the

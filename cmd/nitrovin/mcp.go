@@ -21,7 +21,7 @@ func init() {
 	register(command{
 		name:     "mcp",
 		synopsis: "[flags]",
-		summary:  "Serve the decode_vin tool to an MCP client over stdin and stdout.",
+		summary:  "Serve the decode_vin, translate and list tools to an MCP client over stdin and stdout.",
 		setup:    mcpSetup,
 	})
 }
@@ -74,11 +74,11 @@ func mcpSetup(fs *flag.FlagSet) func(*env, []string) error {
 		if len(args) > 0 {
 			return usageError("mcp takes no arguments")
 		}
-		d, err := e.decoder()
+		t, err := e.translator()
 		if err != nil {
 			return err
 		}
-		server, err := newMCPServer(d, e.stderr)
+		server, err := newMCPServer(loaded{t.Decoder(), t}, e.stderr)
 		if err != nil {
 			return err
 		}
@@ -95,33 +95,43 @@ type nopWriteCloser struct{ io.Writer }
 func (nopWriteCloser) Close() error { return nil }
 
 // newMCPServer returns the MCP server of docs/api/README.md's MCP section:
-// one tool, decode_vin, decoding with d, on every protocol revision the SDK
-// serves. The SDK's diagnostics go to stderr. `nitrovin mcp` serves it over
-// stdio, `nitrovin serve` over Streamable HTTP at /mcp.
+// the tools decode_vin, translate and list, answering with d, on every protocol revision the SDK serves. The SDK's diagnostics
+// go to stderr. `nitrovin mcp` serves it over stdio, `nitrovin serve` over
+// Streamable HTTP at /mcp.
 func newMCPServer(d decodeService, stderr io.Writer) (*mcp.Server, error) {
 	tools, wire, err := parseTools(mcpTools)
 	if err != nil {
 		return nil, fmt.Errorf("mcp-tools.json: %w", err)
 	}
-	if len(tools) != 1 || tools[0].Name != "decode_vin" {
-		return nil, errors.New("mcp-tools.json: want the one tool decode_vin")
+	handlers := map[string]answer{
+		"decode_vin": func(args []byte) ([]byte, error) { return decodeJSON(d, args) },
+		"translate":  func(args []byte) ([]byte, error) { return translateJSON(d, args) },
+		"list":       func(args []byte) ([]byte, error) { return listJSON(d, args) },
 	}
-	t := tools[0]
+	if len(tools) != len(handlers) {
+		return nil, errors.New("mcp-tools.json: want the tools decode_vin, translate and list")
+	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "nitrovin", Version: nitrovin.Version()}, &mcp.ServerOptions{
 		Logger: slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 	})
 	// The low-level AddTool: the SDK neither checks the arguments against
-	// the input schema nor the result against the output schema. The decode
-	// layer validates the request, so a refusal is the Problem every other
-	// surface gives (ADR 0005).
-	server.AddTool(&mcp.Tool{
-		Name:         t.Name,
-		Title:        t.Title,
-		Description:  t.Description,
-		InputSchema:  t.InputSchema,
-		OutputSchema: t.OutputSchema,
-		Annotations:  t.Annotations,
-	}, decodeVIN(d))
+	// the input schema nor the result against the output schema. The
+	// contract layer validates the request, so a refusal is the Problem
+	// every other surface gives (ADR 0005).
+	for _, tool := range tools {
+		h, ok := handlers[tool.Name]
+		if !ok {
+			return nil, fmt.Errorf("mcp-tools.json: no tool %s", tool.Name)
+		}
+		server.AddTool(&mcp.Tool{
+			Name:         tool.Name,
+			Title:        tool.Title,
+			Description:  tool.Description,
+			InputSchema:  tool.InputSchema,
+			OutputSchema: tool.OutputSchema,
+			Annotations:  tool.Annotations,
+		}, toolHandler(h))
+	}
 	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			res, err := next(ctx, method, req)
@@ -166,17 +176,21 @@ func (l *toolsList) MarshalJSON() ([]byte, error) {
 	return bytes.TrimSuffix(out.Bytes(), []byte("\n")), nil
 }
 
-// decodeVIN is decode_vin's handler. A decode is the result's
+// answer answers one request object, a tool's arguments, with its answer
+// as compact JSON. The error is a *contract.Problem.
+type answer func(args []byte) ([]byte, error)
+
+// toolHandler is a tool's handler. An answer is the result's
 // structuredContent and, as the same compact JSON, its one text block.
 // A refused request (or a fault in nitrovin) is an isError result whose
 // one text block is the Problem, as compact JSON.
-func decodeVIN(d decodeService) mcp.ToolHandler {
+func toolHandler(h answer) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := req.Params.Arguments
 		if len(args) == 0 { // arguments are optional in MCP: none is {}
 			args = json.RawMessage("{}")
 		}
-		b, err := decodeJSON(d, args)
+		b, err := h(args)
 		if err != nil {
 			b, err := json.Marshal(contract.AsProblem(err))
 			if err != nil { // a Problem is strings and an int: unreachable
@@ -203,4 +217,32 @@ func decodeJSON(d decodeService, args []byte) ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(dec)
+}
+
+// translateJSON translates one request object, args, to the translation's
+// compact JSON. The error is a *contract.Problem.
+func translateJSON(t decodeService, args []byte) ([]byte, error) {
+	r, err := contract.ParseTranslateRequest(args)
+	if err != nil {
+		return nil, err
+	}
+	tr, err := t.Translate(r)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(tr)
+}
+
+// listJSON answers one list request object, args, with the list's compact
+// JSON. The error is a *contract.Problem.
+func listJSON(t decodeService, args []byte) ([]byte, error) {
+	r, err := contract.ParseListRequest(args)
+	if err != nil {
+		return nil, err
+	}
+	l, err := t.List(r)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(l)
 }

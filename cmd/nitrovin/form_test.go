@@ -21,12 +21,12 @@ import (
 // versioned is the embedded decoder reporting another decoder version, as
 // a release build would.
 type versioned struct {
-	*nitrovin.Decoder
+	loaded
 	version string
 }
 
 func (v versioned) Info() contract.Info {
-	info := v.Decoder.Info()
+	info := v.loaded.Info()
 	info.DecoderVersion = v.version
 	return info
 }
@@ -43,9 +43,13 @@ func formServer(t *testing.T, version string) (*httptest.Server, *nitrovin.Decod
 	if err != nil {
 		t.Fatal(err)
 	}
-	var svc decodeService = d
+	tr, err := nitrovin.NewTranslator(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var svc decodeService = loaded{d, tr}
 	if version != "" {
-		svc = versioned{d, version}
+		svc = versioned{loaded{d, tr}, version}
 	}
 	a, err := newAPI(svc, log.New(io.Discard, "", 0), io.Discard, texts, "")
 	if err != nil {
