@@ -215,6 +215,14 @@ A named collection of extensions, loaded beside vocabularies and shared by
 them, so that two vocabularies' mappings to the same missing vehicle meet.
 _Avoid_: extension vocabulary (it names spine entries, not a system's names)
 
+**Vocabulary builder**:
+A program that writes a vocabulary from a system's own data, matching its
+names to the spine by rules (mappings of origin `derived`) and applying
+**curated overrides**, hand-written lines that replace an entry's derived
+mappings (origin `curated`). Rules run only in a builder, never in a
+translation. `cmd/nitrovin-epa` builds EPA's.
+_Avoid_: importer (that builds the artifact), generator
+
 **Translation**:
 Resolving an entry of one vocabulary to entries of another through the
 spine. May be one-to-many in either direction.

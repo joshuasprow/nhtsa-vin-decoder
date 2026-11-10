@@ -1,0 +1,10 @@
+{"format":1,"kind":"vocabulary","name":"epa-vehicles-curated-test","version":"1","data_month":"2026_10","subject":"vehicle","fields":["make","model"]}
+{"entry":{"make":"AM General","model":"DJ Po Vehicle 2WD"},"mappings":[{"make":606,"first":1983,"note":"a postal Jeep DJ"}]}
+{"entry":{"make":"AM General","model":"FJ8c Post Office"},"mappings":[],"note":"a postal van vPIC has no model for"}
+{"entry":{"make":"Ford","model":"Model T"},"mappings":[{"model":1781}],"note":"not in vehicles.csv: reported, not written"}
+{"entry":{"make":"GMC","model":"Sierra LTD K15 4WD"},"mappings":[{"model":24910,"note":"vPIC names it Sierra Limited"}]}
+{"entry":{"make":"MINI","model":"Cooper Clubman All4"},"mappings":[{"model":1765}]}
+{"entry":{"make":"Nissan","model":"ARIYA ENGAGE+/EVOLVE+ e-4ORCE 87kWh"},"mappings":[{"model":30884,"first":2024,"last":2024},{"model":36667,"first":2025,"last":2025}]}
+{"entry":{"make":"nissan","model":"ariya  fwd 63kwh"},"mappings":[{"model":36667}]}
+{"entry":{"make":"Toyota","model":"Matrix AWD"},"mappings":[{"model":2466,"first":2002,"qualifiers":{"15":[2]},"origin":"seed"}]}
+{"entry":{"make":"Volvo","model":"740/760"},"mappings":[{"model":14119},{"model":14121}]}

@@ -1,0 +1,400 @@
+{"format":1,"kind":"vocabulary","name":"epa-vehicles-curated","version":"2026-11-10","data_month":"2026_10","subject":"vehicle","fields":["make","model"]}
+{"entry":{"make":"Alfa Romeo","model":"Giulia"},"mappings":[{"model":10326}]}
+{"entry":{"make":"Alfa Romeo","model":"Giulia AWD"},"mappings":[{"model":10326}]}
+{"entry":{"make":"Alfa Romeo","model":"GTV"},"mappings":[{"model":14330}]}
+{"entry":{"make":"American Motors Corporation","model":"Eagle"},"mappings":[{"model":17403},{"model":17404}]}
+{"entry":{"make":"American Motors Corporation","model":"Eagle 4DR Wagon"},"mappings":[{"model":17403}]}
+{"entry":{"make":"American Motors Corporation","model":"Eagle 4WD"},"mappings":[{"model":17403},{"model":17404}]}
+{"entry":{"make":"American Motors Corporation","model":"Eagle SX/4 4WD"},"mappings":[{"model":17404}]}
+{"entry":{"make":"Aston Martin","model":"V12 Vantage S"},"mappings":[{"model":1695}]}
+{"entry":{"make":"Aston Martin","model":"V8 Vantage ASM"},"mappings":[{"model":1684}]}
+{"entry":{"make":"Aston Martin","model":"V8 Vantage S"},"mappings":[{"model":1684}]}
+{"entry":{"make":"BMW","model":"128ci Convertible"},"mappings":[{"model":1707}]}
+{"entry":{"make":"BMW","model":"323ci"},"mappings":[{"model":5253}]}
+{"entry":{"make":"BMW","model":"328cxi"},"mappings":[{"model":2377}]}
+{"entry":{"make":"BMW","model":"335ci"},"mappings":[{"model":1711}]}
+{"entry":{"make":"BMW","model":"335ci Convertible"},"mappings":[{"model":1711}]}
+{"entry":{"make":"BMW","model":"335ci xDrive"},"mappings":[{"model":1711}]}
+{"entry":{"make":"BMW","model":"335cxi"},"mappings":[{"model":2378}]}
+{"entry":{"make":"BMW","model":"550 GT"},"mappings":[{"model":1718}]}
+{"entry":{"make":"BMW","model":"650ci"},"mappings":[{"model":1732}]}
+{"entry":{"make":"BMW","model":"650ci Convertible"},"mappings":[{"model":1732}]}
+{"entry":{"make":"BMW","model":"ActiveHybrid 7i"},"mappings":[{"model":31534}]}
+{"entry":{"make":"BMW","model":"ActiveHybrid 7L"},"mappings":[{"model":31534}]}
+{"entry":{"make":"BMW","model":"ActiveHybrid 7Li"},"mappings":[{"model":31534}]}
+{"entry":{"make":"BMW","model":"ActiveHybrid X6"},"mappings":[{"model":1714}]}
+{"entry":{"make":"BMW","model":"Alpina XB7"},"mappings":[{"model":25884,"note":"an X7"}]}
+{"entry":{"make":"BMW","model":"M Coupe"},"mappings":[{"model":5239,"note":"Z3-based"}]}
+{"entry":{"make":"BMW","model":"M Roadster"},"mappings":[{"model":5239,"note":"Z3-based"}]}
+{"entry":{"make":"BMW","model":"M1 Coupe"},"mappings":[{"model":1970}]}
+{"entry":{"make":"Cadillac","model":"Armored Deville"},"mappings":[{"model":8844}]}
+{"entry":{"make":"Cadillac","model":"Armored DTS"},"mappings":[{"model":4308}]}
+{"entry":{"make":"Cadillac","model":"STS-V"},"mappings":[{"model":4300}]}
+{"entry":{"make":"Cadillac","model":"XLR-V"},"mappings":[{"model":4311}]}
+{"entry":{"make":"Chevrolet","model":"Astro 2WD (cargo)"},"mappings":[{"model":8882,"note":"vPIC names it Astro Van"}]}
+{"entry":{"make":"Chevrolet","model":"Astro 2WD (cargo) Conversion"},"mappings":[{"model":8882,"note":"vPIC names it Astro Van"}]}
+{"entry":{"make":"Chevrolet","model":"Astro 2WD (passenger)"},"mappings":[{"model":8882,"note":"vPIC names it Astro Van"}]}
+{"entry":{"make":"Chevrolet","model":"Astro AWD (cargo)"},"mappings":[{"model":8882,"note":"vPIC names it Astro Van"}]}
+{"entry":{"make":"Chevrolet","model":"Astro AWD (cargo) Conversion"},"mappings":[{"model":8882,"note":"vPIC names it Astro Van"}]}
+{"entry":{"make":"Chevrolet","model":"Astro AWD (passenger)"},"mappings":[{"model":8882,"note":"vPIC names it Astro Van"}]}
+{"entry":{"make":"Chevrolet","model":"C10 Pickup 2WD"},"mappings":[{"model":11489}]}
+{"entry":{"make":"Chevrolet","model":"C1500 Pickup 2WD"},"mappings":[{"model":11489}]}
+{"entry":{"make":"Chevrolet","model":"C20 Pickup 2WD"},"mappings":[{"model":11489}]}
+{"entry":{"make":"Chevrolet","model":"C2500 Pickup 2WD"},"mappings":[{"model":11489}]}
+{"entry":{"make":"Chevrolet","model":"Captiva AWD"},"mappings":[{"model":1846,"note":"sold as Captiva Sport"}]}
+{"entry":{"make":"Chevrolet","model":"Captiva FWD"},"mappings":[{"model":1846,"note":"sold as Captiva Sport"}]}
+{"entry":{"make":"Chevrolet","model":"Classic"},"mappings":[{"model":17528,"note":"Malibu Classic"}]}
+{"entry":{"make":"Chevrolet","model":"G10/20 Sport Van 2WD"},"mappings":[{"model":14462,"note":"G-Series van"}]}
+{"entry":{"make":"Chevrolet","model":"G10/20 Van 2WD"},"mappings":[{"model":14462,"note":"G-Series van"}]}
+{"entry":{"make":"Chevrolet","model":"G10/20 Van 2WD (cargo)"},"mappings":[{"model":14462,"note":"G-Series van"}]}
+{"entry":{"make":"Chevrolet","model":"G30 Sport Van 2WD"},"mappings":[{"model":14462,"note":"G-Series van"}]}
+{"entry":{"make":"Chevrolet","model":"G30 Van 2WD"},"mappings":[{"model":14462,"note":"G-Series van"}]}
+{"entry":{"make":"Chevrolet","model":"G30 Van 2WD (cargo)"},"mappings":[{"model":14462,"note":"G-Series van"}]}
+{"entry":{"make":"Chevrolet","model":"K10 Pickup 4WD"},"mappings":[{"model":11489}]}
+{"entry":{"make":"Chevrolet","model":"K1500 Pickup 4WD"},"mappings":[{"model":11489}]}
+{"entry":{"make":"Chevrolet","model":"K20 Pickup 4WD"},"mappings":[{"model":11489}]}
+{"entry":{"make":"Chevrolet","model":"K2500 Pickup 4WD"},"mappings":[{"model":11489}]}
+{"entry":{"make":"Chevrolet","model":"Pickup 2500 2WD"},"mappings":[{"model":11489}]}
+{"entry":{"make":"Chevrolet","model":"Pickup 2500 4WD"},"mappings":[{"model":11489}]}
+{"entry":{"make":"Chevrolet","model":"Prizm"},"mappings":[{"model":3531}]}
+{"entry":{"make":"Chevrolet","model":"R10 Pickup 2WD"},"mappings":[{"model":14545,"note":"R Conventional"}]}
+{"entry":{"make":"Chevrolet","model":"R20 (C20) Pickup 2WD"},"mappings":[{"model":14545,"note":"R Conventional"}]}
+{"entry":{"make":"Chevrolet","model":"S10 Cab Chassis 2WD"},"mappings":[{"model":11483}]}
+{"entry":{"make":"Chevrolet","model":"S10 Utility Body 2WD"},"mappings":[{"model":11483}]}
+{"entry":{"make":"Chevrolet","model":"Spectrum"},"mappings":[{"model":14461}]}
+{"entry":{"make":"Chevrolet","model":"Spectrum Turbo"},"mappings":[{"model":14461}]}
+{"entry":{"make":"Chevrolet","model":"Sport Van G10/20 2WD"},"mappings":[{"model":14462,"note":"G-Series van"}]}
+{"entry":{"make":"Chevrolet","model":"Sport Van G10/20 2WD (passenger)"},"mappings":[{"model":14462,"note":"G-Series van"}]}
+{"entry":{"make":"Chevrolet","model":"Sport Van G30  2WD"},"mappings":[{"model":14462,"note":"G-Series van"}]}
+{"entry":{"make":"Chevrolet","model":"Sport Van G30 2WD (cargo)"},"mappings":[{"model":14462,"note":"G-Series van"}]}
+{"entry":{"make":"Chevrolet","model":"Sprint"},"mappings":[{"model":14513}]}
+{"entry":{"make":"Chevrolet","model":"Sprint ER"},"mappings":[{"model":14513}]}
+{"entry":{"make":"Chevrolet","model":"Sprint Metro"},"mappings":[{"model":14513}]}
+{"entry":{"make":"Chevrolet","model":"Sprint Plus"},"mappings":[{"model":14513}]}
+{"entry":{"make":"Chevrolet","model":"T10 (S10) Pickup 4WD"},"mappings":[{"model":11483}]}
+{"entry":{"make":"Chevrolet","model":"Turbo Sprint"},"mappings":[{"model":14513}]}
+{"entry":{"make":"Chevrolet","model":"V10 (K10) Pickup 4WD"},"mappings":[{"model":14546,"note":"V Conventional"}]}
+{"entry":{"make":"Chevrolet","model":"V20 Pickup 4WD"},"mappings":[{"model":14546,"note":"V Conventional"}]}
+{"entry":{"make":"Chevrolet","model":"Van 15/25 2WD Conversion"},"mappings":[{"model":1848,"note":"Express from 1996"}]}
+{"entry":{"make":"Chevrolet","model":"Van 1500 2WD Cargo"},"mappings":[{"model":1848,"note":"Express from 1996"}]}
+{"entry":{"make":"Chevrolet","model":"Van 1500 2WD Conversion Cargo"},"mappings":[{"model":1848,"note":"Express from 1996"}]}
+{"entry":{"make":"Chevrolet","model":"Van 1500 AWD Cargo"},"mappings":[{"model":1848,"note":"Express from 1996"}]}
+{"entry":{"make":"Chevrolet","model":"Van 1500 AWD Conversion"},"mappings":[{"model":1848,"note":"Express from 1996"}]}
+{"entry":{"make":"Chevrolet","model":"Van 1500 AWD Conversion Cargo"},"mappings":[{"model":1848,"note":"Express from 1996"}]}
+{"entry":{"make":"Chevrolet","model":"Van 1500/2500 2WD"},"mappings":[{"model":1848,"note":"Express from 1996"}]}
+{"entry":{"make":"Chevrolet","model":"Van 1500/2500 AWD"},"mappings":[{"model":1848,"note":"Express from 1996"}]}
+{"entry":{"make":"Dodge","model":"B150/B250 Van 2WD"},"mappings":[{"model":10962,"note":"Ram Van"}]}
+{"entry":{"make":"Dodge","model":"B150/B250 Wagon 2WD"},"mappings":[{"model":10963,"note":"Ram Wagon"}]}
+{"entry":{"make":"Dodge","model":"B1500 Van 2WD"},"mappings":[{"model":10962,"note":"Ram Van"}]}
+{"entry":{"make":"Dodge","model":"B1500 Wagon 2WD"},"mappings":[{"model":10963,"note":"Ram Wagon"}]}
+{"entry":{"make":"Dodge","model":"B1500/B2500 Van 2WD"},"mappings":[{"model":10962,"note":"Ram Van"}]}
+{"entry":{"make":"Dodge","model":"B1500/B2500 Wagon 2WD"},"mappings":[{"model":10963,"note":"Ram Wagon"}]}
+{"entry":{"make":"Dodge","model":"B2500 Van 2WD"},"mappings":[{"model":10962,"note":"Ram Van"}]}
+{"entry":{"make":"Dodge","model":"B2500 Wagon 2WD"},"mappings":[{"model":10963,"note":"Ram Wagon"}]}
+{"entry":{"make":"Dodge","model":"B350 Van 2WD"},"mappings":[{"model":10962,"note":"Ram Van"}]}
+{"entry":{"make":"Dodge","model":"B350 Wagon 2WD"},"mappings":[{"model":10963,"note":"Ram Wagon"}]}
+{"entry":{"make":"Dodge","model":"B3500 Van 2WD"},"mappings":[{"model":10962,"note":"Ram Van"}]}
+{"entry":{"make":"Dodge","model":"B3500 Wagon 2WD"},"mappings":[{"model":10963,"note":"Ram Wagon"}]}
+{"entry":{"make":"Dodge","model":"D100/D150 Pickup 2WD"},"mappings":[{"model":14868}]}
+{"entry":{"make":"Dodge","model":"D250 Cab Chassis 2WD"},"mappings":[{"model":14868}]}
+{"entry":{"make":"Dodge","model":"D250 Pickup 2WD"},"mappings":[{"model":14868}]}
+{"entry":{"make":"Dodge","model":"D250 Pickup Cab Chassis 2WD"},"mappings":[{"model":14868}]}
+{"entry":{"make":"Dodge","model":"Power Ram 50 4WD"},"mappings":[{"model":14864}]}
+{"entry":{"make":"Dodge","model":"Power Ram 50 Pickup 4WD"},"mappings":[{"model":14864}]}
+{"entry":{"make":"Dodge","model":"Power Ram50 4WD"},"mappings":[{"model":14864}]}
+{"entry":{"make":"Dodge","model":"W100/W150 Pickup 4WD"},"mappings":[{"model":14869}]}
+{"entry":{"make":"Dodge","model":"W250 Pickup 4WD"},"mappings":[{"model":14869}]}
+{"entry":{"make":"Ferrari","model":"575"},"mappings":[{"model":9941}]}
+{"entry":{"make":"Ferrari","model":"F12"},"mappings":[{"model":13843}]}
+{"entry":{"make":"Ferrari","model":"F12 tdf"},"mappings":[{"model":25180}]}
+{"entry":{"make":"Ferrari","model":"F141"},"mappings":[{"model":3603,"note":"F141 is the 599 GTB Fiorano"}]}
+{"entry":{"make":"Ferrari","model":"Mondial"},"mappings":[{"model":14055}]}
+{"entry":{"make":"Ferrari","model":"Mondial/Cabriolet"},"mappings":[{"model":14049}]}
+{"entry":{"make":"Ferrari","model":"Monza SP1"},"mappings":[{"model":31865}]}
+{"entry":{"make":"Ferrari","model":"Monza SP2"},"mappings":[{"model":31865}]}
+{"entry":{"make":"GMC","model":"C15 Pickup 2WD"},"mappings":[{"model":11490}]}
+{"entry":{"make":"GMC","model":"C25 Pickup 2WD"},"mappings":[{"model":11490}]}
+{"entry":{"make":"GMC","model":"C2500 Sierra 2WD"},"mappings":[{"model":1857}]}
+{"entry":{"make":"GMC","model":"K15 Pickup 4WD"},"mappings":[{"model":11490}]}
+{"entry":{"make":"GMC","model":"K25 Pickup 4WD"},"mappings":[{"model":11490}]}
+{"entry":{"make":"GMC","model":"K2500 Sierra 4WD"},"mappings":[{"model":1857}]}
+{"entry":{"make":"GMC","model":"R15 Pickup 2WD"},"mappings":[{"model":14538,"note":"R Conventional"}]}
+{"entry":{"make":"GMC","model":"R25 Pickup 2WD"},"mappings":[{"model":14538,"note":"R Conventional"}]}
+{"entry":{"make":"GMC","model":"S15 Cab Chassis 2WD"},"mappings":[{"model":14554}]}
+{"entry":{"make":"GMC","model":"Sierra LTD C15 2WD"},"mappings":[{"model":24910,"note":"vPIC names it Sierra Limited"}]}
+{"entry":{"make":"GMC","model":"Sierra LTD K15 4WD"},"mappings":[{"model":24910,"note":"vPIC names it Sierra Limited"}]}
+{"entry":{"make":"GMC","model":"T15 (S15) Pickup 4WD"},"mappings":[{"model":14554}]}
+{"entry":{"make":"GMC","model":"V15 Pickup 4WD"},"mappings":[{"model":14539,"note":"V Conventional"}]}
+{"entry":{"make":"GMC","model":"V25 Pickup 4WD"},"mappings":[{"model":14539,"note":"V Conventional"}]}
+{"entry":{"make":"Honda","model":"Civic Del Sol"},"mappings":[{"model":9577}]}
+{"entry":{"make":"Jaguar","model":"Super V8"},"mappings":[{"model":2242,"note":"an XJ"}]}
+{"entry":{"make":"Jaguar","model":"XJL FFV"},"mappings":[{"model":2242}]}
+{"entry":{"make":"Jaguar","model":"XJRS Convertble"},"mappings":[{"model":14615}]}
+{"entry":{"make":"Jaguar","model":"XJRS Coupe"},"mappings":[{"model":14615}]}
+{"entry":{"make":"Jeep","model":"CJ8 4WD"},"mappings":[{"model":15074}]}
+{"entry":{"make":"Jeep","model":"Scrambler"},"mappings":[{"model":15074}]}
+{"entry":{"make":"Jeep","model":"Scrambler Pickup 4WD"},"mappings":[{"model":15074}]}
+{"entry":{"make":"Land Rover","model":"Evoque"},"mappings":[{"model":2244}]}
+{"entry":{"make":"Land Rover","model":"Evoque MHEV"},"mappings":[{"model":2244}]}
+{"entry":{"make":"Land Rover","model":"New Range Rover LWB"},"mappings":[{"model":29480,"note":"the 2022 L460: vPIC names 2022 New Range Rover"},{"model":2247,"note":"the 2022 L460: vPIC names 2022 New Range Rover"}]}
+{"entry":{"make":"Land Rover","model":"New Range Rover P360 LWB MHEV"},"mappings":[{"model":29480,"note":"the 2022 L460: vPIC names 2022 New Range Rover"},{"model":2247,"note":"the 2022 L460: vPIC names 2022 New Range Rover"}]}
+{"entry":{"make":"Land Rover","model":"New Range Rover P360 MHEV"},"mappings":[{"model":29480,"note":"the 2022 L460: vPIC names 2022 New Range Rover"},{"model":2247,"note":"the 2022 L460: vPIC names 2022 New Range Rover"}]}
+{"entry":{"make":"Land Rover","model":"New Range Rover P400 LWB MHEV"},"mappings":[{"model":29480,"note":"the 2022 L460: vPIC names 2022 New Range Rover"},{"model":2247,"note":"the 2022 L460: vPIC names 2022 New Range Rover"}]}
+{"entry":{"make":"Land Rover","model":"New Range Rover P400 MHEV"},"mappings":[{"model":29480,"note":"the 2022 L460: vPIC names 2022 New Range Rover"},{"model":2247,"note":"the 2022 L460: vPIC names 2022 New Range Rover"}]}
+{"entry":{"make":"Land Rover","model":"New Range Rover P440 PHEV"},"mappings":[{"model":29480,"note":"the 2022 L460: vPIC names 2022 New Range Rover"},{"model":2247,"note":"the 2022 L460: vPIC names 2022 New Range Rover"}]}
+{"entry":{"make":"Land Rover","model":"New Range Rover Sport"},"mappings":[{"model":2246}]}
+{"entry":{"make":"Land Rover","model":"New Range Rover Sport P360 MHEV"},"mappings":[{"model":2246}]}
+{"entry":{"make":"Land Rover","model":"New Range Rover Sport P400 MHEV"},"mappings":[{"model":2246}]}
+{"entry":{"make":"Land Rover","model":"New Range Rover Sport P440 PHEV"},"mappings":[{"model":2246}]}
+{"entry":{"make":"Maserati","model":"222E"},"mappings":[{"model":14623,"note":"a Biturbo"}]}
+{"entry":{"make":"Maserati","model":"225"},"mappings":[{"model":14623,"note":"a Biturbo"}]}
+{"entry":{"make":"Maserati","model":"Karif"},"mappings":[{"model":14623,"note":"a Biturbo"}]}
+{"entry":{"make":"Mazda","model":"2500 2WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2000"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2000/B2200 Pickup 2WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2000/B2200/B2600"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2200/B2600"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2200/B2600i"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2300 2WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2300/B3000/B4000 Pickup 2WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2300/B3000/B4000 Pickup 4WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2500"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2500 2WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2500/B3000/B4000 2WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2500/B3000/B4000 4WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2600 4x4"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B2600i 4x4"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B3000"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B3000 (FFV) Ethanol 2WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B3000 2WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B3000 2WD FFV"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B3000 4WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B3000 FFV 2WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B3000 FFV 4WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B4000"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B4000 2WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"B4000 4WD"},"mappings":[{"model":2741,"note":"vPIC names it B-Series"}]}
+{"entry":{"make":"Mazda","model":"Speed 3"},"mappings":[{"model":2074,"note":"Mazdaspeed3"}]}
+{"entry":{"make":"Mercedes-Benz","model":"AMG CLE53 4matic Plus (convertible)"},"mappings":[{"model":33769}]}
+{"entry":{"make":"Mercedes-Benz","model":"AMG CLE53 4matic Plus (coupe)"},"mappings":[{"model":33769}]}
+{"entry":{"make":"Mercedes-Benz","model":"AMG EQE 4matic Plus"},"mappings":[{"model":30229}]}
+{"entry":{"make":"Mercedes-Benz","model":"AMG EQE 4matic Plus (SUV)"},"mappings":[{"model":31097}]}
+{"entry":{"make":"Mercedes-Benz","model":"AMG EQS 4matic Plus"},"mappings":[{"model":29045}]}
+{"entry":{"make":"Mercedes-Benz","model":"B250e"},"mappings":[{"model":2113}]}
+{"entry":{"make":"Mercedes-Benz","model":"CLE300 4matic (Convertible)"},"mappings":[{"model":33769}]}
+{"entry":{"make":"Mercedes-Benz","model":"CLE300 4matic (Coupe)"},"mappings":[{"model":33769}]}
+{"entry":{"make":"Mercedes-Benz","model":"CLE450 4matic (Convertible)"},"mappings":[{"model":33769}]}
+{"entry":{"make":"Mercedes-Benz","model":"CLE450 4matic (Coupe)"},"mappings":[{"model":33769}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQB 250 Plus"},"mappings":[{"model":30230}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQB 300 4matic"},"mappings":[{"model":30230}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQB 350 4matic"},"mappings":[{"model":30230}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQE 320 4matic"},"mappings":[{"model":30229}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQE 320 4matic (SUV)"},"mappings":[{"model":31097}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQE 320 Plus"},"mappings":[{"model":30229}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQE 320 Plus (SUV)"},"mappings":[{"model":31097}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQE 350 4matic"},"mappings":[{"model":30229}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQE 350 4matic (SUV)"},"mappings":[{"model":31097}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQE 350 Plus"},"mappings":[{"model":30229}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQE 350 Plus (SUV)"},"mappings":[{"model":31097}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQE 500 4matic"},"mappings":[{"model":30229}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQE 500 4matic (SUV)"},"mappings":[{"model":31097}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQS 400 4matic (SUV)"},"mappings":[{"model":30265}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQS 450 4matic"},"mappings":[{"model":29045}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQS 450 4matic (SUV)"},"mappings":[{"model":30265}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQS 450 Plus"},"mappings":[{"model":29045}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQS 450 Plus (SUV)"},"mappings":[{"model":30265}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQS 500 4matic"},"mappings":[{"model":29045}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQS 550 4matic (SUV)"},"mappings":[{"model":30265}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQS 580 4matic"},"mappings":[{"model":29045}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQS 580 4matic (SUV)"},"mappings":[{"model":30265}]}
+{"entry":{"make":"Mercedes-Benz","model":"EQS 680 4matic Maybach (SUV)"},"mappings":[{"model":30265}]}
+{"entry":{"make":"Mercedes-Benz","model":"Maybach S 600"},"mappings":[{"model":2086,"note":"Mercedes-Maybach S-Class"}]}
+{"entry":{"make":"Mercedes-Benz","model":"Maybach S550 4matic"},"mappings":[{"model":2086,"note":"Mercedes-Maybach S-Class"}]}
+{"entry":{"make":"Mercedes-Benz","model":"Maybach S600"},"mappings":[{"model":2086,"note":"Mercedes-Maybach S-Class"}]}
+{"entry":{"make":"Mercedes-Benz","model":"Maybach S650 Convertible"},"mappings":[{"model":2086,"note":"Mercedes-Maybach S-Class"}]}
+{"entry":{"make":"Mercedes-Benz","model":"SLR"},"mappings":[{"model":2936}]}
+{"entry":{"make":"Mercedes-Benz","model":"SLS AMG"},"mappings":[{"model":2087}]}
+{"entry":{"make":"Mercedes-Benz","model":"SLS AMG Black Series Coupe"},"mappings":[{"model":2087}]}
+{"entry":{"make":"Mercedes-Benz","model":"SLS AMG Coupe"},"mappings":[{"model":2087}]}
+{"entry":{"make":"Mercedes-Benz","model":"SLS AMG GT Coupe"},"mappings":[{"model":2087}]}
+{"entry":{"make":"Mercedes-Benz","model":"SLS AMG GT Roadster"},"mappings":[{"model":2087}]}
+{"entry":{"make":"Mercedes-Benz","model":"SLS AMG Roadster"},"mappings":[{"model":2087}]}
+{"entry":{"make":"MINI","model":"Cooper C Convertible"},"mappings":[{"model":1767}]}
+{"entry":{"make":"MINI","model":"Cooper Clubman"},"mappings":[{"model":1765}]}
+{"entry":{"make":"MINI","model":"Cooper Clubman All4"},"mappings":[{"model":1765}]}
+{"entry":{"make":"MINI","model":"Cooper Countryman"},"mappings":[{"model":1880}]}
+{"entry":{"make":"MINI","model":"Cooper Countryman All4"},"mappings":[{"model":1880}]}
+{"entry":{"make":"MINI","model":"Cooper Countryman Coupe"},"mappings":[{"model":1928,"note":"the Countryman Coupe is the Paceman"}]}
+{"entry":{"make":"MINI","model":"Cooper Paceman"},"mappings":[{"model":1928,"note":"the Countryman Coupe is the Paceman"}]}
+{"entry":{"make":"MINI","model":"Cooper S Clubman"},"mappings":[{"model":1765}]}
+{"entry":{"make":"MINI","model":"Cooper S Clubman All4"},"mappings":[{"model":1765}]}
+{"entry":{"make":"MINI","model":"Cooper S Convertible"},"mappings":[{"model":1767}]}
+{"entry":{"make":"MINI","model":"Cooper S Countryman"},"mappings":[{"model":1880}]}
+{"entry":{"make":"MINI","model":"Cooper S Countryman All4"},"mappings":[{"model":1880}]}
+{"entry":{"make":"MINI","model":"Cooper S Countryman Coupe"},"mappings":[{"model":1928,"note":"the Countryman Coupe is the Paceman"}]}
+{"entry":{"make":"MINI","model":"Cooper S Countryman Coupe All4"},"mappings":[{"model":1928,"note":"the Countryman Coupe is the Paceman"}]}
+{"entry":{"make":"MINI","model":"Cooper S Coupe"},"mappings":[{"model":1886}]}
+{"entry":{"make":"MINI","model":"Cooper S Paceman"},"mappings":[{"model":1928,"note":"the Countryman Coupe is the Paceman"}]}
+{"entry":{"make":"MINI","model":"Cooper S Paceman All4"},"mappings":[{"model":1928,"note":"the Countryman Coupe is the Paceman"}]}
+{"entry":{"make":"MINI","model":"Cooper S Roadster"},"mappings":[{"model":1925}]}
+{"entry":{"make":"MINI","model":"Cooper SE Countryman All4"},"mappings":[{"model":1880}]}
+{"entry":{"make":"MINI","model":"JCW 2 Door"},"mappings":[{"model":1862}]}
+{"entry":{"make":"MINI","model":"JCW Convertible"},"mappings":[{"model":1767}]}
+{"entry":{"make":"MINI","model":"JCW Hardtop 2 Door"},"mappings":[{"model":1862}]}
+{"entry":{"make":"MINI","model":"John Cooper Works Convertible"},"mappings":[{"model":1767}]}
+{"entry":{"make":"MINI","model":"John Cooper Works Coupe"},"mappings":[{"model":1886}]}
+{"entry":{"make":"MINI","model":"John Cooper Works GP"},"mappings":[{"model":1862}]}
+{"entry":{"make":"MINI","model":"John Cooper Works GP-2"},"mappings":[{"model":1862}]}
+{"entry":{"make":"MINI","model":"John Cooper Works Hardtop"},"mappings":[{"model":1862}]}
+{"entry":{"make":"MINI","model":"John Cooper Works Hardtop 2 door"},"mappings":[{"model":1862}]}
+{"entry":{"make":"MINI","model":"John Cooper Works Roadster"},"mappings":[{"model":1925}]}
+{"entry":{"make":"Mitsubishi","model":"Nativa 2WD"},"mappings":[{"model":5755,"note":"Nativa is the Montero Sport sold in Puerto Rico"}]}
+{"entry":{"make":"Mitsubishi","model":"Nativa 2WD (Puerto Rico Only)"},"mappings":[{"model":5755,"note":"Nativa is the Montero Sport sold in Puerto Rico"}]}
+{"entry":{"make":"Mitsubishi","model":"Nativa 2WD(Puerto Rico Only)"},"mappings":[{"model":5755,"note":"Nativa is the Montero Sport sold in Puerto Rico"}]}
+{"entry":{"make":"Mitsubishi","model":"Nativa 4WD"},"mappings":[{"model":5755,"note":"Nativa is the Montero Sport sold in Puerto Rico"}]}
+{"entry":{"make":"Mitsubishi","model":"Nativa 4WD (Puerto Rico Only)"},"mappings":[{"model":5755,"note":"Nativa is the Montero Sport sold in Puerto Rico"}]}
+{"entry":{"make":"Nissan","model":"ARIYA e-4ORCE 63kWh"},"mappings":[{"model":36667,"first":2025,"last":2026,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA e-4ORCE 87kWh"},"mappings":[{"model":36667,"first":2026,"last":2026,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA ENG Plus/EVO Plus e-4ORCE 87kWh"},"mappings":[{"model":30884,"first":2023,"last":2023,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA ENGAGE e-4ORCE 63kWh"},"mappings":[{"model":30884,"first":2023,"last":2024,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA ENGAGE FWD 63kWh"},"mappings":[{"model":30884,"first":2023,"last":2024,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA ENGAGE+/EVOLVE+ e-4ORCE 87kWh"},"mappings":[{"model":30884,"first":2024,"last":2024,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"},{"model":36667,"first":2025,"last":2025,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA EVO Plus/EMP Plus/PRM FWD 87kWh"},"mappings":[{"model":30884,"first":2023,"last":2023,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA EVOLVE+ FWD 87kWh"},"mappings":[{"model":36667,"first":2025,"last":2025,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA EVOLVE+/EMPOWER+ FWD 87kWh"},"mappings":[{"model":30884,"first":2024,"last":2024,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA FWD 63kWh"},"mappings":[{"model":36667,"first":2025,"last":2026,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA FWD 87kWh"},"mappings":[{"model":36667,"first":2026,"last":2026,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA PLAT Plus e-4ORCE 87kWh 19"},"mappings":[{"model":30884,"first":2023,"last":2023,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA PLAT Plus e-4ORCE 87kWh 20"},"mappings":[{"model":30884,"first":2023,"last":2023,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA PLATINUM+ e-4ORCE 87kWh 19in. Wheels"},"mappings":[{"model":30884,"first":2024,"last":2024,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"},{"model":36667,"first":2025,"last":2026,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA PLATINUM+ e-4ORCE 87kWh 20in. Wheels"},"mappings":[{"model":30884,"first":2024,"last":2024,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"},{"model":36667,"first":2025,"last":2025,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"ARIYA VENTURE Plus FWD 87kWh"},"mappings":[{"model":30884,"first":2023,"last":2024,"note":"vPIC names it Ariya Hatchback to 2024, Ariya MPV from 2025"}]}
+{"entry":{"make":"Nissan","model":"Hardbody 2WD"},"mappings":[{"model":5748,"note":"vPIC names it Pickup"}]}
+{"entry":{"make":"Nissan","model":"Hardbody 4WD"},"mappings":[{"model":5748,"note":"vPIC names it Pickup"}]}
+{"entry":{"make":"Nissan","model":"Truck 2WD"},"mappings":[{"model":5748,"note":"vPIC names it Pickup"}]}
+{"entry":{"make":"Nissan","model":"Truck 2WD (new Version)"},"mappings":[{"model":5748,"note":"vPIC names it Pickup"}]}
+{"entry":{"make":"Nissan","model":"Truck 4WD"},"mappings":[{"model":5748,"note":"vPIC names it Pickup"}]}
+{"entry":{"make":"Nissan","model":"Truck 4WD (new Version)"},"mappings":[{"model":5748,"note":"vPIC names it Pickup"}]}
+{"entry":{"make":"Nissan","model":"Truck Cab Chassis 2WD"},"mappings":[{"model":5748,"note":"vPIC names it Pickup"}]}
+{"entry":{"make":"Oldsmobile","model":"Calais"},"mappings":[{"model":14341}]}
+{"entry":{"make":"Oldsmobile","model":"Ciera SL"},"mappings":[{"model":14552}]}
+{"entry":{"make":"Oldsmobile","model":"Ciera SL Wagon"},"mappings":[{"model":14552}]}
+{"entry":{"make":"Oldsmobile","model":"Eighty-Eight"},"mappings":[{"model":9066}]}
+{"entry":{"make":"Oldsmobile","model":"Ninety-Eight"},"mappings":[{"model":14175}]}
+{"entry":{"make":"Oldsmobile","model":"Ninety-Eight II"},"mappings":[{"model":14175}]}
+{"entry":{"make":"Oldsmobile","model":"Ninety-Eight Regency"},"mappings":[{"model":14175}]}
+{"entry":{"make":"Oldsmobile","model":"Ninety-Eight/Touring"},"mappings":[{"model":14175}]}
+{"entry":{"make":"Pontiac","model":"1000"},"mappings":[{"model":14482}]}
+{"entry":{"make":"Pontiac","model":"20th Anniversary Trans Am"},"mappings":[{"model":8986}]}
+{"entry":{"make":"Porsche","model":"718 GT4 RS"},"mappings":[{"model":31224,"note":"a 718 Cayman"}]}
+{"entry":{"make":"Porsche","model":"Carrera"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 2 911 GT3"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 2 Cabriolet"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 2 Cabriolet Kit"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 2 Coupe"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 2 Coupe Kit"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 2 S Cabriolet"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 2 S Coupe"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 4"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 4 Cabriolet"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 4 Cabriolet Kit"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 4 Coupe"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 4 S"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 4 S Cabriolet"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 4 S Cabriolet Kit"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 4 S Coupe"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 4 S Kit"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 4 S Targa"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Carrera 4 Targa"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"New 911 Carrera"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"New 911 Carrera Cabriolet"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"New 911 Carrera S"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"New 911 Carrera S Cabriolet"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Targa"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Targa Kit"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Turbo"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Turbo 2 911 GT2"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Turbo 4 911"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Turbo 4 911 Cab"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Turbo 4 911 Cab Kit"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Turbo 4 911 Kit"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Turbo 4 911 S"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Turbo 4 911 Turbo"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Turbo 4 911 Turbo Cab S"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Turbo GT2"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Porsche","model":"Turbo Kit"},"mappings":[{"model":7832,"note":"911"}]}
+{"entry":{"make":"Rolls-Royce","model":"Azure"},"mappings":[{"model":9789,"note":"a Bentley"}]}
+{"entry":{"make":"Rolls-Royce","model":"Brooklands"},"mappings":[{"model":9788,"note":"a Bentley"}]}
+{"entry":{"make":"Rolls-Royce","model":"Brooklands and (LWB)"},"mappings":[{"model":9788,"note":"a Bentley"}]}
+{"entry":{"make":"Rolls-Royce","model":"Brooklands/Brklnds L"},"mappings":[{"model":9788,"note":"a Bentley"}]}
+{"entry":{"make":"Rolls-Royce","model":"Continental"},"mappings":[{"model":33783,"note":"a Bentley"}]}
+{"entry":{"make":"Rolls-Royce","model":"Continental (turbo)"},"mappings":[{"model":33783,"note":"a Bentley"}]}
+{"entry":{"make":"Rolls-Royce","model":"Continental R"},"mappings":[{"model":33783,"note":"a Bentley"}]}
+{"entry":{"make":"Rolls-Royce","model":"Continental T"},"mappings":[{"model":33783,"note":"a Bentley"}]}
+{"entry":{"make":"Rolls-Royce","model":"Eight/Mulsan"},"mappings":[{"model":9824,"note":"Bentley Eight and Mulsanne"},{"model":9822,"note":"Bentley Eight and Mulsanne"}]}
+{"entry":{"make":"Rolls-Royce","model":"Eight/Mulsanne S"},"mappings":[{"model":9824,"note":"Bentley Eight and Mulsanne"},{"model":9822,"note":"Bentley Eight and Mulsanne"}]}
+{"entry":{"make":"Rolls-Royce","model":"Eight/Mulsanne S and S"},"mappings":[{"model":9824,"note":"Bentley Eight and Mulsanne"},{"model":9822,"note":"Bentley Eight and Mulsanne"}]}
+{"entry":{"make":"Rolls-Royce","model":"Limousine"},"mappings":[{"model":9795}]}
+{"entry":{"make":"Rolls-Royce","model":"Turbo R"},"mappings":[{"model":9791,"note":"Bentley Turbo R"}]}
+{"entry":{"make":"Rolls-Royce","model":"Turbo R/Rl Bklds Turbo/LWB"},"mappings":[{"model":9791,"note":"Bentley Turbo R"}]}
+{"entry":{"make":"Rolls-Royce","model":"Turbo R/Turbo R(lwb)"},"mappings":[{"model":9791,"note":"Bentley Turbo R"}]}
+{"entry":{"make":"Rolls-Royce","model":"Turbo R/Turbo Rl"},"mappings":[{"model":9791,"note":"Bentley Turbo R"}]}
+{"entry":{"make":"Saab","model":"Convertible"},"mappings":[{"model":10049,"note":"a 900"}]}
+{"entry":{"make":"Saleen","model":"Mustang"},"mappings":[{"model":1781,"note":"a Ford Mustang"}]}
+{"entry":{"make":"Saleen","model":"Mustang S351"},"mappings":[{"model":1781,"note":"a Ford Mustang"}]}
+{"entry":{"make":"Saleen","model":"SSC"},"mappings":[{"model":1781,"note":"a Ford Mustang"}]}
+{"entry":{"make":"Saleen Performance","model":"F150 Supercharged"},"mappings":[{"model":1801,"note":"a Ford F-150"}]}
+{"entry":{"make":"Saleen Performance","model":"S281 Family"},"mappings":[{"model":1781,"note":"a Ford Mustang"}]}
+{"entry":{"make":"Saleen Performance","model":"S331 Family"},"mappings":[{"model":1801,"note":"a Ford F-150"}]}
+{"entry":{"make":"Saturn","model":"LW"},"mappings":[{"model":11000},{"model":10999}]}
+{"entry":{"make":"Saturn","model":"SC"},"mappings":[{"model":8993},{"model":8994}]}
+{"entry":{"make":"Saturn","model":"SW"},"mappings":[{"model":9024},{"model":9070}]}
+{"entry":{"make":"Shelby","model":"Mustang GT"},"mappings":[{"model":1781,"note":"a Ford Mustang"}]}
+{"entry":{"make":"STI","model":"S209"},"mappings":[{"model":2237,"note":"a WRX"}]}
+{"entry":{"make":"Subaru","model":"Tribeca AWD"},"mappings":[{"model":2320}]}
+{"entry":{"make":"Toyota","model":"1-Ton Truck 2WD"},"mappings":[{"model":14263,"note":"vPIC names it Pick-Up"}]}
+{"entry":{"make":"Toyota","model":"Cab Chassis 2WD"},"mappings":[{"model":14263,"note":"vPIC names it Pick-Up"}]}
+{"entry":{"make":"Toyota","model":"Cab/Chassis"},"mappings":[{"model":14263,"note":"vPIC names it Pick-Up"}]}
+{"entry":{"make":"Toyota","model":"Cab/Chassis 2WD"},"mappings":[{"model":14263,"note":"vPIC names it Pick-Up"}]}
+{"entry":{"make":"Toyota","model":"GR Supra"},"mappings":[{"model":3647}]}
+{"entry":{"make":"Toyota","model":"Matrix"},"mappings":[{"model":2466}]}
+{"entry":{"make":"Toyota","model":"Matrix AWD"},"mappings":[{"model":2466}]}
+{"entry":{"make":"Toyota","model":"Truck 2WD"},"mappings":[{"model":14263,"note":"vPIC names it Pick-Up"}]}
+{"entry":{"make":"Toyota","model":"Truck 4WD"},"mappings":[{"model":14263,"note":"vPIC names it Pick-Up"}]}
+{"entry":{"make":"Volkswagen","model":"New Golf"},"mappings":[{"model":3133}]}
+{"entry":{"make":"Volkswagen","model":"New GTI"},"mappings":[{"model":3140}]}
+{"entry":{"make":"Volvo","model":"240"},"mappings":[{"model":14118}]}
+{"entry":{"make":"Volvo","model":"240 DL/240 GL"},"mappings":[{"model":14118}]}
+{"entry":{"make":"Volvo","model":"240 DL/240 GL Wagon"},"mappings":[{"model":14118}]}
+{"entry":{"make":"Volvo","model":"240 DL/GL/Turbo"},"mappings":[{"model":14118}]}
+{"entry":{"make":"Volvo","model":"240 DL/GL/Turbo Wagon"},"mappings":[{"model":14118}]}
+{"entry":{"make":"Volvo","model":"240 Wagon"},"mappings":[{"model":14118}]}
+{"entry":{"make":"Volvo","model":"740"},"mappings":[{"model":14119}]}
+{"entry":{"make":"Volvo","model":"740 16-Valve"},"mappings":[{"model":14119}]}
+{"entry":{"make":"Volvo","model":"740 16-Valve Wagon"},"mappings":[{"model":14119}]}
+{"entry":{"make":"Volvo","model":"740 Wagon"},"mappings":[{"model":14119}]}
+{"entry":{"make":"Volvo","model":"740/760"},"mappings":[{"model":14119},{"model":14121}]}
+{"entry":{"make":"Volvo","model":"740/760 Wagon"},"mappings":[{"model":14119},{"model":14121}]}
+{"entry":{"make":"Volvo","model":"760"},"mappings":[{"model":14121}]}
+{"entry":{"make":"Volvo","model":"760 GLE"},"mappings":[{"model":14121}]}
+{"entry":{"make":"Volvo","model":"760 Wagon"},"mappings":[{"model":14121}]}
+{"entry":{"make":"Volvo","model":"780"},"mappings":[{"model":14120}]}
+{"entry":{"make":"Volvo","model":"850"},"mappings":[{"model":9343}]}
+{"entry":{"make":"Volvo","model":"850 Wagon"},"mappings":[{"model":9343}]}
+{"entry":{"make":"Volvo","model":"940"},"mappings":[{"model":9341}]}
+{"entry":{"make":"Volvo","model":"940 GLE 16-Valve"},"mappings":[{"model":9341}]}
+{"entry":{"make":"Volvo","model":"940 GLE 16-Valve Wagon"},"mappings":[{"model":9341}]}
+{"entry":{"make":"Volvo","model":"940 SE"},"mappings":[{"model":9341}]}
+{"entry":{"make":"Volvo","model":"940 SE Wagon"},"mappings":[{"model":9341}]}
+{"entry":{"make":"Volvo","model":"940 Turbo"},"mappings":[{"model":9341}]}
+{"entry":{"make":"Volvo","model":"940 Turbo Wagon"},"mappings":[{"model":9341}]}
+{"entry":{"make":"Volvo","model":"940 Wagon"},"mappings":[{"model":9341}]}
+{"entry":{"make":"Volvo","model":"960"},"mappings":[{"model":9342}]}
+{"entry":{"make":"Volvo","model":"960 Wagon"},"mappings":[{"model":9342}]}
+{"entry":{"make":"Volvo","model":"V60CC B5 AWD"},"mappings":[{"model":10206}]}
+{"entry":{"make":"Volvo","model":"V60CC T5 AWD"},"mappings":[{"model":10206}]}
+{"entry":{"make":"Volvo","model":"V90CC B6 AWD"},"mappings":[{"model":13800}]}
+{"entry":{"make":"Yugo","model":"GV"},"mappings":[{"model":24189}]}
+{"entry":{"make":"Yugo","model":"GV Plus/GV/Cabrio"},"mappings":[{"model":24189}]}
+{"entry":{"make":"Yugo","model":"GV/GVX"},"mappings":[{"model":24189}]}
+{"entry":{"make":"Yugo","model":"Gy/yugo GVX"},"mappings":[{"model":24189}]}
