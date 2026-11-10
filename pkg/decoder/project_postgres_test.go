@@ -229,6 +229,7 @@ func projectedRow(it contract.Item) string {
 // 40 lowest and 40 highest ids of its relation. It also checks that the
 // artifact's lookup union carries every row of every relation an arm reads.
 func TestElementAttributeValuePostgres(t *testing.T) {
+	t.Parallel()
 	a, psql := dumpUnderTest(t)
 	e := newEngine(a)
 	def := unescapeCopy(strings.TrimSuffix(psql("copy (select pg_get_functiondef('vpic.felementattributevalue'::regproc)) to stdout;\n"), "\n"))

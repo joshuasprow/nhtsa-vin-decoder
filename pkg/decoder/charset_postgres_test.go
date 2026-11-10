@@ -43,6 +43,7 @@ import (
 //
 // The test writes scratch tables to the schema charset_oracle and drops it.
 func TestCharsetPostgres(t *testing.T) {
+	t.Parallel()
 	a, psql := dumpUnderTest(t)
 	t.Cleanup(func() { psql("drop schema if exists charset_oracle cascade;\n") })
 	psql("drop schema if exists charset_oracle cascade; create schema charset_oracle;\n")
@@ -51,8 +52,10 @@ func TestCharsetPostgres(t *testing.T) {
 	t.Run("keys", func(t *testing.T) { checkKeyChars(t, a, psql) })
 	var cells []charsetCell
 	t.Run("cells", func(t *testing.T) { cells = checkCells(t, e, psql) })
-	t.Run("fextract", func(t *testing.T) { checkFExtract(t, e, cells) })
-	t.Run("stale-cache", func(t *testing.T) { logStaleCache(t, psql) })
+	// Both read what cells left: one Postgres's function, the other the
+	// cache against the recompute.
+	t.Run("fextract", func(t *testing.T) { t.Parallel(); checkFExtract(t, e, cells) })
+	t.Run("stale-cache", func(t *testing.T) { t.Parallel(); logStaleCache(t, psql) })
 }
 
 // canonChars renders sets as "position:characters" for each non-empty set,

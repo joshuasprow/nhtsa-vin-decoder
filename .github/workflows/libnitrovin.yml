@@ -5,30 +5,40 @@
 # must answer every line of cmd/libnitrovin/testdata/requests.jsonl with
 # exactly the reply `nitrovin stdio` gave on the same artifact, in order and
 # from eight threads on one handle (cmd/libnitrovin/testdata/smoke.py).
-# The artifact is built from the dump as import.yml builds it.
+# The artifact is the one go.mod pins (nitrovin-data's pkg/embedded, from the
+# module cache): no dump, no Postgres.
+#
+# It runs for the library and the packages it links (go list -deps
+# ./cmd/libnitrovin): pkg/stdio, pkg/nitrovin, pkg/contract, pkg/decoder, and
+# go.mod for nitrovin-data's. The main command and the importer are not among
+# them.
 name: C library
 
 on:
   pull_request:
-    paths:
+    paths: &paths
       - cmd/libnitrovin/**
-      - cmd/nitrovin/**
-      - cmd/nitrovin-import/**
-      - pkg/**
+      - pkg/stdio/**
+      - pkg/nitrovin/**
+      - pkg/contract/**
+      - pkg/decoder/**
       - go.mod
-      - go.sum
       - scripts/libnitrovin.sh
-      - scripts/oracle.sh
       - .github/workflows/libnitrovin.yml
+      - "!**/*.md"
+  # main's runs seed the Go and zig caches that pull requests restore: a PR's
+  # own cache entries are visible to that PR alone.
+  push:
+    branches: [main]
+    paths: *paths
   workflow_dispatch:
-    inputs:
-      month:
-        description: Data month YYYY_MM; empty means the newest one NHTSA publishes
-        type: string
-        default: ""
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -41,11 +51,37 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
+        id: go
         with:
           go-version-file: go.mod
+          cache: false
+      # The six cross builds' Go cache, named as import.yml names its own.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-libnitrovin-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            go-libnitrovin-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            go-libnitrovin-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
+      # setup-zig would cache the workspace's .zig-cache, inside the checkout;
+      # zig's global cache in $HOME instead, where zig cc keeps each target's
+      # libc, named by the zig version and the build script.
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
+          use-cache: false
+      - name: Zig's global cache
+        run: |
+          echo "ZIG_GLOBAL_CACHE_DIR=$HOME/.cache/zig" >>"$GITHUB_ENV"
+          echo "ZIG_LOCAL_CACHE_DIR=$HOME/.cache/zig" >>"$GITHUB_ENV"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/zig
+          key: zig-${{ runner.os }}-${{ runner.arch }}-0.17.1-${{ hashFiles('scripts/libnitrovin.sh') }}
+          restore-keys: |
+            zig-${{ runner.os }}-${{ runner.arch }}-0.17.1-
       # (devel), as the nitrovin that writes the replies below reports.
       - run: scripts/libnitrovin.sh dist
         env:
@@ -60,48 +96,40 @@ jobs:
   # over the requests, every one with a fixed now.
   replies:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: vpic
-          POSTGRES_INITDB_ARGS: --lc-collate=C
-        options: >-
-          --shm-size 1g
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 2s
-          --health-timeout 5s
-          --health-retries 30
+    timeout-minutes: 10
+    outputs:
+      month: ${{ steps.artifact.outputs.month }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
+        id: go
         with:
           go-version-file: go.mod
+          cache: false
+      # Falls back to import.yml's artifact entry, a superset of this build.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-replies-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            go-replies-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            go-replies-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
+            go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
 
-      - name: Resolve data month
-        id: month
-        env:
-          MONTH: ${{ inputs.month }}
-        run: echo "month=${MONTH:-$(scripts/oracle.sh month)}" >>"$GITHUB_OUTPUT"
-
-      - name: Fetch dump
-        id: fetch
-        run: scripts/oracle.sh fetch "${{ steps.month.outputs.month }}" "$RUNNER_TEMP/dump" | tee -a "$GITHUB_OUTPUT"
-
-      - name: Restore dump
-        env:
-          ORACLE_CONTAINER: ${{ job.services.postgres.id }}
-        run: scripts/oracle.sh restore "${{ steps.fetch.outputs.backup }}"
-
-      - name: Build the artifact and stdio's replies
-        env:
-          PSQL: docker exec -i ${{ job.services.postgres.id }} psql -X -q -U postgres -d vpic
+      # The data month only names the uploaded artifact.
+      - name: The pinned artifact
+        id: artifact
         run: |
+          dir=$(go mod download -json github.com/joshuasprow/nitrovin-data | jq -r .Dir)
           mkdir smoke
-          go run ./cmd/nitrovin-import sql | $PSQL |
-            go run ./cmd/nitrovin-import build -month "${{ steps.fetch.outputs.month }}" -o smoke/nitrovin.artifact
+          cp "$dir/pkg/embedded/nitrovin.artifact" smoke/nitrovin.artifact
+          echo "month=$(jq -r .data_month "$dir/pkg/embedded/manifest.json")" | tee -a "$GITHUB_OUTPUT"
+
+      - name: stdio's replies
+        run: |
           # -buildvcs=false: the libraries report "(devel)" too.
           go build -buildvcs=false -o "$RUNNER_TEMP/nitrovin" ./cmd/nitrovin
           "$RUNNER_TEMP/nitrovin" stdio --data smoke/nitrovin.artifact \
@@ -109,7 +137,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: smoke
+          name: smoke-${{ steps.artifact.outputs.month }}
           path: smoke/
           if-no-files-found: error
 
@@ -140,7 +168,7 @@ jobs:
           path: dist
       - uses: actions/download-artifact@v8
         with:
-          name: smoke
+          name: smoke-${{ needs.replies.outputs.month }}
           path: smoke
       - run: |
           python -c 'import platform, struct; print(platform.platform(), platform.machine(), struct.calcsize("P") * 8, "bit")'

@@ -51,11 +51,42 @@ and the CLI, HTTP, stdio and MCP tests against the built binary. The tests
 that compare against Postgres also need `NITROVIN_PSQL`
 ([the engine](#the-engine)).
 
-CI: `contract.yml` (schemas and the no-data tests), `import.yml` (the
-importer and every Postgres test against a freshly restored dump, on PRs
-touching `cmd/nitrovin-import` or `pkg/`), `libnitrovin.yml` (the C library
-on six native runners), and `release.yml`'s snapshot when release files
-change.
+CI runs what a change can affect. Every test workflow cancels its run on a
+branch when a newer push supersedes it (`release.yml` and the refresh never
+cancel), and none runs for Markdown, `GLOSSARY.md`, `NOTICE` or `docs/`
+alone, except the API documents the contract tests read and the deviation
+witnesses the oracle reads.
+
+- `contract.yml` (schemas and the no-data tests): `pkg/contract`,
+  `pkg/nitrovin`, `pkg/decoder`, `cmd/nitrovin`, `docs/api`'s three
+  documents, `go.mod`, `go.sum`.
+- `import.yml`, **Tests**, on `pkg/`, `cmd/`, `go.mod`, `go.sum`,
+  `testdata/parity/`, `scripts/oracle.sh`, in three jobs. *Changed paths*
+  decides whether Postgres is needed. *Artifact* always runs, without
+  Postgres, on the artifact `go.mod` pins (read from the module cache): the
+  contract, CLI, HTTP, stdio, MCP and form tests, `TestParity` offline and
+  `TestVinsCoversTheMonth`, each required to pass, not skip, in about two
+  minutes. *Postgres* restores the dump and runs the importer's
+  `TestPostgres` and every `pkg/decoder` Postgres test, only when the
+  branch changes `pkg/decoder`, `pkg/contract`, `cmd/nitrovin-import`,
+  `scripts/oracle.sh` or `import.yml`; otherwise it is skipped, which counts
+  as passed. `go.mod` and `testdata/parity` alone (the refresh's bump PR)
+  take the short path. `gh workflow run import.yml --ref <branch> -f
+  full=true` runs Postgres anyway.
+- `libnitrovin.yml` (the C library on six native runners, on the pinned
+  artifact): `cmd/libnitrovin`, the packages it links (`pkg/stdio`,
+  `pkg/nitrovin`, `pkg/contract`, `pkg/decoder`), `go.mod`,
+  `scripts/libnitrovin.sh`.
+- `oracle-smoke.yml` (the Postgres oracle end to end): `oracle.yml`,
+  `scripts/oracle.sh`, `testdata/oracle/`, `docs/deviations/`.
+- `release.yml`'s snapshot when release files change.
+
+A workflow's own file triggers it. `import.yml` and `libnitrovin.yml` also
+run on pushes to `main`, which keep the Go and zig caches warm: an entry a
+pull request saves is visible to that pull request alone. The Go cache is
+named by the Go version, `go.sum` and the Go sources, and restores the
+nearest entry on a miss; zig's global cache by the zig version and
+`scripts/libnitrovin.sh`.
 
 ## The Postgres oracle
 
