@@ -7,6 +7,9 @@
 #
 #   scripts/refresh.sh detect [<month>]           whether a data month needs building; prints month=,
 #                                                 pinned=, pinned_month=, reason=, build=true|false
+#   scripts/refresh.sh epa <artifact> <out dir>   build the EPA vocabulary against <artifact> from EPA's
+#                                                 vehicles.csv of today and check it; prints faults=,
+#                                                 drift=; fails on a fault
 #   scripts/refresh.sh report <dir>               the refresh report from a run's artifacts in <dir>;
 #                                                 prints green=true|false
 #   scripts/refresh.sh contract-key <frozen dir>  renew pkg/contract/testdata/oracle from a frozen key
@@ -20,6 +23,15 @@
 # month builds nothing. Naming a month builds it whatever its dump
 # ("requested": a rebuild, nitrovin-data v<format>.<YYYYMM>.<n+1>).
 #
+# epa downloads EPA's vehicles.csv.zip, builds epa-vehicles.jsonl from it
+# against <artifact> with cmd/nitrovin-epa, and runs `nitrovin vocab check`
+# on it with that artifact as the data. Into <out dir> it writes the
+# vocabulary, vehicles.json (the download's URL, size, SHA-256 and
+# Last-Modified), coverage.txt (the builder's summary), check.jsonl (the
+# findings) and result: "pass" when nothing faults, else "fail". Drift
+# (an id or qualifier the month lacks, from the built-in curated overrides)
+# is reported, never gated: loading serves it (ADR 0011).
+#
 # report reads <dir> laid out as refresh.yml downloads it:
 #   refresh-data/manifest.json        the built artifact's (nitrovin-data scripts/build.sh)
 #   refresh-vins/shards.json          [{"shard": 1, "vins": "run-1.tsv"}, …]
@@ -27,13 +39,14 @@
 #   oracle-<month>-<shard>/           oracle.yml's artifact for that file
 #   parity-<month>-<shard>/           report.md, report.jsonl, cover.out and result
 #                                     ("pass" or "fail") from TestParity -parity-run
+#   refresh-epa/                      epa's <out dir>
 #   previous/stale-cache.jsonl        optional: the pinned release's list
 # and writes into it report.md (the refresh PR's body, or the red issue's
 # comment), stale-cache.jsonl (every shard's list, each call once: the
 # witnesses are in every file) and cover.out (pkg/decoder's profiles merged).
-# Green means every shard's oracle ran and its parity passed. $REFRESH_RUN
-# (the run's URL), $REFRESH_REASON and $REFRESH_PINNED, when set, head the
-# report.
+# Green means every shard's oracle ran and its parity passed, and the EPA
+# vocabulary built with no fault. $REFRESH_RUN (the run's URL),
+# $REFRESH_REASON and $REFRESH_PINNED, when set, head the report.
 #
 # contract-key cuts the first calls of a frozen key (testdata/parity/<month>,
 # which TestParity -update-parity writes) into pkg/contract/testdata/oracle:
@@ -44,6 +57,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DATA_MODULE=github.com/joshuasprow/nitrovin-data
+EPA_URL=https://www.fueleconomy.gov/feg/epadata/vehicles.csv.zip
 
 die() { echo "refresh: $*" >&2; exit 1; }
 
@@ -106,9 +120,93 @@ merge_cover() {
     END { if (!mode) exit; print mode; for (i = 1; i <= k; i++) print order[i], stmts[order[i]], n[order[i]] }' "$@"
 }
 
+cmd_epa() {
+  local artifact="${1:?artifact}" out="${2:?out dir}" tmp status=0 faults drift
+  [ -r "$artifact" ] || die "no $artifact"
+  mkdir -p "$out"
+  artifact="$(cd "$(dirname "$artifact")" && pwd)/$(basename "$artifact")"
+  out=$(cd "$out" && pwd)
+  echo fail >"$out/result"
+  tmp=$(mktemp -d)
+  # shellcheck disable=SC2064 # expanded now: $tmp is local to this function
+  trap "rm -rf '$tmp'" EXIT
+  # Built, not run with go run, which turns every exit status into 1.
+  (cd "$ROOT" && go build -o "$tmp/" ./cmd/nitrovin-epa ./cmd/nitrovin)
+
+  curl -fsSL --retry 3 -D "$tmp/headers" -o "$tmp/vehicles.csv.zip" "$EPA_URL"
+  jq -n --arg url "$EPA_URL" --argjson bytes "$(wc -c <"$tmp/vehicles.csv.zip" | tr -d ' ')" \
+    --arg sha256 "$(sha256 "$tmp/vehicles.csv.zip")" \
+    --arg last_modified "$(tr -d '\r' <"$tmp/headers" | awk 'tolower($1) == "last-modified:" { sub(/^[^:]*: */, ""); v = $0 } END { print v }')" \
+    '{$url, $bytes, $sha256, $last_modified}' >"$out/vehicles.json"
+
+  "$tmp/nitrovin-epa" -data "$artifact" -o "$out/epa-vehicles.jsonl" "$tmp/vehicles.csv.zip" 2>"$out/coverage.txt" ||
+    { cat "$out/coverage.txt" >&2; die "cmd/nitrovin-epa failed"; }
+  cat "$out/coverage.txt" >&2
+
+  # Exit 1 is findings on stdout, or a problem on stderr and none.
+  "$tmp/nitrovin" --data "$artifact" vocab check "$out/epa-vehicles.jsonl" >"$out/check.jsonl" || status=$?
+  case "$status" in
+    0) ;;
+    1) [ -s "$out/check.jsonl" ] || die "nitrovin vocab check failed" ;;
+    *) die "nitrovin vocab check exited $status" ;;
+  esac
+  faults=$(jq -s 'map(select(.severity == "fault")) | length' "$out/check.jsonl")
+  drift=$(jq -s 'map(select(.severity == "drift")) | length' "$out/check.jsonl")
+  echo "faults=$faults"
+  echo "drift=$drift"
+  [ "$faults" -eq 0 ] || die "epa-vehicles.jsonl: $faults faults (check.jsonl)"
+  echo pass >"$out/result"
+  echo "refresh: epa-vehicles.jsonl $(head -1 "$out/epa-vehicles.jsonl" | jq -r .version): no fault, $drift drift" >&2
+}
+
+# The report's EPA section from epa's <out dir>: the build, the gate (no
+# fault) and the drift, which is reported, never gated.
+epa_report() {
+  local epa="$1" faults drift n
+  echo '### The EPA vocabulary (`epa-vehicles.jsonl`)'
+  echo
+  if [ -r "$epa/epa-vehicles.jsonl" ] && [ -r "$epa/vehicles.json" ]; then
+    jq -r --arg version "$(head -1 "$epa/epa-vehicles.jsonl" | jq -r .version)" \
+      --argjson entries "$(($(wc -l <"$epa/epa-vehicles.jsonl") - 1))" \
+      '"`cmd/nitrovin-epa` built version `\($version)`, \($entries) entries, from EPA'\''s [`vehicles.csv.zip`](\(.url)) (\(.bytes) bytes, sha256 `\(.sha256)`, Last-Modified \(.last_modified)) and this month'\''s artifact. It is published with the data release, gated on `nitrovin vocab check` finding no fault; drift is reported, never gated (ADR 0011)."' \
+      "$epa/vehicles.json"
+    echo
+  fi
+  if [ "$(cat "$epa/result" 2>/dev/null || true)" != pass ] && [ ! -s "$epa/check.jsonl" ]; then
+    echo '**Not built or not checked**: the `epa` job failed before `nitrovin vocab check` reported (see its log).'
+    echo
+    return
+  fi
+  faults=$(jq -s 'map(select(.severity == "fault")) | length' "$epa/check.jsonl")
+  drift=$(jq -s 'map(select(.severity == "drift")) | length' "$epa/check.jsonl")
+  echo '| `nitrovin vocab check` | |'
+  echo '| --- | --- |'
+  if [ "$faults" -eq 0 ]; then echo '| Faults (gated) | pass: 0 |'; else echo "| Faults (gated) | **fail: $faults** |"; fi
+  if [ "$faults" -eq 0 ]; then echo "| Drift (reported) | $drift |"; else echo '| Drift (reported) | not measured: a fault stops the load |'; fi
+  echo
+  n=$(jq -s length "$epa/check.jsonl")
+  if [ "$n" -gt 0 ]; then
+    echo '| Line | Severity | Detail |'
+    echo '| --- | --- | --- |'
+    jq -sr '.[:100][] | "| \(.line) | \(.severity) | \(.detail | gsub("\\|"; "\\|")) |"' "$epa/check.jsonl"
+    [ "$n" -le 100 ] || echo "| | | $((n - 100)) more in the run's \`refresh-epa\` artifact (\`check.jsonl\`) |"
+    echo
+  fi
+  if [ -s "$epa/coverage.txt" ]; then
+    echo '<details><summary>Coverage, as the builder reports it</summary>'
+    echo
+    echo '```text'
+    cat "$epa/coverage.txt"
+    echo '```'
+    echo
+    echo '</details>'
+    echo
+  fi
+}
+
 cmd_report() {
   local dir="${1:?dir}" data vins month shards green=true n file o p result md \
-        calls rows stock_s fresh_s stale disagree parity cover total prev_n
+        calls rows stock_s fresh_s stale disagree parity cover total prev_n epa
   data="$dir/refresh-data/manifest.json"
   vins="$dir/refresh-vins"
   [ -r "$data" ] || die "no $data"
@@ -156,6 +254,10 @@ cmd_report() {
     cover="**pkg/decoder coverage** over every file: $total of statements (recorded, not gated)."
   fi
 
+  # The EPA vocabulary's gate: no fault.
+  epa="$dir/refresh-epa"
+  [ "$(cat "$epa/result" 2>/dev/null || true)" = pass ] || green=false
+
   {
     echo "## Refresh: data month $month"
     echo
@@ -185,6 +287,7 @@ cmd_report() {
     printf '%s' "$rows_md"
     echo
     [ -z "$cover" ] || { echo "$cover"; echo; }
+    epa_report "$epa"
     if [ -r "$vins/coverage.json" ]; then
       echo '### What the list reaches (`coverage.json`)'
       echo
@@ -263,6 +366,6 @@ cmd_contract_key() {
 
 cmd="${1:-}"; shift || true
 case "$cmd" in
-  detect | report | contract-key) "cmd_${cmd//-/_}" "$@" ;;
+  detect | epa | report | contract-key) "cmd_${cmd//-/_}" "$@" ;;
   *) usage ;;
 esac

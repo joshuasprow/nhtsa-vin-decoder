@@ -67,22 +67,24 @@ reach them.
   (`TestParity` over `testdata/parity/<month>/answer-key.csv`).
 - **Every data month**: the refresh (`refresh.yml`, daily) decodes the whole
   list on the stock and freshened oracles, gates each file with
-  `TestParity -parity-run`, and only on green publishes the data release,
-  merges the `go.mod` bump and tags a nitrovin patch release. Red publishes
-  nothing; the previous month stays current and the report goes to an issue
-  titled "Refresh <month> is red".
+  `TestParity -parity-run`, builds the EPA vocabulary against the month and
+  gates it on `nitrovin vocab check` finding no fault, and only on green
+  publishes the data release, merges the `go.mod` bump and tags a nitrovin
+  patch release. Red publishes nothing; the previous month stays current
+  and the report goes to an issue titled "Refresh <month> is red".
 - **Reported, never gated:** the stale-cache count and its change from the
-  previous month, the witness re-check against live vPIC, and Go coverage of
-  `pkg/decoder`.
+  previous month, the witness re-check against live vPIC, Go coverage of
+  `pkg/decoder`, and the EPA vocabulary's drift against the month.
 
 ## Where each month's report lives
 
 | What | Where | Kept |
 | --- | --- | --- |
-| The report: per-file gates, coverage, what the list reaches, stale-cache count, witnesses | body of the refresh pull request, titled "Refresh: data month `<month>` (nitrovin-data `<tag>`)": [all of them](https://github.com/joshuasprow/nitrovin/pulls?q=is%3Apr+%22Refresh%3A+data+month%22) | forever |
+| The report: per-file gates, coverage, the EPA vocabulary's check and drift, what the list reaches, stale-cache count, witnesses | body of the refresh pull request, titled "Refresh: data month `<month>` (nitrovin-data `<tag>`)": [all of them](https://github.com/joshuasprow/nitrovin/pulls?q=is%3Apr+%22Refresh%3A+data+month%22) | forever |
 | The run that gated the month: its logs, per-(VIN, element) `report.jsonl`, `coverage.json` and both oracles' keys | linked from the PR body and from the nitrovin-data release notes ("refresh"); the files are the run's artifacts | 90 days (the repository's Actions retention) |
 | The frozen answer key (`corpus.tsv`, `answer-key.csv`, `manifest.json`) | `parity-<month>.tar.gz` on the [nitrovin-data release](https://github.com/joshuasprow/nitrovin-data/releases); the current month also in `testdata/parity/<month>/` | forever |
 | The stale-cache list, one line per call: VIN, hint, differing element ids | `stale-cache.jsonl` on the same release | forever |
+| The EPA vocabulary, built against the month | `epa-vehicles.jsonl` on the same release | forever |
 
 ### 2026_10, as shipped in v0.1.2
 
