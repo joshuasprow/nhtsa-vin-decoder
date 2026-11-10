@@ -279,12 +279,16 @@ requests.
 ## Releases
 
 A `v*` tag runs `.github/workflows/release.yml`, which runs goreleaser
-(`.goreleaser.yaml`): the six binaries, the six C library archives,
-`checksums.txt`, a cosign keyless bundle per asset, the
+(`.goreleaser.yaml`): the six binaries, the six C library archives, the
+six Linux packages (`.deb`, `.rpm`, `.apk` for amd64 and arm64),
+`server.json`, `checksums.txt`, a cosign keyless bundle per asset, the
 `ghcr.io/joshuasprow/nitrovin` image signed by digest, the Homebrew cask in
 `joshuasprow/homebrew-tap` and the Scoop manifest in
 `joshuasprow/scoop-bucket`. It verifies every signature, checksum and
-version stamp before it finishes. The monthly refresh tags patch releases
-itself; a code change ships with the next tag. Until v1.0.0 every tag is a
-prerelease (ADR 0007), and the workflow refuses a tag whose prerelease
-setting disagrees.
+version stamp, then publishes `server.json` to the MCP Registry as
+`io.github.joshuasprow/nitrovin` (GitHub OIDC, no secret) in a step of its
+own. A pull request that touches the release builds a snapshot and installs
+its packages in Debian, Fedora and Alpine. The monthly refresh tags patch
+releases itself; a code change ships with the next tag. Until v1.0.0 every
+tag is a prerelease (ADR 0007), and the workflow refuses a tag whose
+prerelease setting disagrees.

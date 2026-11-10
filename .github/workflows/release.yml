@@ -1,12 +1,17 @@
 # The nitrovin release (ADR 0007): goreleaser (.goreleaser.yaml) on a v* tag
-# builds the binaries, the six C libraries, checksums.txt and a cosign keyless
-# bundle per asset, publishes the GitHub release, pushes the ghcr.io image and
-# updates the Homebrew tap and the Scoop bucket. This job then verifies every
-# bundle and the checksums, and signs and verifies the image by digest. Every
-# signature is this workflow's GitHub OIDC identity at the tag.
+# builds the binaries, the six C libraries, the six Linux packages,
+# server.json, checksums.txt and a cosign keyless bundle per asset, publishes
+# the GitHub release, pushes the ghcr.io image and updates the Homebrew tap and
+# the Scoop bucket. This job then signs server.json, verifies every bundle and
+# the checksums, signs and verifies the image by digest, and last publishes
+# server.json to the MCP Registry (its own step: a registry failure shows there
+# and holds back nothing else). Every signature is this workflow's GitHub OIDC
+# identity at the tag, which also logs in to the registry.
 #
 # On a pull request that touches the release, the same build as a snapshot:
-# no signing, no publishing, the images built per platform and loaded.
+# no signing, no publishing, the images built per platform and loaded, the
+# amd64 packages installed and removed in Debian, Fedora and Alpine, and
+# server.json validated by the registry and run as it says.
 name: Release
 
 on:
@@ -17,10 +22,16 @@ on:
       - .goreleaser.yaml
       - Dockerfile
       - scripts/libnitrovin.sh
+      - scripts/mcp-server-json.sh
+      - docs/api/mcp-tools.json
       - .github/workflows/release.yml
 
 permissions:
   contents: read
+
+env:
+  # The MCP Registry's own publisher, built from its module at a pinned tag.
+  MCP_PUBLISHER: github.com/modelcontextprotocol/registry/cmd/publisher@v1.8.8
 
 concurrency:
   group: release-${{ github.ref }}
@@ -73,6 +84,74 @@ jobs:
           docker run -d --name nitrovin -p 8080:8080 "$image"
           for _ in $(seq 30); do curl -fsS localhost:8080/v1/info >"$RUNNER_TEMP/info.json" && break; sleep 1; done
           jq -e --arg month "$DATA_MONTH" '.data_month == $month and .data_source == "embedded"' "$RUNNER_TEMP/info.json"
+
+      - name: Install the Linux packages
+        run: |
+          version=$(jq -r .version dist/metadata.json)
+          for f in dist/nitrovin_"$version"_linux_{amd64,arm64}.{deb,rpm,apk}; do
+            [[ -f $f ]] || { echo "release: no $f" >&2; exit 1; }
+          done
+          arch=$(go env GOARCH)
+          bin=$(echo dist/nitrovin_linux_"$arch"_*/nitrovin)
+          want="nitrovin $(go version -m "$bin" | awk '$1 == "mod" {print $3}') (data $DATA_MONTH)"
+          # In each distribution: the package puts nitrovin on PATH with the
+          # licence files, names the version and the data month, holds nothing
+          # else, and leaves nothing behind when removed.
+          # shellcheck disable=SC2016 # expanded in the container
+          check='
+            eval "$INSTALL" >/dev/null
+            got=$(nitrovin --version)
+            [ "$got" = "$WANT" ] || { echo "nitrovin --version says $got, not $WANT" >&2; exit 1; }
+            info=$(eval "$INFO")
+            echo "$info"
+            echo "$info" | grep -qF "$PKG_VERSION" || { echo "the package does not say version $PKG_VERSION" >&2; exit 1; }
+            echo "$info" | grep -qF "vPIC data $DATA_MONTH" || { echo "the package does not say data $DATA_MONTH" >&2; exit 1; }
+            files=$(eval "$FILES" | sed "s|^/*|/|" | while read -r f; do [ -d "$f" ] || echo "$f"; done | sort)
+            want_files=$(printf "%s\n" /usr/bin/nitrovin /usr/share/doc/nitrovin/LICENSE /usr/share/doc/nitrovin/NOTICE)
+            [ "$files" = "$want_files" ] || { echo "the package holds $files" >&2; exit 1; }
+            eval "$REMOVE" >/dev/null
+            for f in $files /usr/share/doc/nitrovin; do
+              [ ! -e "$f" ] || { echo "$f is left after removing the package" >&2; exit 1; }
+            done
+            echo "$PKG: installed, ran and removed cleanly"
+          '
+          smoke() { # image package package-version install info files remove
+            docker run --rm -v "$PWD/dist:/dist:ro" -e DATA_MONTH -e WANT="$want" \
+              -e PKG="$2" -e PKG_VERSION="$3" -e INSTALL="$4" -e INFO="$5" -e FILES="$6" -e REMOVE="$7" \
+              "$1" sh -euc "$check"
+          }
+          p=nitrovin_"$version"_linux_"$arch"
+          # nfpm writes a snapshot's -snapshot as each format's pre-release
+          # mark: 0.1.5~snapshot (deb, rpm), 0.1.5_snapshot (apk).
+          tilde=$(tr - '~' <<<"$version")
+          underscore=$(tr - _ <<<"$version")
+          smoke debian:stable "$p.deb" "Version: $tilde" \
+            "apt-get install -y /dist/$p.deb" 'dpkg -s nitrovin' 'dpkg -L nitrovin' 'apt-get remove -y nitrovin'
+          smoke fedora:latest "$p.rpm" "Version      : $tilde" \
+            "dnf install -y /dist/$p.rpm" 'rpm -qi nitrovin' 'rpm -ql nitrovin' 'dnf remove -y nitrovin'
+          smoke alpine:latest "$p.apk" "nitrovin-$underscore description" \
+            "apk add --allow-untrusted /dist/$p.apk" 'apk info -a nitrovin' 'apk info -qL nitrovin' 'apk del nitrovin'
+
+      - name: Check the MCP Registry entry
+        run: |
+          go run "$MCP_PUBLISHER" validate build/server.json
+          # The registry takes the image only with the entry's name as a label.
+          image=$(jq -r 'map(select(.type == "Docker Image" and (.name | endswith("-amd64"))))[0].name' dist/artifacts.json)
+          name=$(jq -r .name build/server.json)
+          label=$(docker inspect -f '{{ index .Config.Labels "io.modelcontextprotocol.server.name" }}' "$image")
+          [[ $label == "$name" ]] || { echo "release: $image is labelled $label, server.json names $name" >&2; exit 1; }
+          # Run the image as a client reading the entry would, and list its tools.
+          mapfile -t args < <(jq -r '.packages[0].packageArguments[].value' build/server.json)
+          coproc mcp { docker run -i --rm "$image" "${args[@]}"; }
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"release.yml","version":"0"}}}' >&"${mcp[1]}"
+          read -r -t 30 reply <&"${mcp[0]}"
+          printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}' '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' >&"${mcp[1]}"
+          read -r -t 30 reply <&"${mcp[0]}"
+          jq -e '.id == 2 and [.result.tools[].name] == ["decode_vin"]' <<<"$reply" >/dev/null || { echo "release: tools/list answered $reply" >&2; exit 1; }
+          in=${mcp[1]}
+          exec {in}>&-
+          wait "$mcp_PID"
+          echo "$image ${args[*]}: tools/list names decode_vin"
 
   release:
     if: github.event_name == 'push'
@@ -127,17 +206,31 @@ jobs:
           SCOOP_BUCKET_DEPLOY_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
           WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
 
+      # goreleaser checksummed and uploaded server.json but signs only what it
+      # built.
+      - name: Sign server.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/server.json dist/server.json
+          cosign sign-blob --yes --bundle dist/server.json.sigstore.json dist/server.json
+          gh release upload "$TAG" dist/server.json.sigstore.json
+
       - name: Verify the assets
         working-directory: dist
         run: |
-          n=0
-          for bundle in *.sigstore.json; do
-            cosign verify-blob --bundle "$bundle" --certificate-identity "$IDENTITY" \
-              --certificate-oidc-issuer "$ISSUER" "${bundle%.sigstore.json}"
-            n=$((n + 1))
+          # Every asset in checksums.txt, and checksums.txt, has a bundle.
+          mapfile -t assets < <(awk '{print $2}' checksums.txt)
+          assets+=(checksums.txt)
+          for asset in "${assets[@]}"; do
+            cosign verify-blob --bundle "$asset.sigstore.json" --certificate-identity "$IDENTITY" \
+              --certificate-oidc-issuer "$ISSUER" "$asset"
           done
-          echo "$n bundles verified"
+          echo "${#assets[@]} bundles verified"
           sha256sum --check checksums.txt
+          for asset in nitrovin_"${TAG#v}"_linux_{amd64,arm64}.{deb,rpm,apk} server.json; do
+            grep -q " $asset\$" checksums.txt || { echo "release: $asset is not in checksums.txt" >&2; exit 1; }
+          done
           # Every binary and library reports the tag itself (not +dirty).
           cd ..
           for f in dist/nitrovin_*/nitrovin* build/libnitrovin/*/libnitrovin.*; do
@@ -152,3 +245,12 @@ jobs:
           cosign sign --yes "$IMAGE@$digest"
           cosign verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" "$IMAGE@$digest" >/dev/null
           echo "signed $IMAGE@$digest"
+
+      # Last, so that a registry outage fails only this step, after everything
+      # else is published and signed. To publish after such a failure without
+      # rerunning the release: download the release's server.json, then
+      # `go run $MCP_PUBLISHER login github` and `go run $MCP_PUBLISHER publish server.json`.
+      - name: Publish to the MCP Registry
+        run: |
+          go run "$MCP_PUBLISHER" login github-oidc
+          go run "$MCP_PUBLISHER" publish dist/server.json
