@@ -80,6 +80,10 @@ witnesses the oracle reads.
 - `oracle-smoke.yml` (the Postgres oracle end to end): `oracle.yml`,
   `scripts/oracle.sh`, `testdata/oracle/`, `docs/deviations/`.
 - `release.yml`'s snapshot when release files change.
+- `deploy.yml` (nitrovin.app): `deploy/cloudflare/`, the workflow itself. On
+  a pull request, Terraform `validate` and the Worker under `wrangler dev`;
+  after each green release, the deploy and its smoke test; weekly, the drift
+  check ([deploy/cloudflare/README.md](deploy/cloudflare/README.md)).
 
 A workflow's own file triggers it. `import.yml` and `libnitrovin.yml` also
 run on pushes to `main`, which keep the Go and zig caches warm: an entry a

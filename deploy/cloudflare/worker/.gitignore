@@ -1,0 +1,4 @@
+node_modules/
+.wrangler/
+# wrangler types writes it from wrangler.jsonc: npm run check
+worker-configuration.d.ts

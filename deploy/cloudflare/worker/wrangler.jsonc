@@ -1,0 +1,32 @@
+// The nitrovin.app Worker and its container (deploy/cloudflare/README.md).
+// The custom domain is Terraform's (../terraform/worker.tf), not a route here.
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "nitrovin",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-11-10",
+	"upload_source_maps": true,
+	"workers_dev": false,
+	"preview_urls": false,
+	// Workers Logs without invocation logs: those record each request's URL,
+	// and a decode's URL holds its VIN.
+	"observability": { "enabled": true, "logs": { "invocation_logs": false } },
+	// Keep-warm: GET /healthz every four minutes, inside sleepAfter's ten.
+	"triggers": { "crons": ["*/4 * * * *"] },
+	"containers": [
+		{
+			"class_name": "Nitrovin",
+			"image": "./Dockerfile",
+			"scheduling_policy": "default",
+			"instance_type": "lite",
+			// One named instance serves; the cap bounds a runaway at three.
+			"max_instances": 3,
+		},
+	],
+	"durable_objects": {
+		"bindings": [{ "name": "NITROVIN", "class_name": "Nitrovin" }],
+	},
+	"exports": {
+		"Nitrovin": { "type": "durable-object", "storage": "sqlite" },
+	},
+}
