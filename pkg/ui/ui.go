@@ -18,7 +18,9 @@
 // layout's htmx configuration (responseHandling) swaps into the page's
 // error slot. The pages' assets, htmx (vendored, one pinned file) and the
 // stylesheet, are served under /ui/r/<release>/, immutable for a year: a
-// new release is a new URL.
+// new release is a new URL. So are what a Service Worker needs of the
+// server to translate in the browser: the data month's spine bundle
+// (SpinePath) and each file the server loaded (FilePath).
 package ui
 
 import (
@@ -32,6 +34,7 @@ import (
 	"net/url"
 	"runtime/debug"
 	"strings"
+	"sync"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 )
@@ -90,8 +93,19 @@ var static = func() map[string]asset {
 // Backend is what the pages answer from: on the server its decoder and
 // loaded files, in the Service Worker the files the browser holds. Info is
 // GET /v1/info's answer; its release names the assets' URLs.
+//
+// SpineBundle and File are what the server publishes under /ui/r/: the
+// Service Worker forwards those paths to it, so its own Backend is never
+// asked them.
 type Backend interface {
 	Info() contract.Info
+	// SpineBundle is the data month's spine bundle (vocab.WriteBundle),
+	// published at SpinePath. The Handler asks for it once.
+	SpineBundle() ([]byte, error)
+	// File is the bytes of the loaded file Info's vocabularies list as
+	// name, published at FilePath: bytes whose blake3 is the one Info
+	// lists, or an error.
+	File(name string) ([]byte, error)
 }
 
 // Release is info's release as the Worker caches it
@@ -115,10 +129,34 @@ func assetsPath(release string) string {
 	return assetsPrefix + strings.Join(parts, "/")
 }
 
+// spineName is the spine bundle's name among a release's assets, and
+// filesDir the directory of the loaded files'.
+const (
+	spineName = "spine.json"
+	filesDir  = "vocab/"
+)
+
+// SpinePath is the path of the spine bundle of info's release, immutable:
+// /ui/r/<release>/spine.json.
+func SpinePath(info contract.Info) string {
+	return assetsPath(Release(info)) + "/" + spineName
+}
+
+// FilePath is the path loaded file f of info is published at, immutable:
+// /ui/r/<release>/vocab/<blake3>/<name>.jsonl. The release does not name
+// the files a server loads, so the file's blake3 is in the path too: a
+// server restarted with another file under the same name publishes it at
+// another URL.
+func FilePath(info contract.Info, f contract.VocabularyFile) string {
+	return assetsPath(Release(info)) + "/" + filesDir + url.PathEscape(f.Blake3) + "/" + url.PathEscape(f.Name) + ".jsonl"
+}
+
 // Handler serves /ui/*. It is safe for concurrent use when its Backend is.
 type Handler struct {
 	b   Backend
 	log *log.Logger
+	// spine is the Backend's spine bundle, asked for once.
+	spine func() ([]byte, error)
 	// routes are the pages by path.
 	routes map[string]route
 }
@@ -138,7 +176,7 @@ type view struct {
 // New is the /ui handler answering from b. A route's fault and a panic are
 // logged to log.
 func New(b Backend, log *log.Logger) *Handler {
-	return &Handler{b: b, log: log, routes: map[string]route{}}
+	return &Handler{b: b, log: log, spine: sync.OnceValues(b.SpineBundle), routes: map[string]route{}}
 }
 
 // fragment reports whether r asks for a fragment: htmx sent it, and not to
@@ -161,11 +199,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.fail(w, frag, base, &pageError{Status: http.StatusInternalServerError, Message: fmt.Sprint("nitrovin failed: ", v)})
 		}
 	}()
-	release := Release(h.b.Info())
-	base = assetsPath(release)
+	info := h.b.Info()
+	base = assetsPath(Release(info))
 
 	if rest, ok := strings.CutPrefix(r.URL.Path, assetsPrefix); ok {
-		h.asset(w, r, frag, base, release, rest)
+		h.asset(w, r, frag, base, info, rest)
 		return
 	}
 	answer, ok := h.routes[r.URL.Path]
@@ -195,24 +233,64 @@ func getOrHead(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
-// asset serves rest, the path after /ui/r/: release's file, immutable. A
-// file of another release is not found, so no cache ever holds one under
-// the wrong release.
-func (h *Handler) asset(w http.ResponseWriter, r *http.Request, frag bool, base, release, rest string) {
-	name, ok := strings.CutPrefix(rest, release+"/")
-	a, found := static[name]
-	if !ok || !found {
-		h.fail(w, frag, base, &pageError{Status: http.StatusNotFound, Message: "This release of nitrovin (" + release + ") has no file " + r.URL.Path +
-			". A page from an earlier release asks for its own release's files: reload it."})
+// asset serves rest, the path after /ui/r/: a file of info's release,
+// immutable. A file of another release is not found, so no cache ever
+// holds one under the wrong release.
+func (h *Handler) asset(w http.ResponseWriter, r *http.Request, frag bool, base string, info contract.Info, rest string) {
+	release := Release(info)
+	var contentType string
+	var body func() ([]byte, error)
+	e := &pageError{Status: http.StatusNotFound, Message: "This release of nitrovin (" + release + ") has no file " + r.URL.Path +
+		". A page from an earlier release asks for its own release's files: reload it."}
+	if name, ok := strings.CutPrefix(rest, release+"/"); ok {
+		contentType, body, e = h.published(info, name, e)
+	}
+	if e != nil {
+		h.fail(w, frag, base, e)
 		return
 	}
 	if !getOrHead(w, r) {
 		h.fail(w, frag, base, &pageError{Status: http.StatusMethodNotAllowed, Message: r.URL.Path + " takes GET, not " + r.Method + "."})
 		return
 	}
-	w.Header().Set("Content-Type", a.contentType)
+	b, err := body()
+	if err != nil {
+		h.fail(w, frag, base, h.pageError(err))
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", immutable)
-	_, _ = w.Write(a.body)
+	_, _ = w.Write(b)
+}
+
+// published is the asset name of info's release: its content type and
+// what gives its bytes, or the page error saying it is not there, missing
+// when name is no asset's at all.
+func (h *Handler) published(info contract.Info, name string, missing *pageError) (string, func() ([]byte, error), *pageError) {
+	if a, ok := static[name]; ok {
+		return a.contentType, func() ([]byte, error) { return a.body, nil }, nil
+	}
+	if name == spineName {
+		return "application/json", h.spine, nil
+	}
+	rest, ok := strings.CutPrefix(name, filesDir)
+	hash, file, ok2 := strings.Cut(rest, "/")
+	fileName, ok3 := strings.CutSuffix(file, ".jsonl")
+	if !ok || !ok2 || !ok3 {
+		return "", nil, missing
+	}
+	for _, f := range info.Vocabularies {
+		if f.Name != fileName {
+			continue
+		}
+		if f.Blake3 != hash {
+			return "", nil, &pageError{Status: http.StatusNotFound, Message: "This nitrovin's " + fileName +
+				" is another file now (blake3 " + f.Blake3 + "): reload the page."}
+		}
+		return "application/jsonl", func() ([]byte, error) { return h.b.File(fileName) }, nil
+	}
+	return "", nil, &pageError{Status: http.StatusNotFound, Message: "This nitrovin has no file named " + fileName +
+		" loaded now: reload the page."}
 }
 
 // pageError is what a page shows instead of its answer: a status, and
