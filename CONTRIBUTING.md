@@ -25,9 +25,41 @@ itself; using it is the [README](README.md).
 - **Corpora:** commit VINs only with their source credited in the file's
   header. The refresh's generated VINs are never committed.
 
+## Tools
+
+Every tool the scripts and workflows run is pinned once, in
+[`mise.toml`](mise.toml), with each platform's download URL and sha256 in
+`mise.lock`. With [mise](https://mise.jdx.dev), whose shell hook activates
+the pins inside the checkout (direnv is not needed):
+
+```sh
+mise install --locked           # refuses a download whose checksum is not mise.lock's
+(cd deploy/cloudflare/worker && npm ci)   # wrangler, pinned by its package.json
+scripts/tools.sh check          # every tool on PATH reports its pin
+```
+
+Without mise, install by hand the versions `mise.toml`'s `[tools]` names,
+for what you work on:
+
+| Tool | For |
+| --- | --- |
+| `go` | everything; `go.mod`'s `go 1.27` is only the floor for `go install` |
+| `jq` | the scripts and workflows: jq itself, not a reimplementation such as jaq |
+| `zig` | the C library (`scripts/libnitrovin.sh`) and release snapshots |
+| `goreleaser` | release snapshots (`goreleaser release --snapshot --clean --skip=sign`) |
+| `cosign` | signing and verifying releases |
+| `yq` | `release.yml`'s prerelease check |
+| `mcp-publisher` (`github:modelcontextprotocol/registry`) | validating and publishing `server.json` |
+| `terraform`, `node` | `deploy/cloudflare` (wrangler is the Worker's npm dependency); `node` also runs the MCP Inspector |
+| `uv` | Python tooling, such as `uvx openapi-spec-validator docs/api/openapi.yaml` |
+| Docker | the oracle (`postgres:17`, by digest), the release image, `wrangler dev`; any current version |
+
+`mise.toml`'s header says what is left unpinned and why, and how to bump a
+pin. A weekly check lists newer releases in one issue and bumps nothing.
+
 ## Build and test
 
-Go 1.27 or newer (`go.mod`).
+Go at `mise.toml`'s pin ([Tools](#tools)).
 
 ```sh
 go build -o nitrovin ./cmd/nitrovin
@@ -84,13 +116,25 @@ witnesses the oracle reads.
   a pull request, Terraform `validate` and the Worker under `wrangler dev`;
   after each green release, the deploy and its smoke test; weekly, the drift
   check ([deploy/cloudflare/README.md](deploy/cloudflare/README.md)).
+- `tools.yml` (the pins): `mise.toml`, `mise.lock`, `.github/actions/mise`,
+  any workflow, `scripts/tools.sh`, `scripts/oracle.sh`, the Worker's
+  `package.json`. On Linux x64 and macOS arm64, every tool installed afresh
+  with `mise install --locked`, `scripts/tools.sh check`, and
+  `scripts/tools.sh refuse` (a copy of `mise.lock` with one checksum changed
+  must fail to install). Every Monday, the pins with a newer release, in the
+  one issue "Tools: newer releases upstream".
 
-A workflow's own file triggers it. `import.yml` and `libnitrovin.yml` also
+A workflow's own file triggers it, and every job that runs a tool installs
+it with `.github/actions/mise` (mise, pinned there, installing from
+`mise.lock` with `--locked`), so `mise.toml`, `mise.lock` and that action
+also trigger every workflow above that installs tools (not the Postgres
+job, which follows its own paths). `import.yml` and `libnitrovin.yml` also
 run on pushes to `main`, which keep the Go and zig caches warm: an entry a
 pull request saves is visible to that pull request alone. The Go cache is
 named by the Go version, `go.sum` and the Go sources, and restores the
 nearest entry on a miss; zig's global cache by the zig version and
-`scripts/libnitrovin.sh`.
+`scripts/libnitrovin.sh`; mise's installs by `mise.toml`, `mise.lock` and
+the tools a job asks for.
 
 ## The Postgres oracle
 
@@ -243,8 +287,8 @@ and `cmd/nitrovin/mcp-tools.json` are generated copies of the files in
 
 `cmd/libnitrovin` is the C library (`-buildmode=c-shared`, no data).
 `scripts/libnitrovin.sh <dir> [<goos>/<goarch>…]` builds it for all six
-targets, or the ones named, from any host with `zig` 0.17.1 as the C
-cross-compiler (`mise exec zig@0.17.1 -- scripts/libnitrovin.sh build/libnitrovin`).
+targets, or the ones named, from any host with `mise.toml`'s `zig` as the C
+cross-compiler (`scripts/libnitrovin.sh build/libnitrovin` after `mise install`).
 
 ## The monthly refresh
 
@@ -285,10 +329,12 @@ requests.
 ## Releases
 
 A `v*` tag runs `.github/workflows/release.yml`, which runs goreleaser
-(`.goreleaser.yaml`): the six binaries, the six C library archives, the
-six Linux packages (`.deb`, `.rpm`, `.apk` for amd64 and arm64),
-`server.json`, `checksums.txt`, a cosign keyless bundle per asset, the
-`ghcr.io/joshuasprow/nitrovin` image signed by digest, the Homebrew cask in
+(`.goreleaser.yaml`) with `mise.toml`'s Go, zig, goreleaser and cosign, so
+a rebuild of a tag runs the same toolchain: the six binaries, the six C
+library archives, the six Linux packages (`.deb`, `.rpm`, `.apk` for amd64
+and arm64), `server.json`, `checksums.txt`, a cosign keyless bundle per
+asset, the `ghcr.io/joshuasprow/nitrovin` image signed by digest, the
+Homebrew cask in
 `joshuasprow/homebrew-tap` and the Scoop manifest in
 `joshuasprow/scoop-bucket`. It verifies every signature, checksum and
 version stamp, then publishes `server.json` to the MCP Registry as

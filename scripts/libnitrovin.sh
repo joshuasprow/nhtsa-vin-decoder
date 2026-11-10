@@ -2,7 +2,9 @@
 # Build libnitrovin, the C library (cmd/libnitrovin), for every shipped
 # target with zig cc as the one C cross-compiler, from any host
 # (docs/research/c-shared-matrix.md on research/c-shared-matrix).
-# CI (.github/workflows/libnitrovin.yml) and a workstation run the same command.
+# CI (.github/workflows/libnitrovin.yml) and a workstation run the same command,
+# with go and zig at mise.toml's pins on PATH (mise's PATH, or the same
+# versions by hand): `mise install`, then scripts/libnitrovin.sh build/libnitrovin.
 #
 #   scripts/libnitrovin.sh <dir> [<goos>/<goarch>...]
 #

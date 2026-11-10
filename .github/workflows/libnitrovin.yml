@@ -23,6 +23,9 @@ on:
       - pkg/contract/**
       - pkg/decoder/**
       - go.mod
+      - mise.toml
+      - mise.lock
+      - .github/actions/mise/**
       - scripts/libnitrovin.sh
       - .github/workflows/libnitrovin.yml
       - "!**/*.md"
@@ -50,28 +53,22 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        id: go
+      - uses: ./.github/actions/mise
+        id: mise
         with:
-          go-version-file: go.mod
-          cache: false
+          tools: go zig
       # The six cross builds' Go cache, named as import.yml names its own.
       - uses: actions/cache@v6
         with:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-libnitrovin-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ hashFiles('**/*.go') }}
+          key: go-libnitrovin-${{ runner.os }}-${{ runner.arch }}-${{ steps.mise.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ hashFiles('**/*.go') }}
           restore-keys: |
-            go-libnitrovin-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
-            go-libnitrovin-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
-      # setup-zig would cache the workspace's .zig-cache, inside the checkout;
-      # zig's global cache in $HOME instead, where zig cc keeps each target's
-      # libc, named by the zig version and the build script.
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.17.1
-          use-cache: false
+            go-libnitrovin-${{ runner.os }}-${{ runner.arch }}-${{ steps.mise.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            go-libnitrovin-${{ runner.os }}-${{ runner.arch }}-${{ steps.mise.outputs.go-version }}-
+      # Zig's global cache, where zig cc keeps each target's libc: in $HOME,
+      # never in the checkout, named by the pinned zig version and the build script.
       - name: Zig's global cache
         run: |
           echo "ZIG_GLOBAL_CACHE_DIR=$HOME/.cache/zig" >>"$GITHUB_ENV"
@@ -79,9 +76,9 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/.cache/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-0.17.1-${{ hashFiles('scripts/libnitrovin.sh') }}
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ steps.mise.outputs.zig-version }}-${{ hashFiles('scripts/libnitrovin.sh') }}
           restore-keys: |
-            zig-${{ runner.os }}-${{ runner.arch }}-0.17.1-
+            zig-${{ runner.os }}-${{ runner.arch }}-${{ steps.mise.outputs.zig-version }}-
       # (devel), as the nitrovin that writes the replies below reports.
       - run: scripts/libnitrovin.sh dist
         env:
@@ -101,11 +98,10 @@ jobs:
       month: ${{ steps.artifact.outputs.month }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: ./.github/actions/mise
         id: go
         with:
-          go-version-file: go.mod
-          cache: false
+          tools: go jq
       # Falls back to import.yml's artifact entry, a superset of this build.
       - uses: actions/cache@v6
         with:

@@ -24,14 +24,13 @@ on:
       - scripts/libnitrovin.sh
       - scripts/mcp-server-json.sh
       - docs/api/mcp-tools.json
+      - mise.toml
+      - mise.lock
+      - .github/actions/mise/**
       - .github/workflows/release.yml
 
 permissions:
   contents: read
-
-env:
-  # The MCP Registry's own publisher, built from its module at a pinned tag.
-  MCP_PUBLISHER: github.com/modelcontextprotocol/registry/cmd/publisher@v1.8.8
 
 concurrency:
   group: release-${{ github.ref }}
@@ -50,25 +49,20 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v7
+      - uses: ./.github/actions/mise
         with:
-          go-version-file: go.mod
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.17.1
+          tools: go zig goreleaser jq github:modelcontextprotocol/registry
       - uses: docker/setup-buildx-action@v4
 
       - name: Read the embedded data month
         run: echo "DATA_MONTH=$(go run ./cmd/nitrovin info | jq -r .data_month)" | tee -a "$GITHUB_ENV"
 
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          version: "~> v2"
-          args: release --snapshot --clean --skip=sign
+      - name: goreleaser
         env:
           # Read by the publishers' templates; a snapshot publishes nothing.
           HOMEBREW_TAP_DEPLOY_KEY: unused
           SCOOP_BUCKET_DEPLOY_KEY: unused
+        run: goreleaser release --snapshot --clean --skip=sign
 
       - name: Check the snapshot
         run: |
@@ -134,7 +128,7 @@ jobs:
 
       - name: Check the MCP Registry entry
         run: |
-          go run "$MCP_PUBLISHER" validate build/server.json
+          mcp-publisher validate build/server.json
           # The registry takes the image only with the entry's name as a label.
           image=$(jq -r 'map(select(.type == "Docker Image" and (.name | endswith("-amd64"))))[0].name' dist/artifacts.json)
           name=$(jq -r .name build/server.json)
@@ -170,14 +164,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v7
+      - uses: ./.github/actions/mise
         with:
-          go-version-file: go.mod
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.17.1
-      # sigstore publishes no floating major tag (v4 does not resolve): pin the release.
-      - uses: sigstore/cosign-installer@v4.1.3
+          tools: go zig goreleaser cosign jq yq github:modelcontextprotocol/registry
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -196,15 +185,13 @@ jobs:
       - name: Read the embedded data month
         run: echo "DATA_MONTH=$(go run ./cmd/nitrovin info | jq -r .data_month)" | tee -a "$GITHUB_ENV"
 
-      - uses: goreleaser/goreleaser-action@v7
-        with:
-          version: "~> v2"
-          args: release --clean
+      - name: goreleaser
         env:
           GITHUB_TOKEN: ${{ github.token }}
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
           SCOOP_BUCKET_DEPLOY_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
           WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+        run: goreleaser release --clean
 
       # goreleaser checksummed and uploaded server.json but signs only what it
       # built.
@@ -249,8 +236,8 @@ jobs:
       # Last, so that a registry outage fails only this step, after everything
       # else is published and signed. To publish after such a failure without
       # rerunning the release: download the release's server.json, then
-      # `go run $MCP_PUBLISHER login github` and `go run $MCP_PUBLISHER publish server.json`.
+      # `mcp-publisher login github` and `mcp-publisher publish server.json`.
       - name: Publish to the MCP Registry
         run: |
-          go run "$MCP_PUBLISHER" login github-oidc
-          go run "$MCP_PUBLISHER" publish dist/server.json
+          mcp-publisher login github-oidc
+          mcp-publisher publish dist/server.json

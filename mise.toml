@@ -1,0 +1,52 @@
+# Every tool nitrovin's scripts and workflows run, pinned once, here.
+# `mise install` from the checkout installs them; mise.lock holds the
+# per-platform URLs and sha256s, and `mise install --locked` refuses anything
+# that does not match. Every workflow job installs them the same way, through
+# .github/actions/mise (jdx/mise-action and mise itself, pinned there), and
+# `scripts/tools.sh check` proves that each tool on PATH reports its pin
+# (.github/workflows/tools.yml, on every change to these files). Scripts call
+# tools by bare name and expect mise's PATH, or the same versions installed by
+# hand (CONTRIBUTING.md, "Tools").
+#
+# Pinned elsewhere, on purpose:
+# - wrangler: deploy/cloudflare/worker/package.json, with its integrity hash
+#   in package-lock.json. It is the Worker's build dependency, run by npx
+#   after `npm ci`, so a pin here would be a second one. scripts/tools.sh
+#   checks the installed wrangler against package.json.
+# - The Go language floor: go.mod's `go 1.27`, for `go install`. The toolchain
+#   is the go pin here.
+# - Python, for the C library's smoke test (libnitrovin.yml): its version in
+#   actions/setup-python, which picks the interpreter matching each runner's
+#   architecture, as the library under test must.
+# - The postgres:17 server image: a container, pinned by tag and digest in
+#   import.yml, oracle.yml, refresh.yml and scripts/oracle.sh (one digest;
+#   scripts/tools.sh check refuses two).
+#
+# Not pinned, on purpose:
+# - Docker: a daemon (Docker Desktop locally, preinstalled on runners).
+# - psql and pg_restore: the oracle runs them inside the postgres container,
+#   because runner images ship a client too old for the dump (pg_restore 17+);
+#   no host install.
+# - gh: preinstalled on runners, Homebrew locally.
+# - aws: preinstalled on runners, run only by deploy.yml (one `aws s3 cp` of
+#   the Terraform state to R2).
+# - GitHub Actions: pinned by major tag, kept current by Dependabot
+#   (.github/dependabot.yml).
+# - bash, git, curl, unzip and the rest of the userland: the OS's.
+#
+# Bump: edit a version here, then
+#   mise lock --platform macos-arm64,macos-x64,linux-x64,linux-arm64,windows-x64
+# and commit both files. Every Monday tools.yml lists newer releases (these,
+# wrangler and postgres:17) in one issue; it never bumps.
+
+[tools]
+go = "1.27.3"
+zig = "0.17.1"                    # scripts/libnitrovin.sh's C cross-compiler (zig cc)
+goreleaser = "2.20.0"             # release.yml (.goreleaser.yaml)
+cosign = "3.1.4"                  # release.yml signs, deploy.yml verifies
+terraform = "1.17.1"              # deploy/cloudflare/terraform
+node = "24.21.0"                  # LTS: wrangler (npx), the MCP Inspector
+jq = "1.8.2"                      # the scripts and workflows; real jq, not jaq
+yq = "4.54.3"                     # release.yml's prerelease check
+uv = "0.13.7"                     # Python tooling by uvx (openapi-spec-validator)
+"github:modelcontextprotocol/registry" = { version = "1.8.8", matching_regex = "^mcp-publisher_" } # mcp-publisher

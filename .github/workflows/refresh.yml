@@ -64,9 +64,9 @@ jobs:
       build: ${{ steps.detect.outputs.build }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: ./.github/actions/mise
         with:
-          go-version-file: go.mod
+          tools: go jq
       - id: detect
         env:
           MONTH: ${{ inputs.month }}
@@ -80,7 +80,7 @@ jobs:
     services:
       postgres:
         # As oracle.yml: pg_restore 17+, collate C.
-        image: postgres:17
+        image: postgres:17@sha256:ff87138949ad9a46f32ff23bd6852b52ce024a13dffe9b4087be98292cdd3b4f
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: vpic
@@ -105,10 +105,10 @@ jobs:
         with:
           repository: ${{ env.DATA_REPO }}
           path: data
-      - uses: actions/setup-go@v7
+      - uses: ./nitrovin/.github/actions/mise
         with:
-          go-version-file: nitrovin/go.mod
-          cache-dependency-path: nitrovin/go.sum
+          tools: go jq
+          working-directory: nitrovin
 
       - name: Build the artifact
         env:
@@ -175,9 +175,9 @@ jobs:
       MONTH: ${{ needs.detect.outputs.month }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: ./.github/actions/mise
         with:
-          go-version-file: go.mod
+          tools: go
       - uses: actions/download-artifact@v8
         with:
           name: refresh-data
@@ -218,9 +218,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: ./.github/actions/mise
         with:
-          go-version-file: go.mod
+          tools: go jq
       # Every artifact of the run, each in a directory of its name.
       - uses: actions/download-artifact@v8
         with:
@@ -265,9 +265,9 @@ jobs:
       - name: Prepare
         run: echo "NITROVIN_ARTIFACT=$RUNNER_TEMP/data/nitrovin-$MONTH.artifact" >>"$GITHUB_ENV"
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: ./.github/actions/mise
         with:
-          go-version-file: go.mod
+          tools: go jq
       - uses: actions/download-artifact@v8
         with:
           name: refresh-data
@@ -330,6 +330,19 @@ jobs:
           repository: ${{ env.DATA_REPO }}
           ssh-key: ${{ secrets.NITROVIN_DATA_DEPLOY_KEY }}
           path: data
+      # The tool pins alone: this job works in nitrovin-data's checkout.
+      - uses: actions/checkout@v7
+        with:
+          path: nitrovin
+          sparse-checkout: |
+            mise.toml
+            mise.lock
+            .github/actions/mise
+          sparse-checkout-cone-mode: false
+      - uses: ./nitrovin/.github/actions/mise
+        with:
+          tools: jq
+          working-directory: nitrovin
       - uses: actions/download-artifact@v8
         with:
           name: refresh-data
@@ -418,9 +431,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: ./.github/actions/mise
         with:
-          go-version-file: go.mod
+          tools: go jq
       - uses: actions/download-artifact@v8
         with:
           name: refresh-freeze
@@ -518,6 +531,9 @@ jobs:
         with:
           ref: ${{ needs.bump.outputs.sha }}
           fetch-depth: 0
+      - uses: ./.github/actions/mise
+        with:
+          tools: jq
       - name: Git identity and the deploy key
         env:
           KEY: ${{ secrets.NITROVIN_DEPLOY_KEY }}
@@ -568,6 +584,17 @@ jobs:
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      # The tool pins alone, for jq.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            mise.toml
+            mise.lock
+            .github/actions/mise
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/mise
+        with:
+          tools: jq
       - uses: actions/download-artifact@v8
         continue-on-error: true
         with:

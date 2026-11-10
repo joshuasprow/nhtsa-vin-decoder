@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # The monthly refresh's own commands (ADR 0006, 0007, 0008). The workflow,
 # .github/workflows/refresh.yml, runs them between scripts/oracle.sh,
-# nitrovin-data's scripts/build.sh and go test; a workstation runs the same.
+# nitrovin-data's scripts/build.sh and go test; a workstation runs the same,
+# with go and jq at mise.toml's pins on PATH (mise's PATH, or the same
+# versions by hand) beside curl.
 #
 #   scripts/refresh.sh detect [<month>]           whether a data month needs building; prints month=,
 #                                                 pinned=, pinned_month=, reason=, build=true|false

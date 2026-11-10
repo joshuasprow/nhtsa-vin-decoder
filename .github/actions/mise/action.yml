@@ -1,0 +1,41 @@
+# The one tool step of every workflow job: mise, at the version pinned below,
+# installs the tools mise.toml pins from mise.lock (--locked: a URL or
+# checksum that differs is refused) and puts their directories on PATH for
+# the job's later steps. jdx/mise-action caches the installs, keyed by
+# mise.toml, mise.lock and the tools asked for.
+#
+# Bump mise: edit `version` below (a release of github.com/jdx/mise).
+name: mise
+description: Install the tools mise.toml pins, from mise.lock, and put them on PATH.
+inputs:
+  tools:
+    description: The tools to install, space-separated as mise.toml names them; empty means every one
+    default: ""
+  working-directory:
+    description: The checkout holding mise.toml, when it is not the workspace
+    default: .
+  cache:
+    description: false installs the tools afresh, neither restoring nor saving the cache
+    default: "true"
+outputs:
+  # Named as actions/setup-go named its output, which the Go cache keys read.
+  go-version:
+    description: The Go version installed, for cache keys
+    value: ${{ steps.mise.outputs.go }}
+  zig-version:
+    description: The zig version installed, for cache keys
+    value: ${{ steps.mise.outputs.zig }}
+runs:
+  using: composite
+  steps:
+    - id: mise
+      uses: jdx/mise-action@v5
+      with:
+        version: 2026.11.5
+        install_args: --locked ${{ inputs.tools }}
+        working_directory: ${{ inputs.working-directory }}
+        cache: ${{ inputs.cache }}
+        # The tools' own directories go on PATH (export_path); shims would
+        # resolve versions by the step's directory, and some steps run
+        # outside the checkout.
+        add_shims_to_path: false
