@@ -19,7 +19,8 @@
     "Name": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9._-]*$",
-      "description": "The file's name. One namespace across vocabularies, extension sets and spines: two loaded files with one name refuse to load. A spine's name is also the name of the vocabulary of its entries' names."
+      "not": { "const": "vpic" },
+      "description": "The file's name. One namespace across vocabularies, extension sets and spines: two loaded files with one name refuse to load. A spine's name is also the name of the vocabulary of its entries' names. 'vpic' is reserved for the vehicle spine (ADR 0012)."
     },
     "Version": {
       "type": "string",
