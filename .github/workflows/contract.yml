@@ -3,7 +3,7 @@
 # against docs/api/decode.schema.json; pkg/nitrovin vetted; the CLI's usage,
 # refusal and unloadable-data cases, and a decode on its embedded data. The
 # same decodes on the engine's output, and the CLI's decodes of the answer
-# key, need an artifact built from the dump: import.yml runs them.
+# key, need an artifact: import.yml's artifact job runs them.
 name: Contract
 
 on:
@@ -19,9 +19,14 @@ on:
       - go.mod
       - go.sum
       - .github/workflows/contract.yml
+      - "!**/*.md"
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -30,7 +35,23 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
+        id: go
         with:
           go-version-file: go.mod
+          cache: false
+      # As import.yml: Go version, go.sum and the Go sources name the entry.
+      # A first run on a branch falls back to the artifact job's entry, which
+      # import.yml's runs on main keep current.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-contract-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            go-contract-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            go-contract-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
+            go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
       - run: go vet ./pkg/contract/ ./pkg/nitrovin/ ./cmd/nitrovin/
       - run: go test -count=1 ./pkg/contract/ ./pkg/nitrovin/ ./cmd/nitrovin/

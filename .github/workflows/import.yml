@@ -1,52 +1,171 @@
-# The importer and the engine against a real dump: restore one month into
-# Postgres 17, then run the tests that need it. cmd/nitrovin-import's
-# TestPostgres builds the artifact twice and checks it against the database
-# (row counts, NULL and empty-string counts, sampled rows, one hash);
-# pkg/decoder's TestMatcherPostgres checks the pattern matcher and the
-# per-schema index on every distinct pattern key against Postgres's LIKE and ~;
-# TestCharsetPostgres checks the recomputed (WMI, year) charsets against
-# fExtractValidCharsPerWmiYear and logs the stale-cache cells;
-# TestCorePostgres checks whole passes against the freshened spvindecode_core;
-# TestWrapperPostgres checks whole decodes, before value resolution, against
-# the freshened spvindecode, with and without model-year hints;
-# TestProjectionPostgres checks the projected rows against the whole
-# freshened spvindecode on the same calls, and TestElementAttributeValuePostgres
-# the resolution against fElementAttributeValue; TestParity holds the
-# engine to the frozen answer key of testdata/parity/<month>/ offline.
-# pkg/contract's TestEngineAnswerKey runs the decode contract on the engine's
-# output, and cmd/nitrovin's tests run the built CLI on it: `decode -` over
-# the answer key's VINs gives the contract layer's bytes. cmd/nitrovin-import's
-# TestVinsCoversTheMonth generates the refresh's VIN list from that artifact:
-# every WMI reached, no file over 5,000 VINs, nothing added that raises.
-name: Tests against the dump
+# The tests that need data, in two jobs, so a change runs what it can affect.
+#
+# artifact: every test that wants only an artifact, on the one go.mod pins
+# (nitrovin-data's pkg/embedded, read from the module cache): pkg/decoder's
+# TestParity holds the engine to the frozen answer key of
+# testdata/parity/<month>/ offline; pkg/contract's TestEngineAnswerKey runs
+# the decode contract on the engine's output; cmd/nitrovin's tests run the
+# built CLI on it (`decode -` over the answer key's VINs gives the contract
+# layer's bytes, the -o text transcript, every HTTP operation, a stdio
+# session, MCP sessions, the form); cmd/nitrovin-import's
+# TestVinsCoversTheMonth generates the refresh's VIN list from it: every WMI
+# reached, no file over 5,000 VINs, nothing added that raises. The pinned
+# month is always the keys' month (the refresh moves them together), so every
+# one of them must pass, never skip. Runs for every path this workflow watches.
+#
+# postgres: one month restored into Postgres 17, and the tests that compare
+# against it. cmd/nitrovin-import's TestPostgres builds the artifact twice and
+# checks it against the database (row counts, NULL and empty-string counts,
+# sampled rows, one hash); pkg/decoder's TestMatcherPostgres checks the
+# pattern matcher and the per-schema index on every distinct pattern key
+# against Postgres's LIKE and ~; TestCharsetPostgres checks the recomputed
+# (WMI, year) charsets against fExtractValidCharsPerWmiYear and logs the
+# stale-cache cells; TestCorePostgres checks whole passes against the
+# freshened spvindecode_core; TestWrapperPostgres checks whole decodes, before
+# value resolution, against the freshened spvindecode, with and without
+# model-year hints; TestProjectionPostgres checks the projected rows against
+# the whole freshened spvindecode on the same calls, and
+# TestElementAttributeValuePostgres the resolution against
+# fElementAttributeValue. It runs only when the changes job finds a path that
+# can move those answers: the decoder, the contract package it imports, the
+# importer, the oracle script, or this workflow. Otherwise it is skipped,
+# which a required check counts as passed. go.mod and testdata/parity are not
+# among them: the refresh's bump PR changes only those, after the refresh ran
+# the live gate on that very artifact. Dispatch with full to run it anyway.
+name: Tests
 
 on:
   pull_request:
     paths:
-      - cmd/nitrovin-import/**
-      - cmd/nitrovin/**
       - pkg/**
+      - cmd/**
       - go.mod
       - go.sum
       - testdata/parity/**
       - scripts/oracle.sh
       - .github/workflows/import.yml
+      - "!**/*.md"
+  # main's runs seed the Go cache that pull requests restore: a PR's own
+  # cache entries are visible to that PR alone.
+  push:
+    branches: [main]
+    paths:
+      - pkg/**
+      - cmd/**
+      - go.mod
+      - go.sum
+      - testdata/parity/**
+      - scripts/oracle.sh
+      - .github/workflows/import.yml
+      - "!**/*.md"
   workflow_dispatch:
     inputs:
+      full:
+        description: Run the Postgres job whatever the branch changes
+        type: boolean
+        default: false
       month:
-        description: Data month YYYY_MM; empty means the newest one NHTSA publishes
+        description: Data month YYYY_MM for the Postgres job; empty means the newest one NHTSA publishes
         type: string
         default: ""
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 defaults:
   run:
+    # Explicit bash adds -o pipefail, so `| tee` cannot hide a failed test.
     shell: bash
 
 jobs:
-  import:
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      postgres: ${{ steps.paths.outputs.postgres }}
+    steps:
+      # The files the branch changes since it left the base, from the compare
+      # API: no checkout. 300 is the most it lists; at that, run everything.
+      - id: paths
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          FULL: ${{ inputs.full }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          postgres=false
+          if [ "$EVENT" = push ]; then
+            echo "push to main: the pull request ran the Postgres job"
+          elif [ "$FULL" = true ]; then
+            echo "dispatched with full"
+            postgres=true
+          else
+            files=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$HEAD" --jq '.files // [] | .[].filename')
+            n=$(grep -c . <<<"$files" || true)
+            echo "$n files changed since $BASE"
+            if [ "$n" -ge 300 ]; then
+              postgres=true
+            fi
+            while IFS= read -r f; do
+              case "$f" in
+                *.md) ;;
+                pkg/decoder/* | pkg/contract/* | cmd/nitrovin-import/* | scripts/oracle.sh | .github/workflows/import.yml)
+                  echo "Postgres: $f"
+                  postgres=true ;;
+              esac
+            done <<<"$files"
+          fi
+          echo "postgres=$postgres" | tee -a "$GITHUB_OUTPUT"
+
+  artifact:
+    name: Artifact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        id: go
+        with:
+          go-version-file: go.mod
+          cache: false
+      # Modules and the build cache, named by the Go version, go.sum and the
+      # Go sources; a miss restores the nearest entry and saves its own.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
+
+      - name: The pinned artifact
+        run: |
+          dir=$(go mod download -json github.com/joshuasprow/nitrovin-data | jq -r .Dir)
+          echo "NITROVIN_ARTIFACT=$dir/pkg/embedded/nitrovin.artifact" | tee -a "$GITHUB_ENV"
+          jq -r '"data month \(.data_month), \(.bytes) bytes, blake3 \(.blake3)"' "$dir/pkg/embedded/manifest.json"
+
+      # The Postgres tests skip here: no NITROVIN_PSQL. Every other one must
+      # pass: a test that skipped for want of an artifact fails the job.
+      - name: Test on the artifact
+        run: |
+          go test -count=1 -v -timeout 10m ./pkg/... ./cmd/nitrovin/ ./cmd/nitrovin-import/ | tee "$RUNNER_TEMP/test.log"
+          for t in TestParity TestEngineAnswerKey TestDecodeAnswerKey TestText TestStdio TestRefusedLine \
+                   TestDataPrecedence TestMCPSession TestServeContract TestForm TestVinsCoversTheMonth; do
+            grep -q -- "--- PASS: $t " "$RUNNER_TEMP/test.log" || { echo "artifact: $t did not pass" >&2; exit 1; }
+          done
+
+  postgres:
+    name: Postgres
+    needs: changes
+    if: needs.changes.outputs.postgres == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     services:
@@ -68,8 +187,23 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
+        id: go
         with:
           go-version-file: go.mod
+          cache: false
+      # Its own entry (it saves after the artifact job), falling back to the
+      # artifact job's, which main's runs keep current.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-postgres-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            go-postgres-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            go-postgres-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
+            go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
 
       - name: Resolve data month
         id: month
@@ -93,7 +227,7 @@ jobs:
           NITROVIN_MONTH: ${{ steps.fetch.outputs.month }}
         # A skipped TestPostgres would pass silently: require that it ran.
         run: |
-          go test -count=1 -v ./cmd/nitrovin-import/ | tee "$RUNNER_TEMP/test.log"
+          go test -count=1 -v -run 'TestPostgres$' ./cmd/nitrovin-import/ | tee "$RUNNER_TEMP/test.log"
           grep -q -- '--- PASS: TestPostgres' "$RUNNER_TEMP/test.log"
 
       - name: Test the engine against the dump
@@ -104,29 +238,13 @@ jobs:
           go run ./cmd/nitrovin-import sql | $NITROVIN_PSQL |
             go run ./cmd/nitrovin-import build -month "${{ steps.fetch.outputs.month }}" \
               -o "$NITROVIN_ARTIFACT" -manifest "$RUNNER_TEMP/nitrovin.json"
-          go test -count=1 -v -timeout 30m ./pkg/decoder/ ./pkg/contract/ ./cmd/nitrovin/ | tee "$RUNNER_TEMP/engine.log"
-          go test -count=1 -v -run TestVinsCoversTheMonth ./cmd/nitrovin-import/ | tee -a "$RUNNER_TEMP/engine.log"
-          grep -q -- '--- PASS: TestMatcherPostgres' "$RUNNER_TEMP/engine.log"
-          grep -q -- '--- PASS: TestCorePostgres' "$RUNNER_TEMP/engine.log"
-          grep -q -- '--- PASS: TestCharsetPostgres' "$RUNNER_TEMP/engine.log"
-          grep -q -- '--- PASS: TestWrapperPostgres' "$RUNNER_TEMP/engine.log"
-          grep -q -- '--- PASS: TestProjectionPostgres' "$RUNNER_TEMP/engine.log"
-          grep -q -- '--- PASS: TestElementAttributeValuePostgres' "$RUNNER_TEMP/engine.log"
-          grep -q -- '--- PASS: TestDataPrecedence' "$RUNNER_TEMP/engine.log"
-          grep -q -- '--- PASS: TestRefusedLine' "$RUNNER_TEMP/engine.log"
-          grep -q -- '--- PASS: TestMCPSession' "$RUNNER_TEMP/engine.log"
-          grep -q -- '--- PASS: TestServeContract' "$RUNNER_TEMP/engine.log"
-          grep -q -- '--- PASS: TestVinsCoversTheMonth' "$RUNNER_TEMP/engine.log"
-          # The answer key is one month's (its manifest says which); on another
-          # month TestEngineAnswerKey, TestDecodeAnswerKey, TestText and TestStdio skip,
-          # until the refresh renews the key.
-          if [ "${{ steps.fetch.outputs.month }}" = "$(jq -r .month pkg/contract/testdata/oracle/manifest.json)" ]; then
-            grep -q -- '--- PASS: TestEngineAnswerKey' "$RUNNER_TEMP/engine.log"
-            grep -q -- '--- PASS: TestDecodeAnswerKey' "$RUNNER_TEMP/engine.log"
-            grep -q -- '--- PASS: TestText' "$RUNNER_TEMP/engine.log"
-            grep -q -- '--- PASS: TestStdio ' "$RUNNER_TEMP/engine.log"
-          fi
-          # Likewise the frozen parity key, whose manifest names its month.
+          go test -count=1 -v -timeout 30m ./pkg/decoder/ | tee "$RUNNER_TEMP/engine.log"
+          for t in TestMatcherPostgres TestCorePostgres TestCharsetPostgres TestWrapperPostgres \
+                   TestProjectionPostgres TestElementAttributeValuePostgres; do
+            grep -q -- "--- PASS: $t " "$RUNNER_TEMP/engine.log" || { echo "postgres: $t did not pass" >&2; exit 1; }
+          done
+          # The frozen key is one month's (its manifest says which); on
+          # another month TestParity skips until the refresh renews the key.
           if [ "${{ steps.fetch.outputs.month }}" = "$(jq -r .month testdata/parity/*/manifest.json)" ]; then
-            grep -q -- '--- PASS: TestParity' "$RUNNER_TEMP/engine.log"
+            grep -q -- '--- PASS: TestParity ' "$RUNNER_TEMP/engine.log"
           fi

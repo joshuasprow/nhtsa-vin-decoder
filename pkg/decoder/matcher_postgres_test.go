@@ -33,7 +33,15 @@ import (
 //	  go run ./cmd/nitrovin-import build -month 2026_10 -o "$NITROVIN_ARTIFACT"
 //
 // The test writes scratch tables to the schema matcher_oracle and drops it.
+//
+// The Postgres tests that only read the dump run in parallel, each psql call
+// its own session: this one, TestCharsetPostgres and
+// TestElementAttributeValuePostgres. Those that truncate
+// wmiyearvalidchars or mark VinSchemas QC'd in a rolled-back transaction
+// (TestCorePostgres, TestWrapperPostgres, TestProjectionPostgres) stay
+// serial, so they run first and alone.
 func TestMatcherPostgres(t *testing.T) {
+	t.Parallel()
 	a, psql := dumpUnderTest(t)
 	t.Cleanup(func() { psql("drop schema if exists matcher_oracle cascade;\n") })
 	psql("drop schema if exists matcher_oracle cascade; create schema matcher_oracle;\n")

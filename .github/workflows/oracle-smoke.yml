@@ -11,9 +11,16 @@ on:
       - scripts/oracle.sh
       - testdata/oracle/**
       - docs/deviations/**
+      - "!**/*.md"
+      # The witnesses are listed in these Markdown files (scripts/oracle.sh corpus).
+      - docs/deviations/*.md
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   oracle:
