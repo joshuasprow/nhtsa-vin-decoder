@@ -89,10 +89,13 @@ Keyed by variable name. Only decoded elements are present.
 - `attribute_id` is present only on lookup elements whose id is an integer,
   so never on Error Code (143), whose "id" is the code list.
 - A multi-valued element always carries `values`, never `value`, however many
-  it has. Which elements are multi-valued is fixed per data month and listed
-  in `/v1/info` (2026_10: 114, 121, 129, 150, 154, 155, 169). `values` keeps
-  duplicates (one VIN carries `Seat Belt (Rr center position)` four times,
-  from four patterns) in byte order.
+  it has. An element is multi-valued when the procedure can emit it more than
+  once for one VIN: the elements its dedup keeps every row of, and Other
+  Battery Info (1), which its Vehicle Specs step adds even when a pattern
+  already set it. Which elements are multi-valued is fixed per data month and
+  listed in `/v1/info` (2026_10: 1, 114, 121, 129, 150, 154, 155, 169).
+  `values` keeps duplicates (one VIN carries `Seat Belt (Rr center position)`
+  four times, from four patterns) in byte order.
 
 ### Items (`full`)
 

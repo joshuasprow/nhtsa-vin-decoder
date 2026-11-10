@@ -30,8 +30,9 @@ where the element is a lookup.
 _Avoid_: value (when the id matters)
 
 **Multi-valued element**:
-An element that can resolve to several attributes for one VIN, every one of
-them kept, repeats included (Note, Other Restraint System Info). Every other
+An element that NHTSA's procedure can emit more than once for one VIN, every
+value kept, repeats included (Note, Other Restraint System Info, and Other
+Battery Info, which Vehicle Specs can add beside a pattern's). Every other
 element resolves to at most one.
 _Avoid_: list field, repeating variable
 

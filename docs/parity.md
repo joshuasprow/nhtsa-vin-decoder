@@ -24,7 +24,9 @@ Parity means nitrovin's items equal the oracle's:
 
 Both output layouts, `vpic` and `nitrovin`, are pure functions of the items.
 The `vpic` layout has no oracle of its own (NHTSA builds it in its web
-service, not in the dump), so it is unit-tested and never gated.
+service, not in the dump), so its values are unit-tested and never gated;
+but every gate also lays each decode out in both layouts, so items the
+oracle accepts and a layout refuses fail it.
 
 ## The oracle
 

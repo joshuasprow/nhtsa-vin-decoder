@@ -5,7 +5,7 @@
     "code": "BatteryInfo",
     "group_name": "Mechanical/Battery",
     "data_type": "string",
-    "multi_valued": false
+    "multi_valued": true
   },
   {
     "element_id": 2,
