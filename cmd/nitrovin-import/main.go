@@ -148,3 +148,5 @@ func writeFile(path string, b []byte) error {
 }
 
 func trimExt(p string) string { return p[:len(p)-len(filepath.Ext(p))] }
+
+// ci-matrix probe
