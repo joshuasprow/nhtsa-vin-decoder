@@ -1,10 +1,10 @@
-# Throwaway (#106), removed before merge: release.yml's snapshot built three
+# Throwaway (#106), removed before merge: release.yml's snapshot built four
 # times on one commit: twice with the per-tool actions it used before
-# (setup-go, setup-zig, goreleaser-action "~> v2"), which is the baseline of
-# what a rebuild reproduces at all, and once with the mise step. Every file
-# under dist/ and build/ is hashed, and each package's payload files too.
-# Every build sets each tracked file's mtime to the commit's, so archives do
-# not carry the checkout time.
+# (setup-go, setup-zig, goreleaser-action "~> v2"), the baseline of what a
+# rebuild reproduces at all, and twice with the mise step. Every file under
+# dist/ and build/ is hashed, and each package's payload files too. Every
+# build sets each tracked file's mtime to the commit's, so archives do not
+# carry the checkout time. The comparison is made from the artifacts.
 name: Repro 106
 
 on:
@@ -23,22 +23,22 @@ jobs:
   build:
     strategy:
       matrix:
-        variant: [old, old-again, mise]
+        variant: [old, old-again, mise, mise-again]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - if: matrix.variant != 'mise'
+      - if: "!startsWith(matrix.variant, 'mise')"
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - if: matrix.variant != 'mise'
+      - if: "!startsWith(matrix.variant, 'mise')"
         uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
-      - if: matrix.variant == 'mise'
+      - if: startsWith(matrix.variant, 'mise')
         uses: ./.github/actions/mise
         with:
           tools: go zig goreleaser jq
@@ -47,7 +47,7 @@ jobs:
         run: git ls-files -z | xargs -0 touch -h -d "@$(git log -1 --format=%ct)"
       - name: Read the embedded data month
         run: echo "DATA_MONTH=$(go run ./cmd/nitrovin info | jq -r .data_month)" | tee -a "$GITHUB_ENV"
-      - if: matrix.variant != 'mise'
+      - if: "!startsWith(matrix.variant, 'mise')"
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
@@ -55,7 +55,7 @@ jobs:
         env:
           HOMEBREW_TAP_DEPLOY_KEY: unused
           SCOOP_BUCKET_DEPLOY_KEY: unused
-      - if: matrix.variant == 'mise'
+      - if: startsWith(matrix.variant, 'mise')
         env:
           HOMEBREW_TAP_DEPLOY_KEY: unused
           SCOOP_BUCKET_DEPLOY_KEY: unused
@@ -90,38 +90,46 @@ jobs:
           name: ${{ matrix.variant }}
           path: out/
 
-  compare:
-    needs: build
+  # tools.yml's outdated job, verbatim: it cannot be dispatched before tools.yml is on main.
+  outdated:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - uses: actions/download-artifact@v8
-      - name: Byte-compare
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/mise
+        with:
+          tools: jq node
+      - name: Report
         run: |
-          # Files whose hash differs between two builds' lists.
-          differ() { join -j 2 <(sort -k2 "$1") <(sort -k2 "$2") | awk '$2 != $3 {print $1}'; }
-          same() { join -j 2 <(sort -k2 "$1") <(sort -k2 "$2") | awk '$2 == $3' | wc -l; }
-          {
-            echo '### Tools'
-            echo '```'
-            for v in old old-again mise; do sed "s/^/$v: /" "$v/tools.txt"; done
-            echo '```'
-            for b in old-again mise; do
-              echo "### old vs $b: $(same old/hashes.txt "$b/hashes.txt") of $(wc -l <old/hashes.txt) files identical; payloads $(same old/payloads.txt "$b/payloads.txt") of $(wc -l <old/payloads.txt)"
-              echo '```'
-              differ old/hashes.txt "$b/hashes.txt"
-              differ old/payloads.txt "$b/payloads.txt"
-              echo '```'
-            done
-            echo '### C library build IDs'
-            echo '```'
-            paste -d '\n' old/buildids.txt mise/buildids.txt
-            echo '```'
-            echo '### C libraries, old vs mise: differing bytes (cmp -l)'
-            echo '```'
-            for f in old/lib/*/*; do
-              g=mise/lib/${f#old/lib/}
-              echo "${f#old/lib/}: $(cmp -l "$f" "$g" | wc -l) of $(wc -c <"$f") bytes"
-            done
-            echo '```'
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+          scripts/tools.sh outdated >"$RUNNER_TEMP/rows.md"
+          title="Tools: newer releases upstream"
+          issue=$(gh issue list --state open --json number,title -L 100 |
+            jq -r --arg t "$title" 'map(select(.title == $t))[0].number // ""')
+          if [ -s "$RUNNER_TEMP/rows.md" ]; then
+            {
+              echo "Pins with a newer release upstream, as of the [weekly check]($RUN_URL). Nothing is bumped by this issue."
+              echo
+              cat "$RUNNER_TEMP/rows.md"
+              echo
+              # shellcheck disable=SC2016 # Markdown code spans, not expansions
+              echo 'Bump in a pull request: edit `mise.toml`, run `mise lock --platform macos-arm64,macos-x64,linux-x64,linux-arm64,windows-x64` and commit both files; wrangler is `npm install -E wrangler@<version>` in `deploy/cloudflare/worker`; postgres:17 is its digest in the workflows and `scripts/oracle.sh`.'
+            } >"$RUNNER_TEMP/body.md"
+            cat "$RUNNER_TEMP/body.md" >>"$GITHUB_STEP_SUMMARY"
+            if [ -n "$issue" ]; then
+              gh issue edit "$issue" --body-file "$RUNNER_TEMP/body.md"
+            else
+              gh issue create --title "$title" --body-file "$RUNNER_TEMP/body.md"
+            fi
+          else
+            echo "Every pin is current." | tee -a "$GITHUB_STEP_SUMMARY"
+            if [ -n "$issue" ]; then
+              gh issue close "$issue" --comment "Every pin is current as of $RUN_URL."
+            fi
+          fi
