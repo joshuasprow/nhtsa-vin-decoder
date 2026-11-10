@@ -219,6 +219,15 @@ func (f *File) Entry(fields map[string]string) (*Entry, bool) {
 	return &f.Entries[i], true
 }
 
+// FieldsOf is a vocabulary entry's fields by name, as written.
+func (f *File) FieldsOf(e *Entry) map[string]string {
+	m := make(map[string]string, len(f.Fields))
+	for i, name := range f.Fields {
+		m[name] = e.Fields[i]
+	}
+	return m
+}
+
 // EntriesFor returns, in file order, a vocabulary's entries with a mapping
 // to t.
 func (f *File) EntriesFor(t Target) []*Entry {

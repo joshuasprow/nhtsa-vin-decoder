@@ -9,24 +9,30 @@ import (
 
 // Translator is a Decoder with the vocabularies, extension sets and
 // declared spines loaded beside it (ADR 0011, ADR 0012): the files never
-// change for its life, and the Decoder stays vocabulary-free. It is safe
-// for concurrent use.
+// change for its life, and the Decoder stays vocabulary-free. It
+// translates and lists through them (Translate, List). It is safe for
+// concurrent use.
 type Translator struct {
 	d     *Decoder
+	set   *vocab.Set
 	drift []vocab.Finding
 	info  contract.Info
 }
 
 // NewTranslator loads files beside d, as --vocab and NITROVIN_VOCAB do: it
 // links them (vocab.Link), refusing with vocab.Faults, and measures their
-// drift against d's data month, which it reports and serves.
+// drift against d's data month, which it reports and serves. With no
+// files it still translates a VIN or a vPIC id to the spine, and lists
+// vPIC.
 func NewTranslator(d *Decoder, files ...*vocab.File) (*Translator, error) {
-	if err := vocab.Link(files); err != nil {
+	m := newMonth(d.artifact, d.info.Elements)
+	set, err := vocab.NewSet(m, files)
+	if err != nil {
 		return nil, err
 	}
-	t := &Translator{d: d, info: d.Info()}
+	t := &Translator{d: d, set: set, info: d.Info()}
 	if len(files) > 0 {
-		t.drift = vocab.Drift(newMonth(d.artifact, d.info.Elements), files)
+		t.drift = vocab.Drift(m, files)
 	}
 	t.info.Vocabularies = make([]contract.VocabularyFile, len(files))
 	for i, f := range files {
