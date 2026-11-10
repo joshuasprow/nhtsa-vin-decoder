@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/joshuasprow/nitrovin/blob/main/docs/api/vocabulary.schema.json",
+  "title": "Vocabulary file line",
+  "description": "One line of a vocabulary file (JSON Lines, loaded with --vocab or $NITROVIN_VOCAB). Line 1 is a header; every later line is the line type its header's kind names: Entry for a vocabulary, Extension for an extension set, SpineEntry for a spine. Rules a single line cannot state (one kind per file, vehicle mappings only in vehicle vocabularies, part mappings only in part vocabularies, entry fields exactly the header's fields, unique entries and ids) are checked at load. Every object is closed: a field this schema does not name refuses the file. Decisions: ADR 0009, ADR 0010, ADR 0011.",
+  "oneOf": [
+    { "$ref": "#/$defs/VocabularyHeader" },
+    { "$ref": "#/$defs/ExtensionSetHeader" },
+    { "$ref": "#/$defs/SpineHeader" },
+    { "$ref": "#/$defs/Entry" },
+    { "$ref": "#/$defs/Extension" },
+    { "$ref": "#/$defs/SpineEntry" }
+  ],
+  "$defs": {
+    "Format": {
+      "const": 1,
+      "description": "The file format's major version. Format 1 only grows by additions; a nitrovin that does not know a format, or a field, refuses the file."
+    },
+    "Name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "description": "The file's name. One namespace across vocabularies, extension sets and spines: two loaded files with one name refuse to load. A spine's name is also the name of the vocabulary of its entries' names."
+    },
+    "Version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The author's version of the file, free text. Answers carry it beside the name."
+    },
+    "DataMonth": {
+      "type": "string",
+      "pattern": "^[0-9]{4}_(0[1-9]|1[0-2])$",
+      "description": "The data month the file was built against. Used only in drift messages."
+    },
+    "VocabularyHeader": {
+      "type": "object",
+      "required": ["format", "kind", "name", "version", "subject", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "format": { "$ref": "#/$defs/Format" },
+        "kind": { "const": "vocabulary" },
+        "name": { "$ref": "#/$defs/Name" },
+        "version": { "$ref": "#/$defs/Version" },
+        "data_month": { "$ref": "#/$defs/DataMonth" },
+        "subject": {
+          "enum": ["vehicle", "part"],
+          "description": "vehicle: mappings name vPIC makes, vPIC models or extensions. part: mappings name entries of the spine below."
+        },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "The fields that name an entry, in order. Never a model year."
+        },
+        "spine": {
+          "$ref": "#/$defs/Name",
+          "description": "The declared spine a part vocabulary maps onto; required for subject part, refused for subject vehicle. The spine must be loaded."
+        }
+      },
+      "if": { "properties": { "subject": { "const": "part" } } },
+      "then": { "required": ["spine"] },
+      "else": { "not": { "required": ["spine"] } }
+    },
+    "ExtensionSetHeader": {
+      "type": "object",
+      "required": ["format", "kind", "name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "format": { "$ref": "#/$defs/Format" },
+        "kind": { "const": "extension-set" },
+        "name": { "$ref": "#/$defs/Name" },
+        "version": { "$ref": "#/$defs/Version" },
+        "data_month": { "$ref": "#/$defs/DataMonth" }
+      }
+    },
+    "SpineHeader": {
+      "type": "object",
+      "required": ["format", "kind", "name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "format": { "$ref": "#/$defs/Format" },
+        "kind": { "const": "spine" },
+        "name": { "$ref": "#/$defs/Name" },
+        "version": { "$ref": "#/$defs/Version" }
+      }
+    },
+    "Entry": {
+      "type": "object",
+      "required": ["entry", "mappings"],
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "The entry's fields, exactly the header's fields. Matched after trimming, collapsing whitespace and Unicode lower-casing; two entries equal after that refuse the file."
+        },
+        "mappings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Mapping" },
+          "description": "Empty for an unmapped entry."
+        },
+        "note": { "type": "string" }
+      }
+    },
+    "Mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One spine entry the entry maps to (ADR 0009, ADR 0010): exactly one of make, model, ext or id.",
+      "oneOf": [
+        { "required": ["make"], "not": { "anyOf": [{ "required": ["model"] }, { "required": ["ext"] }, { "required": ["id"] }] } },
+        { "required": ["model"], "not": { "anyOf": [{ "required": ["make"] }, { "required": ["ext"] }, { "required": ["id"] }] } },
+        { "required": ["ext"], "not": { "anyOf": [{ "required": ["make"] }, { "required": ["model"] }, { "required": ["id"] }, { "required": ["qualifiers"] }] } },
+        { "required": ["id"], "not": { "anyOf": [{ "required": ["make"] }, { "required": ["model"] }, { "required": ["ext"] }] } }
+      ],
+      "properties": {
+        "make": { "type": "integer", "minimum": 1, "description": "A vPIC make id." },
+        "model": { "type": "integer", "minimum": 1, "description": "A vPIC model id; it implies its make." },
+        "ext": { "$ref": "#/$defs/ExtensionRef" },
+        "id": { "type": "string", "minLength": 1, "description": "An entry id of the part vocabulary's spine." },
+        "first": { "type": "integer", "description": "First model year the mapping holds for, inclusive." },
+        "last": { "type": "integer", "description": "Last model year the mapping holds for, inclusive; not before first." },
+        "qualifiers": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^[1-9][0-9]*$" },
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": ["integer", "string"] }
+          },
+          "description": "vPIC element id → the values the mapping holds for: attribute ids (integers) for lookup elements, exact strings for text elements. Any listed value satisfies its element; every element must be satisfied. Refused on ext mappings."
+        },
+        "origin": { "enum": ["derived", "curated", "seed"], "description": "Passed through, never interpreted." },
+        "note": { "type": "string", "description": "Passed through, never interpreted." }
+      }
+    },
+    "ExtensionRef": {
+      "type": "string",
+      "pattern": "^ext:[a-z0-9][a-z0-9._-]*/[^/\\s]+$",
+      "description": "ext:<extension set>/<id>. The set must be loaded and define the id."
+    },
+    "Extension": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "description": "One extension: a make (make_name) or a model (make and name) vPIC lacks.",
+      "oneOf": [
+        { "required": ["make_name"], "not": { "anyOf": [{ "required": ["make"] }, { "required": ["name"] }] } },
+        { "required": ["make", "name"], "not": { "required": ["make_name"] } }
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "pattern": "^[^/\\s]+$" },
+        "make_name": { "type": "string", "minLength": 1, "description": "An extension make: a marque vPIC has no entry for." },
+        "make": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1, "description": "A vPIC make id." },
+            { "$ref": "#/$defs/ExtensionRef" }
+          ],
+          "description": "The make an extension model sits under."
+        },
+        "name": { "type": "string", "minLength": 1, "description": "The extension model's name." }
+      }
+    },
+    "SpineEntry": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1, "description": "Optional; named entries also make up the vocabulary of the spine's names." }
+      }
+    }
+  }
+}

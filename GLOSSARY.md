@@ -219,3 +219,10 @@ _Avoid_: extension vocabulary (it names spine entries, not a system's names)
 Resolving an entry of one vocabulary to entries of another through the
 spine. May be one-to-many in either direction.
 _Avoid_: lookup, aliasing
+
+**Drift**:
+Where a vocabulary, extension set or declared spine disagrees with the loaded
+data month: a vPIC id the month lacks, a qualifier value its decode cannot
+produce, an extension named like a vPIC entry under the same make. Reported,
+never refused: NHTSA's monthly changes are not the author's mistakes.
+_Avoid_: stale, invalid, broken mapping
