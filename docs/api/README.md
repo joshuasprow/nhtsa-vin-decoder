@@ -273,6 +273,53 @@ exactly as the Go module marshals it.
 is accepted in both places too, and every use adds to the files loaded.
 `nitrovin info` prints the `/v1/info` object, pretty-printed on a terminal.
 
+### `nitrovin translate`
+
+| Flag | Request field |
+| --- | --- |
+| `--to a,b` | `to`, comma-separated; repeatable, each use appending |
+| `--model-year N` | `model_year` |
+| `--now <instant\|date>` | `now` |
+
+`nitrovin translate <vin>…` translates each argument VIN, as `from`, through
+the spine to the `--to` vocabularies; without `--to` it answers the spine
+alone. `nitrovin translate -` reads one `TranslateRequest` object per stdin
+line (a VIN, an entry or a spine entry as `from`), and the flags fill what a
+line leaves out: a line's own `to`, `model_year` and `now` beat the flags',
+and a line without one (an empty `to`, a null `model_year`) takes the
+flag's. Output follows `decode`'s: one argument prints one `Translation`
+(pretty-printed on a terminal, one compact line elsewhere); several, or `-`,
+print JSON lines in input order, each the answer's compact JSON exactly as
+the Go module marshals it. A trailing `\r` is dropped, and blank lines
+(nothing but spaces and tabs) are skipped but counted.
+
+- A refused argument: a problem on stderr naming the argument, nothing on
+  stdout, exit 2. A VIN is checked before any data is loaded; a `--to`
+  the loaded files refuse (a name nothing loaded has, a target on another
+  spine) after, and before anything is printed.
+- A refused stdin line (not JSON, or a request `translate` refuses): a
+  problem on stderr naming the line, the run stops, exit 1. Lines already
+  printed are complete, valid answers.
+- Problems, unloadable data and vocabularies, and mistakes on the command
+  line (a `--to` with an empty name among others) are as for `decode`.
+
+### `nitrovin list`
+
+| Argument or flag | Request field |
+| --- | --- |
+| `[of]`, at most one | `of`; none asks for the catalog |
+| `--where field=value` | `where`, repeatable, a field once (`--where make=476` for `vpic`) |
+| `--limit N` | `limit`, 1 to 1,000 |
+| `--after <cursor>` | `after`, the previous page's `next` |
+
+`nitrovin list [of]` prints one `List`, pretty-printed on a terminal and one
+compact line elsewhere, exactly as the Go module marshals it. A request the
+loaded files refuse (an `of` nothing loaded has, a `where` field the
+listing lacks, `--limit` or `--after` beside the catalog, an `after` that is
+not a cursor of the listing) is a problem on stderr, nothing on stdout,
+exit 2. A malformed flag (`--where` without `=`, a field given twice, a
+`--limit` outside 1 to 1,000) or a second argument is a usage error, exit 2.
+
 ## Vocabularies (`--vocab`)
 
 Vocabularies, extension sets and declared spines (ADR 0009, 0010, 0011) are

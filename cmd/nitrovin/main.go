@@ -16,8 +16,8 @@
 // VINs decode to; 1 when nitrovin could not answer (data or a vocabulary
 // that will not load, a refused stdin line, a write failure), with a
 // problem on stderr, or when `vocab check` has findings; 2 for a mistake
-// on the command line, a refused argument VIN included, with nothing on
-// stdout.
+// on the command line, a refused argument VIN or translate or list request
+// included, with nothing on stdout.
 package main
 
 import (

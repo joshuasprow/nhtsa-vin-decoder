@@ -409,6 +409,9 @@ for your CI:
 ```sh
 nitrovin vocab check vocabularies/
 nitrovin --vocab vocabularies/ serve
+nitrovin --vocab vocabularies/ list                                  # what is loaded
+nitrovin --vocab vocabularies/ list yard --where make=dodge          # a vocabulary's entries, paged
+nitrovin --vocab vocabularies/ translate --to yard 1C6RR7LT5FS123456  # a VIN to your names
 ```
 
 Each data release also carries `epa-vehicles.jsonl`, a vocabulary of the
