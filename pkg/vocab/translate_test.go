@@ -165,6 +165,45 @@ func TestTranslateDecoded(t *testing.T) {
 	}
 }
 
+// yearMonth is fixtureMonth with Model Year (29) and Series (34) text
+// elements, and no element 999.
+type yearMonth struct{ fixtureMonth }
+
+func (yearMonth) Element(id int32) (bool, bool) { return id != 29 && id != 34, id != 999 }
+
+// TestNewDecoded reads a decode's items as translation does, whatever
+// decoded the VIN: lookup values by attribute id, text by text, nothing
+// from an empty item, an element the month lacks or a code list.
+func TestNewDecoded(t *testing.T) {
+	d := NewDecoded(yearMonth{}, []Item{
+		{ElementID: 26, Value: "DODGE", AttributeID: "476"},
+		{ElementID: 28, Value: "Ram", AttributeID: "1938"},
+		{ElementID: 29, Value: "2010"},
+		{ElementID: 34, Value: "DS (1500)"},
+		{ElementID: 15, Value: "4WD", AttributeID: "2"},
+		{ElementID: 15, Value: "AWD", AttributeID: "7"},
+		{ElementID: 143, Value: "0 - VIN decoded clean", AttributeID: "0,1"}, // Error Code's code list
+		{ElementID: 38, Value: ""},
+		{ElementID: 999, Value: "x", AttributeID: "1"},
+	})
+	if d.Make != 476 || d.Model != 1938 || d.ModelYear == nil || *d.ModelYear != 2010 {
+		t.Errorf("make %d, model %d, year %v; want 476, 1938, 2010", d.Make, d.Model, d.ModelYear)
+	}
+	want := map[int32][]Value{
+		26: {{Attribute: 476}},
+		28: {{Attribute: 1938}},
+		29: {{IsText: true, Text: "2010"}},
+		34: {{IsText: true, Text: "DS (1500)"}},
+		15: {{Attribute: 2}, {Attribute: 7}},
+	}
+	if fmt.Sprint(d.Values) != fmt.Sprint(want) {
+		t.Errorf("values %v; want %v", d.Values, want)
+	}
+	if d := NewDecoded(yearMonth{}, nil); d.Make != 0 || d.Model != 0 || d.ModelYear != nil || len(d.Values) != 0 {
+		t.Errorf("no items: %+v; want nothing decoded", d)
+	}
+}
+
 // TestTranslateRefusals: what the loaded files refuse is a RequestError
 // with a pointer into the request.
 func TestTranslateRefusals(t *testing.T) {

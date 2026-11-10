@@ -19,3 +19,6 @@ Corpus: the committed parity corpus includes the VINs of ultravin's
 `tests/parity_corpus.json` and its cover set (MIT). Only the VINs are taken;
 every answer in this repository is produced by NHTSA's procedure in Postgres.
 The corpus file's header names the source file and commit.
+
+htmx: the /ui pages load htmx (https://htmx.org, Zero-Clause BSD), vendored
+unmodified as pkg/ui/static/htmx.min.js.

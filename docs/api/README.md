@@ -161,8 +161,10 @@ Routes, bodies and status codes are in [`openapi.yaml`](openapi.yaml):
 `GET /v1/vocabularies/{name}/entries`, `GET /v1/info`,
 `GET /v1/openapi.json`, `GET /healthz`, and `POST /mcp`, the MCP server
 below over Streamable HTTP. `GET /` is a decode form for browsers (HTML,
-`HEAD` allowed too), with its one script at `GET /copy.js`; both are
-outside the contract, not in `openapi.yaml`, and may change.
+`HEAD` allowed too), with its one script at `GET /copy.js`, and `/ui/…`
+are pages for browsers too (HTML, a fragment for htmx, ADR 0013), with
+their assets under `/ui/r/<release>/`; all are outside the contract, not
+in `openapi.yaml`, and may change.
 
 **Translate and list** ([Translation](#translation-translate),
 [Listing](#listing-list)) carry the same request objects:
@@ -190,7 +192,7 @@ every response under `/v1/` and on `/mcp`, refusals included, carries
 `204` with `Access-Control-Allow-Methods` (the route's methods),
 `Access-Control-Allow-Headers` (`Accept, Content-Type, Last-Event-ID,
 Mcp-Protocol-Version, Mcp-Session-Id`) and `Access-Control-Max-Age: 86400`.
-The form, `/copy.js` and `/healthz` never carry CORS headers.
+The form, `/copy.js`, `/ui/…` and `/healthz` never carry CORS headers.
 
 A VIN is never an error: whatever is wrong with it is in `error_codes`, and the
 status is 200. A refusal is an RFC 9457 `application/problem+json` body whose

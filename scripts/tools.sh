@@ -23,9 +23,11 @@
 # mise refuses the download for its checksum.
 #
 # outdated asks mise (`mise outdated --bump`: the newest release, majors
-# included), the npm registry for wrangler, and Docker Hub for postgres:17's
-# digest (with `docker buildx imagetools`). It reports and never bumps: a bump
-# is an edit of mise.toml and `mise lock` (mise.toml's header).
+# included), the npm registry for wrangler and for htmx (vendored in
+# pkg/ui/static, its version pkg/ui/ui.go's htmxVersion), and Docker Hub for
+# postgres:17's digest (with `docker buildx imagetools`). It reports and
+# never bumps: a bump is an edit of mise.toml and `mise lock` (mise.toml's
+# header), or for htmx a new file, version and hash (pkg/ui/ui.go).
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -114,6 +116,11 @@ cmd_outdated() {
   pinned=$(jq -r '.devDependencies.wrangler' "$WORKER/package.json")
   latest=$(npm view wrangler version)
   [ "$latest" = "$pinned" ] || rows+=$'\n'"| wrangler (deploy/cloudflare/worker/package.json) | $pinned | $latest |"
+
+  pinned=$(sed -n 's/^const htmxVersion = "\(.*\)"$/\1/p' pkg/ui/ui.go)
+  [ -n "$pinned" ] || die "no htmxVersion in pkg/ui/ui.go"
+  latest=$(npm view htmx.org version)
+  [ "$latest" = "$pinned" ] || rows+=$'\n'"| htmx (pkg/ui/static/htmx.min.js) | $pinned | $latest |"
 
   ref=$(postgres_refs | head -n 1)
   digest=$(docker buildx imagetools inspect postgres:17 --format '{{json .Manifest}}' | jq -r .digest)
