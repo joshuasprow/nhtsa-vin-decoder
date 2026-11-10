@@ -432,11 +432,11 @@ func TestMCPVocabSession(t *testing.T) {
 		{tool: "list", args: `{"of":"parts","limit":3,"after":"` + first.Next + `"}`},
 		{tool: "translate", args: `{"from":"` + ram2010 + `","to":["yard"],"now":"` + now + `"}`},
 		{tool: "translate", args: `{"from":{"vocabulary":"yard","entry":{"make":"Dodge","model":"Ram 1500"}},"vin":"` + ram2010 + `","to":["yard"],"now":"` + now + `"}`},
-		{tool: "translate", args: `{"from":{"vocabulary":"listing","entry":{"category":"Brake Pads"}},"to":["listing"]}`},
+		{tool: "translate", args: `{"from":{"vocabulary":"listing","entry":{"category":"Brake Pads"}},"to":["listing"],"now":"` + now + `"}`},
 
-		{tool: "translate", args: `{"from":"` + ram2010 + `","to":["listing"]}`, pointer: "/to/0"},
-		{tool: "translate", args: `{"from":{"vocabulary":"ebay","entry":{"make":"Dodge"}}}`, pointer: "/from/vocabulary"},
-		{tool: "translate", args: `{}`, pointer: "/from"},
+		{tool: "translate", args: `{"from":"` + ram2010 + `","to":["listing"],"now":"` + now + `"}`, pointer: "/to/0"},
+		{tool: "translate", args: `{"from":{"vocabulary":"ebay","entry":{"make":"Dodge"}},"now":"` + now + `"}`, pointer: "/from/vocabulary"},
+		{tool: "translate", args: `{"now":"` + now + `"}`, pointer: "/from"},
 		{tool: "list", args: `{"of":"ebay"}`, pointer: "/of"},
 		{tool: "list", args: `{"of":"parts","limit":0}`, pointer: "/limit"},
 	}
