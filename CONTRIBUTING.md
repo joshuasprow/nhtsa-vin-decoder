@@ -113,7 +113,9 @@ witnesses the oracle reads.
   `scripts/libnitrovin.sh`, the `testdata/vocab` fixture it loads.
 - `oracle-smoke.yml` (the Postgres oracle end to end): `oracle.yml`,
   `scripts/oracle.sh`, `testdata/oracle/`, `docs/deviations/`.
-- `release.yml`'s snapshot when release files change.
+- `release.yml`'s snapshot and benchmarks when release files or
+  `bench/vocab` change, and on dispatch (`gh workflow run release.yml --ref
+  <branch>`).
 - `deploy.yml` (nitrovin.app): `deploy/cloudflare/`, the workflow itself. On
   a pull request, Terraform `validate` and the Worker under `wrangler dev`;
   after each green release, the deploy and its smoke test; weekly, the drift
@@ -408,3 +410,35 @@ its packages in Debian, Fedora and Alpine. The monthly refresh tags patch
 releases itself; a code change ships with the next tag. Until v1.0.0 every
 tag is a prerelease (ADR 0007), and the workflow refuses a tag whose
 prerelease setting disagrees.
+
+## Benchmarks in the release
+
+`bench/vocab` holds the vocabulary benchmarks for
+[the performance budget](https://github.com/joshuasprow/nitrovin/issues/142):
+load (the embedded data, `vocab.Open` and `NewTranslator`, with the peak RSS
+of a process that loads once), translate (from a VIN, a name and a spine id)
+and list (first page, next page, where on the first field, `vpic` where
+make), on the fixture, the EPA vocabulary and a synthetic 1,000,000-entry
+vocabulary at the scale of eBay's Master Vehicle List, which the run writes
+to a temporary directory; and decode alone. Requests report p50 and p99
+beside ns/op. `release.yml`'s bench job runs them on its runner, and
+`bench/vocab/notes` turns the output into the table the release notes end
+with, beside the budgets, which are stated for the reference machine (an
+Apple M5 Pro). Nothing gates on it: runner timings are too noisy, and a
+failed bench job leaves the table out rather than holding the release.
+Dispatched, or on a pull request, the table is the bench job's summary.
+
+To reproduce the table, with the EPA vocabulary of the data month `go.mod`
+pins:
+
+```sh
+gh release download "$(go list -m -f '{{.Version}}' github.com/joshuasprow/nitrovin-data)" \
+  -R joshuasprow/nitrovin-data -p epa-vehicles.jsonl -D /tmp
+export NITROVIN_EPA_VOCAB=/tmp/epa-vehicles.jsonl
+GOMAXPROCS=1 go test -run '^$' -bench . ./bench/vocab | tee bench.txt   # requests on one core
+go test -run '^$' -bench Load ./bench/vocab | tee -a bench.txt          # load on every core
+go run ./bench/vocab/notes bench.txt
+```
+
+Set GOMAXPROCS in the environment: `-cpu` is not followed by every
+sub-benchmark.

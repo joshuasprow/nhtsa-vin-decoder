@@ -8,10 +8,16 @@
 # and holds back nothing else). Every signature is this workflow's GitHub OIDC
 # identity at the tag, which also logs in to the registry.
 #
-# On a pull request that touches the release, the same build as a snapshot:
-# no signing, no publishing, the images built per platform and loaded, the
-# amd64 packages installed and removed in Debian, Fedora and Alpine, and
-# server.json validated by the registry and run as it says.
+# Beside it, the vocabulary benchmarks (bench/vocab) against the performance
+# budget (#142); their table is the release notes' footer. Reported, never a
+# gate: runner timings are too noisy to hold, so a failed bench job fails
+# only itself and the release goes out without the table.
+#
+# On a pull request that touches the release, and on dispatch, the same
+# build as a snapshot: no signing, no publishing, the images built per
+# platform and loaded, the amd64 packages installed and removed in Debian,
+# Fedora and Alpine, and server.json validated by the registry and run as it
+# says; and the benchmarks, whose table is the bench job's summary.
 name: Release
 
 on:
@@ -28,6 +34,8 @@ on:
       - mise.lock
       - .github/actions/mise/**
       - .github/workflows/release.yml
+      - bench/vocab/**
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -41,8 +49,43 @@ defaults:
     shell: bash
 
 jobs:
+  bench:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/mise
+        with:
+          tools: go
+
+      # The EPA vocabulary of the data month go.mod pins, from its nitrovin-data release.
+      - name: Download the EPA vocabulary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(go list -m -f '{{.Version}}' github.com/joshuasprow/nitrovin-data)
+          gh release download "$version" -R joshuasprow/nitrovin-data -p epa-vehicles.jsonl -D "$RUNNER_TEMP"
+
+      # Requests on one core, as the budget states them; load also on every core.
+      - name: Benchmark
+        env:
+          NITROVIN_EPA_VOCAB: ${{ runner.temp }}/epa-vehicles.jsonl
+        run: |
+          lscpu | grep -E 'Model name|^CPU\(s\)'
+          GOMAXPROCS=1 go test -run '^$' -bench . -timeout 20m ./bench/vocab | tee "$RUNNER_TEMP/bench.txt"
+          go test -run '^$' -bench Load -timeout 10m ./bench/vocab | tee -a "$RUNNER_TEMP/bench.txt"
+          go run ./bench/vocab/notes "$RUNNER_TEMP/bench.txt" | tee "$RUNNER_TEMP/bench.md" >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bench
+          path: |
+            ${{ runner.temp }}/bench.txt
+            ${{ runner.temp }}/bench.md
+
   snapshot:
-    if: github.event_name == 'pull_request'
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -148,7 +191,9 @@ jobs:
           echo "$image ${args[*]}: tools/list names decode_vin"
 
   release:
-    if: github.event_name == 'push'
+    # After the benchmarks, for their table; whatever their result.
+    needs: bench
+    if: ${{ !cancelled() && github.event_name == 'push' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -185,13 +230,27 @@ jobs:
       - name: Read the embedded data month
         run: echo "DATA_MONTH=$(go run ./cmd/nitrovin info | jq -r .data_month)" | tee -a "$GITHUB_ENV"
 
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: bench
+          path: ${{ runner.temp }}/bench
+
       - name: goreleaser
         env:
           GITHUB_TOKEN: ${{ github.token }}
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
           SCOOP_BUCKET_DEPLOY_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
           WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
-        run: goreleaser release --clean
+        run: |
+          # The benchmarks' table follows the changelog in the release notes.
+          footer=()
+          if [[ -s $RUNNER_TEMP/bench/bench.md ]]; then
+            footer=(--release-footer "$RUNNER_TEMP/bench/bench.md")
+          else
+            echo "::warning::release: no benchmark table (the bench job failed); the notes go out without it"
+          fi
+          goreleaser release --clean "${footer[@]}"
 
       # goreleaser checksummed and uploaded server.json but signs only what it
       # built.
