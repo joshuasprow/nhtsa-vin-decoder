@@ -190,6 +190,13 @@ translation crosses exactly one. Its author adds entries rather than minting
 extensions.
 _Avoid_: custom taxonomy, part spine file
 
+**Spine bundle**:
+A data month's vPIC side of translation as one JSON document: its makes,
+every model, its elements and the values its decode can give each,
+so a translation can run where the artifact is not, in a browser. `serve`
+publishes it per release; its format belongs to the release that wrote it.
+_Avoid_: spine file, month dump
+
 **Mapping**:
 A stated correspondence from one entry to one spine entry (a vPIC make or
 model, an extension, or an entry of a declared spine), scoped to the model

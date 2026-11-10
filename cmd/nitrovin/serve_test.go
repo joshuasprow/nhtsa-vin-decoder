@@ -800,6 +800,8 @@ func (faulty) TranslateBatch([]contract.TranslateRequest) ([]contract.Translatio
 func (faulty) List(contract.ListRequest) (contract.List, error) {
 	return contract.List{}, errors.New("injected fault")
 }
+func (faulty) SpineBundle() ([]byte, error) { return nil, errors.New("injected fault") }
+func (faulty) File(string) ([]byte, error)  { return nil, errors.New("injected fault") }
 
 // faultCases are the 500s, against an API on faulty.
 func faultCases() []apiCase {

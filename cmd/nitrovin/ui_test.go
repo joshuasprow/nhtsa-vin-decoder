@@ -1,15 +1,23 @@
 package main
 
 import (
+	"bytes"
+	"encoding/hex"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/zeebo/blake3"
+
 	"github.com/joshuasprow/nitrovin/pkg/contract"
+	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
 	"github.com/joshuasprow/nitrovin/pkg/ui"
+	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
 // uiService answers Info and faults on everything else.
@@ -79,5 +87,99 @@ func TestUI(t *testing.T) {
 	good.ServeHTTP(w, httptest.NewRequest(http.MethodHead, "/ui/nothing", nil))
 	if w.Code != 404 || w.Result().Header.Get("Content-Security-Policy") != ui.CSP {
 		t.Errorf("HEAD /ui/nothing: %d, CSP %q", w.Code, w.Result().Header.Get("Content-Security-Policy"))
+	}
+}
+
+// TestServePublished: serve publishes the data month's spine bundle and
+// each loaded file, byte for byte, immutable at their release's URLs, and
+// refuses a file whose bytes changed on disk since it was loaded.
+func TestServePublished(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"classics.jsonl", "yard.jsonl"} {
+		b, err := os.ReadFile(filepath.Join(fixture, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err := nitrovin.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := vocab.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := nitrovin.NewTranslator(d, files...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := newAPI(loaded{d, tr}, log.New(io.Discard, "", 0), io.Discard, nil, "*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(target string) (int, http.Header, []byte) {
+		w := httptest.NewRecorder()
+		a.ServeHTTP(w, httptest.NewRequest("GET", target, nil))
+		return w.Code, w.Result().Header, w.Body.Bytes()
+	}
+	immutable := func(target string, hdr http.Header, contentType string) {
+		t.Helper()
+		for k, v := range map[string]string{
+			"Content-Type":                contentType,
+			"Cache-Control":               "public, max-age=31536000, immutable",
+			"Access-Control-Allow-Origin": "",
+		} {
+			if got := hdr.Get(k); got != v {
+				t.Errorf("%s: %s %q; want %q", target, k, got, v)
+			}
+		}
+	}
+
+	info := tr.Info()
+	var want bytes.Buffer
+	if err := d.WriteSpineBundle(&want); err != nil {
+		t.Fatal(err)
+	}
+	target := ui.SpinePath(info)
+	status, hdr, body := get(target)
+	if status != 200 || !bytes.Equal(body, want.Bytes()) {
+		t.Fatalf("%s: %d, %d bytes; want 200, the spine bundle's %d", target, status, len(body), want.Len())
+	}
+	immutable(target, hdr, "application/json")
+	if b, err := vocab.ReadBundle(bytes.NewReader(body)); err != nil || b.Name() != info.DataMonth {
+		t.Errorf("%s reads back as %v (%v); want month %s", target, b, err, info.DataMonth)
+	}
+
+	for _, f := range info.Vocabularies {
+		target := ui.FilePath(info, f)
+		if want := strings.TrimSuffix(ui.SpinePath(info), "spine.json") + "vocab/" + f.Blake3 + "/" + f.Name + ".jsonl"; target != want {
+			t.Errorf("FilePath %s; want %s", target, want)
+		}
+		status, hdr, body := get(target)
+		disk, err := os.ReadFile(f.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := blake3.Sum256(body)
+		if status != 200 || !bytes.Equal(body, disk) || hex.EncodeToString(sum[:]) != f.Blake3 {
+			t.Errorf("%s: %d, %d bytes, blake3 %x; want 200, %s's %d bytes, blake3 %s", target, status, len(body), sum, f.Path, len(disk), f.Blake3)
+		}
+		immutable(target, hdr, "application/jsonl")
+	}
+
+	// yard changes on disk: its URL names the bytes loaded, so it refuses.
+	yard := info.Vocabularies[1]
+	if err := os.WriteFile(yard.Path, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status, hdr, body = get(ui.FilePath(info, yard))
+	if want := yard.Path + " changed since nitrovin loaded it as yard: restart nitrovin serve to serve it"; status != 500 || !strings.Contains(string(body), want) {
+		t.Errorf("a changed yard: %d\n%s\nwant 500 with %q", status, body, want)
+	}
+	if hdr.Get("Cache-Control") != "" {
+		t.Errorf("a changed yard: Cache-Control %q", hdr.Get("Cache-Control"))
 	}
 }

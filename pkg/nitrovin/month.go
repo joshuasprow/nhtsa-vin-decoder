@@ -1,6 +1,7 @@
 package nitrovin
 
 import (
+	"io"
 	"iter"
 	"strconv"
 	"sync"
@@ -33,7 +34,7 @@ type month struct {
 	values map[int32]map[string]bool
 }
 
-var _ vocab.Month = (*month)(nil)
+var _ vocab.BundleSource = (*month)(nil)
 
 // Month is d's data month as a vocab.Month, the one NewTranslator measures
 // drift against: vPIC's makes and models, and the values its decode can
@@ -41,6 +42,12 @@ var _ vocab.Month = (*month)(nil)
 // through it. It is one per Decoder, so what it collects on first use is
 // collected once.
 func (d *Decoder) Month() vocab.Month { return d.month }
+
+// WriteSpineBundle writes d's data month as a spine bundle to w
+// (vocab.WriteBundle): what a translation needs of the month where the
+// artifact is not, a browser's Service Worker (ADR 0013). `nitrovin serve`
+// publishes it.
+func (d *Decoder) WriteSpineBundle(w io.Writer) error { return vocab.WriteBundle(w, d.month) }
 
 func newMonth(a *artifact.Artifact, elements contract.Elements) *month {
 	t := a.Table("lookup")
@@ -149,12 +156,34 @@ func (m *month) Text(element int32, text string) bool {
 	return m.valuesOf(element)[text]
 }
 
+func (m *month) ModelIDs() iter.Seq[int32] {
+	return func(yield func(int32) bool) {
+		for r := m.models[0]; r < m.models[1]; r++ {
+			if _, ok := m.names.At(r); ok && !yield(m.ids[r]) {
+				return
+			}
+		}
+	}
+}
+
+func (m *month) Elements() iter.Seq[int32] {
+	return func(yield func(int32) bool) {
+		for _, e := range m.elements {
+			if !yield(e.ElementID) {
+				return
+			}
+		}
+	}
+}
+
+func (m *month) Values() iter.Seq2[int32, string] {
+	return func(yield func(int32, string) bool) {
+		m.eachValue(func(int32) bool { return true }, yield)
+	}
+}
+
 // valuesOf collects, once per element, the values the month's decode can
-// give it: the attribute column of its pattern, engine-model pattern,
-// vehicle-spec pattern and default-value rows, and for Make (26),
-// Manufacturer Name (27) and Vehicle Type (39) the ids the WMI and
-// make_model tables give them. Values a formula pattern computes from the
-// VIN are not among them.
+// give it (eachValue).
 func (m *month) valuesOf(element int32) map[string]bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -162,6 +191,22 @@ func (m *month) valuesOf(element int32) map[string]bool {
 		return vs
 	}
 	vs := map[string]bool{}
+	m.eachValue(func(el int32) bool { return el == element }, func(_ int32, v string) bool {
+		vs[v] = true
+		return true
+	})
+	m.values[element] = vs
+	return vs
+}
+
+// eachValue yields each element match holds and a value the month's
+// decode can give it, until yield returns false: the attribute column of
+// its pattern, engine-model pattern, vehicle-spec pattern and
+// default-value rows, and for Make (26), Manufacturer Name (27) and
+// Vehicle Type (39) the ids the WMI and make_model tables give them. A
+// value may come more than once. Values a formula pattern computes from
+// the VIN are not among them.
+func (m *month) eachValue(match func(int32) bool, yield func(int32, string) bool) {
 	for _, src := range []struct{ table, column string }{
 		{"pattern", "attributeid"},
 		{"enginemodelpattern", "attributeid"},
@@ -171,31 +216,31 @@ func (m *month) valuesOf(element int32) map[string]bool {
 		t := m.a.Table(src.table)
 		values := t.Strings(src.column)
 		for r, el := range t.Int32s("elementid") {
-			if el != element {
+			if !match(el) {
 				continue
 			}
-			if v, ok := values.At(r); ok {
-				vs[v] = true
+			if v, ok := values.At(r); ok && !yield(el, v) {
+				return
 			}
 		}
 	}
-	ids := func(table, column string) {
-		for _, id := range m.a.Table(table).Int32s(column) {
-			if id != artifact.NullInt32 {
-				vs[strconv.Itoa(int(id))] = true
+	for _, src := range []struct {
+		element       int32
+		table, column string
+	}{
+		{26, "wmi", "makeid"},
+		{26, "wmi_make", "makeid"},
+		{26, "make_model", "makeid"},
+		{27, "wmi", "manufacturerid"},
+		{39, "wmi", "vehicletypeid"},
+	} {
+		if !match(src.element) {
+			continue
+		}
+		for _, id := range m.a.Table(src.table).Int32s(src.column) {
+			if id != artifact.NullInt32 && !yield(src.element, strconv.Itoa(int(id))) {
+				return
 			}
 		}
 	}
-	switch element {
-	case 26:
-		ids("wmi", "makeid")
-		ids("wmi_make", "makeid")
-		ids("make_model", "makeid")
-	case 27:
-		ids("wmi", "manufacturerid")
-	case 39:
-		ids("wmi", "vehicletypeid")
-	}
-	m.values[element] = vs
-	return vs
 }

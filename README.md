@@ -443,6 +443,11 @@ nitrovin --vocab testdata/vocab translate --to yard 1C6RR7LT5FS123456  # a VIN t
 nitrovin --vocab testdata/vocab serve                                 # /v1/translate, /v1/vocabularies
 ```
 
+`serve` also publishes each loaded file, and the data month's spine bundle
+(its vPIC makes, models and element values), under `/ui/r/<release>/`,
+immutable, for a browser that translates locally
+([docs/vocabularies.md](docs/vocabularies.md)).
+
 Each data release also carries `epa-vehicles.jsonl`, a vocabulary of the
 names EPA's fuel-economy data
 ([vehicles.csv](https://www.fueleconomy.gov/feg/download.shtml)) gives makes

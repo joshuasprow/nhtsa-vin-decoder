@@ -16,6 +16,7 @@ require (
 )
 
 require (
+	github.com/andybalholm/brotli v1.3.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect

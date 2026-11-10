@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -20,6 +22,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/zeebo/blake3"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
@@ -131,7 +134,8 @@ func serve(e *env, addr, cors string) error {
 }
 
 // loaded is the decoder with the files loaded beside it: /v1/info lists
-// them, and /v1/translate and /v1/vocabularies answer through them.
+// them, /v1/translate and /v1/vocabularies answer through them, and /ui/r
+// publishes them with the data month's spine bundle.
 type loaded struct {
 	*nitrovin.Decoder
 	*nitrovin.Translator
@@ -139,10 +143,38 @@ type loaded struct {
 
 func (l loaded) Info() contract.Info { return l.Translator.Info() }
 
+// SpineBundle is the data month's spine bundle.
+func (l loaded) SpineBundle() ([]byte, error) {
+	var b bytes.Buffer
+	err := l.Decoder.WriteSpineBundle(&b)
+	return b.Bytes(), err
+}
+
+// File is loaded file name's bytes, read again from its path: they are
+// not kept, and a browser asks for them once a release. Bytes that are
+// not the ones loaded are refused, so the URL naming their blake3 never
+// serves others.
+func (l loaded) File(name string) ([]byte, error) {
+	for _, f := range l.Info().Vocabularies {
+		if f.Name != name {
+			continue
+		}
+		data, err := os.ReadFile(f.Path)
+		if err != nil {
+			return nil, err
+		}
+		if sum := blake3.Sum256(data); hex.EncodeToString(sum[:]) != f.Blake3 {
+			return nil, fmt.Errorf("%s changed since nitrovin loaded it as %s: restart nitrovin serve to serve it", f.Path, name)
+		}
+		return data, nil
+	}
+	return nil, fmt.Errorf("no file named %s is loaded", name)
+}
+
 // decodeService is what the API answers with: loaded, or a fault injected
-// in a test.
+// in a test. It is also the pages' ui.Backend.
 type decodeService interface {
-	Info() contract.Info
+	ui.Backend
 	Decode(contract.Request) (contract.Decode, error)
 	DecodeBatch([]contract.Request) ([]contract.Decode, error)
 	Translate(contract.TranslateRequest) (contract.Translation, error)

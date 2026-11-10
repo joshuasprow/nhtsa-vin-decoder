@@ -3,12 +3,14 @@ package ui
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"html/template"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
@@ -18,12 +20,35 @@ import (
 // any test executes them.
 var _ = template.Must(tpl.New("stub").Parse(`<p id="stub">{{.}}</p>`))
 
-// backend is a Backend answering a fixed Info.
-type backend struct{ info contract.Info }
+// backend is a Backend answering a fixed Info, testSpine as its spine
+// bundle and "<name> bytes" as each loaded file's but broken's, which it
+// fails to read. It counts SpineBundle's calls in spines, when not nil.
+type backend struct {
+	info   contract.Info
+	spines *atomic.Int32
+}
 
 func (b backend) Info() contract.Info { return b.info }
 
-var testInfo = contract.Info{DecoderVersion: "v0.1.9-0.20261110120000-0123456789ab+dirty", DataMonth: "2026_10", ArtifactHash: "blake3:00ff"}
+func (b backend) SpineBundle() ([]byte, error) {
+	if b.spines != nil {
+		b.spines.Add(1)
+	}
+	return []byte(testSpine), nil
+}
+
+func (b backend) File(name string) ([]byte, error) {
+	if name == "broken" {
+		return nil, errors.New("/srv/broken.jsonl changed since nitrovin loaded it")
+	}
+	return []byte(name + " bytes"), nil
+}
+
+const testSpine = `{"format":1,"month":"2026_10"}`
+
+// testInfo's release has two files loaded, yard and broken.
+var testInfo = contract.Info{DecoderVersion: "v0.1.9-0.20261110120000-0123456789ab+dirty", DataMonth: "2026_10", ArtifactHash: "blake3:00ff",
+	Vocabularies: []contract.VocabularyFile{{Name: "yard", Blake3: "ab12"}, {Name: "broken", Blake3: "cd34"}}}
 
 // testAssets is where testInfo's release keeps its assets.
 const testAssets = "/ui/r/v0.1.9-0.20261110120000-0123456789ab+dirty/2026_10/blake3:00ff"
@@ -36,7 +61,7 @@ var testAssetsAttr = strings.ReplaceAll(testAssets, "+", "&#43;")
 // "hello" as its fragment, or err.
 func stubHandler(t *testing.T, err error) *Handler {
 	t.Helper()
-	h := New(backend{testInfo}, log.New(io.Discard, "", 0))
+	h := New(backend{info: testInfo}, log.New(io.Discard, "", 0))
 	h.routes["/ui/stub"] = func(*http.Request) (view, error) {
 		return view{title: "Stub", template: "stub", data: "hello"}, err
 	}
@@ -180,7 +205,7 @@ func TestErrors(t *testing.T) {
 }
 
 // panicky is a Backend whose Info panics.
-type panicky struct{}
+type panicky struct{ backend }
 
 func (panicky) Info() contract.Info { panic("injected fault") }
 
@@ -244,6 +269,71 @@ func TestAssets(t *testing.T) {
 	}
 	if status, hdr, _ := response(t, h, "POST", testAssets+"/ui.css", nil); status != 405 || hdr.Get("Allow") != "GET, HEAD" {
 		t.Errorf("POST: %d, Allow %q; want 405, GET, HEAD", status, hdr.Get("Allow"))
+	}
+}
+
+// TestPublished: the spine bundle and each loaded file are immutable at
+// their release's URLs, a file's naming its blake3; the bundle is asked
+// for once; another release's, another blake3 and a file not loaded are
+// the error page saying so, and a file that fails to read the 500 page.
+func TestPublished(t *testing.T) {
+	var spines atomic.Int32
+	h := New(backend{info: testInfo, spines: &spines}, log.New(io.Discard, "", 0))
+	yard := FilePath(testInfo, testInfo.Vocabularies[0])
+	if SpinePath(testInfo) != testAssets+"/spine.json" || yard != testAssets+"/vocab/ab12/yard.jsonl" {
+		t.Errorf("SpinePath %s, FilePath %s", SpinePath(testInfo), yard)
+	}
+	for _, c := range []struct{ target, contentType, body string }{
+		{SpinePath(testInfo), "application/json", testSpine},
+		{SpinePath(testInfo), "application/json", testSpine},
+		{yard, "application/jsonl", "yard bytes"},
+	} {
+		status, hdr, body := response(t, h, "GET", c.target, nil)
+		if status != 200 || body != c.body {
+			t.Errorf("%s: %d, %q; want 200, %q", c.target, status, body, c.body)
+		}
+		for k, v := range map[string]string{
+			"Content-Type":            c.contentType,
+			"Cache-Control":           "public, max-age=31536000, immutable",
+			"Content-Security-Policy": CSP,
+			"X-Content-Type-Options":  "nosniff",
+		} {
+			if got := hdr.Get(k); got != v {
+				t.Errorf("%s: %s %q; want %q", c.target, k, got, v)
+			}
+		}
+	}
+	if n := spines.Load(); n != 1 {
+		t.Errorf("the spine bundle was asked for %d times; want once", n)
+	}
+
+	for _, c := range []struct {
+		target string
+		status int
+		want   string
+	}{
+		{"/ui/r/v0.1.8/2026_10/blake3:00ff/spine.json", 404, "This release of nitrovin (" + strings.ReplaceAll(Release(testInfo), "+", "&#43;") + ") has no file /ui/r/v0.1.8/2026_10/blake3:00ff/spine.json."},
+		{"/ui/r/v0.1.8/2026_10/blake3:00ff/vocab/ab12/yard.jsonl", 404, "has no file /ui/r/v0.1.8/2026_10/blake3:00ff/vocab/ab12/yard.jsonl."},
+		{testAssets + "/vocab/ef56/yard.jsonl", 404, "This nitrovin&#39;s yard is another file now (blake3 ab12): reload the page."},
+		{testAssets + "/vocab/ab12/classics.jsonl", 404, "This nitrovin has no file named classics loaded now: reload the page."},
+		{testAssets + "/vocab/ab12/yard.json", 404, "has no file " + testAssetsAttr + "/vocab/ab12/yard.json."},
+		{testAssets + "/vocab/ab12", 404, "has no file " + testAssetsAttr + "/vocab/ab12."},
+		{testAssets + "/vocab/", 404, "has no file " + testAssetsAttr + "/vocab/."},
+		{FilePath(testInfo, testInfo.Vocabularies[1]), 500, "nitrovin failed: /srv/broken.jsonl changed since nitrovin loaded it"},
+	} {
+		status, hdr, body := response(t, h, "GET", c.target, nil)
+		if status != c.status || !strings.Contains(body, c.want) {
+			t.Errorf("%s: %d\n%s\nwant %d with %q", c.target, status, body, c.status, c.want)
+		}
+		checkHTML(t, c.target, hdr)
+		if hdr.Get("Cache-Control") != "" {
+			t.Errorf("%s: Cache-Control %q", c.target, hdr.Get("Cache-Control"))
+		}
+	}
+	for _, target := range []string{SpinePath(testInfo), yard} {
+		if status, hdr, _ := response(t, h, "POST", target, nil); status != 405 || hdr.Get("Allow") != "GET, HEAD" {
+			t.Errorf("POST %s: %d, Allow %q; want 405, GET, HEAD", target, status, hdr.Get("Allow"))
+		}
 	}
 }
 
