@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -157,6 +159,135 @@ func ParseTranslateRequest(data []byte) (TranslateRequest, error) {
 		return TranslateRequest{}, p
 	}
 	return r, nil
+}
+
+// ParseTranslateBatch parses the body of POST /v1/translate: an array of 1
+// to MaxBatch translate request objects in at most MaxBody bytes. A
+// problem's pointer names the item ("/3/from"). The error is a *Problem.
+func ParseTranslateBatch(data []byte) ([]TranslateRequest, error) {
+	raw, p := parseBatch(data)
+	if p != nil {
+		return nil, p
+	}
+	reqs := make([]TranslateRequest, len(raw))
+	for i, item := range raw {
+		r, p := parseTranslate(item, "/"+strconv.Itoa(i))
+		if p != nil {
+			return nil, p
+		}
+		reqs[i] = r
+	}
+	return reqs, nil
+}
+
+// ParseTranslateQuery parses GET /v1/translate: the request's paths as
+// dotted parameters. from is from.vin, a VIN; from.vocabulary with one
+// from.entry.<field> per entry field; or from.make, from.model, from.ext,
+// or from.spine with from.id. to is repeated, one target each; model_year,
+// vin and now are the request's. Every parameter but to is given at most
+// once, and an unknown one is refused. The parameters are read as the JSON
+// request they spell, so a GET asks what the equivalent POST item asks and
+// is refused as it is; a problem's pointer is the parameter's path
+// ("/from/entry/model", "/to/1"). The error is a *Problem.
+func ParseTranslateQuery(query url.Values) (TranslateRequest, error) {
+	req := map[string]json.RawMessage{}
+	from := map[string]json.RawMessage{}
+	entry := map[string]json.RawMessage{}
+	var vin json.RawMessage
+	for _, name := range slices.Sorted(maps.Keys(query)) {
+		vs := query[name]
+		ptr := queryPointer(name, "from.entry.")
+		if name == "to" {
+			to := make([]json.RawMessage, len(vs))
+			for i, v := range vs {
+				to[i] = queryString(v)
+			}
+			req[name] = marshalRaw(to)
+			continue
+		}
+		if len(vs) != 1 {
+			return TranslateRequest{}, NewProblem(InvalidRequest, ptr, name+" is given more than once")
+		}
+		v := vs[0]
+		switch name {
+		case "from.vin":
+			vin = queryString(v)
+		case "from.vocabulary", "from.ext", "from.spine", "from.id":
+			from[strings.TrimPrefix(name, "from.")] = queryString(v)
+		case "from.make", "from.model":
+			from[strings.TrimPrefix(name, "from.")] = queryNumber(v)
+		case "model_year":
+			req[name] = queryNumber(v)
+		case "vin", "now":
+			req[name] = queryString(v)
+		default:
+			field, ok := strings.CutPrefix(name, "from.entry.")
+			if !ok {
+				return TranslateRequest{}, NewProblem(InvalidRequest, ptr, "unknown query parameter "+strconv.Quote(name))
+			}
+			entry[field] = queryString(v)
+		}
+	}
+	if len(entry) > 0 {
+		from["entry"] = marshalRaw(entry)
+	}
+	switch {
+	case vin != nil && len(from) > 0:
+		return TranslateRequest{}, NewProblem(InvalidRequest, "/from", "from names more than one of a VIN, a vocabulary entry and a spine entry")
+	case vin != nil:
+		req["from"] = vin
+	case len(from) > 0:
+		req["from"] = marshalRaw(from)
+	}
+	r, p := parseTranslate(marshalRaw(req), "")
+	if p != nil {
+		return TranslateRequest{}, p
+	}
+	return r, nil
+}
+
+// queryPointer is the JSON Pointer of a dotted query parameter: a step per
+// dot, except that what follows member, the prefix of an object's
+// parameters ("from.entry."), is one member's name.
+func queryPointer(name, member string) string {
+	path, field, isMember := name, "", false
+	if f, ok := strings.CutPrefix(name, member); ok {
+		path, field, isMember = strings.TrimSuffix(member, "."), f, true
+	}
+	ptr := ""
+	for tok := range strings.SplitSeq(path, ".") {
+		ptr = pointerTo(ptr, tok)
+	}
+	if isMember {
+		ptr = pointerTo(ptr, field)
+	}
+	return ptr
+}
+
+// jsonNumber is a JSON number, nothing around it.
+var jsonNumber = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
+
+// queryNumber is a query value where the request has a number: the number
+// when v spells one, else the string, which the request's parser refuses
+// as it refuses any string there.
+func queryNumber(v string) json.RawMessage {
+	if jsonNumber.MatchString(v) {
+		return json.RawMessage(v)
+	}
+	return queryString(v)
+}
+
+// queryString is a query value as a JSON string.
+func queryString(v string) json.RawMessage { return marshalRaw(v) }
+
+// marshalRaw marshals what a query parser builds: strings, and maps and
+// slices of valid JSON values.
+func marshalRaw(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil { // strings and valid raw values: unreachable
+		panic(err)
+	}
+	return b
 }
 
 // parseTranslate parses one valid JSON value as a translate request; prefix

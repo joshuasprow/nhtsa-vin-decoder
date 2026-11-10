@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
@@ -536,6 +538,40 @@ func TestTranslateWithoutFiles(t *testing.T) {
 	conforms(t, "List", l)
 	if len(l.Entries) != 1 || l.Entries[0].(contract.CatalogEntry).Name != "vpic" {
 		t.Errorf("the catalog with nothing loaded: %+v", l.Entries)
+	}
+}
+
+// TestTranslateBatch: answers in order, as Translate gives them, one clock
+// reading for the items without now, and a refusal naming the item.
+func TestTranslateBatch(t *testing.T) {
+	tr := fixtureTranslator(t, "../../testdata/vocab")
+	frozen := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
+	reqs := []contract.TranslateRequest{
+		{From: contract.TranslateFrom{VIN: ram2010}, To: []string{"yard"}},
+		{From: contract.TranslateFrom{SpineRef: contract.SpineRef{Spine: "parts", ID: "brake-pads"}}, To: []string{"listing"}, Now: frozen},
+		{From: contract.TranslateFrom{SpineRef: contract.SpineRef{Make: 476}}},
+	}
+	got, err := tr.TranslateBatch(reqs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(reqs) || got[0].Now != got[2].Now || !got[1].Now.Equal(frozen) {
+		t.Fatalf("%d answers, now %v, %v, %v; want %d, one clock for 0 and 2, %v for 1", len(got), got[0].Now, got[1].Now, got[2].Now, len(reqs), frozen)
+	}
+	for i, req := range reqs {
+		req.Now = got[i].Now
+		want, err := tr.Translate(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got[i], want) {
+			t.Errorf("answer %d: %+v; want Translate's %+v", i, got[i], want)
+		}
+	}
+	reqs[2].To = []string{"listing"}
+	_, err = tr.TranslateBatch(reqs)
+	if p, ok := err.(*contract.Problem); !ok || p.Type != contract.InvalidRequest || p.Pointer != "/2/to/0" {
+		t.Errorf("a refused item: %v; want an invalid request at /2/to/0", err)
 	}
 }
 

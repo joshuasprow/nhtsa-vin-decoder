@@ -2,6 +2,7 @@ package nitrovin
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -94,6 +95,28 @@ func (t *Translator) Translate(req contract.TranslateRequest) (contract.Translat
 			}
 		}
 		out.To[i] = c
+	}
+	return out, nil
+}
+
+// TranslateBatch translates requests in order, reading the wall clock once
+// for every request whose Now is zero, as the contract fixes for one HTTP
+// request. It stops at the first error, a *contract.Problem whose pointer
+// names the request ("/3/to/0").
+func (t *Translator) TranslateBatch(reqs []contract.TranslateRequest) ([]contract.Translation, error) {
+	now := time.Now()
+	out := make([]contract.Translation, len(reqs))
+	for i, req := range reqs {
+		if req.Now.IsZero() {
+			req.Now = now
+		}
+		tr, err := t.Translate(req)
+		if err != nil {
+			p := *contract.AsProblem(err)
+			p.Pointer = fmt.Sprintf("/%d%s", i, p.Pointer)
+			return nil, &p
+		}
+		out[i] = tr
 	}
 	return out, nil
 }
