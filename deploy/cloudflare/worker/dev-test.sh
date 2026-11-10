@@ -13,6 +13,9 @@
 # release's key; the first image again finds it there (a HIT), so the state
 # did persist.
 set -euo pipefail
+# Job control: wrangler dev runs in a process group of its own, so stop()
+# ends workerd and its container proxies with it, not npx alone.
+set -m
 
 worker=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$worker/../../.." && pwd)
@@ -20,7 +23,7 @@ port=${PORT:-8787}
 tmp=$(mktemp -d)
 cp "$worker/Dockerfile" "$tmp/Dockerfile"
 cleanup() {
-	[[ -n ${dev:-} ]] && kill "$dev" 2>/dev/null && wait "$dev" 2>/dev/null
+	[[ -n ${dev:-} ]] && stop
 	cp "$tmp/Dockerfile" "$worker/Dockerfile"
 	rm -rf "$tmp"
 }
@@ -55,10 +58,17 @@ serve() {
 	exit 1
 }
 
+# stop: wrangler dev's whole process group, then its port, free.
 stop() {
-	kill "$dev"
+	kill -TERM -- "-$dev" 2>/dev/null || true
 	wait "$dev" 2>/dev/null || true
 	dev=
+	for _ in $(seq 30); do
+		curl -s -o /dev/null "http://localhost:$port/" || return 0
+		sleep 1
+	done
+	echo "dev-test: localhost:$port still answers after wrangler dev stopped" >&2
+	exit 1
 }
 
 image nitrovin-dev:vcs
