@@ -38,14 +38,15 @@ type Month interface {
 // same make. Findings come in file and line order. Drift never refuses:
 // the files are served as they are.
 func Drift(m Month, files []*File) []Finding {
-	d := &drifts{m: m, models: map[int32]map[string]int32{}}
+	d := &drifts{m: m, month: m.Name(), models: map[int32]map[string]int32{}}
 	for _, f := range files {
 		d.f = f
 		switch f.Kind {
 		case KindVocabulary:
-			for _, e := range f.Entries {
-				for i, mp := range e.Mappings {
-					d.mapping(e.Line, fmt.Sprintf("/mappings/%d", i), mp)
+			for i := range f.Entries {
+				e := &f.Entries[i]
+				for j := range e.Mappings {
+					d.mapping(e.Line, j, &e.Mappings[j])
 				}
 			}
 		case KindExtensionSet:
@@ -59,9 +60,10 @@ func Drift(m Month, files []*File) []Finding {
 
 // drifts collects the findings of one Drift call.
 type drifts struct {
-	m   Month
-	f   *File
-	out []Finding
+	m     Month
+	month string // m's name
+	f     *File
+	out   []Finding
 	// makes and models index vPIC's names, normalized, as needed.
 	makes  map[string]int32
 	models map[int32]map[string]int32
@@ -69,42 +71,42 @@ type drifts struct {
 
 func (d *drifts) add(line int, kind DriftKind, format string, a ...any) {
 	detail := fmt.Sprintf(format, a...)
-	if d.f.DataMonth != "" && d.f.DataMonth != d.m.Name() {
+	if d.f.DataMonth != "" && d.f.DataMonth != d.month {
 		detail += fmt.Sprintf(" (the file was built against %s)", d.f.DataMonth)
 	}
 	d.out = append(d.out, Finding{File: d.f.Path, Line: line, Severity: SeverityDrift, Detail: detail, Drift: kind})
 }
 
-func (d *drifts) mapping(line int, ptr string, mp Mapping) {
-	month := d.m.Name()
+// mapping measures mapping i of the entry on line, building a finding's
+// pointer only for a finding.
+func (d *drifts) mapping(line, i int, mp *Mapping) {
+	month := d.month
 	if mp.Make != 0 {
 		if _, ok := d.m.Make(mp.Make); !ok {
-			d.add(line, DriftMake, "%s/make: vPIC make %d is not in data month %s", ptr, mp.Make, month)
+			d.add(line, DriftMake, "/mappings/%d/make: vPIC make %d is not in data month %s", i, mp.Make, month)
 		}
 	}
 	if mp.Model != 0 {
 		if _, _, ok := d.m.Model(mp.Model); !ok {
-			d.add(line, DriftModel, "%s/model: vPIC model %d is not in data month %s", ptr, mp.Model, month)
+			d.add(line, DriftModel, "/mappings/%d/model: vPIC model %d is not in data month %s", i, mp.Model, month)
 		}
 	}
 	for _, q := range mp.Qualifiers {
-		qp := fmt.Sprintf("%s/qualifiers/%d", ptr, q.Element)
 		lookup, ok := d.m.Element(q.Element)
 		if !ok {
-			d.add(line, DriftQualifier, "%s: element %d is not a public element of data month %s", qp, q.Element, month)
+			d.add(line, DriftQualifier, "/mappings/%d/qualifiers/%d: element %d is not a public element of data month %s", i, q.Element, q.Element, month)
 			continue
 		}
 		for j, v := range q.Values {
-			vp := fmt.Sprintf("%s/%d", qp, j)
 			switch {
 			case lookup && v.IsText:
-				d.add(line, DriftQualifier, "%s: element %d is a lookup element in data month %s: its values are attribute ids, not %q", vp, q.Element, month, v.Text)
+				d.add(line, DriftQualifier, "/mappings/%d/qualifiers/%d/%d: element %d is a lookup element in data month %s: its values are attribute ids, not %q", i, q.Element, j, q.Element, month, v.Text)
 			case !lookup && !v.IsText:
-				d.add(line, DriftQualifier, "%s: element %d is a text element in data month %s: its values are strings, not %d", vp, q.Element, month, v.Attribute)
+				d.add(line, DriftQualifier, "/mappings/%d/qualifiers/%d/%d: element %d is a text element in data month %s: its values are strings, not %d", i, q.Element, j, q.Element, month, v.Attribute)
 			case lookup && !d.m.Attribute(q.Element, v.Attribute):
-				d.add(line, DriftQualifier, "%s: data month %s never decodes element %d to attribute id %d", vp, month, q.Element, v.Attribute)
+				d.add(line, DriftQualifier, "/mappings/%d/qualifiers/%d/%d: data month %s never decodes element %d to attribute id %d", i, q.Element, j, month, q.Element, v.Attribute)
 			case !lookup && !d.m.Text(q.Element, v.Text):
-				d.add(line, DriftQualifier, "%s: data month %s never decodes element %d to %q", vp, month, q.Element, v.Text)
+				d.add(line, DriftQualifier, "/mappings/%d/qualifiers/%d/%d: data month %s never decodes element %d to %q", i, q.Element, j, month, q.Element, v.Text)
 			}
 		}
 	}
