@@ -31,7 +31,7 @@ while :; do
 	fi
 	# Instances on another image than the application's: the old ones.
 	stale=$(get "/$id/instances" | jq --arg image "$(jq -r .configuration.image <<<"$app")" \
-		'[.result.instances[] | select(.image != $image)] | length')
+		'[(.result.instances // [])[] | select(.image != $image)] | length')
 	state+=", $stale instance(s) on an older image"
 	[[ $state == "$last" ]] || printf '%s  %s\n' "$(date -u +%TZ)" "$state"
 	last=$state
