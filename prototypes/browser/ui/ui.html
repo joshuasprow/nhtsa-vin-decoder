@@ -1,0 +1,109 @@
+{{define "page"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · nitrovin (prototype)</title>
+<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0}'>
+<link rel="stylesheet" href="/ui/proto.css">
+<script src="/ui/htmx-2.0.11.min.js" defer></script>
+{{if eq .Page "vocab"}}<script src="/ui/vocab.js" defer></script>{{end}}
+</head>
+<body>
+<p class="proto">PROTOTYPE for #147, throwaway. htmx + /ui fragments; this page was first rendered by {{if .H.Browser}}the Service Worker{{else}}the server{{end}}.</p>
+<nav><a href="/">Decode</a> · <a href="/vocab">Vocabularies</a> · <a href="/vocab-js">Vocabularies, plain-JS variant</a></nav>
+{{if .Problem}}<p class="error">{{.Problem}}</p>{{end}}
+<main>
+{{if eq .Page "decode"}}{{template "decode" .Decode}}{{else}}{{template "vocab-app" .Vocab}}{{end}}
+</main>
+</body>
+</html>{{end}}
+
+{{define "decode"}}<h1>Decode a VIN</h1>
+<form action="/ui/decode" method="get" hx-get="/ui/decode" hx-target="#result" hx-push-url="true">
+<label for="vin">VIN</label>
+<input type="text" id="vin" name="vin" value="{{.VIN}}" autocomplete="off" spellcheck="false" required>
+<label for="model_year">Model year hint <span class="hint">(optional)</span></label>
+<input type="text" id="model_year" name="model_year" value="{{.Year}}" inputmode="numeric">
+<button>Decode</button>
+</form>
+<p hx-boost="true" hx-target="#result">Try <a href="/ui/decode?vin=1HGCM82633A004352">1HGCM82633A004352</a>, <a href="/ui/decode?vin=3C6UR5FL1KG501234">3C6UR5FL1KG501234</a>, <a href="/ui/decode?vin=1GCVKREC0EZ123456">1GCVKREC0EZ123456</a></p>
+<section id="result" aria-live="polite">{{template "decode-result" .}}</section>{{end}}
+
+{{define "decode-result"}}{{if .Problem}}<p class="error">{{.Problem}}</p>{{else if .Dec}}
+<h2>{{.Dec.VIN}}</h2>
+<p>Model year {{if .Dec.ModelYear.Valid}}{{.Dec.ModelYear.V}}{{else}}unknown{{end}} · error codes {{.Dec.ErrorCodes}} · data {{.Dec.DataMonth}} · <a href="/ui/translate?from=vin&amp;vin={{.Dec.VIN}}">translate this VIN</a></p>
+<table class="kv">{{range .Rows}}<tr><th>{{index . 0}}</th><td>{{index . 1}}</td></tr>{{end}}</table>
+{{end}}{{end}}
+
+{{define "vocab-app"}}<div id="vocab-app" data-where="{{if .Browser}}browser{{else}}server{{end}}">
+<h1>Vocabularies</h1>
+<p class="where">{{if .Browser}}Rendered in this browser by the Service Worker (Go compiled to WebAssembly): vPIC from the spine bundle {{.Month}}, plus your files below, held in IndexedDB. Nothing on this page is sent to the server; a VIN goes to /v1/decode and its decode is translated here.{{else}}Rendered by the server: vPIC {{.Month}}{{if .Server}}, plus {{range $i, $s := .Server}}{{if $i}}, {{end}}{{$s}}{{end}} (loaded with --vocab){{end}}.{{end}}</p>
+<section id="files">{{template "files" .}}</section>
+<section>
+<h2>Translate</h2>
+<form action="/ui/translate" method="get" hx-get="/ui/translate" hx-target="#result" hx-push-url="true">
+<label for="from">Translate from</label>
+<select id="from" name="from">
+<option value="vin">a VIN</option>
+{{range .Catalog}}{{if eq .Kind "vocabulary"}}<option value="{{.Name}}" {{if eq $.FromVocab .Name}}selected{{end}}>an entry of {{.Name}} ({{join .Fields}})</option>{{end}}{{end}}
+</select>
+<label for="tvin">VIN <span class="hint">(the VIN to translate, or the context VIN of an entry)</span></label>
+<input type="text" id="tvin" name="vin" value="{{.Form.Get "vin"}}" autocomplete="off" spellcheck="false">
+<div class="pair">
+<span><label for="make">Entry make</label><input type="text" id="make" name="make" value="{{.Form.Get "make"}}"></span>
+<span><label for="model">Entry model</label><input type="text" id="model" name="model" value="{{.Form.Get "model"}}"></span>
+</div>
+<label for="fields">Other entry fields <span class="hint">(field=value; field=value)</span></label>
+<input type="text" id="fields" name="fields" value="{{.Form.Get "fields"}}">
+<label for="tyear">Model year <span class="hint">(optional)</span></label>
+<input type="text" id="tyear" name="model_year" value="{{.Form.Get "model_year"}}" inputmode="numeric">
+<fieldset><legend>To</legend>
+{{range .Catalog}}{{if eq .Kind "vocabulary"}}<label class="check"><input type="checkbox" name="to" value="{{.Name}}" {{if has (index $.Form "to") .Name}}checked{{end}}> {{.Name}}</label>{{end}}{{else}}none{{end}}
+</fieldset>
+<button>Translate</button>
+</form>
+</section>
+<section id="result" aria-live="polite">{{template "translate-result" .}}</section>
+<section>
+<h2>Catalog</h2>
+<table>
+<tr><th>Name</th><th>Kind</th><th>Subject</th><th>Version</th><th></th></tr>
+{{range .Catalog}}<tr><td>{{.Name}}</td><td>{{.Kind}}</td><td>{{.Subject}}</td><td>{{.Version}}</td><td><a href="/ui/vocabularies?of={{.Name}}" hx-get="/ui/vocabularies?of={{.Name}}" hx-target="#listing" hx-push-url="true">list</a></td></tr>{{end}}
+</table>
+<div id="listing">{{template "listing" .Listing}}</div>
+</section>
+</div>{{end}}
+
+{{define "files"}}<h2>Your vocabularies <span class="hint">(this browser only)</span></h2>
+{{if .Browser}}
+<p><label for="vocab-file">Load vocabulary files (.jsonl)</label> <input type="file" id="vocab-file" multiple accept=".jsonl,.json"> <span id="load-status" role="status"></span></p>
+<p class="hint">Read in this browser, checked and indexed by WebAssembly, stored in IndexedDB. Never uploaded.</p>
+{{if .Files}}<table>
+<tr><th>Name</th><th>Kind</th><th>Version</th><th>Entries</th><th>Drift</th><th>Size</th><th>blake3</th><th></th></tr>
+{{range .Files}}<tr><td>{{.Name}}</td><td>{{.Kind}}</td><td>{{.Version}}</td><td>{{.Entries}}</td><td>{{.Drift}}</td><td>{{kb .Bytes}}</td><td class="mono">{{short .Blake3}}</td>
+<td><form method="post" action="/ui/files/remove" hx-post="/ui/files/remove" hx-target="#vocab-app" hx-swap="outerHTML"><input type="hidden" name="key" value="{{.Key}}"><button>Remove</button></form></td></tr>{{end}}
+</table>{{else}}<p>None loaded yet.</p>{{end}}
+{{else}}
+<p class="needs-js">Loading your own vocabulary files needs JavaScript: they are kept in this browser (IndexedDB) and translated here by WebAssembly in a Service Worker, so they are never uploaded. Translation through vPIC and the server's own files works without it, below. <span class="js-only">Starting the Service Worker…</span></p>
+{{end}}{{end}}
+
+{{define "via"}}<span class="via">via {{ref .SpineRef}}, {{years .First .Last}}{{with .Origin}}, {{.}}{{end}}{{with .Note}}: {{.}}{{end}}{{if not .Unconfirmed.IsZero}}, unconfirmed: {{unconf .Unconfirmed}}{{end}}</span>{{end}}
+
+{{define "translate-result"}}{{if .Problem}}<p class="error">{{.Problem}}</p>{{else}}{{with .Result}}
+<h2>Translation</h2>
+<p>From {{if .From.VIN}}VIN {{.From.VIN}}{{else if .From.Vocabulary}}{{.From.Vocabulary}} {{range $k, $v := .From.Entry}}{{$k}}={{$v}} {{end}}{{else}}{{ref .From.SpineRef}}{{end}}: <strong>{{.From.Status}}</strong>{{with .From.Note}} ({{.}}){{end}}{{with .Vehicle}}. Decoded: make {{if .Make.Valid}}{{.Make.V}}{{else}}none{{end}}, model {{if .Model.Valid}}{{.Model.V}}{{else}}none{{end}}, year {{if .ModelYear.Valid}}{{.ModelYear.V}}{{else}}unknown{{end}}{{end}}.</p>
+<h3>Spine</h3>
+<ul>{{range .Spine}}<li>{{ref .SpineRef}} <strong>{{.Name}}</strong>{{if .Drift}} (not in this data month){{end}}{{with .Under}} under {{ref .}}{{end}}{{range .Via}} {{template "via" .}}{{end}}</li>{{else}}<li>Nothing on the spine.</li>{{end}}</ul>
+{{range .To}}<h3>{{.Vocabulary}}</h3>
+<ul>{{range .Entries}}<li><strong>{{range $k, $v := .Entry}}{{$k}}={{$v}} {{end}}</strong>{{with .Note}} ({{.}}){{end}}{{range .Via}} {{template "via" .}}{{end}}{{if not .Unconfirmed.IsZero}} <em>unconfirmed: {{unconf .Unconfirmed}}</em>{{end}}</li>{{else}}<li>No entry.</li>{{end}}</ul>{{end}}
+<details><summary>JSON</summary><pre>{{json .}}</pre></details>
+<p class="hint">Translated in {{$.Took}}.</p>
+{{end}}{{end}}{{end}}
+
+{{define "listing"}}{{with .}}{{if .Problem}}<p class="error">{{.Problem}}</p>{{else if .Of}}<h3>{{.Of}}</h3>
+<table>{{range .Entries}}{{with asVocab .}}<tr><td>{{range $k, $v := .Entry}}{{$k}}={{$v}} {{end}}</td><td>{{range .Mappings}}{{if .Make}}make {{.Make}}{{else if .Model}}model {{.Model}}{{else if .Ext}}{{.Ext}}{{else}}{{.ID}}{{end}}, {{years .First .Last}}{{with .Origin}}, {{.}}{{end}}<br>{{else}}unmapped{{end}}</td><td>{{.Note}}</td></tr>{{end}}{{with asSpine .}}<tr><td>{{ref .SpineRef}}</td><td>{{.Name}}</td><td>{{with .Under}}under {{ref .}}{{end}}</td></tr>{{end}}{{end}}</table>
+{{if .Next}}<p><a href="/ui/vocabularies?of={{.Of}}&amp;after={{.Next}}" hx-get="/ui/vocabularies?of={{.Of}}&amp;after={{.Next}}" hx-target="#listing" hx-push-url="true">Next page</a></p>{{end}}
+{{end}}{{end}}{{end}}
+
+{{define "problem"}}<p class="error">{{.}}</p>{{end}}

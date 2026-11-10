@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" data-core="CORE_TC">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vocabularies, plain-JS variant · nitrovin (prototype)</title>
+<link rel="stylesheet" href="/ui/proto.css">
+<script src="/ui/core/CORE_TC/wasm_exec.js" defer></script>
+<script src="/ui/idb.js" defer></script>
+<script src="/ui/vocab-plain.js" defer></script>
+</head>
+<body>
+<p class="proto">PROTOTYPE for #147, throwaway. Plain-JS variant: this page loads the WebAssembly module itself (JSON in, JSON out; no Service Worker, no htmx, no Go templates) and renders the answers with JavaScript.</p>
+<nav><a href="/">Decode</a> · <a href="/vocab">Vocabularies</a> · <a href="/vocab-js">Vocabularies, plain-JS variant</a></nav>
+<main>
+<h1>Vocabularies <span class="hint">(plain-JS variant, CORE_TC module)</span></h1>
+<noscript><p class="needs-js">This variant needs JavaScript and WebAssembly: your files are kept in this browser (IndexedDB) and translated here, never uploaded. Without JavaScript, <a href="/vocab">/vocab</a> translates through vPIC and the server's own files.</p></noscript>
+<p id="status" role="status"></p>
+<div id="app" hidden>
+<section>
+<h2>Your vocabularies <span class="hint">(this browser only)</span></h2>
+<p><label for="file">Load vocabulary files (.jsonl)</label> <input type="file" id="file" multiple accept=".jsonl,.json"> <span id="load-status" role="status"></span></p>
+<table id="files"></table>
+</section>
+<section>
+<h2>Translate</h2>
+<form id="tform">
+<label for="from">Translate from</label>
+<select id="from" name="from"><option value="vin">a VIN</option></select>
+<label for="vin">VIN <span class="hint">(the VIN to translate, or the context VIN of an entry)</span></label>
+<input type="text" id="vin" name="vin" autocomplete="off" spellcheck="false">
+<div class="pair">
+<span><label for="make">Entry make</label><input type="text" id="make" name="make"></span>
+<span><label for="model">Entry model</label><input type="text" id="model" name="model"></span>
+</div>
+<label for="year">Model year <span class="hint">(optional)</span></label>
+<input type="text" id="year" name="model_year" inputmode="numeric">
+<fieldset id="to"><legend>To</legend></fieldset>
+<button>Translate</button>
+</form>
+</section>
+<section id="result" aria-live="polite"></section>
+</div>
+</main>
+</body>
+</html>
