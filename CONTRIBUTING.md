@@ -5,6 +5,12 @@ itself; using it is the [README](README.md).
 
 ## Ground rules
 
+- **Compatibility and interoperability are the goals.** Compatibility is
+  answering exactly as NHTSA's vPIC does: its procedure, its output
+  shapes. Interoperability is working with other systems: the surfaces,
+  vocabularies translating through vPIC's ids, standard formats. When a
+  change trades speed or convenience against either, they win; speed has
+  a budget to meet, not a race to win.
 - **Parity is not negotiable.** A change that alters any decode must keep
   nitrovin equal to NHTSA's procedure, freshened, on every row of every VIN
   ([docs/parity.md](docs/parity.md)). A difference is a decoder bug, unless
