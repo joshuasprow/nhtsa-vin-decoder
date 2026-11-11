@@ -157,26 +157,33 @@ curl localhost:8080/v1/vocabularies
 curl 'localhost:8080/v1/vocabularies/vpic/entries?where.make=474&limit=5'
 ```
 
-Open the address in a browser: one page, with a box of controls at its top,
-a tab for each thing to translate from: a VIN · a vehicle's name · a part's
-name · a vPIC id. The first decodes a VIN (an optional model
-year, the shape and `full` behind Options) and translates it into the
-vocabularies loaded; the others translate a vocabulary's entry or a vPIC
-id ([Vocabularies](#vocabularies)). Before you ask, the page says how to
+Open the address in a browser: one page, with a box of controls at its top
+(Translate from), a tab for each thing to translate from: VIN · Year, make
+and model · one for each declared spine, named by what its vocabularies
+name (Part (parts spine)) · vPIC id. The first decodes a VIN (an optional
+model year, the shape and `full` behind Options) and translates it into
+the vocabularies loaded; the others translate a vocabulary's entry or a
+vPIC id ([Vocabularies](#vocabularies)). A refusal is said beside the
+field it names, on every tab. Before you ask, the page says how to
 install, configure MCP and verify this version, with links to its release
 and data month. The page is rendered on the server and every answer is a
 shareable URL (`/?from.vin=1HGCM82633A004352`; older `/?vin=`,
 `/ui/decode`, `/ui/translate`, `/vocab` and `/ui/vocabularies` links
-redirect to it). A decode shows the translation as a map of the mappings
-it crossed (its key: a mapping, one matched by rule, dashed, a make to its
-model, a VIN to its model), with its JSON and
-the decode's behind a button, then its elements in vPIC's groups (empty values hidden
+redirect to it). A decode shows the translation as a map: cards in three
+columns (stacked on a phone), each card's name on two lines (whole on
+hover or focus) and its text saying what its lines draw, each card a
+link, the From card to the answer itself; its key: a mapping, one
+matched by rule, dashed, a model under its make, a VIN to the model it
+decodes to. Its JSON and the decode's are behind a button,
+then its elements in vPIC's groups (empty values hidden
 in the `vpic` shape until asked), its error codes in NHTSA's words, a
 suggested VIN with the differing positions marked, a link to the same VIN
 on NHTSA's decoder, and the page's URL, `curl` and
-`nitrovin decode` equivalents to copy. Everything works without
+`nitrovin decode` equivalents to copy. The header's Vocabularies button
+lists what is loaded. Everything works without
 JavaScript; with it, [htmx](https://htmx.org) swaps each answer into the
-page and copy buttons appear. The pages are not part of the API: they are
+page, back and forward ask the server again, and copy buttons appear.
+The pages are not part of the API: they are
 not in the OpenAPI document and may change.
 
 `POST /v1/decode` takes up to 1,000 requests and returns an array of
@@ -461,8 +468,8 @@ nitrovin --vocab testdata/vocab serve                                 # /v1/tran
 
 `serve`'s page translates through vPIC and the server's own files with or
 without JavaScript, with an example to try from each vocabulary and each
-translation drawn as a map of the mappings it crossed. Its Vocabularies
-button opens a dialog that lists what is loaded, each file marked by where
+translation drawn as a map of the mappings it crossed. The Vocabularies
+button in its header opens a dialog that lists what is loaded, each file marked by where
 it is kept and with its drift; with JavaScript, the dialog loads your own files, picked or dropped on the
 page, into your browser, where they stay: a Service Worker keeps them in
 IndexedDB, with the targets you tick (each file you load ticked), and

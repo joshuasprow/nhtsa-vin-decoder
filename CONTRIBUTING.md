@@ -404,9 +404,12 @@ has its real status: the one error page, or the error fragment that the
 layout's htmx configuration swaps into its error slot; a page that refuses
 with its own content, as the page's controls do beside a field, sends htmx
 to its target instead (`HX-Retarget`). A fragment fills the layout's
-main, which is also all htmx keeps and restores as history
-(`hx-history-elt`): the vocabularies' button and dialog sit beside it and
-are the whole page's. The layout loads its stylesheet,
+main (`hx-history-elt`), and htmx keeps no snapshot of it
+(`hx-history="false"`): back and forward ask the server for each page
+again, so a page put back never carries what a script or an extension
+left on it, which CSP would refuse. The header's Vocabularies button
+and its dialog sit beside the main and are the whole page's. The layout
+loads its stylesheet,
 htmx, `copy.js` (copy buttons) and `map.js` (the translation map's
 highlighting) from `/ui/r/<release>/` (`ui.Release`:
 decoder version, data month and artifact hash, the Worker's cache key),
@@ -425,32 +428,47 @@ assets, the published files and the page's routes; `TestUI` and
 `cmd/nitrovin` the same through `serve`.
 
 The page (`page.go`, `page.html`) is everything a visitor does. Its
-controls are a box with a tab for each thing to translate from: a VIN,
-which is decoded and translated; an entry of the vehicle vocabularies (a
-year, make and model); an entry of each declared spine's vocabularies,
-since a translation crosses exactly one spine (ADR 0010); and a vPIC make
-or model id. A tab is a link (`/?tab=…`) and holds one form, which asks the
-page itself: its query is `GET /v1/translate`'s, with a VIN's decode
-options (`shape`, `full`) beside it, and a query's `from` says which tab
-it is of. Below the controls the answer is a VIN's decode (`decode.go`,
-`decode.html`) and, for every translation, its map, with the
-JSON of both behind a button, in a dialog. A refusal is the page still,
-said in the controls beside the field it names. Both dialogs, the JSON's
-and the vocabularies', are popovers, so they open without a script; the
-vocabularies' is on each entry list too. Old
+controls (Translate from) are a box with a tab for each thing to
+translate from: VIN, which is decoded and translated; Year, make and
+model, an entry of the vehicle vocabularies; one for each declared
+spine, named by what its vocabularies name (Part (parts spine)), an
+entry of its vocabularies, since a translation crosses exactly one spine
+(ADR 0010); and vPIC id, a make or model id. A tab is a link (`/?tab=…`)
+and holds one form, which asks the page itself: its query is
+`GET /v1/translate`'s, with a VIN's decode options (`shape`, `full`)
+beside it, and a query's `from` says which tab it is of. A from that no
+form asks for, which a map's card links to, is shown in its tab's form
+too: an extension in a field of the vPIC id's form, a declared spine's
+entry read-only in its tab's. Below the controls the answer is a VIN's
+decode (`decode.go`, `decode.html`) and, for every translation, its map,
+with the JSON of both behind a button, in a dialog. A refusal is the page
+still, said in the controls beside the field holding the value its
+pointer names (`controls.field`), on every tab, else above the form.
+Both dialogs, the JSON's and the vocabularies', are popovers, so they
+open without a script; the vocabularies' is on each entry list too. Old
 links (`/?vin=…`, `/ui/decode`, `/ui/translate`, `/vocab`,
 `/ui/vocabularies`) move to the page with a `301`.
 
 The map (`map.go`) is from, the spine and the targets as three columns of
-cards, each mapping a line, each card a link to the page from it. The
-server draws the lines, an SVG behind the cards stretched across the
-columns, from the cards' places, which it knows because every card is one
-height: `map.go`'s geometry constants and `ui.css`'s map rules say the
-same sizes, and `translationMap` (`cmd/nitrovin/map_test.go`, run by
+cards, each mapping a line, each card a link to the page from it, the
+From card to the answer's own URL. Its key names the lines it draws: a
+mapping, one matched by rule (dashed), a model under its make, a VIN to
+the model it decodes to; and a marked card, not every qualifier or the
+model year checked. What a card's lines draw is in its text too (its
+make, what it was reached through and how): visually hidden and read
+with its name on a wide window, shown when a narrow one (a phone) stacks
+the columns and hides the lines and their key. A name shows on two
+lines, and whole while its card is under the pointer or focused,
+spilling over the cards below without moving them. The server draws the
+lines, an SVG behind the cards stretched across the columns, from the
+cards' places, which it knows because every card is one height:
+`map.go`'s geometry constants and `ui.css`'s map rules say the same
+sizes, and `translationMap` (`cmd/nitrovin/map_test.go`, run by
 `TestVocabTranslate`) holds every line to its cards as the browser lays
-them out, wide and narrow. So the map needs no script; `map.js` only
-lights the routes through the card under the pointer or focus, which the
-server works out too (each card's `data-lit`).
+them out, and checks a narrow window stacks the columns. So the map
+needs no script; `map.js` only lights the routes through the card under
+the pointer or focus, which the server works out too (each card's
+`data-lit`).
 
 The page and a file's entries (`vocab.go`, `vocab.html`:
 `/ui/vocabularies/{name}`) answer the same on
@@ -523,7 +541,8 @@ in a browser with a fresh profile: an installed Service Worker survives
 JavaScript being turned off, so a profile that had JavaScript would answer
 the JavaScript-off run from the worker. Without JavaScript every step is a
 page load; with it, every step must reach the server with `HX-Request` and
-never reload the page, and back and forward restore each state. axe-core
+never reload the page, and back and forward ask the server for each state
+again, never a snapshot, with nothing refused by CSP. axe-core
 audits every state of both runs and fails on any violation; it is vendored
 as `cmd/nitrovin/testdata/axe.min.js` (npm's `axe-core` at `axeVersion`,
 held to its sha256 by `TestAxePin`, reported by the weekly tools issue

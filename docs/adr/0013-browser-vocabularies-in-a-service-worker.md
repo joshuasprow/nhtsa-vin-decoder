@@ -95,16 +95,31 @@ JavaScript-on run asserts `HX-Request`, and an axe audit runs in both.
 
 ## Amendment (2026-11-11): one page
 
-**`/` is the one page.** Its controls are tabs, one for each thing a
-translation can be from: a VIN, a vehicle vocabulary's entry, each declared
-spine's entry, a vPIC make or model id. The decode form no longer moves onto
+**`/` is the one page.** Its controls (Translate from) are tabs, one for
+each thing a translation can be from: a VIN, a vehicle vocabulary's entry,
+an entry of each declared spine's vocabularies, a vPIC make or model id.
+A from no form asks for, an extension or a declared spine's own entry
+(a map's card links to both), is shown in its tab's form too, and a
+refusal is said beside the field holding the value it names, on every
+tab. The decode form no longer moves onto
 `/ui/decode`: `/ui/decode`, `/ui/translate`, `/vocab`, `/ui/vocabularies`
 and `/?vin=` answer `301` to `/`, their query along (a VIN becomes
-`from.vin`). Vocabularies is a dialog on the page, and on each entry list
-(`/ui/vocabularies/{name}`). The answer is a map: what it is from, the spine
-entries it crosses and the entries it reaches as cards in columns, each
-mapping a line, dashed when matched by rule. The server draws the map, so
-it needs no script.
+`from.vin`). Vocabularies is a dialog behind a button in the page's
+header, on the page and on each entry list (`/ui/vocabularies/{name}`).
+The answer is a map: what it is from, the spine entries it crosses and
+the entries it reaches as cards in three columns, each mapping a line;
+its key adds a model under its make, a VIN to the model it decodes to,
+and a mapping matched by rule, dashed. Each card is a link (the From card
+to the answer itself), and its text says what its lines draw, so the map
+reads without them: a narrow window, a phone's, stacks the columns, hides
+the lines and shows that text. A name shows on two lines, whole on hover
+or focus. The server draws the map, so it needs no script.
+
+**Back and forward ask the server.** htmx keeps no snapshot of the page's
+main (`hx-history="false"`): a snapshot put back carries whatever a script
+or an extension left on the page, which the CSP then refuses, so each
+history step is the server's (or the worker's) answer again, as a link
+would be.
 
 **The worker rule is unchanged.** The worker answers only a request that
 names a browser-held file (its `from.vocabulary`, its spine or a `to`);

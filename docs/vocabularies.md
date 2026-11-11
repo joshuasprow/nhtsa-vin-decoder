@@ -323,21 +323,31 @@ changed on disk since it was loaded: restart `serve` to publish the new
 one.
 
 **In a browser**: `serve`'s page at `/` decodes a VIN and translates,
-through the server's files, with JavaScript or without. Its controls have
-a tab for each thing to translate from: a VIN · a vehicle's name (an
-entry of a vehicle vocabulary: a year, make and model) · a part's name
-(an entry of each declared spine's vocabularies) · a vPIC make or model
-id. Older links (`/?vin=…`, `/ui/decode`, `/ui/translate`, `/vocab`,
+through the server's files, with JavaScript or without. Its controls
+(Translate from) have a tab for each thing to translate from: VIN ·
+Year, make and model (an entry of a vehicle vocabulary) · one for each
+declared spine, named by what its vocabularies name (Part (parts spine):
+an entry of its vocabularies) · vPIC id (a make or model id, or an
+extension when a map's card asks for one). Each tab's form shows what
+the page's URL asks, a declared spine's own entry read-only, and a
+refusal is said beside the field holding the value it names, else above
+the form. Older links (`/?vin=…`, `/ui/decode`, `/ui/translate`, `/vocab`,
 `/ui/vocabularies`) redirect to it (`301`). Below the controls the answer
 is drawn as a map: what it is from, the spine entries it crosses and the
-entries it reaches as cards in columns (stacked on a phone), each mapping
-a line. Its key: a mapping; a mapping matched by rule, dashed; a make to
-its model; a VIN to its model; and a card marked when not every qualifier
-or the model year was checked. The map has a text alternative; a card is
-a link to the page from it (the From card to the answer's own URL), with
-JavaScript the card under the pointer or focus lights the routes through
-it, and a button shows the translation's JSON. The page's Vocabularies
-button (in the nav on a phone) opens a dialog that
+entries it reaches as cards in three columns, each mapping a line. Its
+key: a mapping; a mapping matched by rule, dashed; a model under its
+make; a VIN to the model it decodes to; and a card marked when not every
+qualifier or the model year was checked. Each card's text says what its
+lines draw (its make, what it was reached through and how), so a screen
+reader reads it with the card's name; a name shows on two lines, and
+whole while its card is under the pointer or focused. On a phone the
+columns stack, the lines and their key are hidden, and each card shows
+that text instead. Every card is a link to the page from it (the From
+card to the answer's own URL); with JavaScript the card under the
+pointer or focus lights the routes through it, and a button shows the
+translation's JSON. Back and forward ask the server for each page again,
+never a copy the browser kept. The Vocabularies button in the page's
+header opens a dialog that
 lists what is loaded, each file marked by where it is kept, with its
 drift counted by kind as `/v1/info` counts it (the first examples behind
 a disclosure), each linked to its entries (`/ui/vocabularies/{name}`, a
