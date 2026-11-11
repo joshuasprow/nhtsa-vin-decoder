@@ -95,8 +95,8 @@ func partTargetsJSOff(t *testing.T, path, base string) {
 	vehicles := []string{"yard"}
 	if got, want := renderedTargets(tb, "#vocab-translate"), []offered{
 		{"from-vin-h", "vpic", vehicles, nil},
-		{"from-vpic-h", "vpic", vehicles, nil},
 		{"from-entry-h", "vpic", vehicles, nil},
+		{"from-vpic-h", "vpic", vehicles, nil},
 		{"from-entry-bins-h", "bins", []string{"bin-labels"}, nil},
 		{"from-entry-parts-h", "parts", []string{"listing", "shelf"}, nil},
 	}; fmt.Sprint(got) != fmt.Sprint(want) {
@@ -184,6 +184,7 @@ func partTargetsJSOn(t *testing.T, path, base string, wire *wireLog, paths []str
 	// shelf's example goes to listing, ticked on its spine, by htmx.
 	shelfExample := "/ui/translate?from.entry.category=Brake+Pads&from.vocabulary=shelf&to=listing"
 	if got, want := exampleHrefs(tb, "#vocab-translate"), []string{
+		ramExample,
 		vinExample,
 		modelExample,
 		"/ui/translate?from.entry.category=Brake+Pads&from.vocabulary=bin-labels&to=bin-labels",

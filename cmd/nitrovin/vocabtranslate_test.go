@@ -57,25 +57,26 @@ func TestVocabTranslate(t *testing.T) {
 
 // The examples that need no file.
 const (
+	ramExample   = "/ui/translate?from.vin=" + ram2015
 	vinExample   = "/ui/translate?from.vin=" + vin
 	modelExample = "/ui/translate?from.model=1861&model_year=2003"
 )
 
 // examplesJSOff: without JavaScript /vocab has an example for each of the
-// server's vocabularies, its first mapped entry to another vocabulary on
-// its spine, and every example is a page with its form filled in. On the
-// translate page the examples go to the targets its URL names.
+// server's vocabularies whose first mapped entry reaches another
+// vocabulary on its spine (or the only one on it), and every example is
+// a page with its form filled in. On the translate page the examples go
+// to the targets its URL names.
 func examplesJSOff(t *testing.T, path, base string) {
 	tb := newTab(t, path, base, &requestLog{}, false)
 	tb.do(chromedp.Navigate(base + "/vocab"))
 	tb.wait("#vocab-translate")
 	hrefs := exampleHrefs(tb, "#vocab-translate")
 	if want := []string{
+		ramExample,
 		vinExample,
 		modelExample,
-		"/ui/translate?from.entry.make=Acura&from.entry.model=2.2CL%2F3.0CL&from.vocabulary=epa-vehicles&model_year=1997&to=yard",
 		"/ui/translate?from.entry.category=Brake+Pads&from.vocabulary=listing&to=listing",
-		"/ui/translate?from.entry.make=Chevrolet&from.entry.model=Corvair&from.vocabulary=yard&to=epa-vehicles",
 	}; !slices.Equal(hrefs, want) {
 		t.Errorf("JS off: examples\n%q\nwant\n%q", hrefs, want)
 	}
@@ -98,7 +99,7 @@ func examplesJSOff(t *testing.T, path, base string) {
 	tb.do(chromedp.Navigate(base + asked))
 	tb.wait("#translation")
 	checkFilled(tb, "JS off, a translation", asked)
-	if got := exampleHrefs(tb, "#ui-main"); len(got) != 5 || got[0] != asked || got[1] != modelExample+"&to=epa-vehicles&to=yard" ||
+	if got := exampleHrefs(tb, "#ui-main"); len(got) != 4 || got[1] != asked || got[2] != modelExample+"&to=epa-vehicles&to=yard" ||
 		!strings.HasSuffix(got[3], "&to=listing") {
 		t.Errorf("JS off: the translate page's examples do not keep its targets: %q", got)
 	}
@@ -117,7 +118,7 @@ func selectionJSOn(t *testing.T, path, base string, wire *wireLog) {
 	}
 	const listingExample = "/ui/translate?from.entry.category=Brake+Pads&from.vocabulary=listing&to=listing"
 	ready()
-	if got := exampleHrefs(tb, "#vocab-translate"); !slices.Equal(got, []string{vinExample, modelExample, listingExample}) {
+	if got := exampleHrefs(tb, "#vocab-translate"); !slices.Equal(got, []string{ramExample, vinExample, modelExample, listingExample}) {
 		t.Errorf("no file in the browser: examples %q", got)
 	}
 	checkTicked(tb, "no file in the browser", nil)
@@ -138,11 +139,10 @@ func selectionJSOn(t *testing.T, path, base string, wire *wireLog) {
 	const both = "&to=epa-vehicles&to=yard"
 	hrefs := exampleHrefs(tb, "#vocab-translate")
 	if want := []string{
+		ramExample + both,
 		vinExample + both,
 		modelExample + both,
-		"/ui/translate?from.entry.make=Acura&from.entry.model=2.2CL%2F3.0CL&from.vocabulary=epa-vehicles&model_year=1997" + both,
 		listingExample,
-		"/ui/translate?from.entry.make=Chevrolet&from.entry.model=Corvair&from.vocabulary=yard" + both,
 	}; !slices.Equal(hrefs, want) {
 		t.Errorf("JS on: examples\n%q\nwant\n%q", hrefs, want)
 	}
@@ -172,14 +172,14 @@ func selectionJSOn(t *testing.T, path, base string, wire *wireLog) {
 	tb.do(chromedp.Click(chromedp.CSS(`#vocab-translate form[aria-labelledby="from-vin-h"] input[value="yard"]`)))
 	tb.until("clearing yard", `!document.querySelector('#vocab-translate form[aria-labelledby="from-vpic-h"] input[value="yard"]').checked`)
 	waitSelection(tb, "clearing yard", selection{"parts": {"listing"}, "vpic": {"epa-vehicles"}})
-	tb.do(chromedp.Click(chromedp.CSS("#vocab-translate ul.examples li:nth-child(1) a")))
+	tb.do(chromedp.Click(chromedp.CSS("#vocab-translate ul.examples li:nth-child(2) a")))
 	tb.wait("#translation")
 	if got, want := tb.at(), vinExample+"&to=epa-vehicles"; got != want {
 		t.Errorf("an example after clearing yard: at %s; want %s", got, want)
 	}
 	ready()
 	checkTicked(tb, "a translation", selection{"parts": {"listing"}, "vpic": {"epa-vehicles"}})
-	tb.do(chromedp.Click(chromedp.CSS(`#vocab-translate form[aria-labelledby="from-vpic-h"] input[value="yard"]`)))
+	tb.do(chromedp.Click(chromedp.CSS(`#vocab-translate form[aria-labelledby="from-entry-h"] input[value="yard"]`)))
 	waitSelection(tb, "ticking yard", all)
 
 	// A removed file drops out; the rest stay ticked.
@@ -296,7 +296,8 @@ func checkFilled(tb *tab, step, target string) {
 			tb.t.Errorf("%s: %d of %s", step, n, sel)
 		}
 	}
-	if n := tb.count(inForm + "input[name=to][checked]"); n != len(q["to"]) {
+	// Without to= the page ticks its default targets, the selection.
+	if n := tb.count(inForm + "input[name=to][checked]"); q.Has("to") && n != len(q["to"]) {
 		tb.t.Errorf("%s: %d targets ticked; want %d", step, n, len(q["to"]))
 	}
 }

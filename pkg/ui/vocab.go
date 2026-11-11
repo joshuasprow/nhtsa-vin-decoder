@@ -450,7 +450,8 @@ func (h *Handler) translateForms(cat []contract.CatalogEntry, q url.Values) (tra
 		}
 		ex := p.example(strings.Join(label, " · "), hint, v.Spine, []string{p.sensibleTarget(v)}, q)
 		if p.sensibleTarget(v) != v.Name {
-			// Kept only when it names something in another vocabulary.
+			// Kept only when it names something in another vocabulary,
+			// or the only target ticked is its own.
 			u, err := url.Parse(ex.Href)
 			if err != nil {
 				continue
@@ -460,7 +461,7 @@ func (h *Handler) translateForms(cat []contract.CatalogEntry, q url.Values) (tra
 				continue
 			}
 			tr, err := h.p.Translate(req)
-			if err != nil || !slices.ContainsFunc(tr.To, func(t contract.Translated) bool { return t.Vocabulary != v.Name && len(t.Entries) > 0 }) {
+			if err != nil || !slices.ContainsFunc(tr.To, func(t contract.Translated) bool { return len(t.Entries) > 0 && (t.Vocabulary != v.Name || len(tr.To) == 1) }) {
 				continue
 			}
 		}
