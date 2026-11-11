@@ -44,35 +44,10 @@ func NewTranslator(d *Decoder, files ...*vocab.File) (*Translator, error) {
 			Version: f.Version,
 			Blake3:  hex.EncodeToString(f.Hash[:]),
 			Path:    f.Path,
-			Drift:   driftCounts(f, t.drift),
+			Drift:   contract.DriftCounts(f.Path, t.drift),
 		}
 	}
 	return t, nil
-}
-
-// driftKinds orders a file's DriftCounts.
-var driftKinds = []vocab.DriftKind{vocab.DriftMake, vocab.DriftModel, vocab.DriftQualifier, vocab.DriftExtension}
-
-// driftCounts counts f's findings by kind, keeping the first
-// contract.MaxDriftExamples of each.
-func driftCounts(f *vocab.File, drift []vocab.Finding) []contract.DriftCount {
-	out := []contract.DriftCount{}
-	for _, kind := range driftKinds {
-		c := contract.DriftCount{Kind: string(kind), Examples: []contract.DriftExample{}}
-		for _, d := range drift {
-			if d.File != f.Path || d.Drift != kind {
-				continue
-			}
-			c.Count++
-			if len(c.Examples) < contract.MaxDriftExamples {
-				c.Examples = append(c.Examples, contract.DriftExample{Line: d.Line, Detail: d.Detail})
-			}
-		}
-		if c.Count > 0 {
-			out = append(out, c)
-		}
-	}
-	return out
 }
 
 // Decoder is the Decoder the files are loaded beside.

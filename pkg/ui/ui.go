@@ -25,8 +25,9 @@
 // pinned file), the stylesheet and copy.js, are served under
 // /ui/r/<release>/, immutable for a year: a new release is a new URL. So
 // are what a Service Worker needs of the server to translate in the
-// browser: the data month's spine bundle (SpinePath) and each file the
-// server loaded (FilePath).
+// browser: the data month's spine bundle (SpinePath), each file the
+// server loaded (FilePath), and EPA's vocabulary, which /vocab offers to
+// load into the browser (Offer).
 package ui
 
 import (
@@ -61,8 +62,12 @@ const htmxVersion = "2.0.11"
 
 // htmxConfig is the layout's htmx configuration (the htmx-config meta):
 // a 4xx or 5xx fragment is an error, swapped into the error slot; htmx
-// adds no inline style, which CSP refuses, and evaluates nothing.
-const htmxConfig = `{"allowEval":false,"includeIndicatorStyles":false,"responseHandling":[` +
+// adds no inline style, which CSP refuses, and evaluates nothing. A swap
+// settles at once (no settle delay, which only serves CSS transitions the
+// pages have none of), so what a swap brings is live, its forms htmx's,
+// the moment the swap is done: a button clicked right away never posts
+// as a page.
+const htmxConfig = `{"allowEval":false,"includeIndicatorStyles":false,"defaultSettleDelay":0,"responseHandling":[` +
 	`{"code":"204","swap":false},` +
 	`{"code":"[23]..","swap":true},` +
 	`{"code":"[45]..","swap":true,"error":true,"target":"#ui-error","swapOverride":"innerHTML"}]}`
@@ -134,9 +139,11 @@ type Backend interface {
 
 // Worker is the browser's Service Worker module, the same pages built
 // with Go's toolchain for js/wasm (cmd/nitrovin-sw, scripts/sw.sh), and
-// the wasm_exec.js of the Go that built it.
+// the wasm_exec.js of the Go that built it. EPA is EPA's vocabulary
+// (epa-vehicles.jsonl, scripts/epa.sh), which /vocab offers as a
+// one-click load into the browser; nil for none.
 type Worker struct {
-	Module, Exec []byte
+	Module, Exec, EPA []byte
 }
 
 // Release is info's release as the Worker caches it
@@ -193,7 +200,10 @@ type Handler struct {
 	// worker is the Service Worker's module, nil on the server when it
 	// has none and in the browser.
 	worker *Worker
-	log    *log.Logger
+	// offer is the vocabulary /vocab offers to load into the browser,
+	// EPA's, nil for none; on the server, read on first need.
+	offer func() *Offer
+	log   *log.Logger
 	// spine is the Backend's spine bundle, asked for once.
 	spine func() ([]byte, error)
 	// routes are the pages by path, and posts the forms that change
@@ -231,19 +241,34 @@ func New(b Backend, log *log.Logger) *Handler {
 }
 
 // NewInBrowser is the Service Worker's handler, answering from the files
-// the browser holds and the server's it links (Library): the vocabulary
-// pages alone, since the worker forwards every other request.
-func NewInBrowser(lib *Library, log *log.Logger) *Handler {
-	h := &Handler{p: lib, lib: lib, log: log, routes: map[string]route{}, posts: map[string]route{}}
+// the browser holds and the server's it links (Library), and offering
+// what the server offers (ReadWorkerConfig): the vocabulary pages alone,
+// since the worker forwards every other request.
+func NewInBrowser(lib *Library, offer *Offer, log *log.Logger) *Handler {
+	h := &Handler{p: lib, lib: lib, offer: func() *Offer { return offer }, log: log, routes: map[string]route{}, posts: map[string]route{}}
 	h.vocabRoutes()
 	return h
 }
 
 // WithWorker gives the server's handler the Service Worker's module: it
-// then serves /sw.js and the module, and /vocab offers browser files.
+// then serves /sw.js and the module, and /vocab offers browser files,
+// and EPA's vocabulary as a one-click load when w has it and it is of
+// the server's data month.
 func (h *Handler) WithWorker(w Worker) *Handler {
 	h.worker = &w
+	h.offer = nil
+	if len(w.EPA) > 0 {
+		h.offer = sync.OnceValue(func() *Offer { return h.epaOffer(w.EPA) })
+	}
 	return h
+}
+
+// offered is the vocabulary the handler offers, nil for none.
+func (h *Handler) offered() *Offer {
+	if h.offer == nil {
+		return nil
+	}
+	return h.offer()
 }
 
 // fragment reports whether r asks for a fragment: htmx sent it, and not to
@@ -375,6 +400,9 @@ func (h *Handler) published(info contract.Info, name string, missing *pageError)
 	fileName, ok3 := strings.CutSuffix(file, ".jsonl")
 	if !ok || !ok2 || !ok3 {
 		return "", nil, missing
+	}
+	if o := h.offered(); o != nil && fileName == o.Name && hash == o.Blake3 {
+		return "application/jsonl", func() ([]byte, error) { return h.worker.EPA, nil }, nil
 	}
 	for _, f := range info.Vocabularies {
 		if f.Name != fileName {

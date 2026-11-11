@@ -4,7 +4,9 @@
 # - nitrovin_<version>_<os>_<arch>.{tar.gz,zip}: cmd/nitrovin with the data
 #   pinned in go.mod embedded, linux/darwin/windows on amd64/arm64, and the
 #   browser's Service Worker module (scripts/sw.sh, run in the before hook
-#   into cmd/nitrovin/sw, which git ignores) that `serve` publishes.
+#   into cmd/nitrovin/sw, which git ignores) that `serve` publishes, with
+#   EPA's vocabulary of that data month (scripts/epa.sh, from its
+#   nitrovin-data release, likewise) that `/vocab` offers to load.
 # - libnitrovin_<version>_<os>_<arch>.{tar.gz,zip}: the lean C library and
 #   nitrovin.h for the same six targets, built by scripts/libnitrovin.sh
 #   (zig cc) in the before hook and packed as meta archives.
@@ -38,6 +40,7 @@ before:
     - scripts/libnitrovin.sh build/libnitrovin
     - scripts/mcp-server-json.sh build/server.json {{ .Version }}
     - scripts/sw.sh
+    - scripts/epa.sh
 
 builds:
   - id: nitrovin

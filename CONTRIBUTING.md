@@ -420,11 +420,18 @@ cached without asking, the only response allowed `'wasm-unsafe-eval'`)
 imports. `scripts/sw.sh [<dir>]` builds the module reproducibly
 (`-trimpath -buildvcs=false`) into `cmd/nitrovin/sw`, which git ignores
 and `serve` embeds; goreleaser's before hook runs it, so release builds
-serve the worker and others serve `/vocab` without it. `vocab.js` is
-`/vocab`'s script: it registers the worker, says its state (ready, paused
-after a hard reload, an update waiting for the old release's tabs to
-close) and hands picked files to it by `postMessage`, never in a request,
-giving up on a load after a minute without progress.
+serve the worker and others serve `/vocab` without it. Beside it,
+`scripts/epa.sh [<dir>]` fetches `epa-vehicles.jsonl` from the
+nitrovin-data release `go.mod` pins, checked against that release's
+`checksums.txt`; goreleaser's before hook runs it too, and `serve` offers
+the file on `/vocab` as a one-click load when it is of the server's data
+month (`ui.Offer`). `vocab.js` is `/vocab`'s script: it registers the
+worker, says its state (ready, paused after a hard reload, an update
+waiting for the old release's tabs to close), swaps the worker's panel
+(`/ui/files`: the merged catalog, each file marked by where it lives, with
+its drift) over the server's catalog, and hands picked or dropped files,
+and EPA's on a click, to it by `postMessage`, never in a request, giving up
+on a load after a minute without progress.
 
 `TestForm` then runs the form in headless Chrome or Chromium
 (`browser_test.go`, over the DevTools protocol with chromedp), twice, each
@@ -457,6 +464,23 @@ so; and checks from the server's side that it got no
 request with a body and none naming a browser file. Set
 `NITROVIN_COLD_START_BUDGET=1s` to hold the cold start to a budget, on the
 reference machine.
+
+`TestVocabPage` (`vocabpage_test.go`) runs `/vocab` in a fresh profile
+without JavaScript and then in another with it, against a server that
+loaded the drift fixture's `classics` and offers the EPA sample
+(`cmd/nitrovin-epa/testdata/vehicles.jsonl`) as EPA's vocabulary, and
+audits every state with axe. Each finding of the browser prototype's
+[first review](https://github.com/joshuasprow/nitrovin/issues/147#issuecomment-6779155104)
+is a step: a hard reload is paused (1); a record IndexedDB holds that the
+release cannot read is listed with its fault and removed (2); a refused
+remove shows, names its dependants and changes nothing, and "remove all"
+removes them (3); a batch links whatever its order (4); the server's
+catalog rows and a link through its file are the same with JavaScript on
+and off (6); cold starts fetch the module and spine bundle no more than
+once (7); and errors carry real status codes and file names, Remove
+clicked the moment the panel shows goes by htmx, and an unreachable server
+is said in words (8). `TestWorker` covers the stalled load (5). It also
+loads EPA's vocabulary in one click and drops a file on the page.
 
 `cmd/libnitrovin` is the C library (`-buildmode=c-shared`, no data).
 `scripts/libnitrovin.sh <dir> [<goos>/<goarch>…]` builds it for all six

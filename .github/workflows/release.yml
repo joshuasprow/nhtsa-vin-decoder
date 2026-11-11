@@ -29,6 +29,7 @@ on:
       - Dockerfile
       - scripts/libnitrovin.sh
       - scripts/mcp-server-json.sh
+      - scripts/epa.sh
       - docs/api/mcp-tools.json
       - mise.toml
       - mise.lock

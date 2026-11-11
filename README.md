@@ -444,14 +444,16 @@ nitrovin --vocab testdata/vocab translate --to yard 1C6RR7LT5FS123456  # a VIN t
 nitrovin --vocab testdata/vocab serve                                 # /v1/translate, /v1/vocabularies
 ```
 
-`serve`'s `/vocab` page translates through vPIC and the server's own files
-with or without JavaScript, and with it loads your own files into your
-browser, where they stay: a Service Worker keeps them in IndexedDB and
-translates with the same Go, built to WebAssembly, linking them with the
-server's files, which `serve` publishes with the data month's spine bundle
-under `/ui/r/<release>/` ([docs/vocabularies.md](docs/vocabularies.md)).
-Release builds include the worker; a `go install` build serves `/vocab`
-without it, and says so.
+`serve`'s `/vocab` page lists what is loaded, each file marked by where it
+is kept and with its drift, and translates through vPIC and the server's
+own files with or without JavaScript; with it, it loads your own files,
+picked or dropped on the page, into your browser, where they stay: a
+Service Worker keeps them in IndexedDB and translates with the same Go,
+built to WebAssembly, linking them with the server's files, which `serve`
+publishes with the data month's spine bundle under `/ui/r/<release>/`
+([docs/vocabularies.md](docs/vocabularies.md)). Release builds include
+the worker, and EPA's vocabulary (below) as a one-click load into the
+browser; a `go install` build serves `/vocab` without them, and says so.
 
 Each data release also carries `epa-vehicles.jsonl`, a vocabulary of the
 names EPA's fuel-economy data
@@ -473,7 +475,8 @@ nitrovin --vocab epa-vehicles.jsonl translate --to epa-vehicles 1C6RR7LT5FS12345
 A vocabulary built against another month loads too, with a drift warning for
 each id NHTSA has changed since. `checksums.txt` on the same release covers
 it ([Verify a release](#verify-a-release)). nitrovin ships no other
-vocabulary, and [nitrovin.app](https://nitrovin.app) loads none.
+vocabulary, and [nitrovin.app](https://nitrovin.app) loads none on the
+server: its `/vocab` offers EPA's to load into your browser.
 
 ## Parity
 

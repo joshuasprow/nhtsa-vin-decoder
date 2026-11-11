@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/joshuasprow/nitrovin-data/pkg/artifact"
+	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
 // DataSourceEmbedded is Info.DataSource for the artifact built into the
@@ -64,6 +65,32 @@ const MaxDriftExamples = 3
 type DriftExample struct {
 	Line   int    `json:"line"`
 	Detail string `json:"detail"`
+}
+
+// driftKinds orders a file's DriftCounts.
+var driftKinds = []vocab.DriftKind{vocab.DriftMake, vocab.DriftModel, vocab.DriftQualifier, vocab.DriftExtension}
+
+// DriftCounts counts the findings of drift about the file loaded from
+// path by kind, keeping the first MaxDriftExamples of each: what Info
+// says of the file, and what /vocab shows of it.
+func DriftCounts(path string, drift []vocab.Finding) []DriftCount {
+	out := []DriftCount{}
+	for _, kind := range driftKinds {
+		c := DriftCount{Kind: string(kind), Examples: []DriftExample{}}
+		for _, d := range drift {
+			if d.File != path || d.Drift != kind {
+				continue
+			}
+			c.Count++
+			if len(c.Examples) < MaxDriftExamples {
+				c.Examples = append(c.Examples, DriftExample{Line: d.Line, Detail: d.Detail})
+			}
+		}
+		if c.Count > 0 {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // Element is one public element of a data month.

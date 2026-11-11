@@ -452,7 +452,7 @@ func TestLibraryDecode(t *testing.T) {
 	}
 	s.down = true
 	_, err = l.Translate(req)
-	if e, ok := errors.AsType[*pageError](err); !ok || e.Status != http.StatusServiceUnavailable || !strings.Contains(e.Message, "works without it") {
+	if e, ok := errors.AsType[*pageError](err); !ok || e.Status != http.StatusServiceUnavailable || !strings.Contains(e.Message, "works without it") || strings.Contains(e.Message, "Failed to fetch") {
 		t.Errorf("offline: %v", err)
 	}
 	// A name still translates offline.
@@ -461,19 +461,46 @@ func TestLibraryDecode(t *testing.T) {
 	}
 }
 
-// TestBrowserPages: the worker's handler lists the files and refuses a
-// remove with dependants as the panel, sent to it whatever the status;
-// the server's says the files need the worker.
+// TestBrowserPages: the worker's handler lists the merged catalog, each
+// row marked by where it lives, with the drift of each file, offers EPA's
+// vocabulary unless the browser holds it, and refuses a remove with
+// dependants as the panel, sent to it whatever the status; the server's
+// says the files need the worker.
 func TestBrowserPages(t *testing.T) {
-	s, d := server(t), newDisk()
+	s, d := server(t, "parts"), newDisk()
 	l := open(t, s, d)
 	if _, err := l.Load(pick(t, "classics", "yard"), quiet); err != nil {
 		t.Fatal(err)
 	}
-	h := NewInBrowser(l, log.New(io.Discard, "", 0))
+	var yard string
+	for _, f := range l.Files() {
+		if f.Name == "yard" {
+			yard = f.Blake3
+		}
+	}
+	offer := &Offer{Name: "yard", Version: "2026.12", Blake3: "ff00", Size: 956_057, URL: testAssets + "/vocab/ff00/yard.jsonl"}
+	h := NewInBrowser(l, offer, log.New(io.Discard, "", 0))
 	status, _, body := response(t, h, "GET", "/ui/files", htmx)
-	if status != 200 || !strings.Contains(body, `<th scope="row">classics<br>`) || !strings.Contains(body, `id="vocab-files"`) {
+	for _, want := range []string{
+		`<tr data-where="vpic"><th scope="row"><a href="/ui/vocabularies/vpic">vpic</a></th>` + "\n<td>spine of vehicles</td><td class=\"version\">2026_10</td>\n<td>built in</td>",
+		`<tr data-where="server"><th scope="row"><a href="/ui/vocabularies/parts">parts</a></th>` + "\n<td>spine of parts</td><td class=\"version\">2026.11</td>\n<td>this server</td>",
+		`<tr data-where="browser"><th scope="row"><a href="/ui/vocabularies/classics">classics</a></th>` + "\n<td>extension set of vehicles → vpic</td><td class=\"version\">2026.11</td>\n<td>this browser<br><span class=\"hint\">classics.jsonl, ",
+		`<td>vocabulary of vehicles: make, model → vpic</td>`,
+		`<button type="submit">Remove yard</button>`,
+		`id="vocab-files"`,
+		`id="load-epa" data-url="` + testAssetsAttr + `/vocab/ff00/yard.jsonl" data-file="yard.jsonl"`,
+		"956 kB", "replacing version 2026.11",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("files lack %s:\n%s", want, body)
+		}
+	}
+	if status != 200 || strings.Contains(body, "Remove parts") || strings.Contains(body, "No files are kept") {
 		t.Errorf("files: %d\n%s", status, body)
+	}
+	offer.Blake3 = yard
+	if _, _, body := response(t, h, "GET", "/ui/files", htmx); strings.Contains(body, "load-epa") || !strings.Contains(body, "EPA's vocabulary, yard 2026.12, is kept in this browser.") {
+		t.Errorf("files with the offer held:\n%s", body)
 	}
 	form := func(v string, header http.Header) (int, http.Header, string) {
 		r := httptest.NewRequest("POST", "/ui/files/remove", strings.NewReader(v))
@@ -501,6 +528,45 @@ func TestBrowserPages(t *testing.T) {
 		if status != http.StatusNotFound || !strings.Contains(body, "never uploaded") {
 			t.Errorf("server %s: %d\n%s", m, status, body)
 		}
+	}
+}
+
+// TestBrowserDrift: the panel counts each file's drift by kind, as
+// /v1/info does, its examples behind a disclosure, and lists a stored file
+// that faults with its fault and a Remove.
+func TestBrowserDrift(t *testing.T) {
+	s, d := server(t), newDisk()
+	l := open(t, s, d)
+	if _, err := l.Load(pick(t, "drift/classics", "drift/yard"), quiet); err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]StoredFile{}
+	for _, f := range l.Files() {
+		byName[f.Name] = f
+	}
+	if c := byName["yard"].Drift; len(c) != 3 || c[0].Kind != "make" || c[0].Count != 1 || c[1].Kind != "model" || c[1].Count != 1 || c[2].Kind != "qualifier" || c[2].Count != 2 {
+		t.Errorf("yard's drift: %+v", c)
+	}
+	if c := byName["classics"].Drift; len(c) != 1 || c[0].Kind != "extension" || c[0].Examples[0].Line != 2 {
+		t.Errorf("classics's drift: %+v", c)
+	}
+	d.records["broken"] = Record{Name: "broken", FileName: "broken.jsonl", Blake3: "00", Size: 3}
+	d.texts["00"] = []byte("{}\n")
+	h := NewInBrowser(open(t, s, d), nil, log.New(io.Discard, "", 0))
+	_, _, body := response(t, h, "GET", "/ui/files", htmx)
+	for _, want := range []string{
+		"<details><summary>Drift: 1 make, 1 model, 2 qualifier</summary><ul><li>line 4: /mappings/0/make: vPIC make 99999 is not in data month 2026_10</li><li>line 5: /mappings/0/model: vPIC model 99999 is not in data month 2026_10</li><li>line 2: ",
+		"<details><summary>Drift: 1 extension</summary>",
+		`<tr data-where="browser"><th scope="row">broken</th>`,
+		`<span class="error">Left out: broken.jsonl:1: `,
+		`<button type="submit">Remove broken</button>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("files lack %s:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "load-epa") {
+		t.Errorf("an offer, with none made:\n%s", body)
 	}
 }
 
@@ -545,5 +611,34 @@ func TestServiceWorker(t *testing.T) {
 	status, _, body = response(t, h, "GET", "/ui/translate?from.vocabulary=mine&from.entry.make=x&to=mine", nil)
 	if status != 404 || !strings.Contains(body, "open this link in the browser that holds it") {
 		t.Errorf("a browser file's link on the server: %d\n%s", status, body)
+	}
+
+	// EPA's vocabulary is offered, and published among the release's
+	// assets, when it is of the server's data month and the server loaded
+	// no file of its name.
+	epa, err := os.ReadFile(filepath.Join("..", "..", "cmd", "nitrovin-epa", "testdata", "vehicles.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := blake3.Sum256(epa)
+	epaURL := fmt.Sprintf("%s/vocab/%x/epa-vehicles.jsonl", testAssets, sum)
+	h = New(backend{info: testInfo}, log.New(io.Discard, "", 0)).WithWorker(Worker{Module: []byte("\x00asm"), Exec: []byte("// go"), EPA: epa})
+	_, _, body = response(t, h, "GET", "/sw.js", nil)
+	if want := fmt.Sprintf(`"epa":{"name":"epa-vehicles","version":"2026-06-09+2026_10","blake3":"%x","size":%d,"url":"%s"}`, sum, len(epa), epaURL); !strings.Contains(body, want) {
+		t.Errorf("/sw.js lacks %s:\n%s", want, body)
+	}
+	status, hdr, body = response(t, h, "GET", epaURL, nil)
+	if status != 200 || hdr.Get("Content-Type") != "application/jsonl" || hdr.Get("Cache-Control") != immutable || body != string(epa) {
+		t.Errorf("EPA's vocabulary: %d %v", status, hdr)
+	}
+	for name, info := range map[string]contract.Info{
+		"another data month": {DecoderVersion: testInfo.DecoderVersion, DataMonth: "2026_09", ArtifactHash: testInfo.ArtifactHash},
+		"a server file of its name": {DecoderVersion: testInfo.DecoderVersion, DataMonth: testInfo.DataMonth, ArtifactHash: testInfo.ArtifactHash,
+			Vocabularies: []contract.VocabularyFile{{Name: "epa-vehicles", Blake3: "ab12"}}},
+	} {
+		h := New(backend{info: info}, log.New(io.Discard, "", 0)).WithWorker(Worker{Module: []byte("\x00asm"), Exec: []byte("// go"), EPA: epa})
+		if _, _, body := response(t, h, "GET", "/sw.js", nil); strings.Contains(body, `"epa"`) {
+			t.Errorf("%s: EPA offered:\n%s", name, body)
+		}
 	}
 }

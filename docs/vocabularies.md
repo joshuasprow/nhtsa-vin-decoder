@@ -322,25 +322,38 @@ file again when it is asked for, and refuses with a 500 a file that
 changed on disk since it was loaded: restart `serve` to publish the new
 one.
 
-**In a browser**: `serve`'s `/vocab` page lists the server's files and
-translates and lists through them (`/ui/translate`, `/ui/vocabularies`),
+**In a browser**: `serve`'s `/vocab` page lists what is loaded, each file
+marked by where it is kept, with its drift counted by kind as `/v1/info`
+counts it (the first examples behind a disclosure), and translates and
+lists through the server's files (`/ui/translate`, `/ui/vocabularies`),
 with JavaScript or without. With JavaScript it also loads your own files,
-picked from disk, into the browser: a Service Worker (`/sw.js`) keeps each
-file's text and parsed index in IndexedDB and runs the same pages, built
-from the same Go to WebAssembly, over them and the server's files, which
-it links from the URLs above. Files picked together load as one batch,
-which must link (with the server's files and those already stored), and a
-file named like a stored one replaces it; a file named like one of the
-server's is refused. Removing a file others link to is refused, naming
-them, unless they go too. The worker answers only the pages that name a
-file the browser holds and leaves every other request to the server, so a
-link means the same with JavaScript on or off; opened in another browser,
-a link naming your file says where it lives. Answers carry the
-`decoder_version` and `data_month` of the decode they used, and the worker
-refuses a VIN when the server has moved to another data month than its
-own: close every tab of the site and open it again, and the new release's
-worker takes over. A page loaded with a hard reload is not the worker's,
-and says your files are paused for that load.
+picked from disk or dropped anywhere on the page, into the browser: a
+Service Worker (`/sw.js`) keeps each file's text and parsed index in
+IndexedDB and runs the same pages, built from the same Go to WebAssembly,
+over them and the server's files, which it links from the URLs above.
+The page then lists one catalog: vPIC, the server's files and yours, each
+marked as built in, on this server or in this browser, yours with their
+file name, size and when they were stored, and how much the site keeps in
+the browser. Files loaded together load as one batch, which must link
+(with the server's files and those already stored), and a file named like
+a stored one replaces it; a file named like one of the server's is
+refused, and so is a file with a fault, naming the file and line. Removing
+a file others link to is refused, naming them, with an offer to remove
+them all. A stored file that this release can no longer read, or that no
+longer links, is listed with its fault and can be removed. The worker
+answers only the pages that name a file the browser holds and leaves
+every other request to the server, so a link means the same with
+JavaScript on or off; opened in another browser, a link naming your file
+says where it lives. Answers carry the `decoder_version` and `data_month`
+of the decode they used, and the worker refuses a VIN when the server has
+moved to another data month than its own: close every tab of the site and
+open it again, and the new release's worker takes over. A page loaded with
+a hard reload is not the worker's, and says your files are paused for
+that load. Release builds also offer [EPA's vocabulary](#epas-vocabulary)
+of their data month as a one-click load: `serve` publishes it, byte for
+byte as nitrovin-data's release has it, at
+`/ui/r/<release>/vocab/<blake3>/epa-vehicles.jsonl`, and the browser keeps
+it like a file of yours.
 
 **stdio**: a line with `"op": "translate"` or `"op": "list"` carries that
 request, and its reply is keyed `translation` or `list`:
@@ -477,7 +490,8 @@ nowhere (a file loaded on `/vocab` stays in that browser: only a VIN to
 decode goes to the server), and an answer names a file only by its `name` and `version`
 (`/v1/info` adds its hash and local path). nitrovin ships no third-party
 vocabulary but EPA's, and the hosted [nitrovin.app](https://nitrovin.app)
-loads none: there, translate and list answer for vPIC alone. A vocabulary
+loads none: there, the API's translate and list answer for vPIC alone, and
+`/vocab` offers EPA's to load into your browser. A vocabulary
 built from licensed names (a parts catalog, a marketplace's compatibility
 data) is yours to build and load under your own licence, and stays on the
 machines you load it on.
