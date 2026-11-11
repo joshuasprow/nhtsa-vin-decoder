@@ -62,7 +62,7 @@ Every release embeds one vPIC data month; `nitrovin --version` names it.
 
 | Channel | Command | Platforms |
 | --- | --- | --- |
-| Homebrew | `brew install joshuasprow/tap/nitrovin` | macOS, Linux |
+| Homebrew | `brew install joshuasprow/tap/nitrovinX` | macOS, Linux |
 | Scoop | `scoop bucket add joshuasprow https://github.com/joshuasprow/scoop-bucket` then `scoop install nitrovin` | Windows amd64, arm64 |
 | winget | `JoshuaSprow.Nitrovin`, not yet submitted ([#78](https://github.com/joshuasprow/nitrovin/issues/78)) | Windows |
 | Docker | `docker run --rm -p 8080:8080 ghcr.io/joshuasprow/nitrovin` | linux/amd64, linux/arm64 |
