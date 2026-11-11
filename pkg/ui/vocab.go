@@ -308,12 +308,15 @@ func (p translatePage) TargetsOn(spine string) targetSet {
 // one spine and offering that spine's targets, whether a vocabulary is
 // chosen yet or not: a translation crosses exactly one spine (ADR 0010).
 // Key names its elements ("entry" for vPIC's); From is the vocabulary
-// chosen, nil when it is not on this spine.
+// chosen, nil when it is not on this spine, and Fields, VIN and Year its
+// entry's values as asked.
 type entryForm struct {
 	Spine, Key   string
 	Vocabularies []contract.CatalogEntry
 	From         *contract.CatalogEntry
 	Targets      targetSet
+	Fields       []fieldValue
+	VIN, Year    string
 }
 
 // EntryForms are the forms from a vocabulary's entry: one for the vehicle
@@ -344,7 +347,9 @@ func (p translatePage) EntryForms() []entryForm {
 		}
 		if p.From != nil && p.From.Spine == s {
 			f.From = p.From
+			f.Fields, f.VIN = p.Fields, p.VIN
 		}
+		f.Year = p.YearIn("entry")
 		out[i] = f
 	}
 	return out
@@ -620,10 +625,12 @@ type targetView struct {
 	Entries    []entryView
 }
 
-// entryView is one entry reached: its name, and how it was reached.
+// entryView is one entry reached: its name, a link translating it back,
+// to the request's source vocabulary and the other targets, and how it
+// was reached.
 type entryView struct {
-	Name    string
-	Details []string
+	Name, Href string
+	Details    []string
 }
 
 func newTranslationView(tr contract.Translation, cat []contract.CatalogEntry, elements contract.Elements, year string) *translationView {
@@ -668,8 +675,8 @@ func newTranslationView(tr contract.Translation, cat []contract.CatalogEntry, el
 	default:
 		v.From = named(f.SpineRef)
 	}
-	// The heading names the vehicle: the model reached, under its make,
-	// in its model year, "Ram 1500 (2015)".
+	// The heading names the vehicle: its model year, then the model
+	// reached under its make, "2015 Ram 1500".
 	if x := tr.Vehicle; x != nil && x.ModelYear.Valid {
 		year = strconv.Itoa(int(x.ModelYear.V))
 	}
@@ -695,7 +702,7 @@ func newTranslationView(tr contract.Translation, cat []contract.CatalogEntry, el
 		}
 	}
 	if year != "" && tr.From.Spine == "" {
-		v.Heading += " (" + year + ")"
+		v.Heading = year + " " + v.Heading
 	}
 	if x := tr.Vehicle; x != nil {
 		v.Vehicle = "VIN " + x.VIN + " decodes to " + nullText("vPIC make", x.Make) + ", " + nullText("vPIC model", x.Model) + ", " + nullText("model year", x.ModelYear) + "."
@@ -716,10 +723,33 @@ func newTranslationView(tr contract.Translation, cat []contract.CatalogEntry, el
 			v.Spine = append(v.Spine, refText(s.SpineRef)+": "+u)
 		}
 	}
+	// An entry's link back goes to the source vocabulary, then the
+	// request's other targets, in the same model year.
+	var back []string
+	if tr.From.Vocabulary != "" {
+		back = append(back, tr.From.Vocabulary)
+	}
+	for _, t := range tr.To {
+		if !slices.Contains(back, t.Vocabulary) {
+			back = append(back, t.Vocabulary)
+		}
+	}
 	for _, t := range tr.To {
 		tv := targetView{Vocabulary: t.Vocabulary}
 		for _, e := range t.Entries {
-			ev := entryView{Name: fields(t.Vocabulary, e.Entry)}
+			q := url.Values{"from.vocabulary": {t.Vocabulary}}
+			for k, s := range e.Entry {
+				q.Set("from.entry."+k, s)
+			}
+			if year != "" {
+				q.Set("model_year", year)
+			}
+			for _, n := range back {
+				if n != t.Vocabulary {
+					q.Add("to", n)
+				}
+			}
+			ev := entryView{Name: fields(t.Vocabulary, e.Entry), Href: translatePath + "?" + q.Encode()}
 			for _, via := range e.Via {
 				ev.Details = append(ev.Details, viaText(via, named))
 			}
@@ -1092,6 +1122,9 @@ type workerConfig struct {
 	ArtifactHash   string       `json:"artifact_hash"`
 	Files          []workerFile `json:"files"`
 	EPA            *Offer       `json:"epa,omitempty"`
+	// Elements are the data month's element names by id, which a
+	// translation's unchecked qualifiers are named by.
+	Elements map[int32]string `json:"elements,omitempty"`
 }
 
 // workerFile is one of the server's files. Spine is a vocabulary's, which
@@ -1115,6 +1148,9 @@ func ReadWorkerConfig(config []byte) (contract.Info, *Offer, error) {
 		return contract.Info{}, nil, err
 	}
 	info := contract.Info{DecoderVersion: c.DecoderVersion, DataMonth: c.DataMonth, ArtifactHash: c.ArtifactHash, Vocabularies: []contract.VocabularyFile{}}
+	for _, id := range slices.Sorted(maps.Keys(c.Elements)) {
+		info.Elements = append(info.Elements, contract.Element{ElementID: id, Variable: c.Elements[id]})
+	}
 	for _, f := range c.Files {
 		info.Vocabularies = append(info.Vocabularies, contract.VocabularyFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3})
 	}
@@ -1132,6 +1168,12 @@ func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info, base 
 		return err
 	}
 	c := workerConfig{Assets: base, Release: Release(info), DecoderVersion: info.DecoderVersion, DataMonth: info.DataMonth, ArtifactHash: info.ArtifactHash, Files: []workerFile{}, EPA: h.offered()}
+	if len(info.Elements) > 0 {
+		c.Elements = map[int32]string{}
+		for _, e := range info.Elements {
+			c.Elements[e.ElementID] = e.Variable
+		}
+	}
 	for _, f := range info.Vocabularies {
 		wf := workerFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3, URL: FilePath(info, f)}
 		if i := slices.IndexFunc(cat, func(e contract.CatalogEntry) bool { return e.Name == f.Name }); i >= 0 && cat[i].Kind == "vocabulary" {

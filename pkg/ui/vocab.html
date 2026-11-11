@@ -79,8 +79,9 @@ Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 {{- end}}
 
 {{/* translate-forms is the examples, each a link to the translate page
-with its form filled in, and the forms: from a VIN, from a vPIC make or
-model, from a vocabulary's entry, one per spine (EntryForms), each with
+with its form filled in, and the forms: the two directions side by side,
+from a VIN and from a vehicle vocabulary's year, make and model; the vPIC
+id form under Advanced; then one per part spine (EntryForms), each with
 that spine's targets before a vocabulary is chosen. */}}
 {{define "translate-forms" -}}
 <p>Try one:</p>
@@ -88,6 +89,7 @@ that spine's targets before a vocabulary is chosen. */}}
 {{range .Examples}}<li><a class="example" href="{{.Href}}" data-spine="{{.Spine}}" data-to="{{.DefaultTo}}">{{.Label}}</a> <span class="hint">{{.Hint}}</span></li>
 {{end}}</ul>
 
+<div class="directions">
 <form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-swap="innerHTML show:window:top" hx-push-url="true" aria-labelledby="from-vin-h">
 <h2 id="from-vin-h">From a VIN</h2>
 <div>
@@ -101,6 +103,8 @@ that spine's targets before a vocabulary is chosen. */}}
 {{template "targets" (.TargetsOn "vpic")}}
 <button type="submit">Translate the VIN</button>
 </form>
+{{range .EntryForms}}{{if eq .Spine "vpic"}}{{template "entry-form" .}}{{end}}{{end}}
+</div>
 
 <details class="advanced"{{if or .FromMake .FromModel}} open{{end}}>
 <summary>Advanced: from a vPIC make or model id</summary>
@@ -124,9 +128,12 @@ that spine's targets before a vocabulary is chosen. */}}
 </form>
 </details>
 
-{{range $f := .EntryForms}}
-<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-swap="innerHTML show:window:top" hx-push-url="true" aria-labelledby="from-{{.Key}}-h">
-<h2 id="from-{{.Key}}-h">{{if eq .Spine "vpic"}}From a vehicle vocabulary's entry{{else}}From a part vocabulary's entry, on the {{.Spine}} spine{{end}}</h2>
+{{range .EntryForms}}{{if ne .Spine "vpic"}}{{template "entry-form" .}}{{end}}{{end}}
+{{- end}}
+
+{{define "entry-form" -}}
+{{$f := .}}<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-swap="innerHTML show:window:top" hx-push-url="true" aria-labelledby="from-{{.Key}}-h">
+<h2 id="from-{{.Key}}-h">{{if eq .Spine "vpic"}}From a year, make and model{{else}}From a part vocabulary's entry, on the {{.Spine}} spine{{end}}</h2>
 <div>
 <label for="from-{{.Key}}-vocabulary">Vocabulary</label>
 <select id="from-{{.Key}}-vocabulary" name="from.vocabulary">
@@ -134,22 +141,21 @@ that spine's targets before a vocabulary is chosen. */}}
 {{end}}</select>
 </div>
 {{if .From -}}
-{{range $.Fields}}<div>
+{{range .Fields}}<div>
 <label for="entry-{{.Name}}">{{.Name}}</label>
 <input type="text" id="entry-{{.Name}}" name="from.entry.{{.Name}}" value="{{.Value}}" autocomplete="off">
 </div>
-{{end}}{{if eq .Spine "vpic"}}<div>
-<label for="context-vin">VIN <span class="hint">(optional: its decode checks qualifiers)</span></label>
-<input type="text" id="context-vin" name="vin" value="{{$.VIN}}" autocomplete="off" spellcheck="false">
-</div>
-<div>
+{{end}}{{end}}{{if eq .Spine "vpic"}}<div>
 <label for="entry-model-year">Model year <span class="hint">(optional)</span></label>
-<input type="text" id="entry-model-year" name="model_year" value="{{$.YearIn "entry"}}" inputmode="numeric" autocomplete="off">
+<input type="text" id="entry-model-year" name="model_year" value="{{.Year}}" inputmode="numeric" autocomplete="off">
+</div>
+{{if .From}}<div>
+<label for="context-vin">VIN <span class="hint">(optional: its decode checks qualifiers)</span></label>
+<input type="text" id="context-vin" name="vin" value="{{.VIN}}" autocomplete="off" spellcheck="false">
 </div>
 {{end}}{{end}}{{template "targets" .Targets}}
 <button type="submit">{{if .From}}Translate the entry{{else}}Choose{{end}}</button>
 </form>
-{{end}}
 {{- end}}
 
 {{/* targets is a form's targets, the vocabularies on one spine, which
@@ -166,7 +172,7 @@ vocab.js keeps as the visitor's selection on /vocab. */}}
 <h2 id="translation-h">{{.Heading}}</h2>
 <p>From {{.From}}{{with .Status}}: <strong>{{.}}</strong>{{end}}{{with .Note}} ({{.}}){{end}}</p>
 {{range .To}}<h3>{{.Vocabulary}}</h3>
-{{if .Entries}}<ul class="entries">{{range .Entries}}<li><strong>{{.Name}}</strong>{{with .Details}}
+{{if .Entries}}<ul class="entries">{{range .Entries}}<li><a href="{{.Href}}" hx-boost="true" hx-target="#ui-main" hx-swap="innerHTML show:window:top"><strong>{{.Name}}</strong></a>{{with .Details}}
 <details><summary>Details</summary><ul>{{range .}}<li>{{.}}</li>{{end}}</ul></details>{{end}}</li>
 {{end}}</ul>{{else}}<p>No name for this vehicle yet.</p>{{end}}
 {{else}}<p>No vocabulary to translate to: tick one in a form below.</p>
