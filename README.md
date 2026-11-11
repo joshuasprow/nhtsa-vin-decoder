@@ -6,6 +6,11 @@ decoding procedure NHTSA publishes inside its monthly vPIC database, and it
 ships as one binary with a month of vPIC data inside. No network, no
 database, no API key.
 
+Its goals are compatibility, answering exactly as vPIC does, and
+interoperability, working with other systems through vPIC's ids, its
+output shapes and standard formats; speed serves them, and is not one of
+them.
+
 Every data month is checked against NHTSA's own procedure running in
 Postgres before it ships: every row of every VIN in an 18,318-VIN corpus
 must match, byte for byte, or the month does not ship
@@ -533,6 +538,14 @@ yourself in a second.
   musl), and macOS 11+.
 
 ## Benchmarks
+
+Correctness first. On a random 2,000 of the corpus's VINs, nitrovin and
+ultravin each agree with the freshened Postgres oracle on 2,000 of 2,000
+decodes; corgi v2 and v3 emit other output and are not comparable; NHTSA
+Postgres is the oracle itself; NHTSA MSSQL and the web API were not
+compared ([the correctness aside](docs/benchmarks.md#correctness-aside)).
+Speed is context for the goals, not one of them: a budget to meet, not a
+race to win.
 
 How many VINs each engine decodes **per second**, every row measured on
 one machine over one corpus, against NHTSA's own `spVinDecode` in SQL
