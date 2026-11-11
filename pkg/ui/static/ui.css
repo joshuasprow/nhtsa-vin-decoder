@@ -91,3 +91,5 @@ table.catalog .actions button { min-height: 24px; min-width: 24px; }
 .dropzone { border: 2px dashed var(--line); border-radius: 6px; padding: 1rem; }
 section#browser.dropping .dropzone { border-color: var(--link); }
 details.more { margin: .75rem 0; }
+form.filter { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; border: 0; padding: 0; margin: .5rem 0; }
+form.filter label { flex-basis: 100%; }

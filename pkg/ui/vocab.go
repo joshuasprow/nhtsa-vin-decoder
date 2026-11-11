@@ -694,6 +694,13 @@ type entriesPage struct {
 	Rows    []entryRow
 	// Next is the next page's URL, "" on the last.
 	Next string
+	// Filter is the box filtering on the first field, nil for a spine.
+	Filter *entryFilter
+}
+
+// entryFilter is the entry list's filter: GET where.{Field}={Value}.
+type entryFilter struct {
+	Field, Value string
 }
 
 // entryRow is one listed entry: its cells, and a link to what it lists
@@ -706,6 +713,12 @@ type entryRow struct {
 func (h *Handler) entries(r *http.Request) (view, error) {
 	name := strings.TrimPrefix(r.URL.Path, vocabulariesPath+"/")
 	q := r.URL.Query()
+	// The filter box submitted empty filters nothing.
+	for k, vs := range q {
+		if strings.HasPrefix(k, "where.") && !slices.ContainsFunc(vs, func(v string) bool { return v != "" }) {
+			q.Del(k)
+		}
+	}
 	if !q.Has("limit") {
 		q.Set("limit", "100")
 	}
@@ -731,6 +744,7 @@ func (h *Handler) entries(r *http.Request) (view, error) {
 	}
 	if len(fields) > 0 {
 		p.Columns = append(slices.Clone(fields), "maps to")
+		p.Filter = &entryFilter{Field: fields[0], Value: q.Get("where." + fields[0])}
 	} else {
 		p.Columns = []string{"entry", "name", "under"}
 	}

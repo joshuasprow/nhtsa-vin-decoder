@@ -56,6 +56,12 @@ Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 {{define "entries" -}}
 <h1>{{.Name}}</h1>
 <p hx-boost="true" hx-target="#ui-main"><a href="/vocab">Every vocabulary</a></p>
+{{with .Filter}}<form method="get" action="/ui/vocabularies/{{$.Name}}" class="filter" role="search">
+<label for="entry-filter">Show only this {{.Field}}</label>
+<input type="search" id="entry-filter" name="where.{{.Field}}" value="{{.Value}}" autocomplete="off">
+<button type="submit">Filter</button>{{if .Value}} <a href="/ui/vocabularies/{{$.Name}}">Show all</a>{{end}}
+</form>{{end}}
+<p>{{len .Rows}} {{if eq (len .Rows) 1}}entry{{else}}entries{{end}}{{if .Next}} on this page{{end}}.</p>
 <div class="wide"><table>
 <thead><tr>{{range .Columns}}<th scope="col">{{.}}</th>{{end}}</tr></thead>
 <tbody>
