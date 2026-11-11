@@ -23,8 +23,8 @@ import (
 // visitor's own files, which need JavaScript, and the translate forms.
 // /ui/translate translates, its query GET /v1/translate's, below the same
 // forms; both offer examples, one from each vocabulary. /ui/vocabularies
-// lists the server's catalog and /ui/vocabularies/{name} one file's
-// entries, their queries GET /v1/vocabularies's. Each answers the same on
+// sends the visitor to /vocab, the one list; /ui/vocabularies/{name} lists
+// one file's entries, its query GET /v1/vocabularies's. Each answers the same on
 // the server and in the browser's Service Worker, which answers only the
 // requests naming a file the browser holds and forwards the rest: so a
 // link means one thing with JavaScript on or off, and a link naming a
@@ -681,18 +681,10 @@ func unconfirmedText(u contract.Unconfirmed) string {
 	return " [unconfirmed: " + strings.Join(parts, ", ") + "]"
 }
 
-// catalogPage is /ui/vocabularies: what the server loaded, vPIC first.
-func (h *Handler) catalogPage(r *http.Request) (view, error) {
-	if len(r.URL.Query()) > 0 {
-		if _, err := contract.ParseListQuery("", r.URL.Query()); err != nil {
-			return view{}, err
-		}
-	}
-	cat, err := h.catalog()
-	if err != nil {
-		return view{}, err
-	}
-	return view{title: "Vocabularies", template: "catalog-page", data: catalogTable{Rows: h.rows(cat)}}, nil
+// catalogPage is /ui/vocabularies: one list of vocabularies, /vocab's,
+// so it sends the visitor there.
+func (h *Handler) catalogPage(*http.Request) (view, error) {
+	return view{location: vocabPath, status: http.StatusSeeOther}, nil
 }
 
 // entriesPage is one page of /ui/vocabularies/{name}.

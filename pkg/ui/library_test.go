@@ -547,11 +547,11 @@ func TestBrowserPages(t *testing.T) {
 	h := NewInBrowser(l, offer, log.New(io.Discard, "", 0))
 	status, _, body := response(t, h, "GET", "/ui/files", htmx)
 	for _, want := range []string{
-		`<tr data-where="vpic"><th scope="row"><a href="/ui/vocabularies/vpic">vpic</a></th>` + "\n<td>spine of vehicles</td><td class=\"version\">2026_10</td>\n<td>built in</td>",
-		`<tr data-where="server"><th scope="row"><a href="/ui/vocabularies/parts">parts</a></th>` + "\n<td>spine of parts</td><td class=\"version\">2026.11</td>\n<td>this server</td>",
-		`<tr data-where="browser"><th scope="row"><a href="/ui/vocabularies/classics">classics</a></th>` + "\n<td>extension set of vehicles → vpic</td><td class=\"version\">2026.11</td>\n<td>this browser<br><span class=\"hint\">classics.jsonl, ",
-		`<td>vocabulary of vehicles: make, model → vpic</td>`,
-		`<button type="submit">Remove yard</button>`,
+		`<tr data-where="vpic"><th scope="row"><a href="/ui/vocabularies/vpic">vpic</a></th>` + "\n<td>spine of vehicles\n", `<dd class="version">2026_10</dd>` + "\n<dt>Kept in</dt><dd>built in</dd>",
+		`<tr data-where="server"><th scope="row"><a href="/ui/vocabularies/parts">parts</a></th>` + "\n<td>spine of parts\n", `<dd class="version">2026.11</dd>` + "\n<dt>Kept in</dt><dd>this server</dd>",
+		`<tr data-where="browser"><th scope="row"><a href="/ui/vocabularies/classics">classics</a></th>` + "\n<td>extension set of vehicles → vpic, ", "<dt>Kept in</dt><dd>this browser: classics.jsonl, ",
+		`<td>vocabulary of vehicles: make, model → vpic, `,
+		`<button type="submit">Remove<span class="visually-hidden"> yard</span></button>`,
 		`id="vocab-files"`,
 		`id="load-epa" data-url="` + testAssetsAttr + `/vocab/ff00/yard.jsonl" data-file="yard.jsonl"`,
 		"956 kB", "replacing version 2026.11",
@@ -624,7 +624,7 @@ func TestBrowserDrift(t *testing.T) {
 		"<details><summary>Drift: 1 extension</summary>",
 		`<tr data-where="browser"><th scope="row">broken</th>`,
 		`<span class="error">Left out: broken.jsonl:1: `,
-		`<button type="submit">Remove broken</button>`,
+		`<button type="submit">Remove<span class="visually-hidden"> broken</span></button>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("files lack %s:\n%s", want, body)
