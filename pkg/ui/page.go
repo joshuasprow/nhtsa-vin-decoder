@@ -563,7 +563,7 @@ func (h *Handler) home(r *http.Request) (view, error) {
 	if err != nil {
 		return refuse(err)
 	}
-	res.Map = newMapPage(tr, cat, info.Elements, q.Get("model_year"))
+	res.Map = newMapPage(tr, cat, info.Elements, q.Get("model_year"), r.URL.RequestURI())
 	res.Heading = res.Map.Heading
 	// The files used, by name: where a file lives (the server, the
 	// browser) changes their load order, never the page.

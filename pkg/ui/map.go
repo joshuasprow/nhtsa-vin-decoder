@@ -13,20 +13,24 @@ import (
 // The translation map draws a translation, below the page's controls
 // (page.go): three columns, what it is from, the spine entries it crosses
 // (each model under its make) and the entries reached in each target
-// vocabulary, each a card, the mappings between them lines. A spine card
-// links to the page from that spine entry, a target's to the page
-// translating it back, so the map is walked card to card. How a card was
-// reached, each mapping's years, origin and note and what could not be
-// checked, is its title; the translation's JSON, a dialog below the map,
-// has all of it.
+// vocabulary, each a card, the mappings between them lines. Every card is
+// a link: the From card to this answer's own page, a spine card to the
+// page from that spine entry, a target's to the page translating it back,
+// so the map is walked card to card. What the lines draw is in each
+// card's text too (Rel): its make, what it was reached through and how,
+// read as part of its name, and its own line when a narrow window stacks
+// the columns and hides the lines. Each mapping's years, origin and note
+// and what could not be checked is its title; the translation's JSON, a
+// dialog below the map, has all of it.
 //
 // Every card is the same height, so the server knows where each sits and
 // draws the lines in an SVG behind the cards, stretched across the
 // columns' width (preserveAspectRatio none, strokes that do not scale):
 // no script lays it out, and the page needs none, only CSP's own
-// stylesheet. map.js lights the route through the card under the pointer
-// or focus, the cards and lines its data-lit names, which the server
-// works out too.
+// stylesheet. A name wraps to two lines; a longer one shows whole while
+// its card is under the pointer or focused. map.js lights the route
+// through the card under the pointer or focused, the cards and lines its
+// data-lit names, which the server works out too.
 
 // The map's geometry, which ui.css's map rules repeat: down, in CSS
 // pixels, a column's heading, a target vocabulary's heading, a card, and
@@ -36,7 +40,7 @@ import (
 const (
 	mapHeadH  = 32
 	mapGroupH = 26
-	mapCardH  = 52
+	mapCardH  = 72
 	mapGapH   = 10
 	mapColW   = 26.0
 	mapColGap = 11.0
@@ -45,12 +49,14 @@ const (
 
 // mapPage is a translation on the map. Heading names what was
 // translated, the vehicle when the spine names one: "2015 Ram 1500".
-// Height is the columns', in CSS pixels.
+// Height is the columns', in CSS pixels. Derived, Under and Decoded say
+// which kinds of line it draws besides mappings, for its key.
 type mapPage struct {
-	Heading string
-	Columns []mapColumn
-	Edges   []mapEdge
-	Height  int
+	Heading                 string
+	Columns                 []mapColumn
+	Edges                   []mapEdge
+	Height                  int
+	Derived, Under, Decoded bool
 }
 
 type mapColumn struct {
@@ -60,14 +66,15 @@ type mapColumn struct {
 
 // mapItem is one row of a column: a target vocabulary's heading (Group),
 // a line saying nothing is there (Empty), or a card. A card has its name,
-// a line under it (Meta), how it was reached (Details), a link (Href, ""
-// for none), and the ids of the cards and lines on the routes through it
-// (Lit). Under indents a model under its make; Unchecked marks an entry
-// whose qualifiers or model year could not all be checked.
+// how it relates to the cards its lines reach (Rel), a line under it
+// (Meta), how it was reached in detail (Details), a link (Href), and the
+// ids of the cards and lines on the routes through it (Lit). Under
+// indents a model under its make; Unchecked marks an entry whose
+// qualifiers or model year could not all be checked.
 type mapItem struct {
-	Group, Empty                       string
-	ID, Name, Meta, Details, Href, Lit string
-	Mono, Under, Unchecked             bool
+	Group, Empty                            string
+	ID, Name, Rel, Meta, Details, Href, Lit string
+	Mono, Under, Unchecked                  bool
 }
 
 func (i mapItem) height() int {
@@ -77,12 +84,13 @@ func (i mapItem) height() int {
 	return mapCardH
 }
 
-// mapEdge is one line: a mapping (Derived when matched by rule), or a
-// model's tie to its make (Under). D is its path, x in percent of the
-// map's width and y in CSS pixels.
+// mapEdge is one line: a mapping (Derived when matched by rule), a
+// model's tie to its make (Under), or a VIN's to the model it decodes to
+// (Decoded). D is its path, x in percent of the map's width and y in CSS
+// pixels.
 type mapEdge struct {
-	ID, D          string
-	Derived, Under bool
+	ID, D                   string
+	Derived, Under, Decoded bool
 }
 
 // mapGraph is the map as it is built: its columns, and its cards and
@@ -93,11 +101,11 @@ type mapGraph struct {
 	links []mapLink
 }
 
-// mapLink is a line from card a to card b, a mapping or a model's tie to
-// its make (under).
+// mapLink is a line from card a to card b, a mapping, a model's tie to
+// its make (under) or a VIN's decode (decoded).
 type mapLink struct {
-	a, b           int
-	derived, under bool
+	a, b                    int
+	derived, under, decoded bool
 }
 
 // add puts it at the foot of column col: its number when it is a card,
@@ -119,12 +127,13 @@ func (g *mapGraph) link(a, b int, derived, under bool) {
 	if a < 0 || b < 0 || slices.ContainsFunc(g.links, func(l mapLink) bool { return l.a == a && l.b == b }) {
 		return
 	}
-	g.links = append(g.links, mapLink{a, b, derived, under})
+	g.links = append(g.links, mapLink{a: a, b: b, derived: derived, under: under})
 }
 
 // newMapPage is the map of tr over the catalog cat, asked for in model
-// year year ("" for none), which a decoded VIN's own replaces.
-func newMapPage(tr contract.Translation, cat []contract.CatalogEntry, elements contract.Elements, year string) mapPage {
+// year year ("" for none), which a decoded VIN's own replaces, on the page
+// at self, the From card's link.
+func newMapPage(tr contract.Translation, cat []contract.CatalogEntry, elements contract.Elements, year, self string) mapPage {
 	var p mapPage
 	g := &mapGraph{cols: []mapColumn{{Heading: "From"}, {Heading: "Spine"}, {Heading: "To"}}}
 	if x := tr.Vehicle; x != nil && x.ModelYear.Valid {
@@ -143,7 +152,7 @@ func newMapPage(tr contract.Translation, cat []contract.CatalogEntry, elements c
 
 	// From.
 	f := tr.From
-	from := mapItem{Details: f.Note}
+	from := mapItem{Details: f.Note, Href: self, Rel: "what was translated, a link to this answer"}
 	switch translatedFrom(f) {
 	case fromEntry:
 		from.Name, from.Meta = entryText(cat, f.Vocabulary, f.Entry), f.Vocabulary
@@ -292,6 +301,12 @@ func newMapPage(tr contract.Translation, cat []contract.CatalogEntry, elements c
 			g.link(fromCard, n, false, false)
 		}
 	}
+	// A VIN's line to the model it decodes to is no mapping.
+	if translatedFrom(f) == fromVIN {
+		for i := range g.links {
+			g.links[i].decoded = g.links[i].a == fromCard
+		}
+	}
 
 	// The targets, by vocabulary, each entry from the spine entries its
 	// mappings name.
@@ -338,8 +353,61 @@ func newMapPage(tr contract.Translation, cat []contract.CatalogEntry, elements c
 		g.add(2, mapItem{Empty: "No vocabulary to translate to."})
 	}
 
+	g.relate()
 	p.Columns, p.Edges, p.Height = g.layout()
+	for _, e := range p.Edges {
+		p.Derived, p.Under, p.Decoded = p.Derived || e.Derived, p.Under || e.Under, p.Decoded || e.Decoded
+	}
 	return p
+}
+
+// relate words what each card's lines draw, after what it already says:
+// a model's make, then what it was reached through and how, a model
+// named with its make: "under GMC; reached through Envoy XL" on a model,
+// "reached through GMC Envoy, matched by rule" on a target's entry.
+func (g *mapGraph) relate() {
+	item := func(n int) *mapItem {
+		at := g.cards[n]
+		return &g.cols[at.col].Items[at.row]
+	}
+	// named is card n's name with its make's before it, when it is a
+	// model whose name does not already start with it.
+	named := func(n int) string {
+		name := item(n).Name
+		for _, l := range g.links {
+			if mk := item(l.b).Name; l.under && l.a == n && !strings.HasPrefix(name, mk) {
+				return mk + " " + name
+			}
+		}
+		return name
+	}
+	for n := range g.cards {
+		var parts, through []string
+		if r := item(n).Rel; r != "" {
+			parts = append(parts, r)
+		}
+		decoded := false
+		for _, l := range g.links {
+			switch {
+			case l.under && l.a == n:
+				parts = append(parts, "under "+item(l.b).Name)
+			case l.under || l.b != n:
+			case l.decoded:
+				decoded = true
+			case l.derived:
+				through = append(through, "through "+named(l.a)+", matched by rule")
+			default:
+				through = append(through, "through "+named(l.a))
+			}
+		}
+		if decoded {
+			parts = append(parts, "what the VIN decodes to")
+		}
+		if len(through) > 0 {
+			parts = append(parts, "reached "+strings.Join(through, ", and "))
+		}
+		item(n).Rel = strings.Join(parts, "; ")
+	}
 }
 
 // viaShort is an entry's mappings in its card's line: one's years and
@@ -410,7 +478,7 @@ func (g *mapGraph) layout() ([]mapColumn, []mapEdge, int) {
 
 	edges := make([]mapEdge, len(g.links))
 	for i, l := range g.links {
-		edges[i] = mapEdge{ID: "map-e" + strconv.Itoa(i), Derived: l.derived, Under: l.under}
+		edges[i] = mapEdge{ID: "map-e" + strconv.Itoa(i), Derived: l.derived, Under: l.under, Decoded: l.decoded}
 		ca, _, ta := card(l.a)
 		cb, b, tb := card(l.b)
 		if l.under {

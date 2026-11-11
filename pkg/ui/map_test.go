@@ -3,6 +3,7 @@ package ui
 import (
 	"io"
 	"log"
+	"maps"
 	"net/url"
 	"slices"
 	"strings"
@@ -30,7 +31,7 @@ func mapOf(t *testing.T, l *Library, q string) mapPage {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return newMapPage(tr, cat, l.Info().Elements, v.Get("model_year"))
+	return newMapPage(tr, cat, l.Info().Elements, v.Get("model_year"), homePath+"?"+q)
 }
 
 // cards are p's cards, column by column: "1 Ram", a model under its make
@@ -127,5 +128,102 @@ func TestMapRoutes(t *testing.T) {
 	}
 	if p.Heading != "Dodge Ram" {
 		t.Errorf("heading %q; want Dodge Ram, the first model reached under its make", p.Heading)
+	}
+}
+
+// rels are p's cards' relations, keyed as cards names them: "1 > Ram"
+// to what the card's text says its lines draw.
+func rels(p mapPage) map[string]string {
+	out := map[string]string{}
+	for c, col := range p.Columns {
+		for _, it := range col.Items {
+			if it.ID == "" {
+				continue
+			}
+			k := string(rune('0'+c)) + " "
+			if it.Under {
+				k += "> "
+			}
+			out[k+it.Name] = it.Rel
+		}
+	}
+	return out
+}
+
+// TestMapRelations: every card is a link, the From card to the answer's
+// own page, and each says in words what its lines draw, its make and
+// what it was reached through and how, a model named with its make, so
+// the map reads without them. The key names the kinds of line the map
+// draws.
+func TestMapRelations(t *testing.T) {
+	s, d := server(t, "classics"), newDisk()
+	l := open(t, s, d)
+	if _, err := l.Load(pick(t, "yard"), quiet); err != nil {
+		t.Fatal(err)
+	}
+	const q = "from.vocabulary=yard&from.entry.make=Dodge&from.entry.model=Ram+1500&to=yard"
+	p := mapOf(t, l, q)
+	for _, col := range p.Columns {
+		for _, it := range col.Items {
+			if it.ID != "" && it.Href == "" {
+				t.Errorf("%s is no link", it.Name)
+			}
+		}
+	}
+	if got := p.Columns[0].Items[0].Href; got != homePath+"?"+q {
+		t.Errorf("the From card links to %s; want the answer's own page", got)
+	}
+	if got, want := rels(p), map[string]string{
+		"0 Dodge Ram 1500":     "what was translated, a link to this answer",
+		"1 Dodge":              "",
+		"1 > Ram":              "under Dodge; reached through Dodge Ram 1500",
+		"1 Ram":                "",
+		"1 > 1500":             "under Ram; reached through Dodge Ram 1500",
+		"2 Dodge Other":        "reached through Dodge",
+		"2 Dodge Ram 1500":     "reached through Dodge Ram, and through Ram 1500",
+		"2 Dodge Ram 1500 4x4": "reached through Dodge Ram, and through Ram 1500",
+		"2 Ram Other":          "reached through Ram",
+	}; !maps.Equal(got, want) {
+		t.Errorf("relations\n%q\nwant\n%q", got, want)
+	}
+	if p.Derived || p.Decoded || !p.Under {
+		t.Errorf("key: derived %v, decoded %v, under %v; want under alone", p.Derived, p.Decoded, p.Under)
+	}
+
+	// A VIN's decode, drawn from the VIN to the model it decodes to, and
+	// an entry matched by rule.
+	mk, model := contract.SpineRef{Make: 474}, contract.SpineRef{Model: 1861}
+	year := contract.Null[int32]{V: 2003, Valid: true}
+	tr := contract.Translation{
+		From:    contract.TranslationFrom{VIN: "1HGCM82633A004352", Status: contract.FromMapped},
+		Vehicle: &contract.Vehicle{VIN: "1HGCM82633A004352", Make: contract.Null[int32]{V: 474, Valid: true}, Model: contract.Null[int32]{V: 1861, Valid: true}, ModelYear: year},
+		Spine:   []contract.SpineEntry{{SpineRef: mk, Name: "Honda"}, {SpineRef: model, Name: "Accord", Under: &mk}},
+		To: []contract.Translated{{Vocabulary: "yard", Entries: []contract.TranslatedEntry{
+			{Entry: map[string]string{"model": "ACCORD"}, Via: []contract.Via{{SpineRef: model, Origin: "derived"}}},
+		}}},
+	}
+	p = newMapPage(tr, nil, contract.Elements{}, "", "/?from.vin=1HGCM82633A004352")
+	if !p.Decoded || !p.Under || !p.Derived {
+		t.Errorf("a VIN's key: decoded %v, under %v, derived %v; want all three", p.Decoded, p.Under, p.Derived)
+	}
+	if got, want := rels(p), map[string]string{
+		"0 1HGCM82633A004352": "what was translated, a link to this answer",
+		"1 Honda":             "",
+		"1 > Accord":          "under Honda; what the VIN decodes to",
+		"2 ACCORD":            "reached through Honda Accord, matched by rule",
+	}; !maps.Equal(got, want) {
+		t.Errorf("a VIN's relations\n%q\nwant\n%q", got, want)
+	}
+
+	// An entry translated with a VIN for context: its lines are mappings,
+	// no decode.
+	tr.From = contract.TranslationFrom{Vocabulary: "yard", Entry: map[string]string{"model": "ACCORD"}, Status: contract.FromMapped}
+	tr.Spine[1].Via = []contract.Via{{SpineRef: model}}
+	p = newMapPage(tr, nil, contract.Elements{}, "", "/?from.vocabulary=yard&from.entry.model=ACCORD&vin=1HGCM82633A004352")
+	if p.Decoded {
+		t.Errorf("an entry with a VIN for context: a line drawn as the VIN's decode")
+	}
+	if got := rels(p)["1 > Accord"]; got != "under Honda; reached through ACCORD" {
+		t.Errorf("an entry with a VIN for context: Accord %q", got)
 	}
 }

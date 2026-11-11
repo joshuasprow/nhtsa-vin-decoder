@@ -182,7 +182,7 @@ func TestForm(t *testing.T) {
 				`<th scope="row">Make</th><td>HONDA</td>`, `<a href="/v1/decode/1HGCM82633A004352?shape=vpic"`, `<span class="chip chip-ok">Valid VIN</span>`,
 				`<h2 id="result-h">2003 Honda Accord</h2>`,
 				`<p class="summary">2003 HONDA Accord EX-V6 · 3.0 L, 6 cylinders · built in MARYSVILLE, OHIO</p>`,
-				`value="1HGCM82633A004352"`, `<span class="name mono">1HGCM82633A004352</span> <span class="meta">VIN, model year 2003</span>`,
+				`value="1HGCM82633A004352"`, `<span class="name mono">1HGCM82633A004352</span><span class="rel"><span class="visually-hidden">, </span>what was translated, a link to this answer<span class="visually-hidden">;</span></span> <span class="meta">VIN, model year 2003</span>`,
 				`href="https://vpic.nhtsa.dot.gov/decoder/VinDecoder?VIN=1HGCM82633A004352"`,
 			},
 			[]string{"<h3>Items", "Suggested VIN", `id="install"`}},
