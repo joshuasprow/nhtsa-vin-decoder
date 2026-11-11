@@ -77,7 +77,8 @@ Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 
 {{/* translate-forms is the examples, each a link to the translate page
 with its form filled in, and the forms: from a VIN, from a vPIC make or
-model, from a vocabulary's entry. */}}
+model, from a vocabulary's entry, one per spine (EntryForms), each with
+that spine's targets before a vocabulary is chosen. */}}
 {{define "translate-forms" -}}
 <p>Try one:</p>
 <ul class="examples" hx-boost="true" hx-target="#ui-main">
@@ -117,33 +118,32 @@ model, from a vocabulary's entry. */}}
 <button type="submit">Translate the vPIC entry</button>
 </form>
 
-<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-push-url="true" aria-labelledby="from-entry-h">
-<h2 id="from-entry-h">From a vocabulary's entry</h2>
+{{range $f := .EntryForms}}
+<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-push-url="true" aria-labelledby="from-{{.Key}}-h">
+<h2 id="from-{{.Key}}-h">{{if eq .Spine "vpic"}}From a vehicle vocabulary's entry{{else}}From a part vocabulary's entry, on the {{.Spine}} spine{{end}}</h2>
 <div>
-<label for="from-vocabulary">Vocabulary</label>
-<select id="from-vocabulary" name="from.vocabulary">
-{{range .Vocabularies}}<option value="{{.Name}}"{{if and $.From (eq .Name $.From.Name)}} selected{{end}}>{{.Name}}</option>
+<label for="from-{{.Key}}-vocabulary">Vocabulary</label>
+<select id="from-{{.Key}}-vocabulary" name="from.vocabulary">
+{{range .Vocabularies}}<option value="{{.Name}}"{{if and $f.From (eq .Name $f.From.Name)}} selected{{end}}>{{.Name}}</option>
 {{end}}</select>
 </div>
 {{if .From -}}
-{{range .Fields}}<div>
+{{range $.Fields}}<div>
 <label for="entry-{{.Name}}">{{.Name}}</label>
 <input type="text" id="entry-{{.Name}}" name="from.entry.{{.Name}}" value="{{.Value}}" autocomplete="off">
 </div>
-{{end}}{{if eq .From.Spine "vpic"}}<div>
+{{end}}{{if eq .Spine "vpic"}}<div>
 <label for="context-vin">VIN <span class="hint">(optional: its decode checks qualifiers)</span></label>
-<input type="text" id="context-vin" name="vin" value="{{.VIN}}" autocomplete="off" spellcheck="false">
+<input type="text" id="context-vin" name="vin" value="{{$.VIN}}" autocomplete="off" spellcheck="false">
 </div>
 <div>
 <label for="entry-model-year">Model year <span class="hint">(optional)</span></label>
-<input type="text" id="entry-model-year" name="model_year" value="{{.YearIn "entry"}}" inputmode="numeric" autocomplete="off">
+<input type="text" id="entry-model-year" name="model_year" value="{{$.YearIn "entry"}}" inputmode="numeric" autocomplete="off">
 </div>
-{{end}}{{template "targets" (.TargetsOn .From.Spine)}}
-<button type="submit">Translate the entry</button>
-{{- else -}}
-<button type="submit">Choose</button>
-{{- end}}
+{{end}}{{end}}{{template "targets" .Targets}}
+<button type="submit">{{if .From}}Translate the entry{{else}}Choose{{end}}</button>
 </form>
+{{end}}
 {{- end}}
 
 {{/* targets is a form's targets, the vocabularies on one spine, which
