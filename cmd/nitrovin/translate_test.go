@@ -15,7 +15,7 @@ import (
 // 1500 (13620) 2015.
 const (
 	ram2010 = "1D7RV1GT5AS123456"
-	ram2015 = "1C6RR7LT5FS123456"
+	ram2015 = "1C6RR7LT9FS123456"
 )
 
 // translator is the Go API the CLI's translate and list are compared with:
