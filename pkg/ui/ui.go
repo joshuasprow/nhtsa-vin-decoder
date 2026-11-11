@@ -237,11 +237,11 @@ type view struct {
 	status   int
 	target   string
 	location string
-	// aside marks a page that shows the vocabularies behind their
-	// button; vocabularies is what ServeHTTP then draws beside the
-	// page's main, when the page is whole.
-	aside        bool
-	vocabularies *asidePage
+	// vocabDialog marks a page that shows the Vocabularies dialog behind
+	// its button; dialog is what ServeHTTP then draws beside the page's
+	// main, when the page is whole.
+	vocabDialog bool
+	dialog      *vocabDialog
 }
 
 // New is the server's handler of /, /sw.js and /ui answering from b. A
@@ -347,13 +347,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, v.location, v.status)
 		return
 	}
-	if v.aside && !frag {
-		a, err := h.asideOf()
+	if v.vocabDialog && !frag {
+		d, err := h.newVocabDialog()
 		if err != nil {
 			h.fail(w, frag, base, h.pageError(err))
 			return
 		}
-		v.vocabularies = &a
+		v.dialog = &d
 	}
 	h.render(w, frag, base, v, false)
 }
@@ -482,10 +482,10 @@ type layout struct {
 	Assets     string
 	HTMXConfig string
 	Body       template.HTML
-	// Aside is the vocabularies behind their button, beside the page's
-	// main, "" for a page without them; with them the page loads
+	// VocabDialog is the Vocabularies dialog behind its button, beside the
+	// page's main, "" for a page without it; with it the page loads
 	// vocab.js, the browser files' script.
-	Aside template.HTML
+	VocabDialog template.HTML
 }
 
 // render writes v: its fragment alone, or the page around it. A fragment
@@ -516,12 +516,12 @@ func (h *Handler) render(w http.ResponseWriter, frag bool, base string, v view, 
 	if !frag {
 		out = new(bytes.Buffer)
 		page := layout{Title: v.title, Assets: base, HTMXConfig: htmxConfig, Body: template.HTML(body.String())}
-		if v.vocabularies != nil {
-			var aside bytes.Buffer
-			if err := tpl.ExecuteTemplate(&aside, "vocabularies", v.vocabularies); err != nil {
-				panic(fmt.Errorf("template vocabularies: %w", err))
+		if v.dialog != nil {
+			var dialog bytes.Buffer
+			if err := tpl.ExecuteTemplate(&dialog, "vocab-dialog", v.dialog); err != nil {
+				panic(fmt.Errorf("template vocab-dialog: %w", err))
 			}
-			page.Aside = template.HTML(aside.String())
+			page.VocabDialog = template.HTML(dialog.String())
 		}
 		if err := tpl.ExecuteTemplate(out, "page", page); err != nil {
 			panic(fmt.Errorf("template page: %w", err))

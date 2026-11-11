@@ -479,7 +479,7 @@ func (h *Handler) entries(r *http.Request) (view, error) {
 		next.Set("after", l.Next)
 		p.Next = vocabulariesPath + "/" + url.PathEscape(name) + "?" + next.Encode()
 	}
-	return view{title: name, template: "entries", data: p, aside: true}, nil
+	return view{title: name, template: "entries", data: p, vocabDialog: true}, nil
 }
 
 // filesPanel is /ui/files, which fills the page's dialog: the merged

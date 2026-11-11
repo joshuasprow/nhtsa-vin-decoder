@@ -53,8 +53,8 @@ const (
 	otherGroup = "Other"
 )
 
-// formLinks are the page's links that depend on the running binary.
-type formLinks struct {
+// pageLinks are the page's links that depend on the running binary.
+type pageLinks struct {
 	// Tag is the release this build is, "" for any other build.
 	Tag string
 	// Release is Tag's release page, or the releases index without one.
@@ -67,37 +67,37 @@ type formLinks struct {
 	Parity, ParityReport string
 }
 
-// formDecode is a decode as the page shows it.
-type formDecode struct {
+// decodeView is a decode as the page shows it.
+type decodeView struct {
 	VIN             string
 	ErrorCodes      []int
 	CheckDigitValid bool
 	// JSON is the same request on GET /v1/decode/{vin}; NHTSA is the VIN
 	// on vPIC's own decoder.
 	JSON, NHTSA string
-	Groups      []formGroup
+	Groups      []elementGroup
 	// VPIC marks the vpic shape, whose empty values are hidden unless
 	// asked for; Hidden counts those not shown.
 	VPIC   bool
 	Hidden int
-	Codes  []formCode
+	Codes  []errorCodeText
 	// AdditionalErrorText is the decode's AdditionalErrorText (element 156).
 	AdditionalErrorText string
 	// Input and Suggested are the VIN and its corrected_vin, by character,
 	// when the decode suggests one; DifferAt names the positions in which
 	// they differ.
-	Input, Suggested []formChar
+	Input, Suggested []vinChar
 	DifferAt         string
-	Copy             formCopies
+	Copy             decodeCopies
 	// Summary is the vehicle in one line: year, make, model, trim or
 	// series, engine and plant.
 	Summary string
 	// Items are every row the decoder emitted, for a full request.
-	Items []formItem
+	Items []decodeItem
 }
 
-// formItem is one item as the page's table shows it.
-type formItem struct {
+// decodeItem is one item as the page's table shows it.
+type decodeItem struct {
 	ElementID                        int32
 	Variable                         string
 	Value, AttributeID, Source, Keys contract.Null[string]
@@ -144,41 +144,41 @@ func summary(dec contract.Decode, elements contract.Elements) string {
 	return join(" · ", join(" ", get(elementModelYear), get(elementMake), get(elementModel), trim), join(", ", displacement, cylinders), plant)
 }
 
-// formCopies are the decode's copyable texts, rendered on the server.
-type formCopies struct {
+// decodeCopies are the decode's copyable texts, rendered on the server.
+type decodeCopies struct {
 	// JSON is the decode as the contract layer marshals it; Curl and CLI
 	// make the same request on /v1 and the command line.
 	JSON, Curl, CLI string
 }
 
 // Clean reports a decode without errors: error code 0 alone.
-func (d *formDecode) Clean() bool { return len(d.ErrorCodes) == 1 && d.ErrorCodes[0] == 0 }
+func (d *decodeView) Clean() bool { return len(d.ErrorCodes) == 1 && d.ErrorCodes[0] == 0 }
 
-// formCode is one error code and its text from the data's error-code
+// errorCodeText is one error code and its text from the data's error-code
 // table, "" when the table lacks it.
-type formCode struct {
+type errorCodeText struct {
 	Code int
 	Text string
 }
 
-// formChar is one character of a VIN; Differs marks a position in which
+// vinChar is one character of a VIN; Differs marks a position in which
 // the VIN and its suggested VIN differ.
-type formChar struct {
+type vinChar struct {
 	C       string
 	Differs bool
 }
 
-// formGroup is one of vPIC's element groups; Open shows it unfolded.
-type formGroup struct {
+// elementGroup is one of vPIC's element groups; Open shows it unfolded.
+type elementGroup struct {
 	Name string
 	Open bool
-	Rows []formRow
+	Rows []elementRow
 }
 
-// formRow is one element: its key in the decode's shape and its non-empty
+// elementRow is one element: its key in the decode's shape and its non-empty
 // values, none for an empty value shown. List marks a multi-valued element
 // of the nitrovin shape, shown as a list however many values it has.
-type formRow struct {
+type elementRow struct {
 	Name   string
 	Values []string
 	List   bool
@@ -225,14 +225,14 @@ var groupRank = func() func(string) int {
 	}
 }()
 
-// formGroups are dec's elements by group in vPIC's group order, General and
+// elementGroups are dec's elements by group in vPIC's group order, General and
 // Engine open, each group's elements in element id order: in the vpic shape
 // every element, its empty values counted in hidden unless showEmpty, and in
 // the nitrovin shape every decoded element with a non-empty value. A group
 // with nothing to show is left out.
-func formGroups(dec contract.Decode, elements contract.Elements, showEmpty bool) (groups []formGroup, hidden int) {
+func elementGroups(dec contract.Decode, elements contract.Elements, showEmpty bool) (groups []elementGroup, hidden int) {
 	at := map[string]int{}
-	add := func(e contract.Element, row formRow) {
+	add := func(e contract.Element, row elementRow) {
 		name := e.GroupName.V
 		if name == "" {
 			name = otherGroup
@@ -240,7 +240,7 @@ func formGroups(dec contract.Decode, elements contract.Elements, showEmpty bool)
 		i, ok := at[name]
 		if !ok {
 			i, at[name] = len(groups), len(groups)
-			groups = append(groups, formGroup{Name: name, Open: name == "General" || name == "Engine"})
+			groups = append(groups, elementGroup{Name: name, Open: name == "General" || name == "Engine"})
 		}
 		groups[i].Rows = append(groups[i].Rows, row)
 	}
@@ -250,9 +250,9 @@ func formGroups(dec contract.Decode, elements contract.Elements, showEmpty bool)
 			v := attrs[e.Code]
 			switch {
 			case v != "":
-				add(e, formRow{Name: e.Code, Values: []string{v}})
+				add(e, elementRow{Name: e.Code, Values: []string{v}})
 			case showEmpty:
-				add(e, formRow{Name: e.Code})
+				add(e, elementRow{Name: e.Code})
 			default:
 				hidden++
 			}
@@ -265,7 +265,7 @@ func formGroups(dec contract.Decode, elements contract.Elements, showEmpty bool)
 			}
 			if a.Values == nil {
 				if a.Value != "" {
-					add(e, formRow{Name: e.Variable, Values: []string{a.Value}})
+					add(e, elementRow{Name: e.Variable, Values: []string{a.Value}})
 				}
 				continue
 			}
@@ -276,11 +276,11 @@ func formGroups(dec contract.Decode, elements contract.Elements, showEmpty bool)
 				}
 			}
 			if values != nil {
-				add(e, formRow{Name: e.Variable, Values: values, List: true})
+				add(e, elementRow{Name: e.Variable, Values: values, List: true})
 			}
 		}
 	}
-	slices.SortStableFunc(groups, func(a, b formGroup) int {
+	slices.SortStableFunc(groups, func(a, b elementGroup) int {
 		return cmp.Or(cmp.Compare(groupRank(a.Name), groupRank(b.Name)), strings.Compare(a.Name, b.Name))
 	})
 	return groups, hidden
@@ -304,16 +304,16 @@ func attribute(dec contract.Decode, elements contract.Elements, id int32) string
 // diffVINs splits vin and suggested into characters, marking each position
 // in which they differ (case aside, as the decoder upper-cases), and names
 // those positions, counted from 1.
-func diffVINs(vin, suggested string) (in, out []formChar, at string) {
+func diffVINs(vin, suggested string) (in, out []vinChar, at string) {
 	a, b := []rune(vin), []rune(suggested)
 	var positions []string
 	for i := range max(len(a), len(b)) {
 		differs := i >= len(a) || i >= len(b) || unicode.ToUpper(a[i]) != unicode.ToUpper(b[i])
 		if i < len(a) {
-			in = append(in, formChar{string(a[i]), differs})
+			in = append(in, vinChar{string(a[i]), differs})
 		}
 		if i < len(b) {
-			out = append(out, formChar{string(b[i]), differs})
+			out = append(out, vinChar{string(b[i]), differs})
 		}
 		if differs {
 			positions = append(positions, strconv.Itoa(i+1))
@@ -353,8 +353,8 @@ var embeddedDataTag = sync.OnceValue(func() string {
 
 // newFormLinks derives the page's links from the running binary: its
 // version, and its data month and source.
-func newFormLinks(info contract.Info) formLinks {
-	var l formLinks
+func newFormLinks(info contract.Info) pageLinks {
+	var l pageLinks
 	if releaseTag.MatchString(info.DecoderVersion) && !pseudoVersion.MatchString(info.DecoderVersion) {
 		l.Tag = info.DecoderVersion
 	}
@@ -374,7 +374,7 @@ func newFormLinks(info contract.Info) formLinks {
 
 // links are the page's links: the running binary's, and in the browser
 // the data release the server's build named (WithDataRelease).
-func (h *Handler) links(info contract.Info) formLinks {
+func (h *Handler) links(info contract.Info) pageLinks {
 	l := newFormLinks(info)
 	if h.dataRelease != "" {
 		l.DataRelease = h.dataRelease
@@ -388,7 +388,7 @@ func (h *Handler) links(info contract.Info) formLinks {
 // translator decodes itself). The error is a refusal (a
 // *contract.Problem, or in the browser a *pageError when the server
 // cannot be asked) or a fault.
-func (h *Handler) decoded(r *http.Request, vin string, query url.Values, showEmpty bool) (*formDecode, *contract.VINDecode, error) {
+func (h *Handler) decoded(r *http.Request, vin string, query url.Values, showEmpty bool) (*decodeView, *contract.VINDecode, error) {
 	req, err := contract.ParseQuery(vin, query)
 	if err != nil {
 		return nil, nil, err
@@ -416,27 +416,27 @@ func (h *Handler) decoded(r *http.Request, vin string, query url.Values, showEmp
 	if req.ModelYear.Valid {
 		nhtsa += "&ModelYear=" + strconv.Itoa(int(req.ModelYear.V))
 	}
-	d := &formDecode{
+	d := &decodeView{
 		VIN: dec.VIN, ErrorCodes: dec.ErrorCodes, CheckDigitValid: dec.CheckDigitValid,
 		JSON: jsonURL, NHTSA: nhtsa,
 		AdditionalErrorText: attribute(dec, elements, elementAdditionalErrorText),
-		Copy: formCopies{
+		Copy: decodeCopies{
 			JSON: string(body),
 			Curl: "curl " + shellQuote(requestOrigin(r)+jsonURL),
 			CLI:  cliCommand(vin, req, query.Get("now")),
 		},
 		Summary: summary(dec, elements),
 	}
-	d.Groups, d.Hidden = formGroups(dec, elements, showEmpty)
+	d.Groups, d.Hidden = elementGroups(dec, elements, showEmpty)
 	_, d.VPIC = dec.Attributes.(contract.VpicAttributes)
 	for _, c := range dec.ErrorCodes {
-		d.Codes = append(d.Codes, formCode{c, h.errorTexts[c]})
+		d.Codes = append(d.Codes, errorCodeText{c, h.errorTexts[c]})
 	}
 	if dec.CorrectedVIN.Valid {
 		d.Input, d.Suggested, d.DifferAt = diffVINs(dec.VIN, dec.CorrectedVIN.V)
 	}
 	for _, it := range dec.Items {
-		d.Items = append(d.Items, formItem{
+		d.Items = append(d.Items, decodeItem{
 			ElementID: it.ElementID, Variable: it.Variable, Value: it.Value, AttributeID: it.AttributeID,
 			Source: it.Source, Keys: it.Keys, PatternID: it.PatternID, VinSchemaID: it.VinSchemaID,
 		})

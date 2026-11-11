@@ -8,7 +8,7 @@ cards are boosted the same way. */}}
 <p>Type a VIN to see the year, make, model and engine NHTSA's <a href="https://vpic.nhtsa.dot.gov/">vPIC</a> data gives it, and its names in each vocabulary loaded.</p>
 {{template "controls" .Controls}}
 {{with .Result}}{{template "result" .}}{{else}}{{template "developers" .}}{{end}}
-{{template "form-footer" .}}
+{{template "page-footer" .}}
 {{- end}}
 
 {{/* controls is the box at the top of the page: a tab for each thing to
@@ -211,11 +211,11 @@ without a script. */}}
 {{end}}</dialog>
 {{- end}}
 
-{{/* vocabularies is the dialog behind the header's Vocabularies button
+{{/* vocab-dialog is the Vocabularies dialog behind the header's button
 (ui.html), a popover: the catalog, and with JavaScript the visitor's own
 files, which the worker's panel (files) fills in. It is the layout's,
 beside the page's main. */}}
-{{define "vocabularies" -}}
+{{define "vocab-dialog" -}}
 <dialog id="vocabularies" popover aria-labelledby="browser-h">
 <section id="browser"{{if .Worker}} data-worker="/sw.js"{{end}}>
 <div class="dialog-head">

@@ -65,7 +65,7 @@ type homePage struct {
 	// refusal.
 	Result                    *result
 	DataMonth, DecoderVersion string
-	Links                     formLinks
+	Links                     pageLinks
 }
 
 // tab is one of the controls' tabs: a link to the page with its form.
@@ -474,7 +474,7 @@ type result struct {
 	Spine string
 	// Heading names what was translated: the vehicle, "2015 Ram 1500".
 	Heading string
-	Decode  *formDecode
+	Decode  *decodeView
 	// ShowEmpty and EmptyToggle are the decode's empty values, shown or
 	// hidden, and this page with them the other way: the vpic shape's.
 	ShowEmpty   bool
@@ -526,7 +526,7 @@ func (h *Handler) moved(r *http.Request) (view, error) {
 func (h *Handler) home(r *http.Request) (view, error) {
 	info := h.p.Info()
 	page := &homePage{DataMonth: info.DataMonth, DecoderVersion: info.DecoderVersion, Links: h.links(info)}
-	v := view{title: homeTitle, template: "home", data: page, target: mainTarget, aside: true}
+	v := view{title: homeTitle, template: "home", data: page, target: mainTarget, vocabDialog: true}
 	raw, malformed := url.ParseQuery(r.URL.RawQuery)
 	if malformed != nil {
 		raw = url.Values{}
@@ -665,20 +665,20 @@ func (h *Handler) translate(req contract.TranslateRequest, dec *contract.VINDeco
 	return h.p.Translate(req)
 }
 
-// asidePage is the page's vocabularies, behind their button: the catalog,
-// and whether the visitor's own files can be loaded, which needs the
-// worker's module on the server.
-type asidePage struct {
+// vocabDialog is the Vocabularies dialog, behind the header's button: the
+// catalog, and whether the visitor's own files can be loaded, which needs
+// the worker's module on the server.
+type vocabDialog struct {
 	Catalog catalogTable
 	Worker  bool
 }
 
-// asideOf is the vocabularies of a page that shows them, drawn beside its
-// main when the page is whole.
-func (h *Handler) asideOf() (asidePage, error) {
+// newVocabDialog is the Vocabularies dialog of a page that shows it,
+// drawn beside its main when the page is whole.
+func (h *Handler) newVocabDialog() (vocabDialog, error) {
 	cat, err := h.catalog()
 	if err != nil {
-		return asidePage{}, err
+		return vocabDialog{}, err
 	}
-	return asidePage{Catalog: catalogTable{Rows: h.rows(cat)}, Worker: h.worker != nil || h.lib != nil}, nil
+	return vocabDialog{Catalog: catalogTable{Rows: h.rows(cat)}, Worker: h.worker != nil || h.lib != nil}, nil
 }

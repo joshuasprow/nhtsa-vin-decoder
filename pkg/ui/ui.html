@@ -5,8 +5,8 @@ snapshot keeps what a script or an extension left on the page, such as an
 empty style attribute, which CSP refuses when the snapshot is put back.
 Its error slot (#ui-error) is where htmx swaps a 4xx or 5xx fragment
 (htmx-config's responseHandling); a fragment that is no error clears it
-(clear-error). The header holds the vocabularies' button, and beside the
-main is their dialog (Aside, page.html's vocabularies), which no fragment
+(clear-error). The header holds the Vocabularies button, and beside the
+main is its dialog (VocabDialog, page.html's vocab-dialog), which no fragment
 replaces. No inline script or style: CSP refuses both. */}}
 {{define "page" -}}
 <!doctype html>
@@ -21,7 +21,7 @@ replaces. No inline script or style: CSP refuses both. */}}
 <script src="{{.Assets}}/htmx.min.js" defer></script>
 <script src="{{.Assets}}/copy.js" defer></script>
 <script src="{{.Assets}}/map.js" defer></script>
-{{- if .Aside}}
+{{- if .VocabDialog}}
 <script src="{{.Assets}}/vocab.js" defer></script>
 {{- end}}
 {{- end}}
@@ -29,7 +29,7 @@ replaces. No inline script or style: CSP refuses both. */}}
 <body>
 <header>
 <a class="brand" href="/">nitrovin</a>
-{{- if .Aside}}
+{{- if .VocabDialog}}
 <button type="button" class="open-vocabularies" popovertarget="vocabularies">Vocabularies</button>
 {{- end}}
 </header>
@@ -37,7 +37,7 @@ replaces. No inline script or style: CSP refuses both. */}}
 <main id="ui-main" hx-history-elt hx-history="false">
 {{.Body}}
 </main>
-{{.Aside}}
+{{.VocabDialog}}
 </body>
 </html>
 {{end}}
