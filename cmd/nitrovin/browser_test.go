@@ -252,6 +252,23 @@ func (tb *tab) requests(step string, htmx bool, targets ...string) {
 	}
 }
 
+// restores checks the page requests since the last check: htmx's, to
+// restore history, for targets.
+func (tb *tab) restores(step string, targets ...string) {
+	tb.t.Helper()
+	seen := tb.log.take()
+	var got []string
+	for _, r := range seen {
+		got = append(got, r.target)
+		if !r.htmx || !r.restore {
+			tb.t.Errorf("%s: %s with HX-Request %v, HX-History-Restore-Request %v; want both", step, r.target, r.htmx, r.restore)
+		}
+	}
+	if !slices.Equal(got, targets) {
+		tb.t.Errorf("%s: requests %q; want %q", step, got, targets)
+	}
+}
+
 // violation is one axe finding: the rule, its impact, where, and axe's
 // account of the first place.
 type violation struct {
@@ -380,7 +397,7 @@ const (
 // open, and closes it by its own button: popovers, which need no script.
 func (tb *tab) dialogs(step string) {
 	tb.t.Helper()
-	for dialog, opener := range map[string]string{"#vocabularies": "button.fab", "#result-json": "button.open-dialog"} {
+	for dialog, opener := range map[string]string{"#vocabularies": "button.open-vocabularies", "#result-json": "button.open-dialog"} {
 		tb.do(chromedp.Click(chromedp.CSS(opener)))
 		tb.wait(dialog + ":popover-open")
 		tb.audit(step + ", " + dialog + " open")
@@ -456,8 +473,8 @@ func formJSOff(t *testing.T, path, base string, log *requestLog) {
 // formJSOn: the page with JavaScript, in a fresh profile. htmx asks for
 // each step as a fragment (HX-Request), swaps it into the page's main and
 // pushes its URL, and the page never reloads; copy buttons come with each
-// swap; back and forward restore each state, from htmx's snapshot and
-// from the server; nothing is refused by CSP and nothing throws.
+// swap; back and forward ask the server for each state, never a snapshot
+// (pkg/ui, ui.html); nothing is refused by CSP and nothing throws.
 func formJSOn(t *testing.T, path, base string, log *requestLog) {
 	tb := newTab(t, path, base, log, true)
 
@@ -507,8 +524,9 @@ func formJSOn(t *testing.T, path, base string, log *requestLog) {
 	}
 	tb.audit("refusal")
 
-	// Back and forward restore each state from htmx's snapshots, with live
-	// copy buttons, one each.
+	// Back and forward ask the server for each state, the whole page,
+	// which htmx takes the main out of: live copy buttons, one each, and
+	// one main and one Vocabularies button.
 	eval[bool](tb, `history.back(), true`)
 	tb.wait("#copy-url + button.copy")
 	if got := tb.at(); got != submitted {
@@ -531,19 +549,17 @@ func formJSOn(t *testing.T, path, base string, log *requestLog) {
 	eval[bool](tb, `document.querySelectorAll("details.dev").forEach(d => d.open = true), true`)
 	tb.do(chromedp.Click(chromedp.CSS(`#copy-cli + button.copy`)))
 	tb.waitText("#copy-status", "Copied the nitrovin decode command")
-	tb.requests("back and forward", true)
-
-	// Without a snapshot, htmx asks the server for the whole page.
-	eval[bool](tb, `sessionStorage.removeItem("htmx-history-cache"), history.back(), true`)
+	eval[bool](tb, `history.back(), true`)
 	tb.wait("#install")
 	if got := tb.at(); got != "/" {
-		t.Errorf("back without a snapshot: at %s; want /", got)
+		t.Errorf("back again: at %s; want /", got)
 	}
-	if mains, buttons := tb.count("main"), tb.count("button.fab"); mains != 1 || buttons != 1 {
-		t.Errorf("back without a snapshot: %d mains, %d Vocabularies buttons", mains, buttons)
+	if mains, buttons := tb.count("main"), tb.count("button.open-vocabularies"); mains != 1 || buttons != 1 {
+		t.Errorf("back again: %d mains, %d Vocabularies buttons", mains, buttons)
 	}
-	if seen := tb.log.take(); len(seen) != 1 || seen[0].target != "/" || !seen[0].restore {
-		t.Errorf("back without a snapshot: requests %+v; want / to restore history", seen)
+	tb.restores("back and forward", submitted, "/", submitted, "/")
+	if n := eval[int](tb, `sessionStorage.getItem("htmx-history-cache") === null ? 0 : JSON.parse(sessionStorage.getItem("htmx-history-cache")).length`); n != 0 {
+		t.Errorf("back and forward: htmx kept %d snapshots", n)
 	}
 	tb.audit("restored /")
 

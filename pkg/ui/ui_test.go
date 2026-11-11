@@ -165,7 +165,7 @@ func TestStubRoute(t *testing.T) {
 		}
 		checkHTML(t, name, hdr)
 		checkPage(t, name, body, "Stub")
-		if !strings.Contains(body, "<main id=\"ui-main\" hx-history-elt>\n<p id=\"stub\">hello</p>\n</main>") {
+		if !strings.Contains(body, "<main id=\"ui-main\" hx-history-elt hx-history=\"false\">\n<p id=\"stub\">hello</p>\n</main>") {
 			t.Errorf("%s: the fragment is not the page's main:\n%s", name, body)
 		}
 	}

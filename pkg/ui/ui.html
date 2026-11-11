@@ -1,10 +1,13 @@
 {{/* The one layout: every page is a route's fragment in its main, which is
-also what htmx keeps and restores as history (hx-history-elt). Its error
-slot (#ui-error) is where htmx swaps a 4xx or 5xx fragment (htmx-config's
-responseHandling); a fragment that is no error clears it (clear-error).
-Beside the main is the vocabularies' button and dialog (Aside,
-page.html's vocabularies), which no fragment replaces. No inline script
-or style: CSP refuses both. */}}
+also what htmx restores on back and forward (hx-history-elt), from the
+server and never from a snapshot of the page (hx-history false): a
+snapshot keeps what a script or an extension left on the page, such as an
+empty style attribute, which CSP refuses when the snapshot is put back.
+Its error slot (#ui-error) is where htmx swaps a 4xx or 5xx fragment
+(htmx-config's responseHandling); a fragment that is no error clears it
+(clear-error). The header holds the vocabularies' button, and beside the
+main is their dialog (Aside, page.html's vocabularies), which no fragment
+replaces. No inline script or style: CSP refuses both. */}}
 {{define "page" -}}
 <!doctype html>
 <html lang="en">
@@ -26,9 +29,12 @@ or style: CSP refuses both. */}}
 <body>
 <header>
 <a class="brand" href="/">nitrovin</a>
+{{- if .Aside}}
+<button type="button" class="open-vocabularies" popovertarget="vocabularies">Vocabularies</button>
+{{- end}}
 </header>
 <div id="ui-error" role="alert"></div>
-<main id="ui-main" hx-history-elt>
+<main id="ui-main" hx-history-elt hx-history="false">
 {{.Body}}
 </main>
 {{.Aside}}

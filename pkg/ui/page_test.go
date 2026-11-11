@@ -32,7 +32,7 @@ func TestPage(t *testing.T) {
 		`<form method="get" action="/" hx-get="/" hx-target="#ui-main" hx-swap="innerHTML show:window:top" hx-push-url="true" aria-labelledby="tab-vin">`,
 		`<a class="example" href="/?from.vin=1HGCM82633A004352"`,
 		`<h2 id="install">Install</h2>`,
-		`<button type="button" class="fab" popovertarget="vocabularies">Vocabularies</button>`,
+		`<header>` + "\n" + `<a class="brand" href="/">nitrovin</a>` + "\n" + `<button type="button" class="open-vocabularies" popovertarget="vocabularies">Vocabularies</button>` + "\n" + `</header>`,
 		`<dialog id="vocabularies" popover aria-labelledby="browser-h">`,
 		testAssetsAttr + `/vocab.js" defer></script>`,
 	} {
@@ -49,7 +49,7 @@ func TestPage(t *testing.T) {
 	// main's alone.
 	status, _, body = response(t, h, "GET", "/?tab=id", htmx)
 	if status != 200 || !strings.Contains(body, `<a id="tab-id" href="/?tab=id" aria-current="page">vPIC id</a>`) ||
-		!strings.Contains(body, `id="from-model"`) || strings.Contains(body, `id="from-vin"`) || strings.Contains(body, `class="fab"`) {
+		!strings.Contains(body, `id="from-model"`) || strings.Contains(body, `id="from-vin"`) || strings.Contains(body, `class="open-vocabularies"`) {
 		t.Errorf("the vPIC id tab's fragment: %d\n%s", status, body)
 	}
 
@@ -73,8 +73,8 @@ func TestPage(t *testing.T) {
 		}
 	}
 
-	// A VIN's answer: its decode, its translation's map, and the JSON of
-	// both in the dialog.
+	// A VIN's answer: its decode, its translation's map, the From card a
+	// link to this answer, and the JSON of both in the dialog.
 	status, hdr, body = response(t, h, "GET", "/?from.vin=1HGCM82633A004352", htmx)
 	if status != 200 || !strings.HasPrefix(body, "<title>VIN 1HGCM82633A004352 · nitrovin</title><h1>") || !strings.HasSuffix(body, `<div id="ui-error" role="alert" hx-swap-oob="true"></div>`) {
 		t.Errorf("a VIN's fragment: %d\n%s", status, body)
@@ -82,7 +82,7 @@ func TestPage(t *testing.T) {
 	for _, want := range []string{
 		`<h2 id="result-h">VIN 1HGCM82633A004352</h2>`,
 		`<span class="chip chip-ok">Valid VIN</span>`,
-		`<span class="name mono">1HGCM82633A004352</span> <span class="meta">VIN · not found</span>`,
+		`<a id="map-n0" class="node" href="/?from.vin=1HGCM82633A004352" data-lit="map-n0"><span class="box"><span class="name mono">1HGCM82633A004352</span><span class="rel"><span class="visually-hidden">, </span>what was translated, a link to this answer<span class="visually-hidden">;</span></span> <span class="meta">VIN · not found</span></span></a>`,
 		`<dialog id="result-json" popover aria-labelledby="result-json-h">`,
 		`id="translation-json" data-copy="the translation&#39;s JSON">{` + "\n" + `  &#34;from&#34;: {`,
 		`<a href="/v1/decode/1HGCM82633A004352">The same request on /v1</a>`,

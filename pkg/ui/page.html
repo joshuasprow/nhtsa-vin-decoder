@@ -138,17 +138,20 @@ the decode. */}}
 {{/* map is the translation's map (map.go): from, the spine and the
 targets in three columns of cards, and behind them the lines, an SVG the
 server draws, stretched across the columns' width; its height is the
-columns'. map.js lights the route through a card (data-lit). */}}
+columns'. Each card's text says what its lines draw (rel): read as part
+of its name, and shown, the lines hidden, when a narrow window stacks the
+columns. map.js lights the route through a card (data-lit). */}}
 {{define "map" -}}
 <ul class="map-key" aria-label="Key">
-<li><span class="key-line" aria-hidden="true"></span> a mapping</li>
-<li><span class="key-line derived" aria-hidden="true"></span> a mapping matched by rule</li>
-<li><span class="key-card" aria-hidden="true"></span> not every qualifier or the model year checked</li>
+<li class="key-lines"><span class="key-line" aria-hidden="true"></span> a mapping</li>
+{{if .Derived}}<li class="key-lines"><span class="key-line derived" aria-hidden="true"></span> a mapping matched by rule</li>
+{{end}}{{if .Under}}<li class="key-lines"><span class="key-line under" aria-hidden="true"></span> a model under its make</li>
+{{end}}{{if .Decoded}}<li class="key-lines"><span class="key-line decoded" aria-hidden="true"></span> a VIN to the model it decodes to</li>
+{{end}}<li><span class="key-card" aria-hidden="true"></span> not every qualifier or the model year checked</li>
 </ul>
-<div class="map-scroll" role="group" aria-label="Map of the translation" tabindex="0">
-<div class="map" hx-boost="true" hx-target="#ui-main" hx-swap="innerHTML show:window:top">
+<div class="map" role="group" aria-label="Map of the translation" hx-boost="true" hx-target="#ui-main" hx-swap="innerHTML show:window:top">
 <svg class="map-edges" viewBox="0 0 100 {{.Height}}" preserveAspectRatio="none" width="100%" height="{{.Height}}" aria-hidden="true" focusable="false">
-{{range .Edges}}<path id="{{.ID}}" class="{{if .Derived}}derived{{end}}{{if .Under}}under{{end}}" d="{{.D}}" vector-effect="non-scaling-stroke"/>
+{{range .Edges}}<path id="{{.ID}}" class="{{if .Derived}}derived{{end}}{{if .Under}}under{{end}}{{if .Decoded}}decoded{{end}}" d="{{.D}}" vector-effect="non-scaling-stroke"/>
 {{end}}</svg>
 <div class="map-cols">
 {{range .Columns}}<div class="map-col">
@@ -157,14 +160,17 @@ columns'. map.js lights the route through a card (data-lit). */}}
 {{end}}</div>
 {{end}}</div>
 </div>
-</div>
 {{- end}}
 
+{{/* map-item is a row of a column: a vocabulary's heading, a line saying
+nothing is there, or a card, a link, its box drawn inside it so a long
+name spills over the cards below while the card is under the pointer or
+focused, never moving them. The hidden punctuation separates its name,
+rel and meta for a screen reader. */}}
 {{define "map-item" -}}
 {{if .Group}}<h4 class="map-group">{{.Group}}</h4>
 {{- else if .Empty}}<p class="map-empty">{{.Empty}}</p>
-{{- else if .Href}}<a id="{{.ID}}" class="node{{if .Under}} under{{end}}{{if .Unchecked}} unchecked{{end}}" href="{{.Href}}" data-lit="{{.Lit}}"{{with .Details}} title="{{.}}"{{end}}><span class="name{{if .Mono}} mono{{end}}">{{.Name}}</span> <span class="meta">{{.Meta}}</span></a>
-{{- else}}<div id="{{.ID}}" class="node{{if .Under}} under{{end}}{{if .Unchecked}} unchecked{{end}}" data-lit="{{.Lit}}"{{with .Details}} title="{{.}}"{{end}}><span class="name{{if .Mono}} mono{{end}}">{{.Name}}</span> <span class="meta">{{.Meta}}</span></div>
+{{- else}}<a id="{{.ID}}" class="node{{if .Under}} under{{end}}{{if .Unchecked}} unchecked{{end}}" href="{{.Href}}" data-lit="{{.Lit}}"{{with .Details}} title="{{.}}"{{end}}><span class="box"><span class="name{{if .Mono}} mono{{end}}">{{.Name}}</span>{{with .Rel}}<span class="rel"><span class="visually-hidden">, </span>{{.}}<span class="visually-hidden">;</span></span>{{end}} <span class="meta">{{.Meta}}</span></span></a>
 {{- end}}
 {{- end}}
 
@@ -184,13 +190,11 @@ without a script. */}}
 {{end}}</dialog>
 {{- end}}
 
-{{/* vocabularies is the button fixed to the window's corner and the
-dialog behind it, a popover: the catalog, and with JavaScript the
-visitor's own files, which the worker's panel (files) fills in. It is the
-layout's, beside the page's main. */}}
+{{/* vocabularies is the dialog behind the header's Vocabularies button
+(ui.html), a popover: the catalog, and with JavaScript the visitor's own
+files, which the worker's panel (files) fills in. It is the layout's,
+beside the page's main. */}}
 {{define "vocabularies" -}}
-<aside aria-label="Vocabularies">
-<button type="button" class="fab" popovertarget="vocabularies">Vocabularies</button>
 <dialog id="vocabularies" popover aria-labelledby="browser-h">
 <section id="browser"{{if .Worker}} data-worker="/sw.js"{{end}}>
 <div class="dialog-head">
@@ -209,5 +213,4 @@ This nitrovin was built without its browser translator (scripts/sw.sh builds it;
 </div>
 </section>
 </dialog>
-</aside>
 {{- end}}

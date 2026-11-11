@@ -69,8 +69,10 @@ const htmxVersion = "2.0.11"
 // settles at once (no settle delay, which only serves CSS transitions the
 // pages have none of), so what a swap brings is live, its forms htmx's,
 // the moment the swap is done: a button clicked right away never posts
-// as a page.
-const htmxConfig = `{"allowEval":false,"includeIndicatorStyles":false,"defaultSettleDelay":0,"responseHandling":[` +
+// as a page. Settling carries no style attribute over from what a swap
+// replaces: one a script or an extension left, even empty, is an inline
+// style CSP refuses.
+const htmxConfig = `{"allowEval":false,"includeIndicatorStyles":false,"defaultSettleDelay":0,"attributesToSettle":["class","width","height"],"responseHandling":[` +
 	`{"code":"204","swap":false},` +
 	`{"code":"[23]..","swap":true},` +
 	`{"code":"[45]..","swap":true,"error":true,"target":"#ui-error","swapOverride":"innerHTML"}]}`

@@ -169,7 +169,7 @@ func mainOf(t *testing.T, h http.Handler, base, target string, htmx bool) string
 	if htmx {
 		return body
 	}
-	start, end := strings.Index(body, `<main id="ui-main" hx-history-elt>`), strings.Index(body, "</main>")
+	start, end := strings.Index(body, `<main id="ui-main" hx-history-elt hx-history="false">`), strings.Index(body, "</main>")
 	if start < 0 || end < 0 {
 		t.Fatalf("%s: no main in %s", target, body)
 	}
@@ -193,7 +193,7 @@ func mainHTML(tb *tab) string {
 func (tb *tab) vocabularies() {
 	tb.t.Helper()
 	if tb.count("#vocabularies:popover-open") == 0 {
-		tb.do(chromedp.Click(chromedp.CSS("button.fab")))
+		tb.do(chromedp.Click(chromedp.CSS("button.open-vocabularies")))
 		tb.wait("#vocabularies:popover-open")
 	}
 	tb.waitState("ready")

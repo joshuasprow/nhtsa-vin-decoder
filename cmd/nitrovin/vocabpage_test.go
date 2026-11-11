@@ -74,7 +74,7 @@ func vocabJSOff(t *testing.T, path, base string) offPages {
 	tb := newTab(t, path, base, &requestLog{}, false)
 	tb.do(chromedp.Navigate(base + "/"))
 	tb.wait("#browser")
-	tb.do(chromedp.Click(chromedp.CSS("button.fab")))
+	tb.do(chromedp.Click(chromedp.CSS("button.open-vocabularies")))
 	tb.wait("#vocabularies:popover-open")
 	if s := tb.html("#browser-status"); !strings.Contains(s, "Loading your own files needs JavaScript. Your files never leave this browser.") || !strings.Contains(s, "works without it") {
 		t.Errorf("JS off: %s", s)
