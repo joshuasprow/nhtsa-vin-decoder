@@ -94,3 +94,19 @@ select { font: inherit; padding: .25rem; }
 /* The translate examples, side by side as the line allows. */
 ul.examples { list-style: none; padding: 0; margin: .25rem 0 1rem; display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; }
 form p.hint { margin: 0; }
+
+/* vocab */
+table.catalog { min-width: 0; }
+table.catalog th[scope=row] { white-space: nowrap; }
+table.catalog .row-details summary { color: var(--link); cursor: pointer; }
+table.catalog dl { margin: .25rem 0 0; display: grid; grid-template-columns: auto 1fr; gap: .1rem .6rem; }
+table.catalog dt { font-weight: 600; }
+table.catalog dd { margin: 0; overflow-wrap: anywhere; }
+table.catalog .actions { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; }
+table.catalog .actions a { display: inline-block; min-height: 24px; padding: .2rem 0; }
+table.catalog .actions button { min-height: 24px; min-width: 24px; }
+.dropzone { border: 2px dashed var(--line); border-radius: 6px; padding: 1rem; }
+section#browser.dropping .dropzone { border-color: var(--link); }
+details.more { margin: .75rem 0; }
+form.filter { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; border: 0; padding: 0; margin: .5rem 0; }
+form.filter label { flex-basis: 100%; }

@@ -3,12 +3,12 @@
 render on the server and in the browser's Service Worker. */}}
 {{define "vocab" -}}
 <h1>Vocabularies</h1>
-<p>A vocabulary names vehicles or parts in someone's own terms and maps each name onto a spine: vPIC's makes and models, or a declared parts spine. nitrovin translates between vocabularies through the spine, and from a VIN's decode.</p>
-<p hx-boost="true" hx-target="#ui-main"><a href="/ui/translate">Translate</a> · <a href="/ui/vocabularies">this server's vocabularies</a></p>
+<p>A vocabulary is one system's names for vehicles or parts. Load yours; it stays in this browser.</p>
+<p hx-boost="true" hx-target="#ui-main"><a href="/ui/translate">Translate →</a></p>
 <section id="browser" aria-labelledby="browser-h"{{if .Worker}} data-worker="/sw.js"{{end}}>
 <h2 id="browser-h">Loaded here</h2>
 <p id="browser-status" role="status" aria-live="polite">{{if .Worker -}}
-Loading your own vocabulary files needs JavaScript: they are kept in this browser (IndexedDB) and translated here by WebAssembly in a Service Worker, so they are never uploaded. Translation through vPIC and this server's own files works without it.
+Loading your own files needs JavaScript. Your files never leave this browser. Translating through vPIC and this server's files works without it.
 {{- else -}}
 This nitrovin was built without its browser translator (scripts/sw.sh builds it; release builds include it), so it cannot load your own files. Translation through vPIC and this server's own files works.
 {{- end}}</p>
@@ -35,30 +35,33 @@ this server, this browser), with its drift or the fault that left it out.
 Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 {{define "catalog" -}}
 <div class="scroll"><table class="catalog">
-<thead><tr><th scope="col">Name</th><th scope="col">What it is</th><th scope="col">Version</th><th scope="col">Kept in</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+<thead><tr><th scope="col">Name</th><th scope="col">What it is</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
 <tbody>
 {{range .Rows}}<tr data-where="{{.Where}}"><th scope="row">{{if .Fault}}{{.Name}}{{else}}<a href="/ui/vocabularies/{{.Name}}">{{.Name}}</a>{{end}}</th>
-<td>{{.What}}</td><td class="version">{{.Version}}</td>
-<td>{{.WhereText}}{{with .File}}<br><span class="hint">{{.FileName}}, {{.SizeText}}{{if .Lines}}, {{.Lines}} lines{{end}}, stored {{.Stored.Format "2006-01-02 15:04"}} UTC</span>{{end}}</td>
-<td>{{if .Fault}}<span class="error">Left out: {{.Fault}}</span>{{else if eq .Where "vpic"}}the data month{{else if .Drift}}<details><summary>Drift: {{.DriftText}}</summary><ul>{{range .DriftExamples}}<li>{{.}}</li>{{end}}</ul></details>{{else}}linked, no drift{{end}}</td>
-<td>{{if not .Fault}}{{if eq .Where "vpic"}}<a href="/ui/translate">Translate<span class="visually-hidden"> a VIN</span></a>{{else if eq .Kind "vocabulary"}}<a href="/ui/translate?from.vocabulary={{.Name}}">Translate<span class="visually-hidden"> from {{.Name}}</span></a>{{end}}{{end}}
+<td>{{.What}}{{with .File}}{{if .Lines}}, {{.Lines}} lines{{end}}{{end}}{{if .Fault}}<br><span class="error">Left out: {{.Fault}}</span>{{end}}
+<details class="row-details"><summary>Details<span class="visually-hidden"> of {{.Name}}</span></summary><dl>
+<dt>Version</dt><dd class="version">{{.Version}}</dd>
+<dt>Kept in</dt><dd>{{.WhereText}}{{with .File}}: {{.FileName}}, {{.SizeText}}, stored {{.Stored.Format "2006-01-02 15:04"}} UTC{{end}}</dd>
+<dt>Status</dt><dd>{{if .Fault}}left out{{else if eq .Where "vpic"}}the data month{{else if .Drift}}<details><summary>Drift: {{.DriftText}}</summary><ul>{{range .DriftExamples}}<li>{{.}}</li>{{end}}</ul></details>{{else}}linked, no drift{{end}}</dd>
+</dl></details></td>
+<td><div class="actions">{{if not .Fault}}{{if eq .Where "vpic"}}<a href="/ui/translate">Translate<span class="visually-hidden"> a VIN</span></a>{{else if eq .Kind "vocabulary"}}<a href="/ui/translate?from.vocabulary={{.Name}}">Translate<span class="visually-hidden"> from {{.Name}}</span></a>{{end}}{{end}}
 {{- if and $.Manage .File}}
 <form method="post" action="/ui/files/remove" hx-post="/ui/files/remove" hx-target="#browser-files" class="inline">
-<input type="hidden" name="name" value="{{.Name}}"><button type="submit">Remove {{.Name}}</button>
-</form>{{end}}</td></tr>
+<input type="hidden" name="name" value="{{.Name}}"><button type="submit">Remove<span class="visually-hidden"> {{.Name}}</span></button>
+</form>{{end}}</div></td></tr>
 {{end}}</tbody>
 </table></div>
 {{- end}}
 
-{{define "catalog-page" -}}
-<h1>Vocabularies</h1>
-<p>What this server loaded, vPIC's spine first. Files kept in your own browser are listed, and loaded, on <a href="/vocab">Vocabularies</a>.</p>
-{{template "catalog" .}}
-{{- end}}
-
 {{define "entries" -}}
 <h1>{{.Name}}</h1>
-<p hx-boost="true" hx-target="#ui-main"><a href="/ui/vocabularies">Every vocabulary</a></p>
+<p hx-boost="true" hx-target="#ui-main"><a href="/vocab">Every vocabulary</a></p>
+{{with .Filter}}<form method="get" action="/ui/vocabularies/{{$.Name}}" class="filter" role="search">
+<label for="entry-filter">Show only this {{.Field}}</label>
+<input type="search" id="entry-filter" name="where.{{.Field}}" value="{{.Value}}" autocomplete="off">
+<button type="submit">Filter</button>{{if .Value}} <a href="/ui/vocabularies/{{$.Name}}">Show all</a>{{end}}
+</form>{{end}}
+<p>{{len .Rows}} {{if eq (len .Rows) 1}}entry{{else}}entries{{end}}{{if .Next}} on this page{{end}}.</p>
 <div class="wide"><table>
 <thead><tr>{{range .Columns}}<th scope="col">{{.}}</th>{{end}}</tr></thead>
 <tbody>
@@ -182,10 +185,10 @@ out of band. vocab.js fills storage-usage, and says how a load went in
 <button type="submit">Remove all of them</button>
 </form>
 </div>{{end}}
-<div class="load">
-<label for="vocab-files">Load vocabulary files</label>
+<div class="load dropzone">
+<label for="vocab-files">Drop your vocabulary files here, or choose them</label>
 <input type="file" id="vocab-files" multiple accept=".jsonl,application/jsonl" aria-describedby="vocab-files-hint">
-<p id="vocab-files-hint" class="hint">Or drop them anywhere on this page. Files loaded together are linked as one batch, and a file named like a stored one replaces it. They stay in this browser.</p>
+<p id="vocab-files-hint" class="hint">Files loaded together are linked as one batch. A file with the same name as one you have replaces it. They stay in this browser.</p>
 </div>
 {{with .Offer}}<div class="offer">
 {{if .Held}}<p>EPA's vocabulary, {{.Name}} {{.Version}}, is kept in this browser.</p>
@@ -194,8 +197,10 @@ out of band. vocab.js fills storage-usage, and says how a load went in
 {{end}}</div>{{end}}
 {{template "catalog" .Catalog}}
 {{if .NoneStored}}<p>No files are kept in this browser yet.</p>{{end}}
+<details class="more"><summary>Details</summary>
 <p id="storage-usage" class="hint"></p>
 <p class="hint">Translated in this browser by release <code>{{.Release}}</code>, data month {{.DataMonth}}.</p>
+</details>
 <section id="vocab-translate" aria-labelledby="vocab-translate-h" hx-swap-oob="true">
 {{template "vocab-translate" .Translate}}
 </section>

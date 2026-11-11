@@ -72,7 +72,7 @@ func vocabJSOff(t *testing.T, path, base string) offPages {
 	tb := newTab(t, path, base, &requestLog{}, false)
 	tb.do(chromedp.Navigate(base + "/vocab"))
 	tb.wait("#browser")
-	if s := tb.html("#browser-status"); !strings.Contains(s, "Loading your own vocabulary files needs JavaScript") || !strings.Contains(s, "works without it") {
+	if s := tb.html("#browser-status"); !strings.Contains(s, "Loading your own files needs JavaScript. Your files never leave this browser.") || !strings.Contains(s, "works without it") {
 		t.Errorf("JS off: %s", s)
 	}
 	if n := tb.count("#vocab-files, #load-epa"); n != 0 {
@@ -221,7 +221,7 @@ func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epa
 	}
 	tb.do(chromedp.SetUploadFiles(chromedp.CSS("#vocab-files"), []string{replaced}))
 	tb.waitPrefix("#load-status", "Loaded parts (")
-	if s := tb.html(`tr[data-where="browser"]:has(a[href="/ui/vocabularies/parts"])`); !strings.Contains(s, `<td class="version">2026.12</td>`) {
+	if s := tb.html(`tr[data-where="browser"]:has(a[href="/ui/vocabularies/parts"])`); !strings.Contains(s, `<dd class="version">2026.12</dd>`) {
 		t.Errorf("a replaced file: %s", s)
 	}
 	if s := tb.html(`tr[data-where="browser"]:has(a[href="/ui/vocabularies/listing"])`); !strings.Contains(s, "linked, no drift") {
