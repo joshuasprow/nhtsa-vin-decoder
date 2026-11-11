@@ -223,7 +223,7 @@ func (tb *tab) count(sel string) int {
 	tb.t.Helper()
 	var nodes []*chromedp.Node
 	tb.call(func(ctx context.Context) (err error) {
-		nodes, err = chromedp.Run(ctx, chromedp.Nodes(chromedp.CSS(sel), chromedp.AtLeast(0)))
+		nodes, err = chromedp.Run(ctx, chromedp.Nodes(chromedp.CSSAll(sel), chromedp.AtLeast(0)))
 		return err
 	})
 	return len(nodes)

@@ -418,7 +418,8 @@ browser's own files in IndexedDB, each with its parsed index
 file on every cold start), keyed by blake3 and release. Its rules (batch
 loads that link or change nothing, replace by name, refused removes with
 dependants, stored files that fault left out and listed, the decode's data
-month checked) are plain Go, tested with an in-memory `ui.Disk`
+month checked, each vocabulary loaded selected as a target and each file
+removed no longer) are plain Go, tested with an in-memory `ui.Disk`
 (`library_test.go`). `cmd/nitrovin-sw` is the module: `ui.NewInBrowser`
 over a `Library`, given IndexedDB and `fetch` by `pkg/ui/static/worker.js`,
 the worker script that `/sw.js` (its release and the server's files, never
@@ -435,9 +436,26 @@ month (`ui.Offer`). `vocab.js` is `/vocab`'s script: it registers the
 worker, says its state (ready, paused after a hard reload, an update
 waiting for the old release's tabs to close), swaps the worker's panel
 (`/ui/files`: the merged catalog, each file marked by where it lives, with
-its drift) over the server's catalog, and hands picked or dropped files,
-and EPA's on a click, to it by `postMessage`, never in a request, giving up
-on a load after a minute without progress.
+its drift, and out of band `/vocab`'s translate forms over it) over the
+server's, and hands picked or dropped files, EPA's on a click, and each
+target ticked or cleared to it by `postMessage`, never in a request,
+giving up on a load after a minute without progress.
+
+The translate forms, on `/ui/translate` and on `/vocab`, come with
+examples, each a link to the translate page with its form filled in: a
+VIN and the vPIC model it decodes to, which need no file, and one from
+each vocabulary loaded, its first mapped entry in a year its mapping holds
+for, built from the file, so a private file gets one without its name in
+the repository. An example goes to the targets ticked on its spine, else
+to another vocabulary on it. Without JavaScript the ticked targets travel
+in the URL (`to=`); with it, `/vocab` ticks the visitor's selection, which
+IndexedDB keeps beside the files, by spine, in a database of its own
+(`nitrovin-state`, so an older release still opens `nitrovin`): a file
+loaded joins it, a file removed leaves it, `vocab.js` changes it as the
+visitor ticks, and each translation asked for, a link's own `to=`
+included, sets it on its spine to its targets (the worker's pages for the
+translations they answer, `worker.js` for those it sends to the server,
+by the spines `/sw.js` gives the server's files).
 
 `TestForm` then runs the form in headless Chrome or Chromium
 (`browser_test.go`, over the DevTools protocol with chromedp), twice, each
@@ -487,6 +505,14 @@ once (7); and errors carry real status codes and file names, Remove
 clicked the moment the panel shows goes by htmx, and an unreachable server
 is said in words (8). `TestWorker` covers the stalled load (5). It also
 loads EPA's vocabulary in one click and drops a file on the page.
+
+`TestVocabTranslate` (`vocabtranslate_test.go`) clicks every example on
+`/vocab` without JavaScript, against a server that loaded the fixture and
+the EPA sample, and with it, the files in the browser, and checks that
+each fills its form; with JavaScript, that a file loaded is ticked, that
+the selection survives a second load, a removal, a reload and a cold start
+of the worker, and that a translation's or a link's `to=` replaces it on
+its spine alone. axe audits both runs.
 
 `cmd/libnitrovin` is the C library (`-buildmode=c-shared`, no data).
 `scripts/libnitrovin.sh <dir> [<goos>/<goarch>…]` builds it for all six

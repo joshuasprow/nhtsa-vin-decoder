@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,21 +19,23 @@ import (
 )
 
 // The vocabulary pages (ADR 0013). /vocab is the entry page, the server's:
-// the catalog of what is loaded, each file marked by where it lives, and
-// the visitor's own files, which need JavaScript. /ui/translate
-// translates, its query GET /v1/translate's; /ui/vocabularies lists the
-// server's catalog and /ui/vocabularies/{name} one file's entries, their
-// queries GET /v1/vocabularies's. Each answers the same on the server and
-// in the browser's Service Worker, which answers only the requests naming
-// a file the browser holds and forwards the rest: so a link means one
-// thing with JavaScript on or off, and a link naming a browser file,
-// opened where the file is not, says where it lives. /ui/files is the
-// worker's /vocab panel: the merged catalog (vPIC, the server's files and
-// the browser's) with the browser's files' storage, drift and removal,
-// and the one-click load of EPA's vocabulary; /ui/files/remove drops
-// browser files. Both are the worker's alone, which the server answers by
-// saying so. /sw.js is the worker itself, the only response whose CSP
-// allows WebAssembly.
+// the catalog of what is loaded, each file marked by where it lives, the
+// visitor's own files, which need JavaScript, and the translate forms.
+// /ui/translate translates, its query GET /v1/translate's, below the same
+// forms; both offer examples, one from each vocabulary. /ui/vocabularies
+// lists the server's catalog and /ui/vocabularies/{name} one file's
+// entries, their queries GET /v1/vocabularies's. Each answers the same on
+// the server and in the browser's Service Worker, which answers only the
+// requests naming a file the browser holds and forwards the rest: so a
+// link means one thing with JavaScript on or off, and a link naming a
+// browser file, opened where the file is not, says where it lives.
+// /ui/files is the worker's /vocab panel: the merged catalog (vPIC, the
+// server's files and the browser's) with the browser's files' storage,
+// drift and removal, the one-click load of EPA's vocabulary, and the
+// translate forms over the merged catalog, the visitor's selection of
+// targets ticked; /ui/files/remove drops browser files. Both are the
+// worker's alone, which the server answers by saying so. /sw.js is the
+// worker itself, the only response whose CSP allows WebAssembly.
 
 const (
 	vocabPath        = "/vocab"
@@ -115,11 +118,12 @@ func named(q url.Values) []string {
 	return append(out, q["to"]...)
 }
 
-// vocabPage is /vocab: the server's catalog, and whether the server has
-// the worker to load the visitor's own files.
+// vocabPage is /vocab: the server's catalog, whether the server has the
+// worker to load the visitor's own files, and the translate forms.
 type vocabPage struct {
-	Catalog catalogTable
-	Worker  bool
+	Catalog   catalogTable
+	Worker    bool
+	Translate translatePage
 }
 
 func (h *Handler) vocab(*http.Request) (view, error) {
@@ -127,7 +131,11 @@ func (h *Handler) vocab(*http.Request) (view, error) {
 	if err != nil {
 		return view{}, err
 	}
-	return view{title: "Vocabularies", template: "vocab", vocab: true, data: vocabPage{Catalog: catalogTable{Rows: h.rows(cat)}, Worker: h.worker != nil}}, nil
+	t, err := h.translateForms(cat, url.Values{})
+	if err != nil {
+		return view{}, err
+	}
+	return view{title: "Vocabularies", template: "vocab", vocab: true, data: vocabPage{Catalog: catalogTable{Rows: h.rows(cat)}, Worker: h.worker != nil, Translate: t}}, nil
 }
 
 // catalogTable is the catalog as /vocab shows it; Manage adds the
@@ -250,7 +258,8 @@ func (h *Handler) rows(cat []contract.CatalogEntry) []catalogRow {
 	return out
 }
 
-// translatePage is /ui/translate: its forms, and the translation asked for.
+// translatePage is the translate forms, with examples to try: on
+// /ui/translate with the translation asked for, and on /vocab.
 type translatePage struct {
 	// Vocabularies are the catalog's vocabularies, the targets.
 	Vocabularies []contract.CatalogEntry
@@ -258,35 +267,166 @@ type translatePage struct {
 	// is chosen; Fields its entry's fields with the query's values.
 	From   *contract.CatalogEntry
 	Fields []fieldValue
-	// FromVIN, VIN and ModelYear are the query's.
-	FromVIN, VIN, ModelYear string
-	To                      []string
-	Result                  *translationView
+	// FromVIN, FromMake, FromModel, VIN and ModelYear are the query's.
+	FromVIN, FromMake, FromModel, VIN, ModelYear string
+	// To are the targets ticked: the query's, or on /vocab in the browser
+	// the visitor's selection.
+	To       []string
+	Examples []example
+	Result   *translationView
 }
 
 type fieldValue struct{ Name, Value string }
 
-// target is a vocabulary the form offers as a target, and whether the
-// query names it.
+// target is a vocabulary the form offers as a target, and whether it is
+// ticked.
 type target struct {
 	Name    string
 	Checked bool
 }
 
-// Targets are the vocabularies a translation from From, or from a VIN,
-// can reach: those on its spine.
-func (p translatePage) Targets() []target {
-	spine := "vpic"
-	if p.From != nil {
-		spine = p.From.Spine
-	}
-	var out []target
+// targetSet is the targets a form offers: the vocabularies on Spine.
+type targetSet struct {
+	Spine string
+	List  []target
+}
+
+// TargetsOn are the vocabularies a translation through spine can reach:
+// a VIN's and a vPIC entry's through vpic, an entry's through its
+// vocabulary's spine.
+func (p translatePage) TargetsOn(spine string) targetSet {
+	out := targetSet{Spine: spine}
 	for _, v := range p.Vocabularies {
 		if v.Spine == spine {
-			out = append(out, target{v.Name, slices.Contains(p.To, v.Name)})
+			out.List = append(out.List, target{v.Name, slices.Contains(p.To, v.Name)})
 		}
 	}
 	return out
+}
+
+// YearIn is the model year the form named shows: the query's, in the
+// form ("vin", "vpic" or "entry") its from came from.
+func (p translatePage) YearIn(form string) string {
+	from := "entry"
+	switch {
+	case p.FromVIN != "":
+		from = "vin"
+	case p.FromMake != "" || p.FromModel != "":
+		from = "vpic"
+	}
+	if form != from {
+		return ""
+	}
+	return p.ModelYear
+}
+
+// example is a translation to try: a link to the translate page with its
+// form filled in and the translation below it. Its targets are the ticked
+// ones on its Spine, else DefaultTo (names, space-separated: none for
+// the examples that need no file). vocab.js sends an example clicked on
+// /vocab to the targets ticked there at that moment.
+type example struct {
+	Label, Hint, Href, Spine, DefaultTo string
+}
+
+// The examples that need no file: a VIN, and the vPIC model it decodes
+// to, in its year.
+const (
+	exampleVIN   = "1HGCM82633A004352"
+	exampleModel = "1861" // vPIC's Honda Accord, under make 474
+	exampleYear  = "2003"
+)
+
+// exampleScan is how many of a vocabulary's first entries are looked
+// through for its example, the first with a mapping.
+const exampleScan = 100
+
+// translateForms are the forms over the catalog cat, filled from q, a
+// translate query, and their examples: those that need no file, then one
+// from each vocabulary, its first mapped entry, in a year its mapping
+// holds for.
+func (h *Handler) translateForms(cat []contract.CatalogEntry, q url.Values) (translatePage, error) {
+	p := translatePage{FromVIN: q.Get("from.vin"), FromMake: q.Get("from.make"), FromModel: q.Get("from.model"), VIN: q.Get("vin"), ModelYear: q.Get("model_year"), To: q["to"]}
+	for _, c := range cat {
+		if c.Kind == "vocabulary" {
+			p.Vocabularies = append(p.Vocabularies, c)
+		}
+	}
+	// By name: where a file lives (the server, the browser) changes the
+	// catalog's load order, never the form.
+	slices.SortFunc(p.Vocabularies, func(a, b contract.CatalogEntry) int { return strings.Compare(a.Name, b.Name) })
+	if name := q.Get("from.vocabulary"); name != "" {
+		if i := slices.IndexFunc(p.Vocabularies, func(c contract.CatalogEntry) bool { return c.Name == name }); i >= 0 {
+			p.From = &p.Vocabularies[i]
+			for _, f := range p.From.Fields {
+				p.Fields = append(p.Fields, fieldValue{f, q.Get("from.entry." + f)})
+			}
+		}
+	}
+	p.Examples = []example{
+		p.example(exampleVIN, "a VIN: a 2003 Honda Accord", vocab.Reserved, nil, url.Values{"from.vin": {exampleVIN}}),
+		p.example("vPIC model "+exampleModel, "the Honda Accord, model year "+exampleYear, vocab.Reserved, nil, url.Values{"from.model": {exampleModel}, "model_year": {exampleYear}}),
+	}
+	for _, v := range p.Vocabularies {
+		l, err := h.p.List(contract.ListRequest{Of: v.Name, Limit: exampleScan})
+		if err != nil {
+			return translatePage{}, err
+		}
+		var e contract.VocabularyEntry
+		for _, le := range l.Entries {
+			if ve, ok := le.(contract.VocabularyEntry); ok && len(ve.Mappings) > 0 {
+				e = ve
+				break
+			}
+		}
+		if len(e.Mappings) == 0 {
+			continue
+		}
+		q := url.Values{"from.vocabulary": {v.Name}}
+		var label []string
+		for _, f := range v.Fields {
+			if s := e.Entry[f]; s != "" {
+				q.Set("from.entry."+f, s)
+				label = append(label, s)
+			}
+		}
+		hint := "an entry of " + v.Name
+		if year := cmp.Or(e.Mappings[0].First, e.Mappings[0].Last); year.Valid && v.Spine == vocab.Reserved {
+			q.Set("model_year", strconv.Itoa(int(year.V)))
+			hint += ", model year " + strconv.Itoa(int(year.V))
+		}
+		p.Examples = append(p.Examples, p.example(strings.Join(label, " · "), hint, v.Spine, []string{p.sensibleTarget(v)}, q))
+	}
+	return p, nil
+}
+
+// example is the example from q, a translate query without targets, to
+// the ticked targets on spine, else to def.
+func (p translatePage) example(label, hint, spine string, def []string, q url.Values) example {
+	var to []string
+	for _, t := range p.TargetsOn(spine).List {
+		if t.Checked {
+			to = append(to, t.Name)
+		}
+	}
+	if len(to) == 0 {
+		to = def
+	}
+	if len(to) > 0 {
+		q["to"] = to
+	}
+	return example{Label: label, Hint: hint, Href: translatePath + "?" + q.Encode(), Spine: spine, DefaultTo: strings.Join(def, " ")}
+}
+
+// sensibleTarget is what v's example translates to when nothing on its
+// spine is ticked: the first other vocabulary on it, else v itself.
+func (p translatePage) sensibleTarget(v contract.CatalogEntry) string {
+	for _, t := range p.TargetsOn(v.Spine).List {
+		if t.Name != v.Name {
+			return t.Name
+		}
+	}
+	return v.Name
 }
 
 func (h *Handler) translate(r *http.Request) (view, error) {
@@ -305,26 +445,12 @@ func (h *Handler) translate(r *http.Request) (view, error) {
 	if err := h.notHere(named(q), cat); err != nil {
 		return view{}, err
 	}
-	p := translatePage{FromVIN: q.Get("from.vin"), VIN: q.Get("vin"), ModelYear: q.Get("model_year"), To: q["to"]}
-	for _, c := range cat {
-		if c.Kind == "vocabulary" {
-			p.Vocabularies = append(p.Vocabularies, c)
-		}
+	p, err := h.translateForms(cat, q)
+	if err != nil {
+		return view{}, err
 	}
-	// By name: where a file lives (the server, the browser) changes the
-	// catalog's load order, never the form.
-	slices.SortFunc(p.Vocabularies, func(a, b contract.CatalogEntry) int { return strings.Compare(a.Name, b.Name) })
-	entry := false
-	if name := q.Get("from.vocabulary"); name != "" {
-		if i := slices.IndexFunc(p.Vocabularies, func(c contract.CatalogEntry) bool { return c.Name == name }); i >= 0 {
-			p.From = &p.Vocabularies[i]
-			for _, f := range p.From.Fields {
-				v := q.Get("from.entry." + f)
-				p.Fields = append(p.Fields, fieldValue{f, v})
-				entry = entry || v != ""
-			}
-		}
-	}
+	h.remember(r, q, p)
+	entry := slices.ContainsFunc(p.Fields, func(f fieldValue) bool { return f.Value != "" })
 	ask := entry || q.Has("from.vin") || q.Has("from.make") || q.Has("from.model") || q.Has("from.ext") || q.Has("from.spine")
 	if !ask {
 		return view{title: "Translate", template: "translate", data: p}, nil
@@ -339,6 +465,29 @@ func (h *Handler) translate(r *http.Request) (view, error) {
 	}
 	p.Result = newTranslationView(tr, cat)
 	return view{title: "Translate", template: "translate", data: p}, nil
+}
+
+// remember makes the targets q names, in the browser, the visitor's
+// selection on their spine: a link's own to= wins over the selection, and
+// /vocab ticks what was last translated to. History going back to an
+// older page changes nothing. worker.js does the same for a translation
+// it sends to the server.
+func (h *Handler) remember(r *http.Request, q url.Values, p translatePage) {
+	if h.lib == nil || !q.Has("to") || r.Header.Get("HX-History-Restore-Request") == "true" {
+		return
+	}
+	spine := vocab.Reserved
+	switch {
+	case q.Has("from.spine"):
+		spine = q.Get("from.spine")
+	case p.From != nil:
+		spine = p.From.Spine
+	case q.Has("from.vocabulary"):
+		return // nothing loaded by its name: the translation is refused
+	}
+	if err := h.lib.Select(spine, q["to"]); err != nil {
+		h.log.Printf("ui: %v", err)
+	}
 }
 
 // translationView is a translation in words.
@@ -592,13 +741,16 @@ func (h *Handler) entries(r *http.Request) (view, error) {
 }
 
 // filesPanel is /ui/files: the merged catalog with the browser's files'
-// removal, a remove it refused, and EPA's vocabulary to load.
+// removal, a remove it refused, and EPA's vocabulary to load; and /vocab's
+// translate forms over the merged catalog, the visitor's selection
+// ticked, which htmx swaps over the server's out of band.
 type filesPanel struct {
 	Catalog   catalogTable
 	Offer     *offerView
 	DataMonth string
 	Release   string
 	Refusal   *removeRefusal
+	Translate translatePage
 }
 
 // NoneStored reports whether the browser keeps no file.
@@ -620,7 +772,15 @@ func (h *Handler) panel() (filesPanel, error) {
 	if err != nil {
 		return filesPanel{}, err
 	}
-	p := filesPanel{Catalog: catalogTable{Rows: h.rows(cat), Manage: true}, DataMonth: h.lib.Month(), Release: Release(h.lib.Info())}
+	selection, err := h.lib.Selection()
+	if err != nil {
+		return filesPanel{}, err
+	}
+	t, err := h.translateForms(cat, url.Values{"to": selection.Names()})
+	if err != nil {
+		return filesPanel{}, err
+	}
+	p := filesPanel{Catalog: catalogTable{Rows: h.rows(cat), Manage: true}, DataMonth: h.lib.Month(), Release: Release(h.lib.Info()), Translate: t}
 	if o := h.offered(); o != nil {
 		p.Offer = &offerView{Offer: o}
 		for _, f := range h.lib.Files() {
@@ -738,12 +898,16 @@ type workerConfig struct {
 	EPA            *Offer       `json:"epa,omitempty"`
 }
 
+// workerFile is one of the server's files. Spine is a vocabulary's, which
+// worker.js keeps the selection by when it sends a translation from it to
+// the server.
 type workerFile struct {
 	Name    string `json:"name"`
 	Kind    string `json:"kind"`
 	Version string `json:"version"`
 	Blake3  string `json:"blake3"`
 	URL     string `json:"url"`
+	Spine   string `json:"spine,omitempty"`
 }
 
 // ReadWorkerConfig reads a worker's config: the Info it describes (the
@@ -766,10 +930,18 @@ func ReadWorkerConfig(config []byte) (contract.Info, *Offer, error) {
 // with other files, is a new worker, which the browser installs beside
 // the old one and starts once the old one's pages close. It is never
 // cached without asking (no-cache), and it alone may run WebAssembly.
-func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info, base string) {
+func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info, base string) error {
+	cat, err := h.catalog()
+	if err != nil {
+		return err
+	}
 	c := workerConfig{Assets: base, Release: Release(info), DecoderVersion: info.DecoderVersion, DataMonth: info.DataMonth, ArtifactHash: info.ArtifactHash, Files: []workerFile{}, EPA: h.offered()}
 	for _, f := range info.Vocabularies {
-		c.Files = append(c.Files, workerFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3, URL: FilePath(info, f)})
+		wf := workerFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3, URL: FilePath(info, f)}
+		if i := slices.IndexFunc(cat, func(e contract.CatalogEntry) bool { return e.Name == f.Name }); i >= 0 && cat[i].Kind == "vocabulary" {
+			wf.Spine = cat[i].Spine
+		}
+		c.Files = append(c.Files, wf)
 	}
 	config, err := json.Marshal(c)
 	if err != nil {
@@ -788,4 +960,5 @@ func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info, base 
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	_, _ = w.Write([]byte(body))
+	return nil
 }

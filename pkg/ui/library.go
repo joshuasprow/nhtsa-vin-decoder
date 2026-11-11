@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -56,7 +57,8 @@ type Library struct {
 }
 
 // Disk is the browser's IndexedDB, as the worker's script keeps it:
-// stored files' records and texts, and their indexes of this release.
+// stored files' records and texts, their indexes of this release, and the
+// visitor's selection of targets.
 type Disk interface {
 	// Records are the stored files.
 	Records() ([]Record, error)
@@ -66,9 +68,30 @@ type Disk interface {
 	PutIndex(blake3 string, index []byte) error
 	// Text is a stored file's bytes.
 	Text(blake3 string) ([]byte, error)
+	// Selection is the visitor's selected targets; empty before any.
+	// worker.js changes it too: as the visitor ticks a target, and to
+	// the targets of a translation it sends to the server.
+	Selection() (Selection, error)
 	// Change stores put (replacing records of the same names) and drops
-	// the records named remove, in one transaction: all of it, or none.
-	Change(put []Stored, remove []string) error
+	// the records named remove, in one transaction: all of it, or none;
+	// then it stores selection (in a database of its own, which an older
+	// release does not open).
+	Change(put []Stored, remove []string, selection Selection) error
+}
+
+// Selection is the vocabularies the visitor selected as targets, by the
+// spine they are on: a translation's targets are all on one spine, and
+// its to= replaces the selection on that spine alone. A name may be of no
+// file loaded now; the pages tick the ones that are.
+type Selection map[string][]string
+
+// Names are every spine's selected names.
+func (s Selection) Names() []string {
+	var out []string
+	for _, spine := range slices.Sorted(maps.Keys(s)) {
+		out = append(out, s[spine]...)
+	}
+	return out
 }
 
 // Remote is the server, from the browser: a GET of path on its origin.
@@ -351,6 +374,36 @@ func (l *Library) Server() []StoredFile {
 	return l.list(s, s.server)
 }
 
+// Selection is the vocabularies the visitor selected as targets, as this
+// browser keeps them beside the files: each vocabulary loaded, the ones
+// the visitor ticks, a translation's targets.
+func (l *Library) Selection() (Selection, error) {
+	s, err := l.disk.Selection()
+	if err != nil {
+		return nil, fmt.Errorf("reading the selected targets in this browser: %w", err)
+	}
+	return s, nil
+}
+
+// Select makes names, the targets of a translation asked for, the
+// selection on spine.
+func (l *Library) Select(spine string, names []string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	s, err := l.Selection()
+	if err != nil {
+		return err
+	}
+	if s == nil {
+		s = Selection{}
+	}
+	s[spine] = names
+	if err := l.disk.Change(nil, nil, s); err != nil {
+		return fmt.Errorf("storing the selected targets in this browser: %w", err)
+	}
+	return nil
+}
+
 // list is hs, files of s, as the pages list them.
 func (l *Library) list(s *shelf, hs []*held) []StoredFile {
 	out := make([]StoredFile, len(hs))
@@ -464,9 +517,10 @@ func (l *Library) decode(vin string, year contract.Null[int32], now time.Time) (
 
 // Load reads picked as one batch and stores it: each file checked alone
 // (vocab.Read), then all linked with the server's and the stored files, a
-// stored file of the same name replaced. A batch that does not link, or
-// that would leave a linked stored file unable to, changes nothing: the
-// error says which file and why. progress is told each step.
+// stored file of the same name replaced. Each vocabulary it stores joins
+// the selected targets. A batch that does not link, or that would leave a
+// linked stored file unable to, changes nothing: the error says which file
+// and why. progress is told each step.
 func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -500,6 +554,13 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 		return nil, &pageError{Status: http.StatusConflict, Message: "This batch would leave stored files unable to link, so nothing was loaded: " + broken}
 	}
 	progress("Storing…")
+	selection, err := l.Selection()
+	if err != nil {
+		return nil, err
+	}
+	if selection == nil {
+		selection = Selection{}
+	}
 	put := make([]Stored, len(news))
 	for i, n := range news {
 		var idx bytes.Buffer
@@ -507,8 +568,18 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 			return nil, err
 		}
 		put[i] = Stored{Record: n.rec, Text: picked[i].Data, Index: idx.Bytes()}
+		if n.file.Kind != vocab.KindVocabulary {
+			continue
+		}
+		spine := vocab.Reserved
+		if n.file.Subject == vocab.SubjectPart {
+			spine = n.file.Spine
+		}
+		if !slices.Contains(selection[spine], n.name) {
+			selection[spine] = append(selection[spine], n.name)
+		}
 	}
-	if err := l.disk.Change(put, nil); err != nil {
+	if err := l.disk.Change(put, nil, selection); err != nil {
 		return nil, fmt.Errorf("storing the batch in this browser: %w", err)
 	}
 	next.set = next.relink(set, dropped)
@@ -557,9 +628,10 @@ func (e *removeRefusal) Error() string {
 	return fmt.Sprintf("%s cannot go alone: %s link to it.", strings.Join(e.Names, ", "), strings.Join(e.Dependants, ", "))
 }
 
-// Remove drops the stored files named names. When stored files that link
-// now would not link without them, it refuses (a *removeRefusal naming
-// them) unless all is set, which drops them too.
+// Remove drops the stored files named names, and them from the selected
+// targets. When stored files that link now would not link without them,
+// it refuses (a *removeRefusal naming them) unless all is set, which drops
+// them too.
 func (l *Library) Remove(names []string, all bool) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -592,7 +664,14 @@ func (l *Library) Remove(names []string, all bool) error {
 		names = append(names, dependants...)
 		next.browser = slices.DeleteFunc(kept, gone)
 	}
-	if err := l.disk.Change(nil, names); err != nil {
+	selection, err := l.Selection()
+	if err != nil {
+		return err
+	}
+	for spine, ns := range selection {
+		selection[spine] = slices.DeleteFunc(ns, func(n string) bool { return slices.Contains(names, n) })
+	}
+	if err := l.disk.Change(nil, names, selection); err != nil {
 		return fmt.Errorf("removing from this browser: %w", err)
 	}
 	next.set = next.relink(set, dropped)

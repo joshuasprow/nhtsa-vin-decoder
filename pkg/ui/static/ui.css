@@ -74,3 +74,6 @@ form.inline button { font-size: 13px; padding: .15rem .6rem; }
 /* Files dragged over the page: they load when dropped. */
 section#browser.dropping #browser-files { outline: 2px dashed var(--link); outline-offset: 4px; }
 select { font: inherit; padding: .25rem; }
+/* The translate examples, side by side as the line allows. */
+ul.examples { list-style: none; padding: 0; margin: .25rem 0 1rem; display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; }
+form p.hint { margin: 0; }

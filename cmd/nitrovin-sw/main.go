@@ -215,7 +215,17 @@ func (disk) Text(blake3 string) ([]byte, error) {
 	return goBytes(v), nil
 }
 
-func (disk) Change(put []ui.Stored, remove []string) error {
+func (disk) Selection() (ui.Selection, error) {
+	v, err := call("selection")
+	if err != nil {
+		return nil, err
+	}
+	var out ui.Selection
+	err = json.Unmarshal([]byte(js.Global().Get("JSON").Call("stringify", v).String()), &out)
+	return out, err
+}
+
+func (disk) Change(put []ui.Stored, remove []string, selection ui.Selection) error {
 	puts := make([]any, len(put))
 	for i, p := range put {
 		rec, err := json.Marshal(p.Record)
@@ -232,7 +242,14 @@ func (disk) Change(put []ui.Stored, remove []string) error {
 	for i, n := range remove {
 		names[i] = n
 	}
-	_, err := call("change", puts, names)
+	if selection == nil {
+		selection = ui.Selection{}
+	}
+	sel, err := json.Marshal(selection)
+	if err != nil {
+		return err
+	}
+	_, err = call("change", puts, names, js.Global().Get("JSON").Call("parse", string(sel)))
 	return err
 }
 
