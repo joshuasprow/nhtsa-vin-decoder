@@ -132,7 +132,7 @@ status=$(req vocab "$base/vocab")
 [[ $status == 200 && $(header vocab content-type) == "text/html; charset=utf-8" ]] || fail "GET /vocab: $status $(header vocab content-type)"
 [[ $(header vocab cache-control) == no-store ]] || fail "GET /vocab: cache-control $(header vocab cache-control); want no-store"
 grep -q '^<!doctype html>' "$tmp/vocab.b" || fail "GET /vocab: not a whole page"
-grep -qF 'Loading your own vocabulary files needs JavaScript' "$tmp/vocab.b" ||
+grep -qF 'Loading your own files needs JavaScript' "$tmp/vocab.b" ||
 	fail "GET /vocab: does not say that your own files need JavaScript (a build without scripts/sw.sh's module?)"
 grep -qF 'data-where="vpic"' "$tmp/vocab.b" || fail "GET /vocab: no catalog"
 pass "GET /vocab: 200, a whole page, no-store; says your own files need JavaScript, lists the catalog"
