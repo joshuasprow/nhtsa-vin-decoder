@@ -37,6 +37,7 @@ func TestVocabPartTargets(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the worker's module")
 	}
+	fixtureData(t)
 	shelf, bins, binLabels := partFiles(t)
 
 	off := httptest.NewServer(vocabServer(t, nil, fixture, shelf, bins, binLabels))

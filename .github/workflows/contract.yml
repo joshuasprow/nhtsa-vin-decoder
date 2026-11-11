@@ -91,7 +91,7 @@ jobs:
             "pkg/nitrovin "{TestFixtureLoadsClean,TestFixtureDrift,TestTranslatorRefusesUnlinked,TestTranslate,TestTranslateAnswer}
             "pkg/nitrovin "{TestTranslateBatch,TestTranslateDrift,TestTranslateWithoutFiles,TestList,TestListPaging,TestSpineBundleTranslates}
             "cmd/nitrovin "{TestVocabCheck,TestVocabLoad,TestServeVocabularies,TestTranslate,TestTranslateRefused,TestList,TestListRefused}
-            "cmd/nitrovin "{TestStdioOps,TestMCPVocabSession,TestWorker,TestVocabPage,TestVocabTranslate}
+            "cmd/nitrovin "{TestStdioOps,TestMCPVocabSession,TestWorker,TestVocabPage,TestVocabTranslate,TestVocabPartTargets}
             "cmd/nitrovin-epa "{TestBuild,TestEntry,TestCuratedLoadsClean}
           )
           status=0
