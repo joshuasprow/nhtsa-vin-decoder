@@ -228,6 +228,8 @@ type view struct {
 	location string
 	// vocab loads vocab.js, the browser files' script: /vocab's.
 	vocab bool
+	// nav is the top nav's current entry (navSection).
+	nav string
 }
 
 // New is the server's handler of /, /vocab, /sw.js and /ui answering from
@@ -336,7 +338,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, v.location, v.status)
 		return
 	}
+	v.nav = navSection(r.URL.Path)
 	h.render(w, frag, base, v, false)
+}
+
+// navSection is the top nav's entry path is under: "decode", "translate",
+// "vocab", or "" for none.
+func navSection(path string) string {
+	switch {
+	case path == "/" || path == decodePath:
+		return "decode"
+	case path == translatePath:
+		return "translate"
+	case path == vocabPath || path == filesPath || path == removePath || path == vocabulariesPath || strings.HasPrefix(path, vocabulariesPath+"/"):
+		return "vocab"
+	}
+	return ""
 }
 
 // getOrHead reports whether r is a GET or HEAD, else sets the Allow header
@@ -465,6 +482,9 @@ type layout struct {
 	Body       template.HTML
 	// Vocab loads vocab.js.
 	Vocab bool
+	// Nav is the top nav's current entry: "decode", "translate", "vocab"
+	// or "".
+	Nav string
 }
 
 // render writes v: its fragment alone, or the page around it. A fragment
@@ -494,7 +514,7 @@ func (h *Handler) render(w http.ResponseWriter, frag bool, base string, v view, 
 	}
 	if !frag {
 		out = new(bytes.Buffer)
-		page := layout{Title: v.title, Assets: base, HTMXConfig: htmxConfig, Body: template.HTML(body.String()), Vocab: v.vocab}
+		page := layout{Title: v.title, Assets: base, HTMXConfig: htmxConfig, Body: template.HTML(body.String()), Vocab: v.vocab, Nav: v.nav}
 		if err := tpl.ExecuteTemplate(out, "page", page); err != nil {
 			panic(fmt.Errorf("template page: %w", err))
 		}

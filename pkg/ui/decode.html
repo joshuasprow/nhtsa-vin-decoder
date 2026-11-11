@@ -7,6 +7,8 @@ its URL. The examples and the empty-values link are boosted the same way. */}}
 {{template "decode-form" .}}
 {{template "examples"}}
 
+<details class="dev">
+<summary>For developers</summary>
 <h2 id="install">Install</h2>
 <p>Every release embeds one vPIC data month; <code>nitrovin --version</code> names it.</p>
 <table class="install">
@@ -64,6 +66,7 @@ cosign verify ghcr.io/joshuasprow/nitrovin:$TAG \
 <li><a href="https://vpic.nhtsa.dot.gov/decoder/">NHTSA's online decoder</a>, to compare answers</li>
 <li><a href="/v1/openapi.json">this server's API</a> and <a href="https://github.com/joshuasprow/nitrovin#readme">the README</a></li>
 </ul>
+</details>
 {{template "form-footer" .}}
 {{- end}}
 
@@ -72,12 +75,14 @@ cosign verify ghcr.io/joshuasprow/nitrovin:$TAG \
 {{template "decode-form" .}}
 {{with .Decode}}
 <h2>Result</h2>
-<p>Error codes:
-<span class="mono {{if .Clean}}codes-clean{{else}}codes-flagged{{end}}">{{range $i, $c := .ErrorCodes}}{{if $i}}, {{end}}{{$c}}{{end}}</span>
-· check digit {{if .CheckDigitValid}}valid{{else}}invalid{{end}}</p>
-<ul class="codes">
+{{with .Summary}}<p class="summary">{{.}}</p>{{end}}
+<p class="status">{{if .Clean}}<span class="chip chip-ok">Valid VIN</span>{{else}}Error codes:
+<span class="mono codes-flagged">{{range $i, $c := .ErrorCodes}}{{if $i}}, {{end}}{{$c}}{{end}}</span>
+· check digit {{if .CheckDigitValid}}valid{{else}}invalid{{end}}{{end}}
+<a class="translate" href="{{.Translate}}">Translate this VIN</a></p>
+{{if not .Clean}}<ul class="codes">
 {{range .Codes}}<li>{{if .Text}}{{.Text}}{{else}}{{.Code}}{{end}}</li>
-{{end}}</ul>
+{{end}}</ul>{{end}}
 {{with .AdditionalErrorText}}<p>{{.}}</p>{{end}}
 <table class="kv">
 <tbody>
@@ -98,6 +103,8 @@ cosign verify ghcr.io/joshuasprow/nitrovin:$TAG \
 </details>
 {{end}}
 
+<details class="dev">
+<summary>For developers</summary>
 <h2>Copy</h2>
 <h3>The decode's JSON</h3>
 <div class="copyable"><pre tabindex="0" class="wrap" id="copy-json" data-copy="the decode's JSON">{{.Copy.JSON}}</pre></div>
@@ -107,6 +114,7 @@ cosign verify ghcr.io/joshuasprow/nitrovin:$TAG \
 <div class="copyable"><pre tabindex="0" class="wrap" id="copy-curl" data-copy="the curl command">{{.Copy.Curl}}</pre></div>
 <h3>The same decode on the command line</h3>
 <div class="copyable"><pre tabindex="0" class="wrap" id="copy-cli" data-copy="the nitrovin decode command">{{.Copy.CLI}}</pre></div>
+</details>
 
 {{if .Items}}
 <h2>Items</h2>
@@ -126,8 +134,8 @@ cosign verify ghcr.io/joshuasprow/nitrovin:$TAG \
 {{- end}}
 
 {{define "intro" -}}
-<h1>nitrovin: decode a VIN</h1>
-<p>nitrovin decodes VINs offline and answers like NHTSA's <a href="https://vpic.nhtsa.dot.gov/">vPIC</a>: it runs NHTSA's own decoding procedure, ported to Go, on a month of vPIC data built into one binary.</p>
+<h1>Decode a VIN</h1>
+<p>Type a VIN to see the year, make, model and engine NHTSA's <a href="https://vpic.nhtsa.dot.gov/">vPIC</a> data gives it.</p>
 {{- end}}
 
 {{define "decode-form" -}}
@@ -135,9 +143,14 @@ cosign verify ghcr.io/joshuasprow/nitrovin:$TAG \
 {{with index .Errors ""}}<p class="error" role="alert">{{.}}</p>{{end}}
 <div>
 <label for="vin">VIN</label>
+<div class="vin-row">
 <input type="text" id="vin" name="vin" value="{{.VIN}}" autocomplete="off" spellcheck="false" autofocus{{with index .Errors "vin"}} aria-invalid="true" aria-describedby="vin-error"{{end}}>
+<button type="submit">Decode</button>
+</div>
 {{with index .Errors "vin"}}<p class="error" id="vin-error">{{.}}</p>{{end}}
 </div>
+<details class="options"{{if or (index .Errors "model_year") (index .Errors "shape") (index .Errors "full")}} open{{end}}>
+<summary>Options</summary>
 <div>
 <label for="model_year">Model year <span class="hint">(optional hint)</span></label>
 <input type="text" id="model_year" name="model_year" value="{{.ModelYear}}" inputmode="numeric" autocomplete="off"{{with index .Errors "model_year"}} aria-invalid="true" aria-describedby="model_year-error"{{end}}>
@@ -154,7 +167,7 @@ cosign verify ghcr.io/joshuasprow/nitrovin:$TAG \
 {{with index .Errors "full"}}<p class="error" id="full-error">{{.}}</p>{{end}}
 <label class="check"><input type="checkbox" name="show_empty" value="true"{{if .ShowEmpty}} checked{{end}}> show empty values <span class="hint">(vpic shape)</span></label>
 </div>
-<button type="submit">Decode</button>
+</details>
 </form>
 {{- end}}
 

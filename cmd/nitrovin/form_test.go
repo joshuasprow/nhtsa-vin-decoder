@@ -177,8 +177,9 @@ func TestForm(t *testing.T) {
 			[]string{"<h2>Result", `class="error"`, "/releases/tag/v0", "<mark>"}},
 		{"/ui/decode?vin=1HGCM82633A004352&model_year=&shape=vpic", 200,
 			[]string{
-				`<th scope="row">Make</th><td>HONDA</td>`, `<a href="/v1/decode/1HGCM82633A004352?shape=vpic"`, `codes-clean">0</span>`,
-				"<li>0 - VIN decoded clean. Check Digit (9th position) is correct</li>",
+				`<th scope="row">Make</th><td>HONDA</td>`, `<a href="/v1/decode/1HGCM82633A004352?shape=vpic"`, `<span class="chip chip-ok">Valid VIN</span>`,
+				`<p class="summary">2003 HONDA Accord EX-V6 · 3.0 L, 6 cylinders · built in MARYSVILLE, OHIO</p>`,
+				`<a class="translate" href="/ui/translate?from.vin=1HGCM82633A004352">Translate this VIN</a>`,
 				`value="1HGCM82633A004352"`, `<td class="mono">1HGCM82633A004352</td>`,
 				`href="https://vpic.nhtsa.dot.gov/decoder/VinDecoder?VIN=1HGCM82633A004352"`,
 			},
