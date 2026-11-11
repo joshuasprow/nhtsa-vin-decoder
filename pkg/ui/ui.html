@@ -20,7 +20,14 @@ inline script or style: CSP refuses both. */}}
 {{- end}}
 </head>
 <body>
-<header><a href="/">nitrovin</a></header>
+<header>
+<a class="brand" href="/">nitrovin</a>
+<nav aria-label="Main">
+<a href="/"{{if eq .Nav "decode"}} aria-current="page"{{end}}>Decode</a>
+<a href="/ui/translate"{{if eq .Nav "translate"}} aria-current="page"{{end}}>Translate</a>
+<a href="/vocab"{{if eq .Nav "vocab"}} aria-current="page"{{end}}>Vocabularies</a>
+</nav>
+</header>
 <div id="ui-error" role="alert"></div>
 <main id="ui-main">
 {{.Body}}

@@ -456,7 +456,9 @@ func formJSOn(t *testing.T, path, base string, log *requestLog) {
 	tb.requests("submit", true, submitted)
 	tb.audit("decode")
 
-	// A copy button copies its text and says so.
+	// A copy button copies its text and says so, once its "For
+	// developers" disclosure is open.
+	eval[bool](tb, `document.querySelectorAll("details.dev").forEach(d => d.open = true), true`)
 	tb.do(chromedp.Click(chromedp.CSS(`#copy-json + button.copy`)))
 	tb.waitText("#copy-status", "Copied the decode's JSON")
 	if got, want := eval[string](tb, `navigator.clipboard.readText()`), eval[string](tb, `document.getElementById("copy-json").textContent`); got != want {
@@ -495,6 +497,7 @@ func formJSOn(t *testing.T, path, base string, log *requestLog) {
 	if copies, buttons := tb.count("[data-copy]"), tb.count("button.copy"); copies != buttons {
 		t.Errorf("forward: %d copy buttons for %d texts", buttons, copies)
 	}
+	eval[bool](tb, `document.querySelectorAll("details.dev").forEach(d => d.open = true), true`)
 	tb.do(chromedp.Click(chromedp.CSS(`#copy-cli + button.copy`)))
 	tb.waitText("#copy-status", "Copied the nitrovin decode command")
 	tb.requests("back and forward", true)

@@ -99,6 +99,49 @@ type formDecode struct {
 	Input, Suggested []formChar
 	DifferAt         string
 	Copy             formCopies
+	// Summary is the vehicle in one line: year, make, model, trim or
+	// series, engine and plant; Translate is this VIN on the translate page.
+	Summary, Translate string
+}
+
+// vPIC's element ids the summary line reads.
+const (
+	elementCylinders    = 9
+	elementDisplacement = 13
+	elementMake         = 26
+	elementModel        = 28
+	elementModelYear    = 29
+	elementPlantCity    = 31
+	elementSeries       = 34
+	elementTrim         = 38
+	elementPlantState   = 77
+)
+
+// summary is dec's vehicle in one line, "" when it names none.
+func summary(dec contract.Decode, elements contract.Elements) string {
+	get := func(id int32) string { return strings.TrimSpace(attribute(dec, elements, id)) }
+	join := func(sep string, parts ...string) string {
+		return strings.Join(slices.DeleteFunc(parts, func(s string) bool { return s == "" }), sep)
+	}
+	trim := get(elementTrim)
+	if trim == "" {
+		trim = get(elementSeries)
+	}
+	var displacement, cylinders string
+	if d := get(elementDisplacement); d != "" {
+		if f, err := strconv.ParseFloat(d, 64); err == nil {
+			d = strconv.FormatFloat(f, 'f', 1, 64)
+		}
+		displacement = d + " L"
+	}
+	if c := get(elementCylinders); c != "" {
+		cylinders = c + " cylinders"
+	}
+	var plant string
+	if p := join(", ", get(elementPlantCity), get(elementPlantState)); p != "" {
+		plant = "built in " + p
+	}
+	return join(" · ", join(" ", get(elementModelYear), get(elementMake), get(elementModel), trim), join(", ", displacement, cylinders), plant)
 }
 
 // formCopies are the decode's copyable texts, rendered on the server.
@@ -441,6 +484,8 @@ func (h *Handler) decodePage(r *http.Request, page *formPage, query url.Values, 
 		},
 	}
 	d.Groups, d.Hidden = formGroups(dec, elements, page.ShowEmpty)
+	d.Summary = summary(dec, elements)
+	d.Translate = translatePath + "?" + url.Values{"from.vin": {dec.VIN}}.Encode()
 	if _, ok := dec.Attributes.(contract.VpicAttributes); ok {
 		toggle := url.Values{}
 		maps.Copy(toggle, query)
