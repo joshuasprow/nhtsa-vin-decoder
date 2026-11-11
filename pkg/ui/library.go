@@ -560,7 +560,7 @@ func (l *Library) decode(vin string, year contract.Null[int32], now time.Time) (
 	}
 	if d.DataMonth != l.month.Name() {
 		return contract.VINDecode{}, time.Time{}, &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
-			"This server now decodes with data month %s, but the translator in this browser is of data month %s (release %s): close every nitrovin tab and open it again to update it.",
+			"This server now decodes with data month %s, but the translator in this browser is of data month %s (release %s): update it with Update now in Vocabularies, or by closing every nitrovin tab and opening it again.",
 			d.DataMonth, l.month.Name(), Release(l.info))}
 	}
 	items := make([]contract.Item, len(d.Items))
