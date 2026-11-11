@@ -32,7 +32,9 @@ cleanup() {
 trap cleanup EXIT
 
 # image <tag> <go build flags…>: this tree's nitrovin as the release image
-# is built (the repository's Dockerfile, one platform).
+# is built (the repository's Dockerfile, one platform), with the Service
+# Worker's module embedded (scripts/sw.sh, run once below, as goreleaser's
+# before hook does), so /sw.js and /ui/r/<release>/sw.wasm are served.
 image() {
 	local tag=$1
 	shift
@@ -78,6 +80,7 @@ stop() {
 	exit 1
 }
 
+"$root/scripts/sw.sh"
 image nitrovin-dev:vcs
 image nitrovin-dev:devel -buildvcs=false
 vcs=$(release nitrovin-dev:vcs)

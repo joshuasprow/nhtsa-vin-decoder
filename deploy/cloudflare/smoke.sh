@@ -13,10 +13,14 @@
 # the decode's frozen clock, which makes its URL new, so its first GET is a
 # MISS and its second a HIT; FIRST and SECOND name others (HIT: the cache
 # was filled already; BYPASS: the container is not the release the Worker
-# was deployed with, so nothing is stored). TOOLS
-# is the release's docs/api/mcp-tools.json (default this tree's), whose
-# tools /mcp must list. Over https it also checks HSTS, always-HTTPS, the
-# www redirect and the TLS floor.
+# was deployed with, so nothing is stored). The release's Service Worker
+# module under /ui/r/ is held to them too, except that its first GET may
+# be a HIT whenever the second must be: its URL is the release's, not
+# new. TOOLS is the release's docs/api/mcp-tools.json (default this
+# tree's), whose tools /mcp must list. The pages are never cached: /vocab
+# without JavaScript, a /ui/decode fragment for htmx, and /sw.js, which
+# keeps its own no-cache. Over https it also checks HSTS, always-HTTPS,
+# the www redirect and the TLS floor.
 set -euo pipefail
 
 base=${1:?usage: smoke.sh <base-url> <image>}
@@ -121,6 +125,53 @@ pass "CORS: * on /v1 and /mcp, preflight 204; the form has none"
 status=$(req old "$base/?vin=$vin")
 [[ $status == 301 && $(header old location) == "/ui/decode?vin=$vin" ]] || fail "GET /?vin=$vin: $status $(header old location)"
 pass "GET /?vin=$vin: 301 to /ui/decode?vin=$vin"
+
+# The pages, never cached. /vocab without JavaScript: a whole page that
+# says the visitor's own files need it and lists the server's catalog.
+status=$(req vocab "$base/vocab")
+[[ $status == 200 && $(header vocab content-type) == "text/html; charset=utf-8" ]] || fail "GET /vocab: $status $(header vocab content-type)"
+[[ $(header vocab cache-control) == no-store ]] || fail "GET /vocab: cache-control $(header vocab cache-control); want no-store"
+grep -q '^<!doctype html>' "$tmp/vocab.b" || fail "GET /vocab: not a whole page"
+grep -qF 'Loading your own vocabulary files needs JavaScript' "$tmp/vocab.b" ||
+	fail "GET /vocab: does not say that your own files need JavaScript (a build without scripts/sw.sh's module?)"
+grep -qF 'data-where="vpic"' "$tmp/vocab.b" || fail "GET /vocab: no catalog"
+pass "GET /vocab: 200, a whole page, no-store; says your own files need JavaScript, lists the catalog"
+
+# The decode form as htmx asks it: the result, a fragment, no page around it.
+status=$(req frag -H 'HX-Request: true' "$base/ui/decode?vin=$vin")
+[[ $status == 200 && $(header frag content-type) == "text/html; charset=utf-8" ]] || fail "GET /ui/decode?vin=$vin (htmx): $status"
+[[ $(header frag vary) == HX-Request && $(header frag cache-control) == no-store ]] ||
+	fail "GET /ui/decode?vin=$vin (htmx): vary $(header frag vary), cache-control $(header frag cache-control)"
+grep -qi '<!doctype\|<html' "$tmp/frag.b" && fail "GET /ui/decode?vin=$vin (htmx): a whole page, not a fragment"
+grep -qF '<h2>Result</h2>' "$tmp/frag.b" && grep -qF "value=\"$vin\"" "$tmp/frag.b" ||
+	fail "GET /ui/decode?vin=$vin (htmx): no result for $vin"
+pass "GET /ui/decode?vin=$vin (htmx): 200, the result as a fragment, no-store"
+
+# The Service Worker: no-cache, never from the cache, the release's own,
+# alone allowed WebAssembly.
+status=$(req sw "$base/sw.js")
+[[ $status == 200 && $(header sw cache-control) == no-cache && -z $(header sw cf-cache-status) ]] ||
+	fail "GET /sw.js: $status, cache-control $(header sw cache-control), cf-cache-status $(header sw cf-cache-status)"
+[[ $(header sw content-security-policy) == *"'wasm-unsafe-eval'"* ]] || fail "GET /sw.js: no 'wasm-unsafe-eval'"
+sed -n 's/^self\.nitrovinConfig = \(.*\);$/\1/p' "$tmp/sw.b" >"$tmp/sw-config.json"
+[[ $(identity "$tmp/sw-config.json") == "$want" ]] || fail "GET /sw.js: release $(identity "$tmp/sw-config.json"); want $want"
+pass "GET /sw.js: 200, no-cache, never cached, 'wasm-unsafe-eval', the release's worker"
+
+# Its module, under the release's assets: immutable, cached under the
+# release. Its URL is not new, so a GET finds it cached whenever anyone
+# asked for it before: a HIT passes wherever the second GET must be one.
+module="$(jq -r .assets "$tmp/sw-config.json")/sw.wasm"
+for want_cache in "${FIRST:-MISS}" "${SECOND:-HIT}"; do
+	status=$(req wasm "$base$module")
+	cache=$(header wasm cf-cache-status)
+	[[ $status == 200 && $(header wasm content-type) == application/wasm ]] || fail "GET $module: $status $(header wasm content-type)"
+	[[ $(head -c 4 "$tmp/wasm.b" | od -An -tx1 | tr -d ' \n') == 0061736d ]] || fail "GET $module: not WebAssembly"
+	[[ $cache == "$want_cache" || ($cache == HIT && ${SECOND:-HIT} == HIT) ]] ||
+		fail "GET $module: cf-cache-status $cache; want $want_cache"
+	[[ $(header wasm cache-control) == "public, max-age=31536000, immutable" ]] ||
+		fail "GET $module: cache-control $(header wasm cache-control); want immutable"
+	pass "GET $module: 200, WebAssembly, immutable, cf-cache-status $cache"
+done
 
 [[ $base == https://* ]] || exit 0
 host=${base#https://}

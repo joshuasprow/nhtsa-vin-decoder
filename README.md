@@ -29,7 +29,9 @@ lists them).
 The same decode is reachable six ways: a CLI, an HTTP server, JSON lines
 over stdio, an MCP server for AI assistants, a Go module and a C library.
 [nitrovin.app](https://nitrovin.app) runs the latest release's server for
-anyone: the form, the `/v1` API (CORS open) and MCP at
+anyone: the decode form at `/ui/decode`, `/vocab`, where your own
+vocabularies (or EPA's, in one click) load into your browser and translate
+there without being uploaded, the `/v1` API (CORS open) and MCP at
 `https://nitrovin.app/mcp`, rate-limited per IP.
 
 **Status: v0.x prereleases.** v0 means the release pipeline is not yet

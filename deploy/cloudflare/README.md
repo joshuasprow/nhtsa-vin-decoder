@@ -1,9 +1,11 @@
 # nitrovin.app on Cloudflare
 
 `https://nitrovin.app` runs the released image's `nitrovin serve`: the pages
-at `/` and `/ui/` (the decode form at `/ui/decode`), the `/v1` API and MCP
-over Streamable HTTP at `/mcp`
-([#104](https://github.com/joshuasprow/nitrovin/issues/104)).
+at `/` and `/ui/` (the decode form at `/ui/decode`), `/vocab` with the
+browser's Service Worker at `/sw.js` (ADR 0013), the `/v1` API and MCP over
+Streamable HTTP at `/mcp`
+([#104](https://github.com/joshuasprow/nitrovin/issues/104),
+[#175](https://github.com/joshuasprow/nitrovin/issues/175)).
 
 ```mermaid
 flowchart LR
@@ -35,8 +37,10 @@ flowchart LR
   place needs a new name. A cron fetches `/healthz` every four minutes,
   inside `sleepAfter`'s ten, so it never sleeps. Readiness is `/healthz`:
   `serve` listens only once the data has loaded.
-- **Cache.** `GET /v1/decode/*` and `GET /v1/info` are served
-  from the Cache API under a key of the release and the URL. The release
+- **Cache.** `GET /v1/decode/*`, `GET /v1/info` and the release's assets,
+  `GET /ui/r/<release>/…` (the pages' scripts and stylesheet, the Service
+  Worker's `sw.wasm`, the spine bundle, the server's files and EPA's), are
+  served from the Cache API under a key of the release and the URL. The release
   (`decoder_version/data_month/artifact_hash`) is the Worker's `RELEASE`,
   which `deploy.yml` reads from the image it deploys, so a hit never
   reaches the container and a new data month is a new key, never last
@@ -44,11 +48,15 @@ flowchart LR
   and its own `/v1/info` is that release: during a rollout the old
   container's answers pass through uncached (`BYPASS`). Each Worker
   isolate asks `/v1/info` on its misses only until it once answers the
-  release, which then holds for the deploy. Cached answers
-  carry `Cache-Control: public, max-age=86400` and `Cf-Cache-Status`
-  (`MISS`, `HIT`, `BYPASS`). Everything else, refusals included, is
-  `no-store`; `POST` and `/mcp` never touch the cache. The pages are not
-  cached: one URL answers a fragment for htmx and a whole page otherwise.
+  release, which then holds for the deploy. Cached answers carry
+  `Cf-Cache-Status` (`MISS`, `HIT`, `BYPASS`) and `Cache-Control: public,
+  max-age=86400`, except the assets, which keep the container's
+  `public, max-age=31536000, immutable`: their URL names the release, so a
+  new release is a new URL (ADR 0013). Everything else, refusals included,
+  is `no-store`, but `/sw.js`, which keeps its `no-cache` so a browser
+  asks for it on every update check; `POST` and `/mcp` never touch the
+  cache. The pages, `/vocab` among them, are not cached: one URL answers a
+  fragment for htmx and a whole page otherwise.
 - **CORS** is the container's (`serve --cors '*'`): `/v1` and `/mcp` only.
 - **Logs.** Workers Logs without invocation logs, which would record each
   URL and so each VIN. The Worker logs nothing itself.
@@ -85,15 +93,19 @@ cd deploy/cloudflare/worker && npm ci && npm run check   # types
 deploy/cloudflare/worker/dev-test.sh                     # wrangler dev on this tree's container
 ```
 
-`dev-test.sh` needs Docker and Go, no account: it builds two images of this
-tree that differ only in `decoder_version` and serves them in turn under
+`dev-test.sh` needs Docker and Go, no account: it builds the Service
+Worker's module (`scripts/sw.sh`, as a release does) and two images of this
+tree that differ only in `decoder_version`, and serves them in turn under
 `wrangler dev` with one persisted cache, running `smoke.sh` against each. A
 decode is a `MISS`, then a `HIT`; the second image's first decode of the
 same URL is a `MISS` again (the release is in the key), and the first
-image's, run again, a `HIT` (the cache did persist). Last, the second
-image under the first one's `RELEASE`, a rollout not yet done, is
-`BYPASS` twice: nothing it answers is stored. Pull requests touching
-`deploy/cloudflare` run it, with Terraform's `validate` and `plan`.
+image's, run again, a `HIT` (the cache did persist). The release's
+`sw.wasm` under `/ui/r/` goes the same way, `immutable` throughout, while
+`/vocab` without JavaScript, a `/ui/decode` fragment and `/sw.js`
+(`no-cache`) are never cached. Last, the second image under the first
+one's `RELEASE`, a rollout not yet done, is `BYPASS` twice: nothing it
+answers is stored. Pull requests touching `deploy/cloudflare` run it, with
+Terraform's `validate` and `plan`.
 
 ## Bootstrap (once, by hand)
 
