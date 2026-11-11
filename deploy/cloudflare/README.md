@@ -19,7 +19,7 @@ flowchart LR
 | Piece | Where | Applied by |
 | --- | --- | --- |
 | Worker, Durable Object, container, keep-warm cron | `worker/` (`wrangler.jsonc`, `src/index.ts`, `Dockerfile`) | `wrangler deploy` in `deploy.yml` |
-| Zone settings (Full strict, always HTTPS, TLS ≥ 1.2, HSTS), the custom domain, `www` and its redirect, the rate limit | `terraform/` | `terraform apply` in `deploy.yml` |
+| Zone settings (Full strict, always HTTPS, TLS ≥ 1.2, HSTS, Web Analytics off), the custom domain, `www` and its redirect, the rate limit | `terraform/` | `terraform apply` in `deploy.yml` |
 | The CI token, the state bucket and its R2 token | `terraform/token/` | a person, at bootstrap |
 
 - **Image.** Containers cannot pull from ghcr.io, so `worker/Dockerfile` is
@@ -60,6 +60,10 @@ flowchart LR
 - **CORS** is the container's (`serve --cors '*'`): `/v1` and `/mcp` only.
 - **Logs.** Workers Logs without invocation logs, which would record each
   URL and so each VIN. The Worker logs nothing itself.
+- **Web Analytics** is off for the zone: on, Cloudflare injects its beacon
+  script into every page, which the pages' CSP refuses and the site's
+  promise of no third-party scripts forbids
+  ([#192](https://github.com/joshuasprow/nitrovin/issues/192)).
 - **Rate limit.** `/v1/decode*` and `/mcp`: 100 requests per 10 s per IP,
   then 10 s refused. The Free plan's one rule.
 
