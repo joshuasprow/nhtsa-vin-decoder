@@ -30,7 +30,8 @@ fieldset { border: 0; padding: 0; margin: 0; }
 fieldset label, label.check { font-weight: 400; margin-right: 1rem; display: inline-block; }
 input[type=text] { font: inherit; padding: .3rem .5rem; width: 100%; max-width: 22rem; box-sizing: border-box; display: block; }
 input#from-vin { font-family: ui-monospace, monospace; }
-input[aria-invalid=true] { border: 2px solid var(--bad); }
+input[aria-invalid=true], select[aria-invalid=true] { border: 2px solid var(--bad); }
+input[readonly] { background: transparent; border-style: dashed; }
 .error { color: var(--bad); margin: .2rem 0 0; }
 button { font: inherit; padding: .35rem 1.2rem; justify-self: start; }
 select { font: inherit; padding: .25rem; }

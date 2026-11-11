@@ -13,7 +13,7 @@ import (
 
 // TestPage walks the page on a stub backend (the decodes themselves are
 // cmd/nitrovin's TestForm): / is the controls, a tab's link its form, and
-// a lookup the answer below them, as a page and as a fragment for the
+// a translation the answer below them, as a page and as a fragment for the
 // page's main, where htmx is sent with a refusal too, while a fault is
 // the error page or the error slot's fragment. The vocabularies' button
 // and dialog are the whole page's, never a fragment's.
@@ -128,6 +128,126 @@ func TestPage(t *testing.T) {
 	status, _, body = response(t, faulty, "GET", "/?from.vin=1HGCM82633A004352", nil)
 	if status != 500 || !strings.Contains(body, "<h1>Internal Server Error</h1>") {
 		t.Errorf("fault page: %d\n%s", status, body)
+	}
+}
+
+// formBackend is backend with a vehicle vocabulary, yard, an extension
+// set, classics, and a declared spine, parts, with its vocabulary,
+// listing. It refuses every translation with refusal, else answers it
+// with nothing reached.
+type formBackend struct {
+	backend
+	refusal *contract.Problem
+}
+
+func (b formBackend) List(req contract.ListRequest) (contract.List, error) {
+	if req.Of != "" {
+		return contract.List{Entries: []contract.ListEntry{}}, nil
+	}
+	return contract.List{Entries: []contract.ListEntry{
+		contract.CatalogEntry{Name: "vpic", Kind: "spine", Subject: "vehicle"},
+		contract.CatalogEntry{Name: "yard", Kind: "vocabulary", Subject: "vehicle", Fields: []string{"make", "model"}, Spine: "vpic"},
+		contract.CatalogEntry{Name: "classics", Kind: "extension-set", Subject: "vehicle", Spine: "vpic"},
+		contract.CatalogEntry{Name: "parts", Kind: "spine", Subject: "part"},
+		contract.CatalogEntry{Name: "listing", Kind: "vocabulary", Subject: "part", Fields: []string{"title"}, Spine: "parts"},
+	}}, nil
+}
+
+func (b formBackend) Translate(req contract.TranslateRequest) (contract.Translation, error) {
+	if b.refusal != nil {
+		return contract.Translation{}, b.refusal
+	}
+	from := contract.TranslationFrom{VIN: req.From.VIN, Vocabulary: req.From.Vocabulary, Entry: req.From.Entry, SpineRef: req.From.SpineRef, Status: contract.FromUnknown}
+	return contract.Translation{From: from, Spine: []contract.SpineEntry{}, To: []contract.Translated{}}, nil
+}
+
+// TestPageFields: on every tab a refusal is said beside the field that
+// holds the value its pointer names, the field marked invalid and
+// described by it, and above the form when no field of the form holds
+// it; and a from no form asks for, an extension or a declared spine's
+// entry, is shown in its tab's form. The page never says "lookup".
+func TestPageFields(t *testing.T) {
+	const detail = "refused here"
+	for _, c := range []struct {
+		target, pointer, tab string
+		// field is the id of the field the refusal is beside, "" for
+		// a refusal above the form.
+		field string
+	}{
+		{"/?from.vocabulary=yard&from.entry.make=Dodge&from.entry.model=Ram", "/from/entry/model", "entry", "entry-model"},
+		{"/?from.vocabulary=yard&from.entry.make=Dodge&model_year=2010", "/model_year", "entry", "entry-model-year"},
+		{"/?from.vocabulary=yard&from.entry.make=Dodge&vin=1HGCM82633A004352", "/vin", "entry", "context-vin"},
+		{"/?from.vocabulary=yard&from.entry.make=Dodge", "/from/vocabulary", "entry", "from-entry-vocabulary"},
+		{"/?from.vocabulary=yard&from.entry.make=Dodge", "/from/entry/colour", "entry", ""},
+		{"/?from.vocabulary=yard&from.entry.make=Dodge", "/from/entry", "entry", ""},
+		{"/?from.vocabulary=listing&from.entry.title=Rotor", "/from/entry/title", "entry-parts", "entry-title"},
+		{"/?from.vocabulary=listing&from.entry.title=Rotor&model_year=2010", "/model_year", "entry-parts", ""},
+		{"/?from.spine=parts&from.id=brake-rotor", "/from/id", "entry-parts", "from-entry-parts-id"},
+		{"/?from.make=474", "/from/make", "id", "from-make"},
+		{"/?from.model=1861", "/from/model", "id", "from-model"},
+		{"/?from.model=1861&model_year=2003", "/model_year", "id", "vpic-model-year"},
+		{"/?from.ext=ext:classics/packard", "/from/ext", "id", "from-ext"},
+		{"/?from.model=1861", "/from/ext", "id", ""},
+		{"/?from.model=1861", "/from", "id", ""},
+	} {
+		h := New(formBackend{backend: backend{info: testInfo}, refusal: contract.NewProblem(contract.InvalidRequest, c.pointer, detail)}, log.New(io.Discard, "", 0))
+		status, _, body := response(t, h, "GET", c.target, nil)
+		name := c.target + " refused at " + c.pointer
+		if status != 400 || !strings.Contains(body, `<a id="tab-`+c.tab+`" href="/?tab=`+c.tab+`" aria-current="page">`) {
+			t.Errorf("%s: %d, not on the %s tab\n%s", name, status, c.tab, body)
+			continue
+		}
+		above := strings.Contains(body, `<p class="error" role="alert">`+detail+`</p>`)
+		if c.field == "" {
+			if !above || strings.Contains(body, `aria-invalid`) {
+				t.Errorf("%s: not above the form alone\n%s", name, body)
+			}
+			continue
+		}
+		if above || !strings.Contains(body, `id="`+c.field+`"`) ||
+			!strings.Contains(body, ` aria-invalid="true" aria-describedby="`+c.field+`-error"`) ||
+			!strings.Contains(body, `<p class="error" id="`+c.field+`-error">`+detail+`</p>`) {
+			t.Errorf("%s: not beside #%s\n%s", name, c.field, body)
+		}
+	}
+
+	// A from no form asks for is in its tab's form: an extension in a
+	// field of its own, which only such a translation shows, and a
+	// declared spine's entry read-only, never sent with the form.
+	h := New(formBackend{backend: backend{info: testInfo}}, log.New(io.Discard, "", 0))
+	for target, want := range map[string][]string{
+		"/?from.ext=ext:classics/packard": {
+			`<a id="tab-id" href="/?tab=id" aria-current="page">`,
+			`<input type="text" id="from-ext" name="from.ext" value="ext:classics/packard" autocomplete="off" spellcheck="false">`,
+			`id="result"`,
+		},
+		"/?from.spine=parts&from.id=brake-rotor": {
+			`<a id="tab-entry-parts" href="/?tab=entry-parts" aria-current="page">`,
+			`<input type="text" id="from-entry-parts-id" value="brake-rotor" readonly autocomplete="off" spellcheck="false">`,
+			`id="result"`,
+		},
+	} {
+		status, _, body := response(t, h, "GET", target, nil)
+		if status != 200 {
+			t.Errorf("%s: %d\n%s", target, status, body)
+		}
+		for _, w := range want {
+			if !strings.Contains(body, w) {
+				t.Errorf("%s lacks %s\n%s", target, w, body)
+			}
+		}
+	}
+	for _, target := range []string{"/?tab=id", "/?from.model=1861", "/?tab=entry-parts", "/?from.vocabulary=listing&from.entry.title=Rotor"} {
+		if _, _, body := response(t, h, "GET", target, nil); strings.Contains(body, `id="from-ext"`) || strings.Contains(body, `-id" value=`) {
+			t.Errorf("%s: a field for a from it does not ask\n%s", target, body)
+		}
+	}
+
+	for _, target := range []string{"/", "/?tab=id", "/?tab=entry", "/?tab=entry-parts", "/?from.vin=1HGCM82633A004352"} {
+		_, _, body := response(t, h, "GET", target, nil)
+		if text := strings.ToLower(body); strings.Contains(text, "lookup") || strings.Contains(text, "look up") {
+			t.Errorf("%s says lookup\n%s", target, body)
+		}
 	}
 }
 

@@ -37,11 +37,6 @@ const decodePath = "/ui/decode"
 // mainTarget is the layout's main, which the page's answer fills.
 const mainTarget = "#ui-main"
 
-// formFields are the query parameters the VIN's form has a field for, as
-// a refusal's pointer names them; a refusal pointing elsewhere shows
-// above the form.
-var formFields = []string{"vin", "model_year", "shape", "full"}
-
 // showEmpty is the page's own query parameter, never the decode's: "true"
 // shows the vpic shape's empty values, which are hidden otherwise.
 const showEmpty = "show_empty"

@@ -17,23 +17,25 @@ import (
 )
 
 // The page (ADR 0013). GET / is nitrovin's one page for browsers. At its
-// top is a box of controls with a tab for each kind of lookup: a VIN,
-// which is decoded and translated; an entry of a vehicle vocabulary, a
-// year, make and model; an entry of each declared spine's vocabularies;
+// top is a box of controls with a tab for each thing to translate from: a
+// VIN, which is decoded and translated; an entry of a vehicle vocabulary,
+// a year, make and model; an entry of each declared spine's vocabularies;
 // and a vPIC make or model id. Each tab is a link (/?tab=…), so the tabs
 // need no script, and each holds one form, which asks the page itself:
 // its query is GET /v1/translate's, with a VIN's decode options (shape,
 // full) beside it, so every answer is a shareable URL, and a query's from
-// says which tab it is of. Below the controls is the answer: for a VIN
-// its decode, and for every lookup its translation drawn as a map
-// (map.go), with the JSON of both behind a button, in a dialog. A refusal
-// is the page still, said in the controls beside the field it names, with
-// its status. The vocabularies loaded are behind another button, fixed to
-// the window's corner, in a dialog of their own (vocab.go), which the
+// says which tab it is of. A from no form asks for, an extension or a
+// declared spine's entry (a map's card links to both), is shown in its
+// tab's form too. Below the controls is the answer: for a VIN its decode,
+// and for every translation its map (map.go), with the JSON of both
+// behind a button, in a dialog. A refusal is the page still, said in the
+// controls beside the field it names, on every tab, else above the form,
+// with its status. The vocabularies loaded are behind the header's
+// Vocabularies button, in a dialog of their own (vocab.go), which the
 // layout holds beside the page's main, so no answer replaces it.
 //
 // The page answers the same on the server and in the browser's Service
-// Worker, which answers a lookup naming a file the browser holds, over
+// Worker, which answers a request naming a file the browser holds, over
 // the server's files and the browser's, and sends the server every other;
 // a VIN's decode is the server's there too, asked for once (decoded).
 // Without JavaScript every step is a page load, and
@@ -85,17 +87,70 @@ type controls struct {
 	// query's values.
 	From   *contract.CatalogEntry
 	Fields []fieldValue
-	// FromVIN, FromMake, FromModel, VIN, ModelYear, Shape, Full and
-	// ShowEmpty are the query's.
-	FromVIN, FromMake, FromModel, VIN, ModelYear, Shape string
-	Full, ShowEmpty                                     bool
+	// Kind is which from the query carries.
+	Kind fromKind
+	// FromVIN, FromMake, FromModel, FromExt, FromID, VIN, ModelYear,
+	// Shape, Full and ShowEmpty are the query's.
+	FromVIN, FromMake, FromModel, FromExt, FromID, VIN, ModelYear, Shape string
+	Full, ShowEmpty                                                      bool
 	// To are the targets ticked: the query's, or in the browser the
 	// visitor's selection.
 	To []string
-	// Errors holds a refusal's detail under its field's name (formFields),
-	// or under "" when no field holds the offending value.
+	// Errors holds a refusal's detail under the name of the current
+	// form's field that holds the offending value (field), or under ""
+	// when no field holds it.
 	Errors   map[string]string
 	Examples []example
+}
+
+// fields are the names of the current form's fields, as field gives
+// them: on the vPIC id's tab an extension's only when one is asked, and
+// on an entry tab a declared spine's entry only when one is asked.
+func (c *controls) fields() []string {
+	switch c.Tab {
+	case tabVIN:
+		return []string{"vin", "model_year", "shape", "full"}
+	case tabID:
+		out := []string{"from.make", "from.model", "model_year"}
+		if c.Kind == fromExt {
+			out = append(out, "from.ext")
+		}
+		return out
+	}
+	f := c.Entry()
+	if f == nil {
+		return nil
+	}
+	out := []string{"from.vocabulary"}
+	if f.AsksSpine {
+		out = append(out, "from.id")
+	}
+	for _, v := range f.Fields {
+		out = append(out, "from.entry."+v.Name)
+	}
+	if f.Spine == vocab.Reserved {
+		out = append(out, "model_year", "vin")
+	}
+	return out
+}
+
+// field is the current form's field that holds the value a refusal's
+// pointer names, "" for none: the pointer's path, dotted, as the query
+// names its parameter ("/from/entry/model" is from.entry.model). A VIN's
+// decode names its VIN /vin.
+func (c *controls) field(pointer string) string {
+	if pointer == "" {
+		return ""
+	}
+	unescape := strings.NewReplacer("~1", "/", "~0", "~")
+	var path []string
+	for tok := range strings.SplitSeq(strings.TrimPrefix(pointer, "/"), "/") {
+		path = append(path, unescape.Replace(tok))
+	}
+	if name := strings.Join(path, "."); slices.Contains(c.fields(), name) {
+		return name
+	}
+	return ""
 }
 
 type fieldValue struct{ Name, Value string }
@@ -131,7 +186,9 @@ func (c *controls) TargetsOn(spine string) targetSet {
 // chosen yet or not: a translation crosses exactly one spine (ADR 0010).
 // Key is its tab's, and names its elements ("entry" for vPIC's); From is
 // the vocabulary chosen, nil on a tab that is not the current one, and
-// Fields, VIN and Year its entry's values as asked.
+// Fields, VIN and Year its entry's values as asked. AsksSpine marks a
+// translation from the spine's own entry, SpineID, which no vocabulary's
+// field holds: its field shows it, read-only. Errors are the controls'.
 type entryForm struct {
 	Spine, Key   string
 	Vocabularies []contract.CatalogEntry
@@ -139,6 +196,9 @@ type entryForm struct {
 	Targets      targetSet
 	Fields       []fieldValue
 	VIN, Year    string
+	AsksSpine    bool
+	SpineID      string
+	Errors       map[string]string
 }
 
 // entryKey is the key of the entry form over spine.
@@ -186,7 +246,8 @@ func (c *controls) EntryForms() []entryForm {
 			}
 		}
 		if c.From != nil && c.From.Spine == s {
-			f.From, f.Fields, f.VIN, f.Year = c.From, c.Fields, c.VIN, c.ModelYear
+			f.From, f.Fields, f.VIN, f.Year, f.Errors = c.From, c.Fields, c.VIN, c.ModelYear, c.Errors
+			f.AsksSpine, f.SpineID = c.Kind == fromSpine, c.FromID
 		}
 		out[i] = f
 	}
@@ -204,7 +265,7 @@ func (c *controls) Entry() *entryForm {
 	return nil
 }
 
-// example is a lookup to try: a link to the page with its form filled in
+// example is a translation to try: a link to the page with its form filled in
 // and its answer below. Its targets are the ticked ones on its Spine,
 // else DefaultTo (names, space-separated: none for the examples that need
 // no file). vocab.js sends an example clicked to the targets ticked at
@@ -230,13 +291,15 @@ const (
 )
 
 // newControls are the controls over the catalog cat for the page asked
-// with raw, its query as sent, and q, the lookup it asks for: the tabs,
-// the current one's form and its examples, a VIN's and a vPIC id's that
-// need no file, an entry tab's one from each of its vocabularies, the
-// first mapped entry, in a year its mapping holds for.
+// with raw, its query as sent, and q, the translation it asks for: the
+// tabs, the current one's form and its examples, a VIN's and a vPIC id's
+// that need no file, an entry tab's one from each of its vocabularies,
+// the first mapped entry, in a year its mapping holds for.
 func (h *Handler) newControls(cat []contract.CatalogEntry, raw, q url.Values) (*controls, error) {
 	c := &controls{
-		FromVIN: raw.Get("from.vin"), FromMake: q.Get("from.make"), FromModel: q.Get("from.model"), VIN: q.Get("vin"), ModelYear: q.Get("model_year"),
+		Kind:    queryFrom(raw),
+		FromVIN: raw.Get("from.vin"), FromMake: q.Get("from.make"), FromModel: q.Get("from.model"), FromExt: q.Get("from.ext"), FromID: q.Get("from.id"),
+		VIN: q.Get("vin"), ModelYear: q.Get("model_year"),
 		Shape: cmp.Or(q.Get("shape"), string(contract.ShapeVPIC)), Full: q.Get("full") == "true", ShowEmpty: raw.Get(showEmpty) == "true",
 		To: q["to"],
 	}
@@ -256,7 +319,7 @@ func (h *Handler) newControls(cat []contract.CatalogEntry, raw, q url.Values) (*
 	}
 
 	// The tab is the from's own, whatever it holds, else the link's.
-	switch k := queryFrom(raw); k {
+	switch c.Kind {
 	case fromVIN:
 		c.Tab = tabVIN
 	case fromEntry:
@@ -372,8 +435,8 @@ func (h *Handler) entryExample(c *controls, v contract.CatalogEntry) (example, b
 	return ex, true, nil
 }
 
-// example is the example from q, a lookup without targets, to the ticked
-// targets on spine, else to def.
+// example is the example from q, a translation without targets, to the
+// ticked targets on spine, else to def.
 func (c *controls) example(label, hint, spine string, def []string, q url.Values) example {
 	var to []string
 	for _, t := range c.TargetsOn(spine).List {
@@ -401,15 +464,15 @@ func (c *controls) sensibleTarget(v contract.CatalogEntry) string {
 	return v.Name
 }
 
-// result is the page's answer: a VIN's decode, nil for another lookup,
+// result is the page's answer: a VIN's decode, nil for another from,
 // and the translation as its map and as JSON.
 type result struct {
-	// From is which from was looked up, and Spine the spine its targets
+	// From is which from was translated, and Spine the spine its targets
 	// are on: the answer carries both (data-from, data-spine), which
 	// worker.js reads.
 	From  fromKind
 	Spine string
-	// Heading names what was looked up: the vehicle, "2015 Ram 1500".
+	// Heading names what was translated: the vehicle, "2015 Ram 1500".
 	Heading string
 	Decode  *formDecode
 	// ShowEmpty and EmptyToggle are the decode's empty values, shown or
@@ -471,7 +534,7 @@ func (h *Handler) home(r *http.Request) (view, error) {
 	if oldForm(raw) {
 		return h.moved(r)
 	}
-	// The lookup: the query without the page's own parameters and the
+	// The translation: the query without the page's own parameters and the
 	// fields a form sent empty.
 	q := url.Values{}
 	for k, vs := range raw {
@@ -509,9 +572,7 @@ func (h *Handler) home(r *http.Request) (view, error) {
 				return view{}, err // a fault in nitrovin: the error page, logged
 			}
 			v.status, detail = p.Status, p.Detail
-			if f := strings.TrimPrefix(p.Pointer, "/"); c.Tab == tabVIN && slices.Contains(formFields, f) {
-				field = f
-			}
+			field = c.field(p.Pointer)
 		}
 		c.Errors = map[string]string{field: detail}
 		return v, nil
@@ -522,7 +583,7 @@ func (h *Handler) home(r *http.Request) (view, error) {
 	if err := h.notHere(named(q), cat); err != nil {
 		return refuse(err)
 	}
-	// The lookup asked: a from the query holds, an entry with a field
+	// The translation asked: a from the query holds, an entry with a field
 	// filled in, and a VIN even sent empty, which is refused.
 	entry := slices.ContainsFunc(c.Fields, func(f fieldValue) bool { return f.Value != "" })
 	kind := queryFrom(q)
@@ -532,8 +593,8 @@ func (h *Handler) home(r *http.Request) (view, error) {
 	if kind == fromNone || kind == fromEntry && !entry {
 		return v, nil
 	}
-	// A lookup's own targets are the visitor's selection from now on; a
-	// form's, before anything is asked, are only ticked.
+	// A translation's own targets are the visitor's selection from now on;
+	// a form's, before anything is asked, are only ticked.
 	if explicit {
 		h.remember(r, q, cat)
 	}
