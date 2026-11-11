@@ -106,15 +106,23 @@ func response(t *testing.T, h http.Handler, method, target string, header http.H
 
 var htmx = http.Header{"Hx-Request": {"true"}}
 
-// checkHTML checks what every page and fragment carries: HTML, the CSP and
-// Vary: HX-Request.
+// checkHTML checks what every page and fragment carries: HTML, the CSP,
+// Vary: HX-Request and testInfo's release.
 func checkHTML(t *testing.T, name string, header http.Header) {
+	t.Helper()
+	checkHTMLOf(t, name, header, Release(testInfo))
+}
+
+// checkHTMLOf is checkHTML of a page answered by release, "" when the
+// release is not known.
+func checkHTMLOf(t *testing.T, name string, header http.Header, release string) {
 	t.Helper()
 	for k, want := range map[string]string{
 		"Content-Type":            "text/html; charset=utf-8",
 		"Content-Security-Policy": CSP,
 		"Vary":                    "HX-Request",
 		"X-Content-Type-Options":  "nosniff",
+		ReleaseHeader:             release,
 	} {
 		if got := header.Get(k); got != want {
 			t.Errorf("%s: %s %q; want %q", name, k, got, want)
@@ -126,7 +134,8 @@ func checkHTML(t *testing.T, name string, header http.Header) {
 }
 
 // checkPage checks body is a whole page in the layout, titled title,
-// linking the release's htmx, copy.js, map.js and stylesheet.
+// linking the release's htmx, copy.js, map.js and stylesheet, its header
+// naming testInfo's version, which is no tagged release.
 func checkPage(t *testing.T, name, body, title string) {
 	t.Helper()
 	for _, want := range []string{
@@ -137,6 +146,7 @@ func checkPage(t *testing.T, name, body, title string) {
 		`<script src="` + testAssetsAttr + `/htmx.min.js" defer></script>`,
 		`<script src="` + testAssetsAttr + `/copy.js" defer></script>`,
 		`<script src="` + testAssetsAttr + `/map.js" defer></script>`,
+		`<div class="title"><a class="brand" href="/">nitrovin</a> <small class="version">v0.1.9-0.20261110120000-0123456789ab&#43;dirty</small></div>`,
 		`<div id="ui-error" role="alert"></div>`,
 		"</html>\n",
 	} {
@@ -240,17 +250,49 @@ type panicky struct{ backend }
 
 func (panicky) Info() contract.Info { panic("injected fault") }
 
-// TestPanic: a panic is the 500 error page, which links no assets when the
-// release is what failed.
+// TestPanic: a panic is the 500 error page, which links no assets and
+// names no release or version when the release is what failed.
 func TestPanic(t *testing.T) {
 	h := New(panicky{}, log.New(io.Discard, "", 0))
 	status, hdr, body := response(t, h, "GET", "/ui/nothing", nil)
 	if status != 500 {
 		t.Errorf("%d; want 500", status)
 	}
-	checkHTML(t, "panic", hdr)
-	if !strings.Contains(body, "<h1>Internal Server Error</h1>\n<p>nitrovin failed: injected fault</p>") || strings.Contains(body, "/ui/r/") {
+	checkHTMLOf(t, "panic", hdr, "")
+	if !strings.Contains(body, "<h1>Internal Server Error</h1>\n<p>nitrovin failed: injected fault</p>") || strings.Contains(body, "/ui/r/") ||
+		!strings.Contains(body, `<div class="title"><a class="brand" href="/">nitrovin</a></div>`) {
 		t.Errorf("page:\n%s", body)
+	}
+}
+
+// TestVersion: every whole page's header shows the running release's
+// version beside the brand, linked to its release on GitHub when it is a
+// tagged release, and every response names the release (ReleaseHeader),
+// assets and /sw.js included.
+func TestVersion(t *testing.T) {
+	for version, want := range map[string]string{
+		"v0.3.4":                `<small class="version"><a href="https://github.com/joshuasprow/nitrovin/releases/tag/v0.3.4">v0.3.4</a></small>`,
+		"v0.3.5-rc.1":           `<small class="version"><a href="https://github.com/joshuasprow/nitrovin/releases/tag/v0.3.5-rc.1">v0.3.5-rc.1</a></small>`,
+		"(devel)":               `<small class="version">(devel)</small>`,
+		testInfo.DecoderVersion: `<small class="version">v0.1.9-0.20261110120000-0123456789ab&#43;dirty</small>`,
+	} {
+		info := testInfo
+		info.DecoderVersion = version
+		h := New(backend{info: info}, log.New(io.Discard, "", 0)).WithWorker(Worker{Module: []byte("\x00asm"), Exec: []byte("// go")})
+		for _, target := range []string{"/", "/ui/nothing"} {
+			_, hdr, body := response(t, h, "GET", target, nil)
+			if !strings.Contains(body, `<a class="brand" href="/">nitrovin</a> `+want+`</div>`) {
+				t.Errorf("%s %s: the header lacks %s\n%s", version, target, want, body)
+			}
+			if got := hdr.Get(ReleaseHeader); got != Release(info) {
+				t.Errorf("%s %s: %s %q; want %q", version, target, ReleaseHeader, got, Release(info))
+			}
+		}
+		for _, target := range []string{"/sw.js", assetsPath(Release(info)) + "/ui.css", "/ui/r/v0.0.1/2026_10/blake3:00ff/ui.css"} {
+			if _, hdr, _ := response(t, h, "HEAD", target, nil); hdr.Get(ReleaseHeader) != Release(info) {
+				t.Errorf("%s HEAD %s: %s %q; want %q", version, target, ReleaseHeader, hdr.Get(ReleaseHeader), Release(info))
+			}
+		}
 	}
 }
 

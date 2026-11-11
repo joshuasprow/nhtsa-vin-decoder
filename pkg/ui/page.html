@@ -214,10 +214,11 @@ without a script. */}}
 {{/* vocab-dialog is the Vocabularies dialog behind the header's button
 (ui.html), a popover: the catalog, and with JavaScript the visitor's own
 files, which the worker's panel (files) fills in. It is the layout's,
-beside the page's main. */}}
+beside the page's main. data-release is the release that drew it, which
+vocab.js holds the worker in control to. */}}
 {{define "vocab-dialog" -}}
 <dialog id="vocabularies" popover aria-labelledby="browser-h">
-<section id="browser"{{if .Worker}} data-worker="/sw.js"{{end}}>
+<section id="browser"{{if .Worker}} data-worker="/sw.js" data-release="{{.Release}}"{{end}}>
 <div class="dialog-head">
 <h2 id="browser-h">Vocabularies</h2>
 <button type="button" popovertarget="vocabularies" popovertargetaction="hide">Close</button>
