@@ -1,0 +1,11 @@
+{
+  "name": "nitrovin-bench",
+  "private": true,
+  "description": "corgi, for the README's benchmarks (docs/benchmarks.md). Node 22: corgi v2's better-sqlite3 9 has no build for newer Node.",
+  "type": "module",
+  "dependencies": {
+    "corgi2": "npm:@cardog/corgi@2.0.1",
+    "corgi3": "npm:@cardog/corgi@3.0.1-beta.0",
+    "corgi3-index": "npm:@cardog/corgi@3.0.0-alpha.1"
+  }
+}

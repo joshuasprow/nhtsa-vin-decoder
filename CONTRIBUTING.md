@@ -579,3 +579,15 @@ go run ./bench/vocab/notes bench.txt
 
 Set GOMAXPROCS in the environment: `-cpu` is not followed by every
 sub-benchmark.
+
+## The README's benchmarks
+
+The README's [Benchmarks](README.md#benchmarks) table is measured by hand
+on one workstation, not in CI: nitrovin, ultravin, corgi and NHTSA's
+procedure in Postgres and SQL Server over one 20,000,000-VIN corpus from
+ultravin's generator. `bench/decode` is nitrovin's Go harness (throughput
+in process, the CLI's timing, agreement with the oracle) and
+`scripts/bench.sh` runs every row, one trial per command, and writes
+`docs/benchmarks.json`. [docs/benchmarks.md](docs/benchmarks.md) has the
+method, every trial and the command for each row. It needs Docker, an
+ultravin checkout and about three hours for both rounds.

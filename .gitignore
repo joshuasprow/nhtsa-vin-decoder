@@ -6,3 +6,5 @@
 # Zig's local cache, should anything point it into the checkout (mlugg/setup-zig
 # did, and in v0.1.0 every build after the first one was "+dirty").
 /.zig-cache/
+# scripts/bench.sh corgi installs corgi here (npm ci).
+/bench/decode/node_modules/

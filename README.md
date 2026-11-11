@@ -47,7 +47,7 @@ nitrovin is not affiliated with or endorsed by NHTSA.
 - [Vocabularies](#vocabularies): translate your names for vehicles and part types
 - [Parity](#parity)
 - [Known limits](#known-limits)
-- [Performance](#performance)
+- [Benchmarks](#benchmarks)
 - [Contributing](#contributing)
 - [Credits and licence](#credits-and-licence)
 
@@ -532,12 +532,58 @@ yourself in a second.
 - **The C library** cannot be unloaded, needs glibc 2.17+ on Linux (no
   musl), and macOS 11+.
 
-## Performance
+## Benchmarks
 
-On one core of an Apple M5 Pro, v0.1.2 decodes about 17,600 VINs a second
-through `nitrovin decode -` with JSON output (25,000 corpus VINs in 1.42 s
-under `GOMAXPROCS=1`), and a one-VIN `nitrovin decode` process takes about
-6 ms and 22 MB of memory.
+How many VINs each engine decodes **per second**, every row measured on
+one machine over one corpus, against NHTSA's own `spVinDecode` in SQL
+Server (55.8 VIN/s here).
+
+| engine | VIN/s | vs NHTSA MSSQL |
+|---|---:|---:|
+| **nitrovin**: Go module, 12 cores, sorted input | **154,313** | ~2,766× faster |
+| **nitrovin**: Go module, 12 cores | **146,881** | ~2,632× faster |
+| **nitrovin**: Go module, 4 cores, sorted input | **92,743** | ~1,662× faster |
+| **nitrovin**: Go module, 4 cores | **82,173** | ~1,473× faster |
+| **nitrovin**: Go module, 1 core, sorted input | **26,435** | ~474× faster |
+| **nitrovin**: Go module, 1 core | **23,987** | ~430× faster |
+| **nitrovin**: CLI, `nitrovin decode -`, one process | **14,524** | ~260× faster |
+| ultravin: 12 cores, sorted input | 5,288,394 | ~94,779× faster |
+| ultravin: 12 cores | 2,340,410 | ~41,945× faster |
+| ultravin: 4 cores, sorted input | 2,688,609 | ~48,186× faster |
+| ultravin: 4 cores | 1,062,987 | ~19,051× faster |
+| ultravin: 1 core, sorted input | 656,545 | ~11,767× faster |
+| ultravin: 1 core | 301,844 | ~5,410× faster |
+| corgi v3: `@cardog/corgi` 3.0.1-beta.0 (binary index), not NHTSA's procedure | 149,565 | ~2,681× faster |
+| corgi v2: `@cardog/corgi` 2.0.1 (SQLite) | 60 | ~1.1× faster |
+| NHTSA MSSQL: `spVinDecode` (SQL Server) | 55.8 | 1× (baseline) |
+| NHTSA Postgres: `spvindecode` | 66 | ~1.2× faster |
+| NHTSA vPIC web API: rate limit, *cited, not measured* | ~10 | ~5.6× slower |
+
+Measured 2026-11-10 on an Apple M5 Pro (6 performance and 12 efficiency
+cores, 48 GB): nitrovin v0.1.8 (`4834e5c`, data 2026_10), ultravin
+`deb4e2f` on the same month. The corpus is 20,000,000 unique synthetic
+VINs from ultravin's generator, about 95% valid and 5% with one realistic
+defect (a typo, a wrong check digit or two swapped characters); sorted
+rows decode the same VINs byte-sorted, and corgi v2 and the two SQL
+procedures a fixed random 2,000 of them. Each figure is the median of two
+fresh-process trials, the second round in reverse order, with the decode
+clock frozen where an engine has one. The method and the generator are
+[ultravin's](https://github.com/blackthorn-interstellar/ultravin#benchmarks);
+its published figures, from another machine, are not used.
+
+The host was shared with other work (one-minute load average 1.9 to 4.0
+when trials started). SQL Server ran under Docker's x86 emulation, which
+understates it against native hardware. corgi v3 is a prerelease that
+answers about 20 summary fields from its own index and calls 19.5% of
+these VINs valid, so it does other work than the procedure. The web API
+row is [a published rate limit](https://cardog.app/blog/corgi-vin-decoder),
+not a decode. On the sample, nitrovin and ultravin both agree with the
+freshened Postgres oracle on every element of all 2,000 VINs. Most of
+nitrovin's per-VIN time is the procedure's own work: its decode passes
+(up to four per VIN) take 46% of a CPU profile, filling in vehicle-type
+defaults 24%, laying out the `vpic` attributes 14%. A one-VIN `nitrovin
+decode` process takes about 10 ms and 32 MB of memory.
+[Method, every trial, versions and how to reproduce each row](docs/benchmarks.md).
 
 ## Contributing
 
