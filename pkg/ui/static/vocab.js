@@ -131,6 +131,17 @@
   });
   sw.startMessages();
 
+  // mine is the worker in control's answer to {op: "release"}, asked once
+  // a page ({release, server}; null when it gave none, asked again next
+  // time); matched reports whether that worker is of the page's release
+  // and not outdated.
+  let asked = null;
+  const mine = () => asked || (asked = ask({ op: 'release' }, 5000).then((m) => {
+    if (!m) asked = null;
+    return m;
+  }));
+  const matched = (m) => Boolean(m) && !m.server && m.release === release;
+
   // start registers the worker, once, and settles when its state is said.
   let starting = null;
   const start = () => {
@@ -149,9 +160,9 @@
         registration = reg;
         watchUpdates(reg);
         if (!sw.controller) await new Promise((resolve) => sw.addEventListener('controllerchange', resolve, { once: true }));
-        const mine = await ask({ op: 'release' }, 5000);
-        if (!mine || mine.server || mine.release !== release) {
-          outdated(mine);
+        const m = await mine();
+        if (!matched(m)) {
+          outdated(m);
           return;
         }
         await showFiles();
@@ -204,12 +215,13 @@
   // holds targets for, when the page's lookup (path) named none of its
   // own: so what the visitor asks next names its targets (to=), and a
   // link naming none means the same in every browser. The selection is
-  // the worker's, asked for whenever one controls the page and is ready.
+  // the worker's, asked for whenever one of the page's release controls
+  // the page, beside that question: the forms are ticked without waiting
+  // for the dialog's panel.
   const tick = async (path) => {
     if (!sw.controller || new URL(path, location.origin).searchParams.has('to')) return;
-    await start();
-    if (!ready()) return;
-    const selection = (await ask({ op: 'selection' }, 5000)) || {};
+    const [m, selection] = await Promise.all([mine(), ask({ op: 'selection' }, 5000)]);
+    if (!matched(m) || section.dataset.state === 'outdated' || !selection) return;
     for (const set of document.querySelectorAll('#controls fieldset[data-spine]')) {
       const names = selection[set.dataset.spine];
       if (!names) continue;
