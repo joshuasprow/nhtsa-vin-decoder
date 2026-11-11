@@ -93,13 +93,14 @@ that compare against Postgres also need `NITROVIN_PSQL`
 CI runs what a change can affect. Every test workflow cancels its run on a
 branch when a newer push supersedes it (`release.yml` and the refresh never
 cancel), and none runs for Markdown, `GLOSSARY.md`, `NOTICE` or `docs/`
-alone, except the API documents the contract tests read and the deviation
-witnesses the oracle reads.
+alone, except the API documents the contract tests read, the deviation
+witnesses the oracle reads, and `README.md`, whose install, MCP and verify
+text `TestFormREADME` holds to the form's.
 
 - `contract.yml` (schemas, the no-data tests and the `js/wasm` build):
   `pkg/contract`, `pkg/nitrovin`, `pkg/decoder`, `pkg/vocab`, `pkg/ui`,
   `cmd/nitrovin`, `cmd/nitrovin-epa`, `testdata/vocab/`, `docs/api`'s four
-  schema documents, `go.mod`, `go.sum`.
+  schema documents, `README.md`, `go.mod`, `go.sum`.
 - `import.yml`, **Tests**, on `pkg/`, `cmd/`, `go.mod`, `go.sum`,
   `testdata/parity/`, `testdata/vocab/`, `scripts/oracle.sh`, in three
   jobs. *Changed paths* decides whether Postgres is needed. *Artifact*

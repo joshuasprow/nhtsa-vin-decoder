@@ -40,6 +40,9 @@ on:
       - .github/actions/mise/**
       - .github/workflows/contract.yml
       - "!**/*.md"
+      # Re-included after the exclusion (order matters): TestFormREADME
+      # holds the README's install, MCP and verify text to the form's.
+      - README.md
 
 permissions:
   contents: read
