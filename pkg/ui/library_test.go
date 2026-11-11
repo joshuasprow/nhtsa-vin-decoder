@@ -177,11 +177,14 @@ func (d *memDisk) cloneSelection(s Selection) Selection {
 }
 
 // fakeServer is the server as a Remote: the bundle, its files, and
-// decodes, each answering status with body; down fails every request.
+// decodes, each answering status with body; pages, when set, answers a
+// VIN's decode as the page shows it (decodedPath); down fails every
+// request.
 type fakeServer struct {
 	info    contract.Info
 	files   map[string][]byte // by path
 	decodes map[string]string // body by VIN
+	pages   http.Handler
 	status  int
 	down    bool
 	gets    []string
@@ -194,6 +197,11 @@ func (s *fakeServer) Get(path string) (int, []byte, error) {
 	}
 	if b, ok := s.files[path]; ok {
 		return http.StatusOK, b, nil
+	}
+	if s.pages != nil && strings.HasPrefix(path, decodedPath+"?") {
+		w := httptest.NewRecorder()
+		s.pages.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		return w.Code, w.Body.Bytes(), nil
 	}
 	if vin, ok := strings.CutPrefix(path, "/v1/decode/"); ok {
 		vin, _, _ = strings.Cut(vin, "?")
@@ -582,7 +590,7 @@ func TestBrowserPages(t *testing.T) {
 		t.Errorf("refused remove: %d %v\n%s", status, hdr, body)
 	}
 	status, hdr, _ = form("name=classics&all=true", nil)
-	if status != http.StatusSeeOther || hdr.Get("Location") != vocabPath || len(l.Files()) != 0 {
+	if status != http.StatusSeeOther || hdr.Get("Location") != homePath || len(l.Files()) != 0 {
 		t.Errorf("remove all without htmx: %d %v, %d files", status, hdr, len(l.Files()))
 	}
 
@@ -646,9 +654,9 @@ func TestServiceWorker(t *testing.T) {
 	if status, _, _ := response(t, h, "GET", testAssets+"/sw.wasm", nil); status != 404 {
 		t.Errorf("sw.wasm without a module: %d", status)
 	}
-	_, _, body := response(t, h, "GET", "/vocab", nil)
+	_, _, body := response(t, h, "GET", "/", nil)
 	if !strings.Contains(body, "built without its browser translator") || strings.Contains(body, "data-worker") {
-		t.Errorf("/vocab without a module:\n%s", body)
+		t.Errorf("the page without a module:\n%s", body)
 	}
 
 	h.WithWorker(Worker{Module: []byte("\x00asm"), Exec: []byte("// go")})
@@ -668,12 +676,12 @@ func TestServiceWorker(t *testing.T) {
 	if status != 200 || hdr.Get("Content-Type") != "application/wasm" || hdr.Get("Cache-Control") != immutable || body != "\x00asm" {
 		t.Errorf("sw.wasm: %d %v", status, hdr)
 	}
-	_, _, body = response(t, h, "GET", "/vocab", nil)
+	_, _, body = response(t, h, "GET", "/", nil)
 	if !strings.Contains(body, `data-worker="/sw.js"`) || !strings.Contains(body, "/vocab.js") {
-		t.Errorf("/vocab with a module:\n%s", body)
+		t.Errorf("the page with a module:\n%s", body)
 	}
 	// A link naming a file this server lacks says where such a file lives.
-	status, _, body = response(t, h, "GET", "/ui/translate?from.vocabulary=mine&from.entry.make=x&to=mine", nil)
+	status, _, body = response(t, h, "GET", "/?from.vocabulary=mine&from.entry.make=x&to=mine", nil)
 	if status != 404 || !strings.Contains(body, "open this link in the browser that holds it") {
 		t.Errorf("a browser file's link on the server: %d\n%s", status, body)
 	}

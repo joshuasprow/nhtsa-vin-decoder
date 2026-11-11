@@ -1,12 +1,61 @@
-{{/* The decode form (decode.go): home is the entry page at /, decode the
-form's page at /ui/decode. The form asks /ui/decode as a page without
-JavaScript; with it, htmx fills the layout's main with the answer and pushes
-its URL. The examples and the empty-values link are boosted the same way. */}}
-{{define "home" -}}
-{{template "intro"}}
-{{template "decode-form" .}}
-{{template "examples"}}
+{{/* A VIN's decode on the page (decode.go), around its translation's map
+(page.html's result): decoded-head above it, the vehicle and the VIN's
+errors, and decoded below it, every element by group and the same request
+elsewhere. developers is what the page shows before any answer. */}}
+{{define "decoded-head" -}}
+{{with .Summary}}<p class="summary">{{.}}</p>{{end}}
+<p class="status">{{if .Clean}}<span class="chip chip-ok">Valid VIN</span>{{else}}Error codes:
+<span class="mono codes-flagged">{{range $i, $c := .ErrorCodes}}{{if $i}}, {{end}}{{$c}}{{end}}</span>
+· check digit {{if .CheckDigitValid}}valid{{else}}invalid{{end}}{{end}}</p>
+{{if not .Clean}}<ul class="codes">
+{{range .Codes}}<li>{{if .Text}}{{.Text}}{{else}}{{.Code}}{{end}}</li>
+{{end}}</ul>{{end}}
+{{with .AdditionalErrorText}}<p>{{.}}</p>{{end}}
+{{if .Suggested}}<table class="kv">
+<tbody>
+<tr><th scope="row">VIN</th><td class="mono">{{template "chars" .Input}}</td></tr>
+<tr><th scope="row">Suggested VIN</th><td><span class="mono">{{template "chars" .Suggested}}</span>{{with .DifferAt}} <span class="hint">differs at {{.}}</span>{{end}}</td></tr>
+</tbody>
+</table>{{end}}
+{{- end}}
 
+{{/* decoded takes the result: its decode, and the page's own links. */}}
+{{define "decoded" -}}
+<h3>The decode</h3>
+<p><a href="{{.Decode.NHTSA}}">This VIN on NHTSA's decoder</a></p>
+{{if .EmptyToggle}}<p hx-boost="true" hx-target="#ui-main">{{if .ShowEmpty}}Empty values shown. <a href="{{.EmptyToggle}}">Hide them</a>{{else}}{{.Decode.Hidden}} empty values hidden. <a href="{{.EmptyToggle}}">Show them</a>{{end}}</p>{{end}}
+{{range .Decode.Groups}}<details{{if .Open}} open{{end}}>
+<summary>{{.Name}} <span class="hint">({{len .Rows}})</span></summary>
+<table class="kv">
+<tbody>
+{{range .Rows}}<tr><th scope="row">{{.Name}}</th><td>{{if .List}}<ul>{{range .Values}}<li>{{.}}</li>{{end}}</ul>{{else}}{{range .Values}}{{.}}{{else}}<span class="null">empty</span>{{end}}{{end}}</td></tr>
+{{end}}</tbody>
+</table>
+</details>
+{{end}}
+<details class="dev">
+<summary>For developers</summary>
+<h4>This page's URL</h4>
+<div class="copyable"><pre tabindex="0" class="wrap" id="copy-url" data-copy="this page's URL">{{.URL}}</pre></div>
+<h4>The same request with curl</h4>
+<div class="copyable"><pre tabindex="0" class="wrap" id="copy-curl" data-copy="the curl command">{{.Decode.Copy.Curl}}</pre></div>
+<h4>The same decode on the command line</h4>
+<div class="copyable"><pre tabindex="0" class="wrap" id="copy-cli" data-copy="the nitrovin decode command">{{.Decode.Copy.CLI}}</pre></div>
+</details>
+{{if .Decode.Items}}
+<h3>Items</h3>
+<div class="wide">
+<table>
+<thead><tr><th>Element</th><th>Variable</th><th>Value</th><th>Attribute</th><th>Source</th><th>Pattern</th><th>VIN schema</th><th>Keys</th></tr></thead>
+<tbody>
+{{range .Decode.Items}}<tr><td>{{.ElementID}}</td><td>{{.Variable}}</td><td>{{template "null" .Value}}</td><td>{{template "null" .AttributeID}}</td><td>{{template "null" .Source}}</td><td>{{template "null" .PatternID}}</td><td>{{template "null" .VinSchemaID}}</td><td class="mono">{{template "null" .Keys}}</td></tr>
+{{end}}</tbody>
+</table>
+</div>
+{{end}}
+{{- end}}
+
+{{define "developers" -}}
 <details class="dev">
 <summary>For developers</summary>
 <h2 id="install">Install</h2>
@@ -67,112 +116,6 @@ cosign verify ghcr.io/joshuasprow/nitrovin:$TAG \
 <li><a href="/v1/openapi.json">this server's API</a> and <a href="https://github.com/joshuasprow/nitrovin#readme">the README</a></li>
 </ul>
 </details>
-{{template "form-footer" .}}
-{{- end}}
-
-{{define "decode" -}}
-{{template "intro"}}
-{{template "decode-form" .}}
-{{with .Decode}}
-<h2>Result</h2>
-{{with .Summary}}<p class="summary">{{.}}</p>{{end}}
-<p class="status">{{if .Clean}}<span class="chip chip-ok">Valid VIN</span>{{else}}Error codes:
-<span class="mono codes-flagged">{{range $i, $c := .ErrorCodes}}{{if $i}}, {{end}}{{$c}}{{end}}</span>
-· check digit {{if .CheckDigitValid}}valid{{else}}invalid{{end}}{{end}}
-<a class="translate" href="{{.Translate}}">Translate this VIN</a></p>
-{{if not .Clean}}<ul class="codes">
-{{range .Codes}}<li>{{if .Text}}{{.Text}}{{else}}{{.Code}}{{end}}</li>
-{{end}}</ul>{{end}}
-{{with .AdditionalErrorText}}<p>{{.}}</p>{{end}}
-<table class="kv">
-<tbody>
-<tr><th scope="row">VIN</th><td class="mono">{{if .Input}}{{template "chars" .Input}}{{else}}{{.VIN}}{{end}}</td></tr>
-{{if .Suggested}}<tr><th scope="row">Suggested VIN</th><td><span class="mono">{{template "chars" .Suggested}}</span>{{with .DifferAt}} <span class="hint">differs at {{.}}</span>{{end}}</td></tr>
-{{end}}</tbody>
-</table>
-<p><a href="{{.JSON}}">JSON on /v1</a> · <a href="{{.NHTSA}}">this VIN on NHTSA's decoder</a></p>
-
-{{if .EmptyToggle}}<p hx-boost="true" hx-target="#ui-main">{{if $.ShowEmpty}}Empty values shown. <a href="{{.EmptyToggle}}">Hide them</a>{{else}}{{.Hidden}} empty values hidden. <a href="{{.EmptyToggle}}">Show them</a>{{end}}</p>{{end}}
-{{range .Groups}}<details{{if .Open}} open{{end}}>
-<summary>{{.Name}} <span class="hint">({{len .Rows}})</span></summary>
-<table class="kv">
-<tbody>
-{{range .Rows}}<tr><th scope="row">{{.Name}}</th><td>{{if .List}}<ul>{{range .Values}}<li>{{.}}</li>{{end}}</ul>{{else}}{{range .Values}}{{.}}{{else}}<span class="null">empty</span>{{end}}{{end}}</td></tr>
-{{end}}</tbody>
-</table>
-</details>
-{{end}}
-
-<details class="dev">
-<summary>For developers</summary>
-<h2>Copy</h2>
-<h3>The decode's JSON</h3>
-<div class="copyable"><pre tabindex="0" class="wrap" id="copy-json" data-copy="the decode's JSON">{{.Copy.JSON}}</pre></div>
-<h3>This page's URL</h3>
-<div class="copyable"><pre tabindex="0" class="wrap" id="copy-url" data-copy="this page's URL">{{.Copy.URL}}</pre></div>
-<h3>The same request with curl</h3>
-<div class="copyable"><pre tabindex="0" class="wrap" id="copy-curl" data-copy="the curl command">{{.Copy.Curl}}</pre></div>
-<h3>The same decode on the command line</h3>
-<div class="copyable"><pre tabindex="0" class="wrap" id="copy-cli" data-copy="the nitrovin decode command">{{.Copy.CLI}}</pre></div>
-</details>
-
-{{if .Items}}
-<h2>Items</h2>
-<div class="wide">
-<table>
-<thead><tr><th>Element</th><th>Variable</th><th>Value</th><th>Attribute</th><th>Source</th><th>Pattern</th><th>VIN schema</th><th>Keys</th></tr></thead>
-<tbody>
-{{range .Items}}<tr><td>{{.ElementID}}</td><td>{{.Variable}}</td><td>{{template "null" .Value}}</td><td>{{template "null" .AttributeID}}</td><td>{{template "null" .Source}}</td><td>{{template "null" .PatternID}}</td><td>{{template "null" .VinSchemaID}}</td><td class="mono">{{template "null" .Keys}}</td></tr>
-{{end}}</tbody>
-</table>
-</div>
-{{end}}
-{{else}}
-{{template "examples"}}
-{{end}}
-{{template "form-footer" .}}
-{{- end}}
-
-{{define "intro" -}}
-<h1>Decode a VIN</h1>
-<p>Type a VIN to see the year, make, model and engine NHTSA's <a href="https://vpic.nhtsa.dot.gov/">vPIC</a> data gives it.</p>
-{{- end}}
-
-{{define "decode-form" -}}
-<form method="get" action="/ui/decode" hx-get="/ui/decode" hx-target="#ui-main" hx-push-url="true">
-{{with index .Errors ""}}<p class="error" role="alert">{{.}}</p>{{end}}
-<div>
-<label for="vin">VIN</label>
-<div class="vin-row">
-<input type="text" id="vin" name="vin" value="{{.VIN}}" autocomplete="off" spellcheck="false" autofocus{{with index .Errors "vin"}} aria-invalid="true" aria-describedby="vin-error"{{end}}>
-<button type="submit">Decode</button>
-</div>
-{{with index .Errors "vin"}}<p class="error" id="vin-error">{{.}}</p>{{end}}
-</div>
-<details class="options"{{if or (index .Errors "model_year") (index .Errors "shape") (index .Errors "full")}} open{{end}}>
-<summary>Options</summary>
-<div>
-<label for="model_year">Model year <span class="hint">(optional hint)</span></label>
-<input type="text" id="model_year" name="model_year" value="{{.ModelYear}}" inputmode="numeric" autocomplete="off"{{with index .Errors "model_year"}} aria-invalid="true" aria-describedby="model_year-error"{{end}}>
-{{with index .Errors "model_year"}}<p class="error" id="model_year-error">{{.}}</p>{{end}}
-</div>
-<fieldset{{with index .Errors "shape"}} aria-describedby="shape-error"{{end}}>
-<legend>Shape</legend>
-<label><input type="radio" name="shape" value="vpic"{{if eq .Shape "vpic"}} checked{{end}}> vpic <span class="hint">(vPIC's element codes)</span></label>
-<label><input type="radio" name="shape" value="nitrovin"{{if eq .Shape "nitrovin"}} checked{{end}}> nitrovin <span class="hint">(variable names, lists)</span></label>
-{{with index .Errors "shape"}}<p class="error" id="shape-error">{{.}}</p>{{end}}
-</fieldset>
-<div>
-<label class="check"><input type="checkbox" name="full" value="true"{{if .Full}} checked{{end}}{{with index .Errors "full"}} aria-describedby="full-error"{{end}}> full <span class="hint">(every row the decoder emitted)</span></label>
-{{with index .Errors "full"}}<p class="error" id="full-error">{{.}}</p>{{end}}
-<label class="check"><input type="checkbox" name="show_empty" value="true"{{if .ShowEmpty}} checked{{end}}> show empty values <span class="hint">(vpic shape)</span></label>
-</div>
-</details>
-</form>
-{{- end}}
-
-{{define "examples" -}}
-<p hx-boost="true" hx-target="#ui-main">Try one: <a class="example" href="/ui/decode?vin=1HGCM82633A004352">1HGCM82633A004352</a> <span class="hint">a 2003 Honda Accord</span> · <a class="example" href="/ui/decode?vin=5YJ3E1EA2JF000316">5YJ3E1EA2JF000316</a> <span class="hint">a 2018 Tesla Model 3</span></p>
 {{- end}}
 
 {{define "form-footer" -}}

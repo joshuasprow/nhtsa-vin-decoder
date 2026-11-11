@@ -3,7 +3,7 @@
 # package ui's vocabulary pages for js/wasm, with Go's toolchain, and the
 # wasm_exec.js of the same Go. `nitrovin serve` embeds them from
 # cmd/nitrovin/sw (the default <dir>) and publishes them under
-# /ui/r/<release>/; a build without them serves /vocab without the
+# /ui/r/<release>/; a build without them serves its page without the
 # visitor's own files. goreleaser's before hook (.goreleaser.yaml) and
 # contract.yml run it before building or testing cmd/nitrovin.
 #

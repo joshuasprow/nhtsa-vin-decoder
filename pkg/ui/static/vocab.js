@@ -1,23 +1,30 @@
-// /vocab's browser files (ADR 0013): registers the Service Worker
-// (worker.js), says what state it is in, swaps the worker's panel (the
-// merged catalog, with the browser's files, and the translate forms over
-// it, the visitor's selection ticked) over the server's, and hands the
-// files the visitor picks or drops, and EPA's vocabulary on a click, to
-// the worker by postMessage, and the targets the visitor ticks too.
-// Without this script the page says that loading files needs JavaScript;
-// everything else on it works.
+// The page's browser files (ADR 0013), behind its Vocabularies button:
+// registers the Service Worker (worker.js), says what state it is in,
+// swaps the worker's panel (the merged catalog, with the browser's files)
+// over the server's catalog in the dialog, and hands the files the visitor
+// picks or drops, and EPA's vocabulary on a click, to the worker by
+// postMessage, and the targets the visitor ticks too. Without this script
+// the dialog says that loading files needs JavaScript; everything else
+// works.
+//
+// The worker is the module's 12 MB, so a visitor who never opens the
+// dialog never gets it: it is registered when the dialog first opens or a
+// file is dropped on the page, and started at once only in a browser that
+// has it already.
 //
 // States, on #browser's data-state and in words in #browser-status:
-// starting, ready (the worker controls the page and its panel is in
-// #browser-files), paused (an installed worker does not control this
-// page: a hard reload bypasses it), unsupported (no Service Workers), and
-// failed. An update waiting for the old worker's pages to close is said
-// beside the state (data-update="waiting").
+// none before the worker is asked for, then starting, ready (the worker
+// controls the page and its panel is in #browser-files), paused (an
+// installed worker does not control this page: a hard reload bypasses
+// it), unsupported (no Service Workers), and failed. An update waiting for
+// the old worker's pages to close is said beside the state
+// (data-update="waiting").
 'use strict';
 
 (() => {
   const section = document.getElementById('browser');
   if (!section || !section.dataset.worker) return;
+  const dialog = document.getElementById('vocabularies');
   const status = document.getElementById('browser-status');
   // stall is how long a load may go without a word from the worker: a
   // minute, or #browser's data-stall (milliseconds), which a test sets.
@@ -40,6 +47,9 @@
   const sw = navigator.serviceWorker;
 
   const showFiles = () => htmx.ajax('GET', '/ui/files', { target: '#browser-files', swap: 'innerHTML' });
+  // redraw asks for the page's main again: its forms and its answer are
+  // over the files loaded, which just changed.
+  const redraw = () => htmx.ajax('GET', location.pathname + location.search, { target: '#ui-main', swap: 'innerHTML' });
 
   const watchUpdates = (reg) => {
     const waiting = () => {
@@ -55,49 +65,59 @@
     });
   };
 
-  (async () => {
-    say('starting', 'Starting the translator in this browser…');
-    const before = await sw.getRegistration('/');
-    if (before && before.active && !sw.controller) {
-      // Installed, yet not in control: this load bypassed it (a hard reload).
-      watchUpdates(before);
-      say('paused', 'Your own files are paused for this load: a hard reload bypasses the Service Worker that holds them. Reload the page normally to use them.');
-      return;
+  // start registers the worker, once, and settles when its state is said.
+  let starting = null;
+  const start = () => {
+    if (!starting) {
+      starting = (async () => {
+        say('starting', 'Starting the translator in this browser…');
+        const before = await sw.getRegistration('/');
+        if (before && before.active && !sw.controller) {
+          // Installed, yet not in control: this load bypassed it (a hard reload).
+          watchUpdates(before);
+          say('paused', 'Your own files are paused for this load: a hard reload bypasses the Service Worker that holds them. Reload the page normally to use them.');
+          return;
+        }
+        const reg = await sw.register(section.dataset.worker, { scope: '/' });
+        watchUpdates(reg);
+        if (!sw.controller) await new Promise((resolve) => sw.addEventListener('controllerchange', resolve, { once: true }));
+        await showFiles();
+        say('ready', 'Your files stay in this browser and are translated here.');
+      })().catch((err) => say('failed', 'The translator in this browser could not start: ' + err + '.'));
     }
-    const reg = await sw.register('/sw.js', { scope: '/' });
-    watchUpdates(reg);
-    if (!sw.controller) await new Promise((resolve) => sw.addEventListener('controllerchange', resolve, { once: true }));
-    await showFiles();
-    say('ready', 'Your files stay in this browser and are translated here.');
-  })().catch((err) => say('failed', 'The translator in this browser could not start: ' + err + '.'));
+    return starting;
+  };
+  sw.getRegistration('/').then((reg) => { if (reg) start(); });
+  dialog.addEventListener('toggle', (e) => { if (e.newState === 'open') start(); });
 
   const ready = () => section.dataset.state === 'ready' && sw.controller;
 
-  // The targets ticked in /vocab's translate forms are the visitor's
-  // selection, which the worker keeps beside the files: a tick goes to it
-  // at once, and to every form's box for the same vocabulary.
+  // The targets ticked in the page's form are the visitor's selection,
+  // which the worker keeps beside the files: a tick goes to it at once.
   document.addEventListener('change', (e) => {
     const box = e.target;
-    if (!box.matches || !box.matches('#vocab-translate input[name=to]') || !ready()) return;
-    for (const other of document.querySelectorAll('#vocab-translate input[name=to]')) {
-      if (other.value === box.value) other.checked = box.checked;
-    }
+    if (!box.matches || !box.matches('#controls input[name=to]') || !ready()) return;
     sw.controller.postMessage({ op: 'select', name: box.value, spine: box.closest('fieldset').dataset.spine, checked: box.checked });
   });
 
-  // An example clicked on /vocab translates to the targets ticked there
-  // now on its spine, else to its own (data-to), not to those ticked when
-  // the forms were drawn.
+  // An example clicked translates to the targets ticked now on its spine,
+  // else to its own (data-to), not to those ticked when the form was
+  // drawn.
   document.addEventListener('htmx:configRequest', (e) => {
     const a = e.detail.elt;
-    if (!a.matches || !a.matches('#vocab-translate a.example')) return;
-    const boxes = document.querySelector('#vocab-translate fieldset[data-spine="' + CSS.escape(a.dataset.spine) + '"]');
+    if (!a.matches || !a.matches('#controls a.example')) return;
+    const boxes = document.querySelector('#controls fieldset[data-spine="' + CSS.escape(a.dataset.spine) + '"]');
     if (!boxes) return;
     const ticked = [...boxes.querySelectorAll('input[name=to]:checked')].map((b) => b.value);
     const url = new URL(e.detail.path, location.origin);
     url.searchParams.delete('to');
     for (const name of ticked.length ? ticked : a.dataset.to.split(' ').filter(Boolean)) url.searchParams.append('to', name);
     e.detail.path = url.pathname + url.search;
+  });
+
+  // A file removed changes what the page's forms and answer are over.
+  document.addEventListener('htmx:afterRequest', (e) => {
+    if (e.detail.successful && e.detail.pathInfo.requestPath === '/ui/files/remove') redraw();
   });
 
   // usage says, below the panel, how much this site keeps in the browser
@@ -140,6 +160,7 @@
     });
     await showFiles();
     tell(done.ok ? done.message : 'Nothing was loaded: ' + done.message);
+    if (done.ok) await redraw();
   };
   const failed = (err) => tell('Nothing was loaded: ' + (err && err.message ? err.message : err));
 
@@ -148,18 +169,22 @@
     name: f.name,
     read: () => f.arrayBuffer().catch((err) => { throw new Error(f.name + ' could not be read (' + err.message + ').'); }),
   });
-  const loadFiles = (list) => {
+  // loadFiles loads the files of list in the dialog, where a load is
+  // told, once the worker is ready.
+  const loadFiles = async (list) => {
     const picked = [...list];
     if (picked.length === 0) return;
+    if (!dialog.matches(':popover-open')) dialog.showPopover();
+    await start();
     if (!ready()) {
       tell('Nothing was loaded: files load once the translator in this browser is ready.');
       return;
     }
-    load(picked.map((f) => f.name).join(', '), picked.map(fromDisk)).catch(failed);
+    await load(picked.map((f) => f.name).join(', '), picked.map(fromDisk));
   };
 
   document.addEventListener('change', (e) => {
-    if (e.target.id === 'vocab-files') loadFiles(e.target.files);
+    if (e.target.id === 'vocab-files') loadFiles(e.target.files).catch(failed);
   });
 
   // Files dropped anywhere on the page load as if picked: some browsers
@@ -187,7 +212,7 @@
     e.preventDefault();
     over = 0;
     section.classList.remove('dropping');
-    loadFiles(e.dataTransfer.files);
+    loadFiles(e.dataTransfer.files).catch(failed);
   });
 
   // EPA's vocabulary, from this release's assets: one click.

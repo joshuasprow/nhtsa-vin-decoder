@@ -1,7 +1,10 @@
-{{/* The one layout: every /ui page is a route's fragment in it. Its error
+{{/* The one layout: every page is a route's fragment in its main, which is
+also what htmx keeps and restores as history (hx-history-elt). Its error
 slot (#ui-error) is where htmx swaps a 4xx or 5xx fragment (htmx-config's
-responseHandling); a fragment that is no error clears it (clear-error). No
-inline script or style: CSP refuses both. */}}
+responseHandling); a fragment that is no error clears it (clear-error).
+Beside the main is the vocabularies' button and dialog (Aside,
+page.html's vocabularies), which no fragment replaces. No inline script
+or style: CSP refuses both. */}}
 {{define "page" -}}
 <!doctype html>
 <html lang="en">
@@ -14,7 +17,8 @@ inline script or style: CSP refuses both. */}}
 <link rel="stylesheet" href="{{.Assets}}/ui.css">
 <script src="{{.Assets}}/htmx.min.js" defer></script>
 <script src="{{.Assets}}/copy.js" defer></script>
-{{- if .Vocab}}
+<script src="{{.Assets}}/map.js" defer></script>
+{{- if .Aside}}
 <script src="{{.Assets}}/vocab.js" defer></script>
 {{- end}}
 {{- end}}
@@ -22,16 +26,12 @@ inline script or style: CSP refuses both. */}}
 <body>
 <header>
 <a class="brand" href="/">nitrovin</a>
-<nav aria-label="Main">
-<a href="/"{{if eq .Nav "decode"}} aria-current="page"{{end}}>Decode</a>
-<a href="/ui/translate"{{if eq .Nav "translate"}} aria-current="page"{{end}}>Translate</a>
-<a href="/vocab"{{if eq .Nav "vocab"}} aria-current="page"{{end}}>Vocabularies</a>
-</nav>
 </header>
 <div id="ui-error" role="alert"></div>
-<main id="ui-main">
+<main id="ui-main" hx-history-elt>
 {{.Body}}
 </main>
+{{.Aside}}
 </body>
 </html>
 {{end}}

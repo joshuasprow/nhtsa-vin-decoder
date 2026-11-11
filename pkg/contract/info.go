@@ -72,7 +72,7 @@ var driftKinds = []vocab.DriftKind{vocab.DriftMake, vocab.DriftModel, vocab.Drif
 
 // DriftCounts counts the findings of drift about the file loaded from
 // path by kind, keeping the first MaxDriftExamples of each: what Info
-// says of the file, and what /vocab shows of it.
+// says of the file, and what the pages show of it.
 func DriftCounts(path string, drift []vocab.Finding) []DriftCount {
 	out := []DriftCount{}
 	for _, kind := range driftKinds {

@@ -161,8 +161,9 @@ Routes, bodies and status codes are in [`openapi.yaml`](openapi.yaml):
 `GET /v1/vocabularies/{name}/entries`, `GET /v1/info`,
 `GET /v1/openapi.json`, `GET /healthz`, and `POST /mcp`, the MCP server
 below over Streamable HTTP. `GET /` (`HEAD` too) and `/ui/…` are pages for
-browsers (HTML, a fragment for htmx, ADR 0013): `/` the entry page,
-`/ui/decode` the decode form, which `/?vin=…` redirects to (`301`), and
+browsers (HTML, a fragment for htmx, ADR 0013): `/` the one page, which
+decodes and translates and which old links (`/?vin=…`, `/ui/decode`,
+`/ui/translate`, `/vocab`) redirect to (`301`), and
 their assets under `/ui/r/<release>/`; all are outside the contract, not
 in `openapi.yaml`, and may change.
 

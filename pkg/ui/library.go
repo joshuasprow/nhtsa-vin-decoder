@@ -465,25 +465,54 @@ func (l *Library) List(req contract.ListRequest) (contract.List, error) {
 	return l.translator(l.state.Load()).List(req)
 }
 
+// ask is a GET of path on the server, which answers something of vin's
+// decode: its body, the server's refusal, or in words why it gave none.
+func (l *Library) ask(path, vin string) ([]byte, error) {
+	status, body, err := l.remote.Get(path)
+	if err != nil {
+		// err is the browser's ("TypeError: Failed to fetch"), which says
+		// nothing more than that the request failed.
+		return nil, &pageError{Status: http.StatusServiceUnavailable, Message: "Decoding the VIN " + vin +
+			" needs this nitrovin's server, which could not be reached: this browser may be offline. Translating a vocabulary entry works without it."}
+	}
+	if status != http.StatusOK {
+		var p contract.Problem
+		if json.Unmarshal(body, &p) == nil && p.Status != 0 && p.Type != contract.Internal {
+			return nil, &p
+		}
+		return nil, &pageError{Status: http.StatusBadGateway, Message: fmt.Sprintf("The server answered HTTP %d to the decode of %s: %s", status, vin, p.Detail)}
+	}
+	return body, nil
+}
+
+// decoded is vin's decode as the page shows it, the server's
+// (decodedPath), asked with query, the decode's own.
+func (l *Library) decoded(vin string, query url.Values, empty bool) (*formDecode, error) {
+	q := maps.Clone(query)
+	q.Set("vin", vin)
+	if empty {
+		q.Set(showEmpty, "true")
+	}
+	body, err := l.ask(decodedPath+"?"+q.Encode(), vin)
+	if err != nil {
+		return nil, err
+	}
+	var d formDecode
+	if err := json.Unmarshal(body, &d); err != nil {
+		return nil, fmt.Errorf("reading the server's decode of %s: %w", vin, err)
+	}
+	return &d, nil
+}
+
 // decode is vin's decode by the server, every item.
 func (l *Library) decode(vin string, year contract.Null[int32], now time.Time) (contract.VINDecode, error) {
 	u := "/v1/decode/" + url.PathEscape(vin) + "?full=true&now=" + url.QueryEscape(now.UTC().Format(time.RFC3339))
 	if year.Valid {
 		u += "&model_year=" + strconv.Itoa(int(year.V))
 	}
-	status, body, err := l.remote.Get(u)
+	body, err := l.ask(u, vin)
 	if err != nil {
-		// err is the browser's ("TypeError: Failed to fetch"), which says
-		// nothing more than that the request failed.
-		return contract.VINDecode{}, &pageError{Status: http.StatusServiceUnavailable, Message: "Decoding the VIN " + vin +
-			" needs this nitrovin's server, which could not be reached: this browser may be offline. Translating a vocabulary entry works without it."}
-	}
-	if status != http.StatusOK {
-		var p contract.Problem
-		if json.Unmarshal(body, &p) == nil && p.Status != 0 && p.Type != contract.Internal {
-			return contract.VINDecode{}, &p
-		}
-		return contract.VINDecode{}, &pageError{Status: http.StatusBadGateway, Message: fmt.Sprintf("The server answered HTTP %d to the decode of %s: %s", status, vin, p.Detail)}
+		return contract.VINDecode{}, err
 	}
 	var d struct {
 		VIN             string `json:"vin"`

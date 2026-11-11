@@ -45,7 +45,7 @@ export default {
 			if (request.method !== "GET" && request.method !== "HEAD") {
 				return response;
 			}
-			// The pages, /vocab among them, answer a fragment or a whole page
+			// The pages answer a fragment or a whole page
 			// as HX-Request asks: never stored. /sw.js keeps its own no-cache,
 			// so the browser asks for it on each update check (ADR 0013).
 			return withHeaders(response, { "Cache-Control": cacheControl(response, "no-store") });
@@ -126,7 +126,7 @@ function forward(request: Request, url: URL): Request {
  * The GETs whose 200 is a function of the URL and the release alone: a
  * decode, /v1/info, and the release's assets (/ui/r/<release>/…: the
  * pages' scripts and stylesheet, the Service Worker's module, the spine
- * bundle, the server's files). The pages (/, /vocab, /ui/…) are not: each
+ * bundle, the server's files). The pages (/, /ui/…) are not: each
  * answers a fragment or a whole page as HX-Request asks. Nor is /sw.js,
  * which the browser must be able to ask for anew.
  */

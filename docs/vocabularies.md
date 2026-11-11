@@ -322,16 +322,26 @@ file again when it is asked for, and refuses with a 500 a file that
 changed on disk since it was loaded: restart `serve` to publish the new
 one.
 
-**In a browser**: `serve`'s `/vocab` page lists what is loaded, each file
-marked by where it is kept, with its drift counted by kind as `/v1/info`
-counts it (the first examples behind a disclosure), and translates and
-lists through the server's files (`/ui/translate`, `/ui/vocabularies`),
-with JavaScript or without. With JavaScript it also loads your own files,
+**In a browser**: `serve`'s page at `/` decodes a VIN and translates,
+through the server's files, with JavaScript or without. Its controls have
+a tab for each kind of lookup: a VIN, an entry of a vehicle vocabulary (a
+year, make and model), an entry of each declared spine's vocabularies,
+and a vPIC make or model id. Below them the answer is drawn as a map:
+what it is from, the spine entries it crosses and the entries it reaches
+as cards in three columns, each mapping a line, dashed when matched by
+rule; a card is a link to the page from it, with JavaScript the card
+under the pointer lights the routes through it, and a button shows the
+translation's JSON. The page's Vocabularies button opens a dialog that
+lists what is loaded, each file marked by where it is kept, with its
+drift counted by kind as `/v1/info` counts it (the first examples behind
+a disclosure), each linked to its entries (`/ui/vocabularies/{name}`).
+With JavaScript the dialog also loads your own files,
 picked from disk or dropped anywhere on the page, into the browser: a
-Service Worker (`/sw.js`) keeps each file's text and parsed index in
+Service Worker (`/sw.js`), started when the dialog first opens, keeps
+each file's text and parsed index in
 IndexedDB and runs the same pages, built from the same Go to WebAssembly,
 over them and the server's files, which it links from the URLs above.
-The page then lists one catalog: vPIC, the server's files and yours, each
+The dialog then lists one catalog: vPIC, the server's files and yours, each
 marked as built in, on this server or in this browser, yours with their
 file name, size and when they were stored, and how much the site keeps in
 the browser. Files loaded together load as one batch, which must link
@@ -340,9 +350,10 @@ a stored one replaces it; a file named like one of the server's is
 refused, and so is a file with a fault, naming the file and line. Removing
 a file others link to is refused, naming them, with an offer to remove
 them all. A stored file that this release can no longer read, or that no
-longer links, is listed with its fault and can be removed. The worker
-answers only the pages that name a file the browser holds and leaves
-every other request to the server, so a link means the same with
+longer links, is listed with its fault and can be removed. Once the
+browser holds a file the worker answers the page itself, and the entry
+lists of the files it holds, and leaves
+every other request to the server (a VIN's decode among them), so a link means the same with
 JavaScript on or off; opened in another browser, a link naming your file
 says where it lives. Answers carry the `decoder_version` and `data_month`
 of the decode they used, and the worker refuses a VIN when the server has
@@ -486,12 +497,12 @@ against, reaches every EPA name mapped to vPIC's Silverado for 2004.
 ## Keeping a vocabulary private
 
 nitrovin reads vocabulary files from the paths you give it and sends them
-nowhere (a file loaded on `/vocab` stays in that browser: only a VIN to
+nowhere (a file loaded in the page's Vocabularies dialog stays in that browser: only a VIN to
 decode goes to the server), and an answer names a file only by its `name` and `version`
 (`/v1/info` adds its hash and local path). nitrovin ships no third-party
 vocabulary but EPA's, and the hosted [nitrovin.app](https://nitrovin.app)
 loads none: there, the API's translate and list answer for vPIC alone, and
-`/vocab` offers EPA's to load into your browser. A vocabulary
+the page offers EPA's to load into your browser. A vocabulary
 built from licensed names (a parts catalog, a marketplace's compatibility
 data) is yours to build and load under your own licence, and stays on the
 machines you load it on.

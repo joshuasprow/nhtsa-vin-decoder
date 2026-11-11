@@ -34,8 +34,8 @@ lists them).
 The same decode is reachable six ways: a CLI, an HTTP server, JSON lines
 over stdio, an MCP server for AI assistants, a Go module and a C library.
 [nitrovin.app](https://nitrovin.app) runs the latest release's server for
-anyone: the decode form at `/ui/decode`, `/vocab`, where your own
-vocabularies (or EPA's, in one click) load into your browser and translate
+anyone: one page that decodes a VIN and draws its translation as a map,
+where your own vocabularies (or EPA's, in one click) load into your browser and translate
 there without being uploaded, the `/v1` API (CORS open) and MCP at
 `https://nitrovin.app/mcp`, rate-limited per IP.
 
@@ -157,15 +157,20 @@ curl localhost:8080/v1/vocabularies
 curl 'localhost:8080/v1/vocabularies/vpic/entries?where.make=474&limit=5'
 ```
 
-Open the address in a browser: the page says how to install, configure MCP
-and verify this version, with links to its release and data month, above a
-decode form: a VIN, an optional model year, the shape and `full`. The form
-answers at `/ui/decode`, rendered on the server, each decode a shareable
-URL (`/ui/decode?vin=1HGCM82633A004352`; older `/?vin=` links redirect
-there). A decode shows its elements in vPIC's groups (empty values hidden
+Open the address in a browser: one page, with a box of controls at its top,
+a tab for each kind of lookup. The first decodes a VIN (an optional model
+year, the shape and `full` behind Options) and translates it into the
+vocabularies loaded; the others translate a vocabulary's entry or a vPIC
+id ([Vocabularies](#vocabularies)). Before a lookup the page says how to
+install, configure MCP and verify this version, with links to its release
+and data month. The page is rendered on the server and every answer is a
+shareable URL (`/?from.vin=1HGCM82633A004352`; older `/?vin=`,
+`/ui/decode` and `/ui/translate` links redirect to it). A decode shows
+the translation as a map of the mappings it crossed, with its JSON and
+the decode's behind a button, then its elements in vPIC's groups (empty values hidden
 in the `vpic` shape until asked), its error codes in NHTSA's words, a
 suggested VIN with the differing positions marked, a link to the same VIN
-on NHTSA's decoder, and the decode's JSON, URL, `curl` and
+on NHTSA's decoder, and the page's URL, `curl` and
 `nitrovin decode` equivalents to copy. Everything works without
 JavaScript; with it, [htmx](https://htmx.org) swaps each answer into the
 page and copy buttons appear. The pages are not part of the API: they are
@@ -451,17 +456,18 @@ nitrovin --vocab testdata/vocab translate --to yard 1C6RR7LT5FS123456  # a VIN t
 nitrovin --vocab testdata/vocab serve                                 # /v1/translate, /v1/vocabularies
 ```
 
-`serve`'s `/vocab` page lists what is loaded, each file marked by where it
-is kept and with its drift, and translates through vPIC and the server's
-own files with or without JavaScript, with an example to try from each
-vocabulary; with it, it loads your own files, picked or dropped on the
+`serve`'s page translates through vPIC and the server's own files with or
+without JavaScript, with an example to try from each vocabulary and each
+translation drawn as a map of the mappings it crossed. Its Vocabularies
+button opens a dialog that lists what is loaded, each file marked by where
+it is kept and with its drift; with JavaScript, the dialog loads your own files, picked or dropped on the
 page, into your browser, where they stay: a Service Worker keeps them in
 IndexedDB, with the targets you tick (each file you load ticked), and
 translates with the same Go, built to WebAssembly, linking them with the
 server's files, which `serve` publishes with the data month's spine bundle
 under `/ui/r/<release>/` ([docs/vocabularies.md](docs/vocabularies.md)).
 Release builds include the worker, and EPA's vocabulary (below) as a
-one-click load into the browser; a `go install` build serves `/vocab`
+one-click load into the browser; a `go install` build serves the page
 without them, and says so.
 
 Each data release also carries `epa-vehicles.jsonl`, a vocabulary of the
@@ -485,7 +491,7 @@ A vocabulary built against another month loads too, with a drift warning for
 each id NHTSA has changed since. `checksums.txt` on the same release covers
 it ([Verify a release](#verify-a-release)). nitrovin ships no other
 vocabulary, and [nitrovin.app](https://nitrovin.app) loads none on the
-server: its `/vocab` offers EPA's to load into your browser.
+server: its page offers EPA's to load into your browser.
 
 ## Parity
 

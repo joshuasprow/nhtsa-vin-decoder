@@ -1,12 +1,13 @@
 // nitrovin's Service Worker (ADR 0013), imported by /sw.js after the
 // release's config (self.nitrovinConfig) and Go's wasm_exec.js. The
-// vocabulary pages run here as WebAssembly (cmd/nitrovin-sw, the same Go
-// as the server's pages) over the files this browser holds in IndexedDB
-// and the server's, which it links from their release URLs.
+// pages run here as WebAssembly (cmd/nitrovin-sw, the same Go as the
+// server's pages) over the files this browser holds in IndexedDB and the
+// server's, which it links from their release URLs.
 //
-// - It answers a /ui request only when it names a file this browser holds,
-//   and /ui/files; everything else goes to the server unchanged, so one URL
-//   means one thing with JavaScript on or off.
+// - It answers the page (/) once this browser holds a file, an entry list
+//   (/ui/vocabularies/<name>) of a file it holds, and /ui/files;
+//   everything else goes to the server unchanged, so one URL means one
+//   thing with JavaScript on or off.
 // - A file reaches it by postMessage from the page, never by a request: no
 //   file's bytes are ever sent to the server.
 // - It installs beside an older release's worker and waits until that
@@ -15,28 +16,28 @@
 //   cache of its own, so pages it renders keep working while the server
 //   runs a newer release.
 // - It keeps the visitor's selection of targets beside the files, by the
-//   spine they are on, which /vocab's forms tick: each file loaded joins
-//   it, each removed leaves it, a target ticked or cleared on /vocab
-//   changes it, and a translation asked for, a link's own included, sets
-//   it on its spine to its targets (the module's pages do, for the ones
-//   they answer; this script, for the ones it sends to the server).
+//   spine they are on, which the page's forms tick: each file loaded
+//   joins it, each removed leaves it, a target ticked or cleared changes
+//   it, and a translation asked for, a link's own included, sets it on
+//   its spine to its targets (the module's pages do, for the ones they
+//   answer; this script, for the ones it sends to the server).
 'use strict';
 
 const config = self.nitrovinConfig;
 const CACHE = 'nitrovin ' + config.release;
 const DB = 'nitrovin';
 // The assets a page or the module needs, kept per release.
-const ASSETS = ['htmx.min.js', 'ui.css', 'copy.js', 'vocab.js', 'worker.js', 'wasm_exec.js', 'sw.wasm', 'spine.json']
+const ASSETS = ['htmx.min.js', 'ui.css', 'copy.js', 'map.js', 'vocab.js', 'worker.js', 'wasm_exec.js', 'sw.wasm', 'spine.json']
   .map((name) => config.assets + '/' + name);
 
 self.addEventListener('install', (e) => {
-  // Every /ui request goes to the fetch handler, never to the network
+  // Every page's request goes to the fetch handler, never to the network
   // first: a browser that preloads a navigation while its worker starts
   // (Chrome's ServiceWorkerAutoPreload) would otherwise send the server a
   // URL naming a file of this browser's, its entry's fields in the query.
   // A static route to the fetch handler is the opt-out.
   if (e.addRoutes && self.URLPattern) {
-    e.waitUntil(e.addRoutes({ condition: { urlPattern: new URLPattern({ pathname: '/ui/*' }) }, source: 'fetch-event' }));
+    e.waitUntil(e.addRoutes(['/', '/ui/*'].map((pathname) => ({ condition: { urlPattern: new URLPattern({ pathname }) }, source: 'fetch-event' }))));
   }
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS.concat(config.files.map((f) => f.url)))));
 });
@@ -199,18 +200,10 @@ function boot() {
   return booting;
 }
 
-// named is what a /ui request names, as the module's pages read it
-// (pkg/ui, named): the file a list is of, or a translation's from and
-// targets.
-function named(url) {
-  const q = url.searchParams;
-  if (url.pathname.startsWith('/ui/vocabularies/')) return [decodeURIComponent(url.pathname.slice('/ui/vocabularies/'.length))];
-  if (url.pathname !== '/ui/translate') return [];
-  const out = [q.get('from.vocabulary'), q.get('from.spine'), ...q.getAll('to')];
-  const ext = q.get('from.ext');
-  if (ext && ext.startsWith('ext:')) out.push(ext.slice(4).split('/')[0]);
-  return out.filter(Boolean);
-}
+// The page, and the page that translated before it, whose old links move
+// to it.
+const PAGE = '/';
+const MOVED = '/ui/translate';
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
@@ -223,27 +216,39 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(serve(e.request));
     return;
   }
-  const n = named(url);
-  // A translation naming no target goes to the visitor's selection,
-  // which the module reads: answered here when the browser keeps a file.
-  const bare = url.pathname === '/ui/translate' && !url.searchParams.has('to') &&
-    [...url.searchParams.keys()].some((k) => k.startsWith('from.') && k !== 'from.vocabulary');
-  if (n.length === 0 && !bare) return;
-  e.respondWith(storedNames().then((stored) => {
-    if (n.some((name) => stored.has(name)) || (bare && stored.size > 0)) return serve(e.request);
-    e.waitUntil(remember(url, e.request));
-    return fetch(e.request);
-  }));
+  // An old link may name a file of this browser's: it moves here, as the
+  // server moves it, and the server never sees it.
+  if (url.pathname === MOVED) {
+    e.respondWith(Response.redirect(new URL(PAGE + url.search, location.origin).href, 301));
+    return;
+  }
+  // The page is the module's once this browser holds a file: its forms
+  // and answers are over the browser's files too.
+  if (url.pathname === PAGE) {
+    e.respondWith(storedNames().then((stored) => {
+      if (stored.size > 0) return serve(e.request);
+      e.waitUntil(remember(url, e.request));
+      return fetch(e.request);
+    }));
+    return;
+  }
+  // An entry list is the module's when the file is this browser's.
+  const list = '/ui/vocabularies/';
+  if (!url.pathname.startsWith(list)) return;
+  const name = decodeURIComponent(url.pathname.slice(list.length));
+  e.respondWith(storedNames().then((stored) => (stored.has(name) ? serve(e.request) : fetch(e.request))));
 });
 
-// remember makes the targets of a translation sent to the server, a
-// link's own included, the visitor's selection on their spine, as the
-// module's pages do for the ones they answer (ui's remember): vPIC's for
-// a VIN, a vPIC entry or an extension's, else the from's spine. History
-// going back to an older page changes nothing.
+// remember makes the targets of a lookup sent to the server, a link's own
+// included, the visitor's selection on their spine, as the module's pages
+// do for the ones they answer (ui's remember): vPIC's for a VIN, a vPIC
+// entry or an extension's, else the from's spine. A form's targets before
+// anything is asked, and history going back to an older page, change
+// nothing.
 async function remember(url, req) {
   const q = url.searchParams;
-  if (url.pathname !== '/ui/translate' || !q.has('to') || req.headers.get('HX-History-Restore-Request')) return;
+  const asked = [...q].some(([k, v]) => k.startsWith('from.') && k !== 'from.vocabulary' && v.trim() !== '');
+  if (!asked || !q.has('to') || req.headers.get('HX-History-Restore-Request')) return;
   let spine = 'vpic';
   if (q.has('from.spine')) {
     spine = q.get('from.spine');
@@ -278,8 +283,9 @@ async function serve(req) {
 // A load: {op: "load", files: [{name, data: ArrayBuffer}]} on a
 // MessageChannel. The page hears {progress} at each step, then {done, ok,
 // message}; it gives up after a minute without either. A tick: {op:
-// "select", name, spine, checked}, a target the visitor ticked on /vocab
-// or cleared, kept in the selection on its spine or dropped from it.
+// "select", name, spine, checked}, a target the visitor ticked in the
+// page's form or cleared, kept in the selection on its spine or dropped
+// from it.
 self.addEventListener('message', (e) => {
   if (e.data && e.data.op === 'select' && typeof e.data.name === 'string' && typeof e.data.spine === 'string') {
     const { name, spine, checked } = e.data;

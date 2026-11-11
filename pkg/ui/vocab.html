@@ -1,34 +1,7 @@
-{{/* The vocabulary pages (vocab.go): /vocab, /ui/translate,
-/ui/vocabularies[/{name}] and the browser's /ui/files. The same templates
-render on the server and in the browser's Service Worker. */}}
-{{define "vocab" -}}
-<h1>Vocabularies</h1>
-<p>A vocabulary is one system's names for vehicles or parts. Load yours; it stays in this browser.</p>
-<p hx-boost="true" hx-target="#ui-main"><a href="/ui/translate">Translate →</a></p>
-<section id="browser" aria-labelledby="browser-h"{{if .Worker}} data-worker="/sw.js"{{end}}>
-<h2 id="browser-h">Loaded here</h2>
-<p id="browser-status" role="status" aria-live="polite">{{if .Worker -}}
-Loading your own files needs JavaScript. Your files never leave this browser. Translating through vPIC and this server's files works without it.
-{{- else -}}
-This nitrovin was built without its browser translator (scripts/sw.sh builds it; release builds include it), so it cannot load your own files. Translation through vPIC and this server's own files works.
-{{- end}}</p>
-<p id="load-status" role="status" aria-live="polite"></p>
-<div id="browser-files">
-{{template "catalog" .Catalog}}
-</div>
-</section>
-<section id="vocab-translate" aria-labelledby="vocab-translate-h">
-{{template "vocab-translate" .Translate}}
-</section>
-{{- end}}
-
-{{/* vocab-translate is /vocab's translate forms: the server's catalog
-in the page, and with JavaScript the merged catalog, the visitor's
-selection ticked, which the worker's panel (files) swaps in out of band. */}}
-{{define "vocab-translate" -}}
-<h2 id="vocab-translate-h">Translate</h2>
-{{template "translate-forms" .}}
-{{- end}}
+{{/* The vocabularies (vocab.go): the catalog in the page's dialog
+(page.html's vocabularies), the browser's panel that fills it (/ui/files)
+and a file's entries (/ui/vocabularies/{name}). The same templates render
+on the server and in the browser's Service Worker. */}}
 
 {{/* catalog is the catalog, each row marked by where it lives (built in,
 this server, this browser), with its drift or the fault that left it out.
@@ -44,7 +17,7 @@ Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 <dt>Kept in</dt><dd>{{.WhereText}}{{with .File}}: {{.FileName}}, {{.SizeText}}, stored {{.Stored.Format "2006-01-02 15:04"}} UTC{{end}}</dd>
 <dt>Status</dt><dd>{{if .Fault}}left out{{else if eq .Where "vpic"}}the data month{{else if .Drift}}<details><summary>Drift: {{.DriftText}}</summary><ul>{{range .DriftExamples}}<li>{{.}}</li>{{end}}</ul></details>{{else}}linked, no drift{{end}}</dd>
 </dl></details></td>
-<td><div class="actions">{{if not .Fault}}{{if eq .Where "vpic"}}<a href="/ui/translate">Translate<span class="visually-hidden"> a VIN</span></a>{{else if eq .Kind "vocabulary"}}<a href="/ui/translate?from.vocabulary={{.Name}}">Translate<span class="visually-hidden"> from {{.Name}}</span></a>{{end}}{{end}}
+<td><div class="actions">{{if and (not .Fault) (eq .Kind "vocabulary")}}<a href="/?from.vocabulary={{.Name}}">Translate<span class="visually-hidden"> from {{.Name}}</span></a>{{end}}
 {{- if and $.Manage .File}}
 <form method="post" action="/ui/files/remove" hx-post="/ui/files/remove" hx-target="#browser-files" class="inline">
 <input type="hidden" name="name" value="{{.Name}}"><button type="submit">Remove<span class="visually-hidden"> {{.Name}}</span></button>
@@ -55,7 +28,7 @@ Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 
 {{define "entries" -}}
 <h1>{{.Name}}</h1>
-<p hx-boost="true" hx-target="#ui-main"><a href="/vocab">Every vocabulary</a></p>
+<p><a href="/">Decode and translate</a></p>
 {{with .Filter}}<form method="get" action="/ui/vocabularies/{{$.Name}}" class="filter" role="search">
 <label for="entry-filter">Show only this {{.Field}}</label>
 <input type="search" id="entry-filter" name="where.{{.Field}}" value="{{.Value}}" autocomplete="off">
@@ -71,125 +44,11 @@ Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 {{with .Next}}<p hx-boost="true" hx-target="#ui-main"><a href="{{.}}">Next page</a></p>{{end}}
 {{- end}}
 
-{{define "translate" -}}
-<h1>Translate</h1>
-<p><a href="/vocab">Vocabularies</a>: what is loaded, and your own files to load.</p>
-{{with .Result}}{{template "translation" .}}{{end}}
-{{template "translate-forms" .}}
-{{- end}}
-
-{{/* translate-forms is the examples, each a link to the translate page
-with its form filled in, and the forms: the two directions side by side,
-from a VIN and from a vehicle vocabulary's year, make and model; the vPIC
-id form under Advanced; then one per part spine (EntryForms), each with
-that spine's targets before a vocabulary is chosen. */}}
-{{define "translate-forms" -}}
-<p>Try one:</p>
-<ul class="examples" hx-boost="true" hx-target="#ui-main">
-{{range .Examples}}<li><a class="example" href="{{.Href}}" data-spine="{{.Spine}}" data-to="{{.DefaultTo}}">{{.Label}}</a> <span class="hint">{{.Hint}}</span></li>
-{{end}}</ul>
-
-<div class="directions">
-<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-swap="innerHTML show:window:top" hx-push-url="true" aria-labelledby="from-vin-h">
-<h2 id="from-vin-h">From a VIN</h2>
-<div>
-<label for="from-vin">VIN</label>
-<input type="text" id="from-vin" name="from.vin" value="{{.FromVIN}}" autocomplete="off" spellcheck="false">
-</div>
-<div>
-<label for="vin-model-year">Model year <span class="hint">(optional hint)</span></label>
-<input type="text" id="vin-model-year" name="model_year" value="{{.YearIn "vin"}}" inputmode="numeric" autocomplete="off">
-</div>
-{{template "targets" (.TargetsOn "vpic")}}
-<button type="submit">Translate the VIN</button>
-</form>
-{{range .EntryForms}}{{if eq .Spine "vpic"}}{{template "entry-form" .}}{{end}}{{end}}
-</div>
-
-<details class="advanced"{{if or .FromMake .FromModel}} open{{end}}>
-<summary>Advanced: from a vPIC make or model id</summary>
-<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-swap="innerHTML show:window:top" hx-push-url="true" aria-labelledby="from-vpic-h">
-<h2 id="from-vpic-h">From a vPIC make or model</h2>
-<p class="hint">One of the two: an id from <a href="/ui/vocabularies/vpic">vPIC's makes and their models</a>.</p>
-<div>
-<label for="from-make">vPIC make id</label>
-<input type="text" id="from-make" name="from.make" value="{{.FromMake}}" inputmode="numeric" autocomplete="off">
-</div>
-<div>
-<label for="from-model">vPIC model id</label>
-<input type="text" id="from-model" name="from.model" value="{{.FromModel}}" inputmode="numeric" autocomplete="off">
-</div>
-<div>
-<label for="vpic-model-year">Model year <span class="hint">(optional)</span></label>
-<input type="text" id="vpic-model-year" name="model_year" value="{{.YearIn "vpic"}}" inputmode="numeric" autocomplete="off">
-</div>
-{{template "targets" (.TargetsOn "vpic")}}
-<button type="submit">Translate the vPIC entry</button>
-</form>
-</details>
-
-{{range .EntryForms}}{{if ne .Spine "vpic"}}{{template "entry-form" .}}{{end}}{{end}}
-{{- end}}
-
-{{define "entry-form" -}}
-{{$f := .}}<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-swap="innerHTML show:window:top" hx-push-url="true" aria-labelledby="from-{{.Key}}-h">
-<h2 id="from-{{.Key}}-h">{{if eq .Spine "vpic"}}From a year, make and model{{else}}From a part vocabulary's entry, on the {{.Spine}} spine{{end}}</h2>
-<div>
-<label for="from-{{.Key}}-vocabulary">Vocabulary</label>
-<select id="from-{{.Key}}-vocabulary" name="from.vocabulary">
-{{range .Vocabularies}}<option value="{{.Name}}"{{if and $f.From (eq .Name $f.From.Name)}} selected{{end}}>{{.Name}}</option>
-{{end}}</select>
-</div>
-{{if .From -}}
-{{range .Fields}}<div>
-<label for="entry-{{.Name}}">{{.Name}}</label>
-<input type="text" id="entry-{{.Name}}" name="from.entry.{{.Name}}" value="{{.Value}}" autocomplete="off">
-</div>
-{{end}}{{end}}{{if eq .Spine "vpic"}}<div>
-<label for="entry-model-year">Model year <span class="hint">(optional)</span></label>
-<input type="text" id="entry-model-year" name="model_year" value="{{.Year}}" inputmode="numeric" autocomplete="off">
-</div>
-{{if .From}}<div>
-<label for="context-vin">VIN <span class="hint">(optional: its decode checks qualifiers)</span></label>
-<input type="text" id="context-vin" name="vin" value="{{.VIN}}" autocomplete="off" spellcheck="false">
-</div>
-{{end}}{{end}}{{template "targets" .Targets}}
-<button type="submit">{{if .From}}Translate the entry{{else}}Choose{{end}}</button>
-</form>
-{{- end}}
-
-{{/* targets is a form's targets, the vocabularies on one spine, which
-vocab.js keeps as the visitor's selection on /vocab. */}}
-{{define "targets" -}}
-{{if .List}}<fieldset data-spine="{{.Spine}}">
-<legend>To</legend>
-{{range .List}}<label><input type="checkbox" name="to" value="{{.Name}}"{{if .Checked}} checked{{end}}> {{.Name}}</label>
-{{end}}</fieldset>{{end}}
-{{- end}}
-
-{{define "translation" -}}
-<section id="translation" aria-labelledby="translation-h">
-<h2 id="translation-h">{{.Heading}}</h2>
-<p>From {{.From}}{{with .Status}}: <strong>{{.}}</strong>{{end}}{{with .Note}} ({{.}}){{end}}</p>
-{{range .To}}<h3>{{.Vocabulary}}</h3>
-{{if .Entries}}<ul class="entries">{{range .Entries}}<li><a href="{{.Href}}" hx-boost="true" hx-target="#ui-main" hx-swap="innerHTML show:window:top"><strong>{{.Name}}</strong></a>{{with .Details}}
-<details><summary>Details</summary><ul>{{range .}}<li>{{.}}</li>{{end}}</ul></details>{{end}}</li>
-{{end}}</ul>{{else}}<p>No name for this vehicle yet.</p>{{end}}
-{{else}}<p>No vocabulary to translate to: tick one in a form below.</p>
-{{end}}<details><summary>Details</summary>
-{{with .Vehicle}}<p>{{.}}</p>{{end}}
-<h3>Spine</h3>
-{{if .Spine}}<ul>{{range .Spine}}<li>{{.}}</li>{{end}}</ul>{{else}}<p>Nothing on the spine.</p>{{end}}
-<p class="hint">Files: {{range $i, $f := .Files}}{{if $i}}, {{end}}{{$f}}{{else}}none{{end}} · data {{.DataMonth}} · decoder {{.DecoderVersion}}</p>
-</details>
-</section>
-{{- end}}
-
-{{/* files is the worker's /vocab panel: a refused remove, the loader and
-EPA's vocabulary to load, then the merged catalog with Remove on the
-browser's files; and /vocab's translate forms over the merged catalog,
-out of band. vocab.js fills storage-usage, and says how a load went in
-#load-status, just above the panel, which a swap never replaces. */}}
+{{/* files is the worker's panel, which fills the dialog: a refused
+remove, the loader and EPA's vocabulary to load, then the merged catalog
+with Remove on the browser's files. vocab.js fills storage-usage, and says
+how a load went in #load-status, just above the panel, which a swap never
+replaces. */}}
 {{define "files" -}}
 {{with .Refusal}}<div class="refusal" role="alert">
 <p>{{.Error}} Remove them too?</p>
@@ -215,7 +74,4 @@ out of band. vocab.js fills storage-usage, and says how a load went in
 <p id="storage-usage" class="hint"></p>
 <p class="hint">Translated in this browser by release <code>{{.Release}}</code>, data month {{.DataMonth}}.</p>
 </details>
-<section id="vocab-translate" aria-labelledby="vocab-translate-h" hx-swap-oob="true">
-{{template "vocab-translate" .Translate}}
-</section>
 {{- end}}

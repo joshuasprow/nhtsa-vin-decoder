@@ -47,8 +47,8 @@ type wireLog struct {
 	// swTail, when not "", is added to /sw.js: another worker, as a new
 	// release or a restart with other files makes.
 	swTail string
-	// cutDecodes drops the connection of every /v1/decode request, as an
-	// unreachable server does.
+	// cutDecodes drops the connection of every request for a decode, the
+	// API's and the page's (/ui/decoded), as an unreachable server does.
 	cutDecodes bool
 }
 
@@ -64,7 +64,7 @@ func (l *wireLog) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	l.seen = append(l.seen, wireRequest{r.Method, r.URL.RequestURI(), len(body)})
 	tail, cut := l.swTail, l.cutDecodes
 	l.mu.Unlock()
-	if cut && strings.HasPrefix(r.URL.Path, "/v1/decode/") {
+	if cut && (strings.HasPrefix(r.URL.Path, "/v1/decode/") || r.URL.Path == "/ui/decoded") {
 		if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
 			_ = conn.Close()
 		}
@@ -152,10 +152,11 @@ func vocabServer(t *testing.T, w *ui.Worker, paths ...string) http.Handler {
 	return a
 }
 
-// main is the outer HTML of a page's main, from a server.
-func mainOf(t *testing.T, h http.Handler, target string, htmx bool) string {
+// mainOf is the outer HTML of a page's main, from a server asked as the
+// browser at base asks: the page's own URL is in it.
+func mainOf(t *testing.T, h http.Handler, base, target string, htmx bool) string {
 	t.Helper()
-	r := httptest.NewRequest("GET", target, nil)
+	r := httptest.NewRequest("GET", base+target, nil)
 	if htmx {
 		r.Header.Set("HX-Request", "true")
 	}
@@ -168,12 +169,46 @@ func mainOf(t *testing.T, h http.Handler, target string, htmx bool) string {
 	if htmx {
 		return body
 	}
-	start, end := strings.Index(body, `<main id="ui-main">`), strings.Index(body, "</main>")
+	start, end := strings.Index(body, `<main id="ui-main" hx-history-elt>`), strings.Index(body, "</main>")
 	if start < 0 || end < 0 {
 		t.Fatalf("%s: no main in %s", target, body)
 	}
 	return body[start : end+len("</main>")]
 }
+
+// mainHTML is the outer HTML of the page's main as the server drew it:
+// without the copy buttons copy.js adds.
+func mainHTML(tb *tab) string {
+	tb.t.Helper()
+	return eval[string](tb, `(() => {
+		const main = document.getElementById("ui-main").cloneNode(true);
+		main.querySelectorAll("button.copy").forEach(b => b.remove());
+		return main.outerHTML;
+	})()`)
+}
+
+// vocabularies opens the page's Vocabularies dialog, where the browser's
+// files are loaded and removed, and waits for the worker's panel in it:
+// the dialog's first opening starts the worker.
+func (tb *tab) vocabularies() {
+	tb.t.Helper()
+	if tb.count("#vocabularies:popover-open") == 0 {
+		tb.do(chromedp.Click(chromedp.CSS("button.fab")))
+		tb.wait("#vocabularies:popover-open")
+	}
+	tb.waitState("ready")
+}
+
+// closeVocabularies closes the dialog, by its own button.
+func (tb *tab) closeVocabularies() {
+	tb.t.Helper()
+	tb.do(chromedp.Click(chromedp.CSS("#vocabularies .dialog-head button")))
+	tb.wait("#vocabularies:not(:popover-open)")
+}
+
+// pinned ends a page's query with a clock: its answer's JSON says when it
+// was asked, so two answers to compare are asked at one time.
+const pinned = "&now=2026-11-01T00:00:00Z"
 
 // TestWorker runs the worker in a fresh profile against a server that has
 // loaded classics alone: the browser loads yard (which maps into the
@@ -197,7 +232,7 @@ func TestWorker(t *testing.T) {
 	module := buildWorker(t)
 	big := filepath.Join(t.TempDir(), "synthetic.jsonl")
 	const entries = 150_000
-	probe := "/ui/translate?" + writeSynthetic(t, big, entries).Encode()
+	probe := "/?" + writeSynthetic(t, big, entries).Encode() + pinned
 
 	wire := &wireLog{h: vocabServer(t, &module, filepath.Join(fixture, "classics.jsonl"))}
 	srv := httptest.NewServer(wire)
@@ -207,8 +242,14 @@ func TestWorker(t *testing.T) {
 	same := vocabServer(t, nil, fixture)
 
 	tb := newTab(t, path, srv.URL, &requestLog{}, true)
-	tb.do(chromedp.Navigate(srv.URL + "/vocab"))
-	tb.waitState("ready")
+	// The page starts no worker until its Vocabularies dialog opens.
+	tb.do(chromedp.Navigate(srv.URL + "/"))
+	tb.wait("#browser")
+	if state := eval[string](tb, `new Promise(resolve => setTimeout(() => resolve(document.getElementById("browser").dataset.state || ""), 500))`); state != "" ||
+		!eval[bool](tb, `navigator.serviceWorker.getRegistration("/").then(r => r === undefined)`) {
+		t.Errorf("the page alone: worker state %q, or a worker registered; want none before the dialog opens", state)
+	}
+	tb.vocabularies()
 	if eval[bool](tb, `navigator.serviceWorker.controller === null`) {
 		t.Fatal("ready, yet no worker controls the page")
 	}
@@ -242,8 +283,8 @@ func TestWorker(t *testing.T) {
 		tb.do(chromedp.Navigate(srv.URL + target))
 		tb.wait("#ui-main")
 		// The server's main as this browser parses it, as the worker's is.
-		want := eval[string](tb, `new DOMParser().parseFromString(`+jsString(mainOf(t, same, target, false))+`, "text/html").getElementById("ui-main").outerHTML`)
-		if got := tb.html("#ui-main"); got != want {
+		want := eval[string](tb, `new DOMParser().parseFromString(`+jsString(mainOf(t, same, srv.URL, target, false))+`, "text/html").getElementById("ui-main").outerHTML`)
+		if got := mainHTML(tb); got != want {
 			t.Errorf("%s %s: the worker's page differs from the server's\nworker: %s\nserver: %s", step, target, got, want)
 		}
 		// As the fragment htmx asks for.
@@ -251,22 +292,28 @@ func TestWorker(t *testing.T) {
 		if got[0] != "200" || got[1] != ui.CSP || got[2] != "HX-Request" {
 			t.Errorf("%s %s fragment: status %s, CSP %q, Vary %q", step, target, got[0], got[1], got[2])
 		}
-		if want := mainOf(t, same, target, true); got[3] != want {
+		if want := mainOf(t, same, srv.URL, target, true); got[3] != want {
 			t.Errorf("%s %s: the worker's fragment differs from the server's\nworker: %s\nserver: %s", step, target, got[3], want)
 		}
 	}
+	// Each of the page's tabs, its targets named (unnamed, the browser
+	// ticks the visitor's selection, which the server has none of), and
+	// each lookup: a VIN's with its decode, which is the server's.
+	for _, target := range []string{"/?to=yard", "/?tab=entry&to=yard", "/?tab=entry-parts&to=listing", "/?tab=id&to=yard"} {
+		same1("the page", target)
+	}
 	for _, q := range queries {
-		same1("translate", "/ui/translate?"+q)
+		same1("lookup", "/?"+q+pinned)
 	}
 	same1("list", "/ui/vocabularies/yard")
 	same1("list", "/ui/vocabularies/listing?limit=1")
 
 	// A stopped worker starts again on the next request and answers the same.
 	tb.stopWorkers()
-	same1("after a stop", "/ui/translate?"+queries[3])
+	same1("after a stop", "/?"+queries[3]+pinned)
 
 	// A hard reload bypasses the worker: the page says the files are paused.
-	tb.do(chromedp.Navigate(srv.URL + "/vocab"))
+	tb.do(chromedp.Navigate(srv.URL + "/"))
 	tb.waitState("ready")
 	tb.call(func(ctx context.Context) error {
 		_, err := chromedp.Call(ctx, page.Reload, page.ReloadParams{IgnoreCache: new(true)})
@@ -279,8 +326,8 @@ func TestWorker(t *testing.T) {
 	if n := tb.count("#vocab-files"); n != 0 {
 		t.Errorf("hard reload: a file input with no worker to take the files")
 	}
-	tb.do(chromedp.Navigate(srv.URL + "/vocab"))
-	tb.waitState("ready")
+	tb.do(chromedp.Navigate(srv.URL + "/"))
+	tb.vocabularies()
 
 	// A load the worker never finishes (stopped mid-load) gives up after
 	// the stall time, here 3 s, and stores nothing.
@@ -324,7 +371,7 @@ func TestWorker(t *testing.T) {
 	// A new worker (here, /sw.js with other bytes) installs beside the one
 	// in control and waits for this page to close; the page says so, and
 	// the old one keeps answering.
-	tb.do(chromedp.Navigate(srv.URL + "/vocab"))
+	tb.do(chromedp.Navigate(srv.URL + "/"))
 	tb.waitState("ready")
 	wire.mu.Lock()
 	wire.swTail = "// another release\n"
@@ -345,18 +392,23 @@ func TestWorker(t *testing.T) {
 	if eval[bool](tb, `navigator.serviceWorker.getRegistration().then(r => r.waiting === null || r.active === null)`) {
 		t.Error("an update: no worker waiting beside the active one")
 	}
-	same1("with an update waiting", "/ui/translate?"+queries[0])
+	same1("with an update waiting", "/?"+queries[0]+pinned)
 
 	// The files never reached the server: every request it got was a GET
-	// or HEAD with no body, and none named a file the browser holds.
+	// or HEAD with no body, and none but for a release's asset named a
+	// file the browser holds.
 	var lines []string
 	for _, r := range wire.all() {
 		lines = append(lines, fmt.Sprintf("%s %s (%d bytes)", r.method, r.target, r.body))
 		if (r.method != http.MethodGet && r.method != http.MethodHead) || r.body != 0 {
 			t.Errorf("the server got %s %s with %d bytes of body", r.method, r.target, r.body)
 		}
-		if u, err := url.Parse(r.target); err == nil && (strings.HasPrefix(u.Path, "/ui/translate") || strings.HasPrefix(u.Path, "/ui/vocabularies/")) {
-			t.Errorf("the server got %s, which names a file the browser holds", r.target)
+		if u, err := url.Parse(r.target); err == nil && !strings.HasPrefix(u.Path, "/ui/r/") {
+			for _, name := range []string{"listing", "parts", "yard", "synthetic"} {
+				if strings.Contains(r.target, name) {
+					t.Errorf("the server got %s, which names %s, a file the browser holds", r.target, name)
+				}
+			}
 		}
 	}
 	t.Logf("every request the server got:\n%s", strings.Join(lines, "\n"))

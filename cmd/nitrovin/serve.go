@@ -46,7 +46,7 @@ func init() {
 	register(command{
 		name:     "serve",
 		synopsis: "[--addr ADDR] [--cors ORIGIN]",
-		summary:  "Serve the HTTP API (docs/api/openapi.yaml), MCP over Streamable HTTP at /mcp and pages for browsers at / and /ui/ (a decode form at /ui/decode) on --addr, then :$PORT, then 127.0.0.1:8080, once the data has loaded.",
+		summary:  "Serve the HTTP API (docs/api/openapi.yaml), MCP over Streamable HTTP at /mcp and a page for browsers at / on --addr, then :$PORT, then 127.0.0.1:8080, once the data has loaded.",
 		setup: func(fs *flag.FlagSet) func(*env, []string) error {
 			addr := fs.String("addr", "", "listen on `address` (default :$PORT when PORT is set, else 127.0.0.1:8080)")
 			cors := fs.String("cors", "", "let browsers on `origin` (scheme://host[:port], or * for any) call /v1 and /mcp (default none)")
@@ -217,8 +217,8 @@ type decodeService interface {
 }
 
 // api serves the routes of docs/api/openapi.yaml, /mcp among them, and the
-// pages for browsers (pkg/ui): the entry page at /, /vocab, the Service
-// Worker at /sw.js and everything under /ui. Every refusal but the pages'
+// pages for browsers (pkg/ui): the page at /, the Service Worker at
+// /sw.js, everything under /ui, and /vocab, which moved to the page. Every refusal but the pages'
 // and the MCP transport's is an RFC 9457 problem. CORS headers are set
 // only with a cors origin, and only under /v1/ and on /mcp.
 type api struct {

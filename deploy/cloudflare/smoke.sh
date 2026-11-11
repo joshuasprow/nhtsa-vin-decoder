@@ -17,8 +17,8 @@
 # module under /ui/r/ is held to them too, except that its first GET may
 # be a HIT whenever the second must be: its URL is the release's, not
 # new. TOOLS is the release's docs/api/mcp-tools.json (default this
-# tree's), whose tools /mcp must list. The pages are never cached: /vocab
-# without JavaScript, a /ui/decode fragment for htmx, and /sw.js, which
+# tree's), whose tools /mcp must list. The pages are never cached: the
+# page without JavaScript, its fragment for htmx, and /sw.js, which
 # keeps its own no-cache. Over https it also checks HSTS, always-HTTPS,
 # the www redirect and the TLS floor.
 set -euo pipefail
@@ -116,36 +116,42 @@ pass "POST /mcp tools/list: mcp-tools.json's tools"
 [[ $(header info access-control-allow-origin) == '*' ]] || fail "GET /v1/info: no Access-Control-Allow-Origin: *"
 status=$(req preflight -X OPTIONS -H 'Origin: https://example.com' -H 'Access-Control-Request-Method: POST' "$base/mcp")
 [[ $status == 204 && $(header preflight access-control-allow-methods) == POST ]] || fail "OPTIONS /mcp: $status"
-status=$(req form "$base/ui/decode?vin=$vin")
-[[ $status == 200 && $(header form content-type) == "text/html; charset=utf-8" ]] || fail "GET /ui/decode?vin=$vin: $status"
-grep -qi '^access-control-' "$tmp/form.h" && fail "GET /ui/decode?vin=$vin: CORS headers on the form"
-pass "CORS: * on /v1 and /mcp, preflight 204; the form has none"
+status=$(req form "$base/?from.vin=$vin")
+[[ $status == 200 && $(header form content-type) == "text/html; charset=utf-8" ]] || fail "GET /?from.vin=$vin: $status"
+grep -qi '^access-control-' "$tmp/form.h" && fail "GET /?from.vin=$vin: CORS headers on the page"
+pass "CORS: * on /v1 and /mcp, preflight 204; the page has none"
 
-# An old link to the form redirects to it.
+# Old links, to the decode form and to the pages before the one page,
+# move to it.
 status=$(req old "$base/?vin=$vin")
-[[ $status == 301 && $(header old location) == "/ui/decode?vin=$vin" ]] || fail "GET /?vin=$vin: $status $(header old location)"
-pass "GET /?vin=$vin: 301 to /ui/decode?vin=$vin"
+[[ $status == 301 && $(header old location) == "/?from.vin=$vin" ]] || fail "GET /?vin=$vin: $status $(header old location)"
+status=$(req old "$base/ui/decode?vin=$vin")
+[[ $status == 301 && $(header old location) == "/?from.vin=$vin" ]] || fail "GET /ui/decode?vin=$vin: $status $(header old location)"
+status=$(req old "$base/vocab")
+[[ $status == 301 && $(header old location) == "/" ]] || fail "GET /vocab: $status $(header old location)"
+pass "GET /?vin=$vin and /ui/decode?vin=$vin: 301 to /?from.vin=$vin; /vocab: 301 to /"
 
-# The pages, never cached. /vocab without JavaScript: a whole page that
-# says the visitor's own files need it and lists the server's catalog.
-status=$(req vocab "$base/vocab")
-[[ $status == 200 && $(header vocab content-type) == "text/html; charset=utf-8" ]] || fail "GET /vocab: $status $(header vocab content-type)"
-[[ $(header vocab cache-control) == no-store ]] || fail "GET /vocab: cache-control $(header vocab cache-control); want no-store"
-grep -q '^<!doctype html>' "$tmp/vocab.b" || fail "GET /vocab: not a whole page"
-grep -qF 'Loading your own files needs JavaScript' "$tmp/vocab.b" ||
-	fail "GET /vocab: does not say that your own files need JavaScript (a build without scripts/sw.sh's module?)"
-grep -qF 'data-where="vpic"' "$tmp/vocab.b" || fail "GET /vocab: no catalog"
-pass "GET /vocab: 200, a whole page, no-store; says your own files need JavaScript, lists the catalog"
+# The page, never cached. Without JavaScript: a whole page, whose
+# Vocabularies dialog says the visitor's own files need it and lists the
+# server's catalog.
+status=$(req page "$base/")
+[[ $status == 200 && $(header page content-type) == "text/html; charset=utf-8" ]] || fail "GET /: $status $(header page content-type)"
+[[ $(header page cache-control) == no-store ]] || fail "GET /: cache-control $(header page cache-control); want no-store"
+grep -q '^<!doctype html>' "$tmp/page.b" || fail "GET /: not a whole page"
+grep -qF 'Loading your own files needs JavaScript' "$tmp/page.b" ||
+	fail "GET /: does not say that your own files need JavaScript (a build without scripts/sw.sh's module?)"
+grep -qF 'data-where="vpic"' "$tmp/page.b" || fail "GET /: no catalog"
+pass "GET /: 200, a whole page, no-store; says your own files need JavaScript, lists the catalog"
 
-# The decode form as htmx asks it: the result, a fragment, no page around it.
-status=$(req frag -H 'HX-Request: true' "$base/ui/decode?vin=$vin")
-[[ $status == 200 && $(header frag content-type) == "text/html; charset=utf-8" ]] || fail "GET /ui/decode?vin=$vin (htmx): $status"
+# A VIN as htmx asks it: the answer, a fragment, no page around it.
+status=$(req frag -H 'HX-Request: true' "$base/?from.vin=$vin")
+[[ $status == 200 && $(header frag content-type) == "text/html; charset=utf-8" ]] || fail "GET /?from.vin=$vin (htmx): $status"
 [[ $(header frag vary) == HX-Request && $(header frag cache-control) == no-store ]] ||
-	fail "GET /ui/decode?vin=$vin (htmx): vary $(header frag vary), cache-control $(header frag cache-control)"
-grep -qi '<!doctype\|<html' "$tmp/frag.b" && fail "GET /ui/decode?vin=$vin (htmx): a whole page, not a fragment"
-grep -qF '<h2>Result</h2>' "$tmp/frag.b" && grep -qF "value=\"$vin\"" "$tmp/frag.b" ||
-	fail "GET /ui/decode?vin=$vin (htmx): no result for $vin"
-pass "GET /ui/decode?vin=$vin (htmx): 200, the result as a fragment, no-store"
+	fail "GET /?from.vin=$vin (htmx): vary $(header frag vary), cache-control $(header frag cache-control)"
+grep -qi '<!doctype\|<html' "$tmp/frag.b" && fail "GET /?from.vin=$vin (htmx): a whole page, not a fragment"
+grep -qF '<section id="result"' "$tmp/frag.b" && grep -qF "value=\"$vin\"" "$tmp/frag.b" ||
+	fail "GET /?from.vin=$vin (htmx): no answer for $vin"
+pass "GET /?from.vin=$vin (htmx): 200, the answer as a fragment, no-store"
 
 # The Service Worker: no-cache, never from the cache, the release's own,
 # alone allowed WebAssembly.
