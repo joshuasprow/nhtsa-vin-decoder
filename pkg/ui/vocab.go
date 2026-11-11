@@ -383,7 +383,7 @@ type example struct {
 // The examples that need no file: a 2015 Ram, a VIN, and the vPIC model
 // it decodes to, in its year.
 const (
-	exampleRam   = "1C6RR7LT5FS123456"
+	exampleRam   = "1C6RR7LT9FS123456" // check digit valid; the README's ...5FS... is not
 	exampleVIN   = "1HGCM82633A004352"
 	exampleModel = "1861" // vPIC's Honda Accord, under make 474
 	exampleYear  = "2003"
