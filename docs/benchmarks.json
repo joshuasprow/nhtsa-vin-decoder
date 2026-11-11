@@ -26,8 +26,151 @@
       "sha256": "ebfa616ec7ab5cb37d6ec391d9f21224e57e12fbd3fdfe09937965fb98017a77"
     }
   },
-  "agree": [],
-  "process": null,
+  "agree": [
+    {
+      "engine": "nitrovin",
+      "oracle": "stock",
+      "agree": 1998,
+      "errors": 0,
+      "first_differ": [
+        "1ACCW0597DB684525",
+        "1A9D01306N6925202"
+      ],
+      "key": "/tmp/bench162/work/postgres-stock.csv",
+      "share": 0.999,
+      "values": "/tmp/bench162/work/nitrovin-values.jsonl",
+      "vins": 2000
+    },
+    {
+      "engine": "nitrovin",
+      "oracle": "freshened",
+      "agree": 2000,
+      "errors": 0,
+      "first_differ": null,
+      "key": "/tmp/bench162/work/postgres-freshened.csv",
+      "share": 1,
+      "values": "/tmp/bench162/work/nitrovin-values.jsonl",
+      "vins": 2000
+    },
+    {
+      "engine": "ultravin",
+      "oracle": "stock",
+      "agree": 1998,
+      "errors": 0,
+      "first_differ": [
+        "1ACCW0597DB684525",
+        "1A9D01306N6925202"
+      ],
+      "key": "/tmp/bench162/work/postgres-stock.csv",
+      "share": 0.999,
+      "values": "/tmp/bench162/work/ultravin-values.jsonl",
+      "vins": 2000
+    },
+    {
+      "engine": "ultravin",
+      "oracle": "freshened",
+      "agree": 2000,
+      "errors": 0,
+      "first_differ": null,
+      "key": "/tmp/bench162/work/postgres-freshened.csv",
+      "share": 1,
+      "values": "/tmp/bench162/work/ultravin-values.jsonl",
+      "vins": 2000
+    }
+  ],
+  "process": {
+    "version": "nitrovin v0.1.8 (data 2026_10)",
+    "runs": [
+      {
+        "max_rss_bytes": 31784960,
+        "run": 1,
+        "stdout_lines": 1,
+        "system_cpu_seconds": 0.009924,
+        "user_cpu_seconds": 0.019558,
+        "wall_seconds": 0.030053083
+      },
+      {
+        "max_rss_bytes": 31866880,
+        "run": 2,
+        "stdout_lines": 1,
+        "system_cpu_seconds": 0.004669,
+        "user_cpu_seconds": 0.012509,
+        "wall_seconds": 0.01548375
+      },
+      {
+        "max_rss_bytes": 31768576,
+        "run": 3,
+        "stdout_lines": 1,
+        "system_cpu_seconds": 0.003923,
+        "user_cpu_seconds": 0.01072,
+        "wall_seconds": 0.012901875
+      },
+      {
+        "max_rss_bytes": 31916032,
+        "run": 4,
+        "stdout_lines": 1,
+        "system_cpu_seconds": 0.003799,
+        "user_cpu_seconds": 0.009553,
+        "wall_seconds": 0.011647708
+      },
+      {
+        "max_rss_bytes": 31866880,
+        "run": 5,
+        "stdout_lines": 1,
+        "system_cpu_seconds": 0.00329,
+        "user_cpu_seconds": 0.008012,
+        "wall_seconds": 0.010895875
+      },
+      {
+        "max_rss_bytes": 31719424,
+        "run": 6,
+        "stdout_lines": 1,
+        "system_cpu_seconds": 0.002876,
+        "user_cpu_seconds": 0.0078,
+        "wall_seconds": 0.00939675
+      },
+      {
+        "max_rss_bytes": 32243712,
+        "run": 7,
+        "stdout_lines": 1,
+        "system_cpu_seconds": 0.003067,
+        "user_cpu_seconds": 0.007557,
+        "wall_seconds": 0.009814958
+      },
+      {
+        "max_rss_bytes": 31784960,
+        "run": 8,
+        "stdout_lines": 1,
+        "system_cpu_seconds": 0.003045,
+        "user_cpu_seconds": 0.007858,
+        "wall_seconds": 0.009436667
+      },
+      {
+        "max_rss_bytes": 31653888,
+        "run": 9,
+        "stdout_lines": 1,
+        "system_cpu_seconds": 0.002927,
+        "user_cpu_seconds": 0.006821,
+        "wall_seconds": 0.009829625
+      },
+      {
+        "max_rss_bytes": 31850496,
+        "run": 10,
+        "stdout_lines": 1,
+        "system_cpu_seconds": 0.00298,
+        "user_cpu_seconds": 0.007203,
+        "wall_seconds": 0.009374209
+      },
+      {
+        "max_rss_bytes": 31997952,
+        "run": 11,
+        "stdout_lines": 1,
+        "system_cpu_seconds": 0.002925,
+        "user_cpu_seconds": 0.007248,
+        "wall_seconds": 0.009746041
+      }
+    ]
+  },
   "rows": [
     {
       "row": "corgi-v2",
@@ -92,6 +235,74 @@
               "38.6 com.docker.backe",
               "36.1 Safari",
               "19.9 com.apple.WebKit"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "row": "corgi-v3",
+      "workers": 1,
+      "input": "random",
+      "median_vins_per_second": 149564.8384598158,
+      "trials": [
+        {
+          "trial": 1,
+          "at": "2026-11-10T22:51:33Z",
+          "vins_per_second": 146791.86462469844,
+          "load": 2.15,
+          "result": {
+            "engine": "corgi v3",
+            "version": "3.0.1-beta.0 (index 3.0.0-alpha.1)",
+            "node": "v22.23.4",
+            "vins": 20000000,
+            "warm_vins": 20,
+            "passes": 1,
+            "rows": 20000000,
+            "seconds": 136.247332583,
+            "vins_per_second": 146791.86462469844,
+            "load_seconds": 0.0429161660000002,
+            "valid": 3900796
+          },
+          "host": {
+            "load": 2.15,
+            "waited": 0,
+            "busy": [
+              "27.8 WindowServer",
+              "15.5 tern",
+              "14.7 syspolicyd",
+              "12.1 18.18.7",
+              "3.4 com.apple.Virtua"
+            ]
+          }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-11T00:14:43Z",
+          "vins_per_second": 152337.81229493316,
+          "load": 1.87,
+          "result": {
+            "engine": "corgi v3",
+            "version": "3.0.1-beta.0 (index 3.0.0-alpha.1)",
+            "node": "v22.23.4",
+            "vins": 20000000,
+            "warm_vins": 20,
+            "passes": 1,
+            "rows": 20000000,
+            "seconds": 131.28716829200002,
+            "vins_per_second": 152337.81229493316,
+            "load_seconds": 0.038270790999999915,
+            "valid": 3900796
+          },
+          "host": {
+            "load": 1.87,
+            "waited": 0,
+            "busy": [
+              "3.2 com.apple.WebKit",
+              "1.9 com.apple.Virtua",
+              "1.8 bash",
+              "1.4 useractivityd",
+              "1.2 Safari"
             ]
           }
         }
@@ -225,7 +436,7 @@
       "row": "nitrovin-cli",
       "workers": 1,
       "input": "random",
-      "median_vins_per_second": 14490.475507083562,
+      "median_vins_per_second": 14523.639045151049,
       "trials": [
         {
           "trial": 1,
@@ -255,6 +466,35 @@
               "14.2 coreaudiod"
             ]
           }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-10T23:15:09Z",
+          "vins_per_second": 14556.802583218536,
+          "load": 2.09,
+          "result": {
+            "max_rss_bytes": 360808448,
+            "run": 1,
+            "stdout_lines": 19999986,
+            "system_cpu_seconds": 25.033108,
+            "user_cpu_seconds": 1347.457809,
+            "wall_seconds": 1373.927130334,
+            "vins": 19999986,
+            "refused": 14,
+            "vins_per_second": 14556.802583218536,
+            "version": "nitrovin v0.1.8 (data 2026_10)"
+          },
+          "host": {
+            "load": 2.09,
+            "waited": 0,
+            "busy": [
+              "25.9 WindowServer",
+              "12.8 tern",
+              "1.6 com.apple.Virtua",
+              "1.0 Discord Helper (",
+              "0.8 18.18.7"
+            ]
+          }
         }
       ]
     },
@@ -262,7 +502,7 @@
       "row": "nitrovin-go",
       "workers": 1,
       "input": "random",
-      "median_vins_per_second": 23128.159827841468,
+      "median_vins_per_second": 23986.66245329444,
       "trials": [
         {
           "trial": 1,
@@ -308,6 +548,51 @@
               "7.8 Google Chrome He"
             ]
           }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-11T00:12:30Z",
+          "vins_per_second": 24845.165078747414,
+          "load": 3.43,
+          "result": {
+            "corpus": "/tmp/bench162/work/corpus.txt",
+            "corpus_vins": 20000000,
+            "data_month": "2026_10",
+            "decoder_version": "v0.1.9-0.20261110224240-ca7c068e8150+dirty",
+            "engine": "nitrovin",
+            "errors": 14,
+            "first_errors": [
+              "3FMTK1R40PR037734: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S48PR024725: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK2SM7PM556731: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S77PM465429: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S75PR174396: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued"
+            ],
+            "go": "go1.27.3",
+            "load_seconds": 0.003194167,
+            "max_rss_bytes": 2772975616,
+            "now": "2026-09-01T00:00:00Z",
+            "passes": 1,
+            "rows": 20000000,
+            "seconds": 804.98559525,
+            "surface": "go",
+            "system_cpu_seconds": 1.7980969999999998,
+            "user_cpu_seconds": 802.769384,
+            "vins_per_second": 24845.165078747414,
+            "warm_vins": 1000000,
+            "workers": 1
+          },
+          "host": {
+            "load": 3.43,
+            "waited": 0,
+            "busy": [
+              "192.2 mediaanalysisd",
+              "157.5 corespotlightd",
+              "24.7 launchd",
+              "2.4 com.apple.WebKit",
+              "1.3 bash"
+            ]
+          }
         }
       ]
     },
@@ -315,7 +600,7 @@
       "row": "nitrovin-go",
       "workers": 1,
       "input": "sorted",
-      "median_vins_per_second": 26524.302484687913,
+      "median_vins_per_second": 26435.012888530564,
       "trials": [
         {
           "trial": 1,
@@ -361,6 +646,51 @@
               "11.3 Google Chrome He"
             ]
           }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-10T23:40:53Z",
+          "vins_per_second": 26345.723292373215,
+          "load": 2.26,
+          "result": {
+            "corpus": "/tmp/bench162/work/corpus-sorted.txt",
+            "corpus_vins": 20000000,
+            "data_month": "2026_10",
+            "decoder_version": "v0.1.9-0.20261110224240-ca7c068e8150+dirty",
+            "engine": "nitrovin",
+            "errors": 14,
+            "first_errors": [
+              "3FMTK1R40PR037734: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1RUXPR294805: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1RX1PR426585: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S48PR024725: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S75PR174396: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued"
+            ],
+            "go": "go1.27.3",
+            "load_seconds": 0.000748334,
+            "max_rss_bytes": 2790621184,
+            "now": "2026-09-01T00:00:00Z",
+            "passes": 1,
+            "rows": 20000000,
+            "seconds": 759.136493542,
+            "surface": "go",
+            "system_cpu_seconds": 5.592816,
+            "user_cpu_seconds": 752.5631,
+            "vins_per_second": 26345.723292373215,
+            "warm_vins": 1000000,
+            "workers": 1
+          },
+          "host": {
+            "load": 2.26,
+            "waited": 0,
+            "busy": [
+              "26.0 WindowServer",
+              "22.2 tern",
+              "15.5 18.18.7",
+              "3.4 Safari",
+              "2.7 Mail"
+            ]
+          }
         }
       ]
     },
@@ -368,7 +698,7 @@
       "row": "nitrovin-go",
       "workers": 4,
       "input": "random",
-      "median_vins_per_second": 83135.61416794958,
+      "median_vins_per_second": 82173.41227663988,
       "trials": [
         {
           "trial": 1,
@@ -414,6 +744,51 @@
               "9.8 Google Chrome He"
             ]
           }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-10T23:52:45Z",
+          "vins_per_second": 81211.21038533018,
+          "load": 4.00,
+          "result": {
+            "corpus": "/tmp/bench162/work/corpus.txt",
+            "corpus_vins": 20000000,
+            "data_month": "2026_10",
+            "decoder_version": "v0.1.9-0.20261110224240-ca7c068e8150+dirty",
+            "engine": "nitrovin",
+            "errors": 14,
+            "first_errors": [
+              "3FMTK1R40PR037734: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S48PR024725: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK2SM7PM556731: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S77PM465429: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S75PR174396: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued"
+            ],
+            "go": "go1.27.3",
+            "load_seconds": 0.000716417,
+            "max_rss_bytes": 2929901568,
+            "now": "2026-09-01T00:00:00Z",
+            "passes": 1,
+            "rows": 20000000,
+            "seconds": 246.27141875,
+            "surface": "go",
+            "system_cpu_seconds": 7.22248,
+            "user_cpu_seconds": 960.3509019999999,
+            "vins_per_second": 81211.21038533018,
+            "warm_vins": 1000000,
+            "workers": 4
+          },
+          "host": {
+            "load": 4.00,
+            "waited": 31,
+            "busy": [
+              "48.0 WindowServer",
+              "15.3 com.apple.WebKit",
+              "14.2 tern",
+              "8.6 com.apple.WebKit",
+              "6.4 Safari"
+            ]
+          }
         }
       ]
     },
@@ -421,7 +796,7 @@
       "row": "nitrovin-go",
       "workers": 4,
       "input": "sorted",
-      "median_vins_per_second": 91073.42602409817,
+      "median_vins_per_second": 92743.35880274193,
       "trials": [
         {
           "trial": 1,
@@ -467,6 +842,51 @@
               "12.1 Google Chrome He"
             ]
           }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-10T23:25:24Z",
+          "vins_per_second": 94413.2915813857,
+          "load": 3.67,
+          "result": {
+            "corpus": "/tmp/bench162/work/corpus-sorted.txt",
+            "corpus_vins": 20000000,
+            "data_month": "2026_10",
+            "decoder_version": "v0.1.9-0.20261110224240-ca7c068e8150+dirty",
+            "engine": "nitrovin",
+            "errors": 14,
+            "first_errors": [
+              "3FMTK1R40PR037734: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1RUXPR294805: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1RX1PR426585: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S48PR024725: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S75PR174396: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued"
+            ],
+            "go": "go1.27.3",
+            "load_seconds": 0.001931583,
+            "max_rss_bytes": 2853371904,
+            "now": "2026-09-01T00:00:00Z",
+            "passes": 1,
+            "rows": 20000000,
+            "seconds": 211.834580333,
+            "surface": "go",
+            "system_cpu_seconds": 5.616642,
+            "user_cpu_seconds": 834.1492320000001,
+            "vins_per_second": 94413.2915813857,
+            "warm_vins": 1000000,
+            "workers": 4
+          },
+          "host": {
+            "load": 3.67,
+            "waited": 41,
+            "busy": [
+              "26.1 WindowServer",
+              "22.5 tern",
+              "5.0 com.apple.Virtua",
+              "1.5 coreaudiod",
+              "1.3 Discord Helper ("
+            ]
+          }
         }
       ]
     },
@@ -474,7 +894,7 @@
       "row": "nitrovin-go",
       "workers": 12,
       "input": "random",
-      "median_vins_per_second": 152038.24177313273,
+      "median_vins_per_second": 146880.57213445753,
       "trials": [
         {
           "trial": 1,
@@ -520,6 +940,51 @@
               "14.0 coreaudiod"
             ]
           }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-10T23:44:48Z",
+          "vins_per_second": 141722.90249578233,
+          "load": 3.78,
+          "result": {
+            "corpus": "/tmp/bench162/work/corpus.txt",
+            "corpus_vins": 20000000,
+            "data_month": "2026_10",
+            "decoder_version": "v0.1.9-0.20261110224240-ca7c068e8150+dirty",
+            "engine": "nitrovin",
+            "errors": 14,
+            "first_errors": [
+              "3FMTK1R40PR037734: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S48PR024725: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK2SM7PM556731: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S77PM465429: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S75PR174396: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued"
+            ],
+            "go": "go1.27.3",
+            "load_seconds": 0.000694334,
+            "max_rss_bytes": 3170664448,
+            "now": "2026-09-01T00:00:00Z",
+            "passes": 1,
+            "rows": 20000000,
+            "seconds": 141.120451584,
+            "surface": "go",
+            "system_cpu_seconds": 42.244628,
+            "user_cpu_seconds": 1392.374015,
+            "vins_per_second": 141722.90249578233,
+            "warm_vins": 1000000,
+            "workers": 12
+          },
+          "host": {
+            "load": 3.78,
+            "waited": 60,
+            "busy": [
+              "48.2 WindowServer",
+              "12.6 com.apple.WebKit",
+              "6.9 tern",
+              "3.3 Safari",
+              "1.5 com.apple.Virtua"
+            ]
+          }
         }
       ]
     },
@@ -527,7 +992,7 @@
       "row": "nitrovin-go",
       "workers": 12,
       "input": "sorted",
-      "median_vins_per_second": 158124.77666233195,
+      "median_vins_per_second": 154313.0758379401,
       "trials": [
         {
           "trial": 1,
@@ -571,6 +1036,51 @@
               "17.6 Google Chrome He",
               "14.4 coreaudiod",
               "11.2 tern"
+            ]
+          }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-10T23:18:47Z",
+          "vins_per_second": 150501.37501354827,
+          "load": 3.88,
+          "result": {
+            "corpus": "/tmp/bench162/work/corpus-sorted.txt",
+            "corpus_vins": 20000000,
+            "data_month": "2026_10",
+            "decoder_version": "v0.1.9-0.20261110224240-ca7c068e8150+dirty",
+            "engine": "nitrovin",
+            "errors": 14,
+            "first_errors": [
+              "3FMTK1R40PR037734: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1RUXPR294805: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1RX1PR426585: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S48PR024725: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued",
+              "3FMTK1S75PR174396: Internal error: element 1 (Other Battery Info) has several items, but it is not multi-valued"
+            ],
+            "go": "go1.27.3",
+            "load_seconds": 0.003451584,
+            "max_rss_bytes": 2952183808,
+            "now": "2026-09-01T00:00:00Z",
+            "passes": 1,
+            "rows": 20000000,
+            "seconds": 132.889151333,
+            "surface": "go",
+            "system_cpu_seconds": 41.751828,
+            "user_cpu_seconds": 1270.790106,
+            "vins_per_second": 150501.37501354827,
+            "warm_vins": 1000000,
+            "workers": 12
+          },
+          "host": {
+            "load": 3.88,
+            "waited": 60,
+            "busy": [
+              "756.0 datagrip",
+              "31.5 syspolicyd",
+              "29.6 WindowServer",
+              "26.5 siriknowledged",
+              "17.5 mds_stores"
             ]
           }
         }
@@ -636,7 +1146,7 @@
       "row": "ultravin",
       "workers": 1,
       "input": "random",
-      "median_vins_per_second": 259013.96845330193,
+      "median_vins_per_second": 301844.0623236418,
       "trials": [
         {
           "trial": 1,
@@ -663,6 +1173,32 @@
               "6.1 Google Chrome"
             ]
           }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-10T23:58:23Z",
+          "vins_per_second": 344674.15619398165,
+          "load": 3.93,
+          "result": {
+            "rows": 20000000,
+            "seconds": 58.025818416,
+            "vins_per_second": 344674.15619398165,
+            "workers": 1,
+            "user_cpu_seconds": 58.179089000000005,
+            "system_cpu_seconds": 1.1707480000000001,
+            "commit": "deb4e2f0415563dea9ff22fc0c98ef59853884a2"
+          },
+          "host": {
+            "load": 3.93,
+            "waited": 221,
+            "busy": [
+              "77.4 Siri AI",
+              "75.5 mediaanalysisd",
+              "49.6 spotlightknowled",
+              "20.1 corespotlightd",
+              "14.5 com.apple.WebKit"
+            ]
+          }
         }
       ]
     },
@@ -670,7 +1206,7 @@
       "row": "ultravin",
       "workers": 1,
       "input": "sorted",
-      "median_vins_per_second": 675078.3824016517,
+      "median_vins_per_second": 656544.8840615149,
       "trials": [
         {
           "trial": 1,
@@ -697,6 +1233,32 @@
               "12.8 coreaudiod"
             ]
           }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-10T23:27:35Z",
+          "vins_per_second": 638011.3857213779,
+          "load": 3.75,
+          "result": {
+            "rows": 20000000,
+            "seconds": 31.347402958,
+            "vins_per_second": 638011.3857213779,
+            "workers": 1,
+            "user_cpu_seconds": 31.476376000000002,
+            "system_cpu_seconds": 1.254654,
+            "commit": "deb4e2f0415563dea9ff22fc0c98ef59853884a2"
+          },
+          "host": {
+            "load": 3.75,
+            "waited": 40,
+            "busy": [
+              "8.1 WindowServer",
+              "6.8 com.apple.Virtua",
+              "3.6 Google Chrome",
+              "2.6 java",
+              "1.9 datagrip"
+            ]
+          }
         }
       ]
     },
@@ -704,7 +1266,7 @@
       "row": "ultravin",
       "workers": 4,
       "input": "random",
-      "median_vins_per_second": 1049717.2140186825,
+      "median_vins_per_second": 1062987.0679085786,
       "trials": [
         {
           "trial": 1,
@@ -731,6 +1293,32 @@
               "9.0 Google Chrome He"
             ]
           }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-10T23:47:56Z",
+          "vins_per_second": 1076256.9217984744,
+          "load": 3.93,
+          "result": {
+            "rows": 20000000,
+            "seconds": 18.582923459,
+            "vins_per_second": 1076256.9217984744,
+            "workers": 4,
+            "user_cpu_seconds": 73.74653099999999,
+            "system_cpu_seconds": 1.4228619999999998,
+            "commit": "deb4e2f0415563dea9ff22fc0c98ef59853884a2"
+          },
+          "host": {
+            "load": 3.93,
+            "waited": 151,
+            "busy": [
+              "47.7 WindowServer",
+              "14.0 tern",
+              "13.8 com.apple.WebKit",
+              "11.2 com.docker.backe",
+              "9.0 com.apple.WebKit"
+            ]
+          }
         }
       ]
     },
@@ -738,7 +1326,7 @@
       "row": "ultravin",
       "workers": 4,
       "input": "sorted",
-      "median_vins_per_second": 2687651.8749030083,
+      "median_vins_per_second": 2688609.418527934,
       "trials": [
         {
           "trial": 1,
@@ -765,6 +1353,32 @@
               "12.6 tern"
             ]
           }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-10T23:21:00Z",
+          "vins_per_second": 2689566.962152859,
+          "load": 3.62,
+          "result": {
+            "rows": 40000000,
+            "seconds": 14.872282625,
+            "vins_per_second": 2689566.962152859,
+            "workers": 4,
+            "user_cpu_seconds": 59.088159000000005,
+            "system_cpu_seconds": 2.117966,
+            "commit": "deb4e2f0415563dea9ff22fc0c98ef59853884a2"
+          },
+          "host": {
+            "load": 3.62,
+            "waited": 110,
+            "busy": [
+              "37.0 WindowServer",
+              "23.8 tern",
+              "19.8 com.apple.Virtua",
+              "11.1 tern",
+              "4.8 zed"
+            ]
+          }
         }
       ]
     },
@@ -772,7 +1386,7 @@
       "row": "ultravin",
       "workers": 12,
       "input": "random",
-      "median_vins_per_second": 2398403.9340380793,
+      "median_vins_per_second": 2340409.6002116827,
       "trials": [
         {
           "trial": 1,
@@ -799,6 +1413,32 @@
               "13.9 coreaudiod"
             ]
           }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-10T23:41:20Z",
+          "vins_per_second": 2282415.266385286,
+          "load": 3.38,
+          "result": {
+            "rows": 40000000,
+            "seconds": 17.525294625,
+            "vins_per_second": 2282415.266385286,
+            "workers": 12,
+            "user_cpu_seconds": 204.091339,
+            "system_cpu_seconds": 6.103285,
+            "commit": "deb4e2f0415563dea9ff22fc0c98ef59853884a2"
+          },
+          "host": {
+            "load": 3.38,
+            "waited": 0,
+            "busy": [
+              "36.9 WindowServer",
+              "10.9 com.apple.Virtua",
+              "8.9 com.apple.WebKit",
+              "6.5 Safari",
+              "5.4 Google Chrome"
+            ]
+          }
         }
       ]
     },
@@ -806,7 +1446,7 @@
       "row": "ultravin",
       "workers": 12,
       "input": "sorted",
-      "median_vins_per_second": 5372354.6356433,
+      "median_vins_per_second": 5288394.2513139825,
       "trials": [
         {
           "trial": 1,
@@ -831,6 +1471,32 @@
               "15.0 coreaudiod",
               "14.5 Google Chrome He",
               "12.8 tern"
+            ]
+          }
+        },
+        {
+          "trial": 2,
+          "at": "2026-11-10T23:15:26Z",
+          "vins_per_second": 5204433.866984665,
+          "load": 2.06,
+          "result": {
+            "rows": 60000000,
+            "seconds": 11.528631458,
+            "vins_per_second": 5204433.866984665,
+            "workers": 12,
+            "user_cpu_seconds": 124.80501899999999,
+            "system_cpu_seconds": 8.711518,
+            "commit": "deb4e2f0415563dea9ff22fc0c98ef59853884a2"
+          },
+          "host": {
+            "load": 2.06,
+            "waited": 0,
+            "busy": [
+              "21.5 WindowServer",
+              "13.1 tern",
+              "6.3 Google Chrome",
+              "5.7 18.18.7",
+              "5.1 com.apple.Virtua"
             ]
           }
         }

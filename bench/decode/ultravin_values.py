@@ -1,12 +1,12 @@
-"""Print ultravin's decode values for a VIN list, for `nitrovin-bench agree`.
+"""Print ultravin's decode values for a VIN list, for `go run ./bench/decode agree`.
 
 Run inside an ultravin checkout's environment (scripts/bench.sh agree does):
 
-    uv run --project <ultravin> --frozen python scripts/bench/ultravin_values.py VINS
+    uv run --project <ultravin> --frozen python bench/decode/ultravin_values.py VINS
 
 One JSON line per VIN, in input order: {"vin", "values": [[element id, value]]},
 every element row of ultravin's full decode at the benchmark's frozen clock,
-None as "". The same shape as `nitrovin-bench values`.
+None as "". The same shape as `go run ./bench/decode values`.
 """
 
 import json

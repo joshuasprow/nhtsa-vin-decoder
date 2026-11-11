@@ -32,5 +32,5 @@ it.
 Benchmarks: the README's benchmarks (docs/benchmarks.md) follow ultravin's
 method (its docs/BENCHMARKS.md and scripts/bench/), and their corpus is made
 by ultravin's own generator, run from an ultravin checkout. nitrovin's
-harness (cmd/nitrovin-bench, scripts/bench.sh) is written fresh; no corpus
+harness (bench/decode, scripts/bench.sh) is written fresh; no corpus
 is committed.

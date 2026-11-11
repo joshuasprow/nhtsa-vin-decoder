@@ -10,11 +10,13 @@
 #                                                 draw the sample; writes corpus.txt, corpus-sorted.txt,
 #                                                 sample.txt and corpus.json into <work>
 #   scripts/bench.sh go <work> <workers> random|sorted
-#                                                 nitrovin, Go module in process (cmd/nitrovin-bench)
+#                                                 nitrovin, Go module in process (bench/decode)
 #   scripts/bench.sh cli <work> <nitrovin>        nitrovin, `nitrovin decode -` over the corpus, GOMAXPROCS=1
 #   scripts/bench.sh ultravin <work> <workers> random|sorted
 #                                                 ultravin's examples/throughput, its headline command
-#   scripts/bench.sh corgi <work> v2|v3           corgi in Node 22 over the sample (scripts/bench/corgi.mjs)
+#   scripts/bench.sh corgi <work> v2|v3 [sample|random]
+#                                                 corgi in Node 22 (bench/decode/corgi.mjs), over the
+#                                                 sample (default) or the corpus
 #   scripts/bench.sh postgres <work>              NHTSA spvindecode over the sample: scripts/oracle.sh decode stock
 #   scripts/bench.sh mssql-up <dir>               start SQL Server 2022 (linux/amd64) and restore
 #                                                 <dir>/vPICList_lite_<month>.bak
@@ -67,8 +69,8 @@ ultravin_dir() {
 
 # The harness, built from this checkout into <work>.
 harness() {
-  (cd "$ROOT" && go build -o "$1/nitrovin-bench" ./cmd/nitrovin-bench)
-  echo "$1/nitrovin-bench"
+  (cd "$ROOT" && go build -o "$1/bench-decode" ./bench/decode)
+  echo "$1/bench-decode"
 }
 
 load1() {
@@ -175,13 +177,16 @@ cmd_ultravin() {
         commit: $commit}' <<<"$result")" "$host"
 }
 
+# corgi v3 is fast enough for the whole corpus (input random), the rate the
+# README compares; on the sample, which fits in cache, it reads faster.
 cmd_corgi() {
-  local work="${1:?work}" engine="${2:?v2|v3}" host result
+  local work="${1:?work}" engine="${2:?v2|v3}" in="${3:-sample}" host result file
   case "$(node --version)" in v22.*) ;; *) die "corgi needs Node 22 (mise exec node@22 -- $0 corgi …)" ;; esac
-  [ -d "$ROOT/scripts/bench/node_modules" ] || (cd "$ROOT/scripts/bench" && npm ci --no-audit --no-fund)
+  [ -d "$ROOT/bench/decode/node_modules" ] || (cd "$ROOT/bench/decode" && npm ci --no-audit --no-fund)
+  case "$in" in sample) file="$work/sample.txt" ;; *) file=$(input "$work" "$in") ;; esac
   host=$(quiet)
-  result=$(node "$ROOT/scripts/bench/corgi.mjs" "$engine" "$work/sample.txt")
-  record "$work" "corgi-$engine" '{"workers":1,"input":"sample"}' "$result" "$host"
+  result=$(node --max-old-space-size=8192 "$ROOT/bench/decode/corgi.mjs" "$engine" "$file")
+  record "$work" "corgi-$engine" "{\"workers\":1,\"input\":\"$in\"}" "$result" "$host"
 }
 
 # spvindecode's time per VIN, summed, is the rate; the wall time adds loading
@@ -249,7 +254,7 @@ cmd_agree() {
   [ -e "$work/postgres-freshened.csv" ] ||
     "$ROOT/scripts/oracle.sh" decode freshened "$work/sample.txt" "$work/postgres-freshened.csv" >&2
   "$bin" values -now "$NOW" "$work/sample.txt" >"$work/nitrovin-values.jsonl"
-  uv run --project "$uv" --frozen python "$ROOT/scripts/bench/ultravin_values.py" "$work/sample.txt" \
+  uv run --project "$uv" --frozen python "$ROOT/bench/decode/ultravin_values.py" "$work/sample.txt" \
     >"$work/ultravin-values.jsonl"
   : >"$work/agree.jsonl"
   for engine in nitrovin ultravin; do
@@ -276,13 +281,13 @@ cmd_all() {
   for order in random sorted; do
     for w in 1 4 12; do rows+=("go $w $order" "ultravin $w $order"); done
   done
-  rows+=("cli" "corgi v3" "corgi v2" "postgres" "mssql")
+  rows+=("cli" "corgi v3 random" "corgi v3 sample" "corgi v2 sample" "postgres" "mssql")
   run_row() {
     set -- $1
     case "$1" in
       go | ultravin) "cmd_$1" "$work" "$2" "$3" ;;
       cli) cmd_cli "$work" "$nitrovin" ;;
-      corgi) cmd_corgi "$work" "$2" ;;
+      corgi) cmd_corgi "$work" "$2" "$3" ;;
       postgres | mssql) "cmd_$1" "$work" ;;
     esac
   }

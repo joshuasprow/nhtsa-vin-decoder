@@ -1,7 +1,7 @@
 // corgi's row of the README's benchmarks (docs/benchmarks.md): decode a VIN
 // list in process, one VIN at a time, and print one JSON object.
 //
-//   node scripts/bench/corgi.mjs v2|v3 VINS
+//   node bench/decode/corgi.mjs v2|v3 VINS
 //
 // v2 is @cardog/corgi 2.0.1 (SQLite, its bundled vpic.lite.db), v3 the
 // newest v3, 3.0.1-beta.0 (binary index). 3.0.1-beta.0 ships no index files,
@@ -20,7 +20,7 @@ const WARM = 20;
 const SECONDS = 10;
 const [engine, path] = process.argv.slice(2);
 if (!["v2", "v3"].includes(engine) || !path) {
-  console.error("usage: node scripts/bench/corgi.mjs v2|v3 VINS");
+  console.error("usage: node bench/decode/corgi.mjs v2|v3 VINS");
   process.exit(2);
 }
 const vins = readFileSync(path, "utf8").split("\n").map((l) => l.trim()).filter(Boolean);

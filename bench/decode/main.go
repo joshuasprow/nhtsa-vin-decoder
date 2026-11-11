@@ -1,14 +1,14 @@
 //go:build unix
 
-// Command nitrovin-bench is the README's benchmark harness
-// (docs/benchmarks.md): nitrovin's own throughput rows, and the tools
-// scripts/bench.sh runs the other engines' rows with. It is not shipped.
+// Command decode is the README's benchmark harness (docs/benchmarks.md):
+// nitrovin's own throughput rows, and the tools scripts/bench.sh runs the
+// other engines' rows with. It is not shipped.
 //
-//	nitrovin-bench throughput [-workers N] [-now T] [-warm N] [-seconds S] [-cpuprofile F] CORPUS
-//	nitrovin-bench refused [-workers N] [-now T] CORPUS
-//	nitrovin-bench values [-now T] VINS
-//	nitrovin-bench agree KEY.csv VALUES.jsonl
-//	nitrovin-bench time [-in FILE] [-n N] -- COMMAND [ARG]...
+//	go run ./bench/decode throughput [-workers N] [-now T] [-warm N] [-seconds S] [-cpuprofile F] CORPUS
+//	go run ./bench/decode refused [-workers N] [-now T] CORPUS
+//	go run ./bench/decode values [-now T] VINS
+//	go run ./bench/decode agree KEY.csv VALUES.jsonl
+//	go run ./bench/decode time [-in FILE] [-n N] -- COMMAND [ARG]...
 //
 // throughput decodes CORPUS, one VIN per line, in process through the Go
 // module: nitrovin.Embedded, then Decoder.Decode with shape vpic and a
@@ -64,11 +64,11 @@ import (
 )
 
 const usage = `usage:
-  nitrovin-bench throughput [-workers N] [-now T] [-warm N] [-seconds S] [-cpuprofile F] CORPUS
-  nitrovin-bench refused [-workers N] [-now T] CORPUS
-  nitrovin-bench values [-now T] VINS
-  nitrovin-bench agree KEY.csv VALUES.jsonl
-  nitrovin-bench time [-in FILE] [-n N] -- COMMAND [ARG]...`
+  decode throughput [-workers N] [-now T] [-warm N] [-seconds S] [-cpuprofile F] CORPUS
+  decode refused [-workers N] [-now T] CORPUS
+  decode values [-now T] VINS
+  decode agree KEY.csv VALUES.jsonl
+  decode time [-in FILE] [-n N] -- COMMAND [ARG]...`
 
 // defaultNow is the frozen decode clock, ultravin's ULTRAVIN_NOW_MICROS
 // 1788220800000000.
@@ -76,7 +76,7 @@ const defaultNow = "2026-09-01T00:00:00Z"
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, "nitrovin-bench:", err)
+		fmt.Fprintln(os.Stderr, "bench/decode:", err)
 		os.Exit(1)
 	}
 }
@@ -86,7 +86,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return errors.New(usage)
 	}
 	cmd, args := args[0], args[1:]
-	fs := flag.NewFlagSet("nitrovin-bench "+cmd, flag.ContinueOnError)
+	fs := flag.NewFlagSet("decode "+cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	switch cmd {
 	case "throughput":
