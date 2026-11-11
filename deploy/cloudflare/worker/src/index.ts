@@ -1,10 +1,11 @@
 // The Worker in front of https://nitrovin.app: every request goes to one
 // warm container running the released image's `nitrovin serve`, and the
 // GETs whose answer is a function of the URL and the release are served
-// from the Cache API. It never reads or logs a VIN.
+// from the Cache API: decodes, /v1/info and the release's assets under
+// /ui/r/. It never reads or logs a VIN.
 import { Container } from "@cloudflare/containers";
 
-/** The container: the released image, serving the API, the form and /mcp. */
+/** The container: the released image, serving the API, the pages and /mcp. */
 export class Nitrovin extends Container<Env> {
 	defaultPort = 8080;
 	// serve opens its listener only once the data has loaded, so any answer
@@ -29,8 +30,10 @@ export class Nitrovin extends Container<Env> {
 const INSTANCE = "nitrovin-enam";
 const LOCATION: DurableObjectLocationHint = "enam";
 
-// How long a cacheable answer is kept, and may be kept by clients. The key
-// names the release that computed it, so a new one never meets it.
+// How long a cacheable answer is kept, and may be kept by clients, when the
+// container says nothing: the key names the release that computed it, so a
+// new one never meets it. The release's assets under /ui/r/ say themselves
+// (immutable, a year: their URL names the release, ADR 0013).
 const CACHE_CONTROL = "public, max-age=86400";
 
 export default {
@@ -42,7 +45,10 @@ export default {
 			if (request.method !== "GET" && request.method !== "HEAD") {
 				return response;
 			}
-			return withHeaders(response, { "Cache-Control": "no-store" });
+			// The pages, /vocab among them, answer a fragment or a whole page
+			// as HX-Request asks: never stored. /sw.js keeps its own no-cache,
+			// so the browser asks for it on each update check (ADR 0013).
+			return withHeaders(response, { "Cache-Control": cacheControl(response, "no-store") });
 		}
 
 		// A hit never reaches the container: the key's release is the one
@@ -58,9 +64,9 @@ export default {
 		// Store a 200 only from the release the key names: during a rollout
 		// the container can still be the previous one.
 		if (response.status !== 200 || !key || !(await serves(container, env.RELEASE))) {
-			return withHeaders(response, { "Cache-Control": "no-store", "Cf-Cache-Status": "BYPASS" });
+			return withHeaders(response, { "Cache-Control": cacheControl(response, "no-store"), "Cf-Cache-Status": "BYPASS" });
 		}
-		const out = withHeaders(response, { "Cache-Control": CACHE_CONTROL, "Cf-Cache-Status": "MISS" });
+		const out = withHeaders(response, { "Cache-Control": cacheControl(response, CACHE_CONTROL), "Cf-Cache-Status": "MISS" });
 		await caches.default.put(key, out.clone());
 		return out;
 	},
@@ -117,12 +123,24 @@ function forward(request: Request, url: URL): Request {
 }
 
 /**
- * The GETs whose 200 is a function of the URL and the release alone. The
- * pages (/ and /ui/…) are not: each answers a fragment or a whole page as
- * HX-Request asks.
+ * The GETs whose 200 is a function of the URL and the release alone: a
+ * decode, /v1/info, and the release's assets (/ui/r/<release>/…: the
+ * pages' scripts and stylesheet, the Service Worker's module, the spine
+ * bundle, the server's files). The pages (/, /vocab, /ui/…) are not: each
+ * answers a fragment or a whole page as HX-Request asks. Nor is /sw.js,
+ * which the browser must be able to ask for anew.
  */
 function cacheable(url: URL): boolean {
-	return url.pathname.startsWith("/v1/decode/") || url.pathname === "/v1/info";
+	const path = url.pathname;
+	return path.startsWith("/v1/decode/") || path === "/v1/info" || path.startsWith("/ui/r/");
+}
+
+/**
+ * The Cache-Control an answer goes out with: the container's when it sets
+ * one (immutable on /ui/r/…, no-cache on /sw.js), else fallback.
+ */
+function cacheControl(response: Response, fallback: string): string {
+	return response.headers.get("Cache-Control") ?? fallback;
 }
 
 /**
