@@ -308,12 +308,15 @@ func (p translatePage) TargetsOn(spine string) targetSet {
 // one spine and offering that spine's targets, whether a vocabulary is
 // chosen yet or not: a translation crosses exactly one spine (ADR 0010).
 // Key names its elements ("entry" for vPIC's); From is the vocabulary
-// chosen, nil when it is not on this spine.
+// chosen, nil when it is not on this spine, and Fields, VIN and Year its
+// entry's values as asked.
 type entryForm struct {
 	Spine, Key   string
 	Vocabularies []contract.CatalogEntry
 	From         *contract.CatalogEntry
 	Targets      targetSet
+	Fields       []fieldValue
+	VIN, Year    string
 }
 
 // EntryForms are the forms from a vocabulary's entry: one for the vehicle
@@ -344,7 +347,9 @@ func (p translatePage) EntryForms() []entryForm {
 		}
 		if p.From != nil && p.From.Spine == s {
 			f.From = p.From
+			f.Fields, f.VIN = p.Fields, p.VIN
 		}
+		f.Year = p.YearIn("entry")
 		out[i] = f
 	}
 	return out
@@ -375,9 +380,10 @@ type example struct {
 	Label, Hint, Href, Spine, DefaultTo string
 }
 
-// The examples that need no file: a VIN, and the vPIC model it decodes
-// to, in its year.
+// The examples that need no file: a 2015 Ram, a VIN, and the vPIC model
+// it decodes to, in its year.
 const (
+	exampleRam   = "1C6RR7LT5FS123456"
 	exampleVIN   = "1HGCM82633A004352"
 	exampleModel = "1861" // vPIC's Honda Accord, under make 474
 	exampleYear  = "2003"
@@ -410,6 +416,7 @@ func (h *Handler) translateForms(cat []contract.CatalogEntry, q url.Values) (tra
 		}
 	}
 	p.Examples = []example{
+		p.example(exampleRam, "a VIN: a 2015 Ram 1500", vocab.Reserved, nil, url.Values{"from.vin": {exampleRam}}),
 		p.example(exampleVIN, "a VIN: a 2003 Honda Accord", vocab.Reserved, nil, url.Values{"from.vin": {exampleVIN}}),
 		p.example("vPIC model "+exampleModel, "the Honda Accord, model year "+exampleYear, vocab.Reserved, nil, url.Values{"from.model": {exampleModel}, "model_year": {exampleYear}}),
 	}
@@ -441,7 +448,29 @@ func (h *Handler) translateForms(cat []contract.CatalogEntry, q url.Values) (tra
 			q.Set("model_year", strconv.Itoa(int(year.V)))
 			hint += ", model year " + strconv.Itoa(int(year.V))
 		}
-		p.Examples = append(p.Examples, p.example(strings.Join(label, " · "), hint, v.Spine, []string{p.sensibleTarget(v)}, q))
+		ex := p.example(strings.Join(label, " · "), hint, v.Spine, []string{p.sensibleTarget(v)}, q)
+		if p.sensibleTarget(v) != v.Name {
+			// Kept only when it names something in another vocabulary,
+			// or the only target ticked is its own.
+			u, err := url.Parse(ex.Href)
+			if err != nil {
+				continue
+			}
+			req, err := contract.ParseTranslateQuery(u.Query())
+			if err != nil {
+				continue
+			}
+			tr, err := h.p.Translate(req)
+			if err != nil {
+				continue
+			}
+			if !slices.ContainsFunc(tr.To, func(t contract.Translated) bool {
+				return len(t.Entries) > 0 && (t.Vocabulary != v.Name || len(tr.To) == 1)
+			}) {
+				continue
+			}
+		}
+		p.Examples = append(p.Examples, ex)
 	}
 	return p, nil
 }
@@ -491,11 +520,23 @@ func (h *Handler) translate(r *http.Request) (view, error) {
 	if err := h.notHere(named(q), cat); err != nil {
 		return view{}, err
 	}
+	explicit := q.Has("to")
+	if !explicit {
+		to, err := h.defaultTargets(q, cat)
+		if err != nil {
+			return view{}, err
+		}
+		if len(to) > 0 {
+			q["to"] = to
+		}
+	}
 	p, err := h.translateForms(cat, q)
 	if err != nil {
 		return view{}, err
 	}
-	h.remember(r, q, p)
+	if explicit {
+		h.remember(r, q, p)
+	}
 	entry := slices.ContainsFunc(p.Fields, func(f fieldValue) bool { return f.Value != "" })
 	ask := entry || q.Has("from.vin") || q.Has("from.make") || q.Has("from.model") || q.Has("from.ext") || q.Has("from.spine")
 	if !ask {
@@ -509,7 +550,7 @@ func (h *Handler) translate(r *http.Request) (view, error) {
 	if err != nil {
 		return view{}, err
 	}
-	p.Result = newTranslationView(tr, cat)
+	p.Result = newTranslationView(tr, cat, h.p.Info().Elements, q.Get("model_year"))
 	return view{title: "Translate", template: "translate", data: p}, nil
 }
 
@@ -536,21 +577,69 @@ func (h *Handler) remember(r *http.Request, q url.Values, p translatePage) {
 	}
 }
 
-// translationView is a translation in words.
+// defaultTargets are a translation's targets when q names none: in the
+// browser the visitor's selection on the from's spine, else every
+// vocabulary loaded on that spine but the from's own; none before a from.
+func (h *Handler) defaultTargets(q url.Values, cat []contract.CatalogEntry) ([]string, error) {
+	if !slices.ContainsFunc(slices.Collect(maps.Keys(q)), func(k string) bool { return strings.HasPrefix(k, "from.") && k != "from.vocabulary" }) {
+		return nil, nil
+	}
+	spine, from := vocab.Reserved, q.Get("from.vocabulary")
+	switch {
+	case q.Has("from.spine"):
+		spine = q.Get("from.spine")
+	case from != "":
+		i := slices.IndexFunc(cat, func(c contract.CatalogEntry) bool { return c.Name == from && c.Kind == "vocabulary" })
+		if i < 0 {
+			return nil, nil
+		}
+		spine = cat[i].Spine
+	}
+	loaded := func(n string) bool {
+		return slices.ContainsFunc(cat, func(c contract.CatalogEntry) bool { return c.Name == n && c.Kind == "vocabulary" && c.Spine == spine })
+	}
+	if h.lib != nil {
+		s, err := h.lib.Selection()
+		if err != nil {
+			return nil, err
+		}
+		if names, ok := s[spine]; ok {
+			return slices.DeleteFunc(slices.Clone(names), func(n string) bool { return !loaded(n) }), nil
+		}
+	}
+	var out []string
+	for _, c := range cat {
+		if c.Kind == "vocabulary" && c.Spine == spine && c.Name != from {
+			out = append(out, c.Name)
+		}
+	}
+	return out, nil
+}
+
+// translationView is a translation in words: names first, the spine, ids
+// and provenance in Details.
 type translationView struct {
-	From, Status, Note, Vehicle string
-	Spine                       []string
-	To                          []targetView
-	Files                       []string
-	DataMonth, DecoderVersion   string
+	Heading, From, Status, Note, Vehicle string
+	Spine                                []string
+	To                                   []targetView
+	Files                                []string
+	DataMonth, DecoderVersion            string
 }
 
 type targetView struct {
 	Vocabulary string
-	Entries    []string
+	Entries    []entryView
 }
 
-func newTranslationView(tr contract.Translation, cat []contract.CatalogEntry) *translationView {
+// entryView is one entry reached: its name, a link translating it back,
+// to the request's source vocabulary and the other targets, and how it
+// was reached.
+type entryView struct {
+	Name, Href string
+	Details    []string
+}
+
+func newTranslationView(tr contract.Translation, cat []contract.CatalogEntry, elements contract.Elements, year string) *translationView {
 	fields := func(name string, entry map[string]string) string {
 		i := slices.IndexFunc(cat, func(c contract.CatalogEntry) bool { return c.Name == name })
 		var order []string
@@ -561,44 +650,122 @@ func newTranslationView(tr contract.Translation, cat []contract.CatalogEntry) *t
 		}
 		var vs []string
 		for _, f := range order {
-			vs = append(vs, entry[f])
+			if entry[f] != "" {
+				vs = append(vs, entry[f])
+			}
 		}
-		return strings.Join(vs, " · ")
+		return strings.Join(vs, " ")
 	}
-	v := &translationView{Status: string(tr.From.Status), Note: tr.From.Note, DataMonth: tr.DataMonth, DecoderVersion: tr.DecoderVersion}
+	names := map[contract.SpineRef]string{}
+	for _, s := range tr.Spine {
+		names[s.SpineRef] = s.Name
+	}
+	named := func(r contract.SpineRef) string {
+		if n := names[r]; n != "" {
+			return refText(r) + " (" + n + ")"
+		}
+		return refText(r)
+	}
+	v := &translationView{Note: tr.From.Note, DataMonth: tr.DataMonth, DecoderVersion: tr.DecoderVersion}
+	switch tr.From.Status {
+	case contract.FromUnmapped:
+		v.Status = "listed, but not mapped yet"
+	case contract.FromUnknown:
+		v.Status = "not found"
+	}
 	switch f := tr.From; {
 	case f.VIN != "":
 		v.From = "VIN " + f.VIN
 	case f.Vocabulary != "":
 		v.From = f.Vocabulary + ": " + fields(f.Vocabulary, f.Entry)
 	default:
-		v.From = refText(f.SpineRef)
+		v.From = named(f.SpineRef)
+	}
+	// The heading names the vehicle: its model year, then the model
+	// reached under its make, "2015 Ram 1500".
+	if x := tr.Vehicle; x != nil && x.ModelYear.Valid {
+		year = strconv.Itoa(int(x.ModelYear.V))
+	}
+	for _, s := range tr.Spine {
+		if v.Heading != "" || s.Name == "" {
+			continue
+		}
+		switch {
+		case s.Model != 0 || s.Ext != "":
+			v.Heading = s.Name
+			if s.Under != nil && names[*s.Under] != "" && !strings.HasPrefix(s.Name, names[*s.Under]) {
+				v.Heading = names[*s.Under] + " " + s.Name
+			}
+		case s.Make != 0:
+			v.Heading = s.Name
+		}
+	}
+	if v.Heading == "" {
+		if tr.From.Vocabulary != "" {
+			v.Heading = fields(tr.From.Vocabulary, tr.From.Entry)
+		} else {
+			v.Heading = v.From
+		}
+	}
+	if year != "" && tr.From.Spine == "" {
+		v.Heading = year + " " + v.Heading
 	}
 	if x := tr.Vehicle; x != nil {
-		v.Vehicle = "VIN " + x.VIN + " decodes to " + nullText("make", x.Make) + ", " + nullText("model", x.Model) + ", " + nullText("model year", x.ModelYear)
+		v.Vehicle = "VIN " + x.VIN + " decodes to " + nullText("vPIC make", x.Make) + ", " + nullText("vPIC model", x.Model) + ", " + nullText("model year", x.ModelYear) + "."
 	}
 	for _, s := range tr.Spine {
 		line := refText(s.SpineRef)
 		if s.Name != "" {
-			line += " " + s.Name
+			line += ": " + s.Name
 		}
 		if s.Drift {
 			line += " (not in data month " + tr.DataMonth + ")"
 		}
 		if s.Under != nil {
-			line += ", under " + refText(*s.Under)
+			line += ", under " + named(*s.Under)
 		}
-		line += viaText(s.Via) + unconfirmedText(s.Unconfirmed)
 		v.Spine = append(v.Spine, line)
+		if u := unconfirmedText(s.Unconfirmed, elements); u != "" {
+			v.Spine = append(v.Spine, refText(s.SpineRef)+": "+u)
+		}
+	}
+	// An entry's link back goes to the source vocabulary, then the
+	// request's other targets, in the same model year.
+	var back []string
+	if tr.From.Vocabulary != "" {
+		back = append(back, tr.From.Vocabulary)
+	}
+	for _, t := range tr.To {
+		if !slices.Contains(back, t.Vocabulary) {
+			back = append(back, t.Vocabulary)
+		}
 	}
 	for _, t := range tr.To {
 		tv := targetView{Vocabulary: t.Vocabulary}
 		for _, e := range t.Entries {
-			line := fields(t.Vocabulary, e.Entry) + viaText(e.Via) + unconfirmedText(e.Unconfirmed)
-			if e.Note != "" {
-				line += " (" + e.Note + ")"
+			q := url.Values{"from.vocabulary": {t.Vocabulary}}
+			for k, s := range e.Entry {
+				q.Set("from.entry."+k, s)
 			}
-			tv.Entries = append(tv.Entries, line)
+			if year != "" {
+				q.Set("model_year", year)
+			}
+			for _, n := range back {
+				if n != t.Vocabulary {
+					q.Add("to", n)
+				}
+			}
+			ev := entryView{Name: fields(t.Vocabulary, e.Entry), Href: translatePath + "?" + q.Encode()}
+			for _, via := range e.Via {
+				ev.Details = append(ev.Details, viaText(via, named))
+			}
+			if e.Note != "" {
+				ev.Details = append(ev.Details, "Note: "+e.Note)
+			}
+			if u := unconfirmedText(e.Unconfirmed, elements); u != "" {
+				ev.Details = append(ev.Details, u)
+			}
+			tv.Entries = append(tv.Entries, ev)
 		}
 		v.To = append(v.To, tv)
 	}
@@ -629,26 +796,33 @@ func refText(r contract.SpineRef) string {
 	return r.Spine + " " + r.ID
 }
 
-func viaText(via []contract.Via) string {
-	var out []string
-	for _, v := range via {
-		s := refText(v.SpineRef)
-		var scope []string
-		if y := yearsText(v.First, v.Last); y != "" {
-			scope = append(scope, y)
-		}
-		if v.Origin != "" {
-			scope = append(scope, v.Origin)
-		}
-		if len(scope) > 0 {
-			s += " (" + strings.Join(scope, ", ") + ")"
-		}
-		out = append(out, s+unconfirmedText(v.Unconfirmed))
+// viaText is one mapping that held, in words: "Matched through vPIC model
+// 13620 (1500), 2013 on, curated: Ram is its own make from 2013".
+func viaText(v contract.Via, named func(contract.SpineRef) string) string {
+	s := "Matched through " + named(v.SpineRef)
+	if y := yearsText(v.First, v.Last); y != "" {
+		s += ", " + y
 	}
-	if len(out) == 0 {
-		return ""
+	if o := originText(v.Origin, v.Note); o != "" {
+		s += ", " + o
 	}
-	return ", via " + strings.Join(out, "; ")
+	if v.Note != "" {
+		s += ": " + v.Note
+	}
+	return s
+}
+
+// originText is where a mapping came from, in words.
+func originText(origin, note string) string {
+	switch {
+	case strings.Contains(strings.ToLower(note), "barrett"):
+		return "from Barrett's review"
+	case origin == "derived":
+		return "matched by rule"
+	case origin == "seed":
+		return "seeded"
+	}
+	return origin
 }
 
 func yearsText(first, last contract.Null[int32]) string {
@@ -667,18 +841,24 @@ func yearsText(first, last contract.Null[int32]) string {
 	return y(first) + "–" + y(last)
 }
 
-func unconfirmedText(u contract.Unconfirmed) string {
+// unconfirmedText is what applied but could not be checked, by element
+// name: "Not checked: Drive Type, model year".
+func unconfirmedText(u contract.Unconfirmed, elements contract.Elements) string {
 	if u.IsZero() {
 		return ""
 	}
 	var parts []string
-	for _, e := range u.Elements {
-		parts = append(parts, "element "+strconv.Itoa(int(e)))
+	for _, id := range u.Elements {
+		if e, ok := elements.Find(id); ok && e.Variable != "" {
+			parts = append(parts, e.Variable)
+		} else {
+			parts = append(parts, "element "+strconv.Itoa(int(id)))
+		}
 	}
 	if u.ModelYear {
 		parts = append(parts, "model year")
 	}
-	return " [unconfirmed: " + strings.Join(parts, ", ") + "]"
+	return "Not checked: " + strings.Join(parts, ", ")
 }
 
 // catalogPage is /ui/vocabularies: one list of vocabularies, /vocab's,
@@ -948,6 +1128,9 @@ type workerConfig struct {
 	ArtifactHash   string       `json:"artifact_hash"`
 	Files          []workerFile `json:"files"`
 	EPA            *Offer       `json:"epa,omitempty"`
+	// Elements are the data month's element names by id, which a
+	// translation's unchecked qualifiers are named by.
+	Elements map[int32]string `json:"elements,omitempty"`
 }
 
 // workerFile is one of the server's files. Spine is a vocabulary's, which
@@ -971,6 +1154,9 @@ func ReadWorkerConfig(config []byte) (contract.Info, *Offer, error) {
 		return contract.Info{}, nil, err
 	}
 	info := contract.Info{DecoderVersion: c.DecoderVersion, DataMonth: c.DataMonth, ArtifactHash: c.ArtifactHash, Vocabularies: []contract.VocabularyFile{}}
+	for _, id := range slices.Sorted(maps.Keys(c.Elements)) {
+		info.Elements = append(info.Elements, contract.Element{ElementID: id, Variable: c.Elements[id]})
+	}
 	for _, f := range c.Files {
 		info.Vocabularies = append(info.Vocabularies, contract.VocabularyFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3})
 	}
@@ -988,6 +1174,12 @@ func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info, base 
 		return err
 	}
 	c := workerConfig{Assets: base, Release: Release(info), DecoderVersion: info.DecoderVersion, DataMonth: info.DataMonth, ArtifactHash: info.ArtifactHash, Files: []workerFile{}, EPA: h.offered()}
+	if len(info.Elements) > 0 {
+		c.Elements = map[int32]string{}
+		for _, e := range info.Elements {
+			c.Elements[e.ElementID] = e.Variable
+		}
+	}
 	for _, f := range info.Vocabularies {
 		wf := workerFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3, URL: FilePath(info, f)}
 		if i := slices.IndexFunc(cat, func(e contract.CatalogEntry) bool { return e.Name == f.Name }); i >= 0 && cat[i].Kind == "vocabulary" {

@@ -110,3 +110,7 @@ section#browser.dropping .dropzone { border-color: var(--link); }
 details.more { margin: .75rem 0; }
 form.filter { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; border: 0; padding: 0; margin: .5rem 0; }
 form.filter label { flex-basis: 100%; }
+
+/* translate */
+.directions { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; align-items: start; }
+.entries > li { margin-block: 0.5rem; }
