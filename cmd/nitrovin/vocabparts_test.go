@@ -15,24 +15,24 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-// TestVocabPartTargets runs /vocab's forms from a part vocabulary's entry
-// in headless Chrome or Chromium, each run in a fresh profile
+// TestVocabPartTargets runs the page's forms from a part vocabulary's
+// entry in headless Chrome or Chromium, each run in a fresh profile
 // (https://github.com/joshuasprow/nitrovin/issues/198). Each declared
-// spine a vocabulary is on gets a form of its own, whose targets are the
-// vocabularies on that spine alone (ADR 0010: a translation crosses one
-// spine), offered before a vocabulary is chosen. Beside the fixture, shelf
-// is a second part vocabulary on parts and bin-labels one on another
-// spine, bins (partFiles). Without JavaScript the ticks travel in to=;
-// with it they are the visitor's selection (#194): a file loaded is
-// ticked, and the selection survives a tick, a reload, a cold start of
-// the worker, a translation and a removal. axe audits every state.
+// spine a vocabulary is on gets a tab of its own, whose form's targets
+// are the vocabularies on that spine alone (ADR 0010: a translation
+// crosses one spine). Beside the fixture, shelf is a second part
+// vocabulary on parts and bin-labels one on another spine, bins
+// (partFiles). Without JavaScript the ticks travel in to=; with it they
+// are the visitor's selection (#194): a file loaded is ticked, and the
+// selection survives a tick, a reload, a cold start of the worker, a
+// translation and a removal. axe audits every state.
 func TestVocabPartTargets(t *testing.T) {
 	path := chromePath()
 	if path == "" {
 		if os.Getenv("CI") != "" {
-			t.Fatal("no Chrome or Chromium to run /vocab in: set NITROVIN_CHROME")
+			t.Fatal("no Chrome or Chromium to run the page in: set NITROVIN_CHROME")
 		}
-		t.Skip("no Chrome or Chromium: set NITROVIN_CHROME to run /vocab in a browser")
+		t.Skip("no Chrome or Chromium: set NITROVIN_CHROME to run the page in a browser")
 	}
 	if testing.Short() {
 		t.Skip("builds the worker's module")
@@ -84,61 +84,76 @@ func partFiles(t *testing.T) (shelf, bins, binLabels string) {
 		derive("listing", "bin-labels", `"name":"listing"`, `"name":"bin-labels"`, `"spine":"parts"`, `"spine":"bins"`)
 }
 
+// The tabs of the entries on the bins spine and the form of a part
+// vocabulary's entry.
+const (
+	binsTab   = "/?tab=entry-bins"
+	partsForm = `#controls form[aria-labelledby="tab-entry-parts"] `
+)
+
 // partTargetsJSOff: without JavaScript, on a server that loaded the
-// fixture, shelf, bins and bin-labels, /vocab offers each spine's targets
-// in a form of its own, and a part entry translates into another part
-// vocabulary on its spine, the target ticked travelling in to=.
+// fixture, shelf, bins and bin-labels, each spine has its tab, whose form
+// offers that spine's targets, and a part entry translates into another
+// part vocabulary on its spine, the target ticked travelling in to=.
 func partTargetsJSOff(t *testing.T, path, base string) {
 	tb := newTab(t, path, base, &requestLog{}, false)
-	tb.do(chromedp.Navigate(base + "/vocab"))
-	tb.wait("#vocab-translate")
-	vehicles := []string{"yard"}
-	if got, want := renderedTargets(tb, "#vocab-translate"), []offered{
-		{"from-vin-h", "vpic", vehicles, nil},
-		{"from-entry-h", "vpic", vehicles, nil},
-		{"from-vpic-h", "vpic", vehicles, nil},
-		{"from-entry-bins-h", "bins", []string{"bin-labels"}, nil},
-		{"from-entry-parts-h", "parts", []string{"listing", "shelf"}, nil},
-	}; fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("JS off: /vocab's targets\n%v\nwant\n%v", got, want)
+	tb.open(vinTab)
+	if got, want := tabHrefs(tb), []string{vinTab, entryTab, binsTab, partsTab, idTab}; !slices.Equal(got, want) {
+		t.Fatalf("JS off: tabs %q; want %q", got, want)
 	}
-	tb.audit("/vocab with part vocabularies on two spines, JS off")
+	vehicles := []string{"yard"}
+	for href, want := range map[string]offered{
+		vinTab:   {"tab-vin", "vpic", vehicles, nil},
+		entryTab: {"tab-entry", "vpic", vehicles, nil},
+		binsTab:  {"tab-entry-bins", "bins", []string{"bin-labels"}, nil},
+		partsTab: {"tab-entry-parts", "parts", []string{"listing", "shelf"}, nil},
+		idTab:    {"tab-id", "vpic", vehicles, nil},
+	} {
+		tb.open(href)
+		if got := renderedTargets(tb, "#controls"); fmt.Sprint(got) != fmt.Sprint([]offered{want}) {
+			t.Errorf("JS off, %s: targets %v; want %v", href, got, want)
+		}
+	}
+	tb.open(partsTab)
+	tb.audit("the parts tab, part vocabularies on two spines, JS off")
 
-	// A link's to= ticks its targets on their spine.
-	tb.do(chromedp.Navigate(base + "/ui/translate?to=listing&to=shelf"))
-	tb.wait("#from-vin")
-	for _, f := range renderedTargets(tb, "#ui-main") {
-		if want := map[string][]string{"parts": {"listing", "shelf"}}[f.Spine]; !slices.Equal(f.Ticked, want) {
-			t.Errorf("JS off, to=listing&to=shelf: the form %s ticks %q; want %q", f.Form, f.Ticked, want)
+	// A link's to= ticks its targets on their spine alone.
+	for href, want := range map[string][]string{partsTab + "&to=listing&to=shelf": {"listing", "shelf"}, vinTab + "?to=listing&to=shelf": nil} {
+		tb.open(href)
+		for _, f := range renderedTargets(tb, "#controls") {
+			if !slices.Equal(f.Ticked, want) {
+				t.Errorf("JS off, %s: the form %s ticks %q; want %q", href, f.Form, f.Ticked, want)
+			}
 		}
 	}
 
-	// From /vocab: shelf's entry, to listing, chosen, then translated.
-	const parts = `#vocab-translate form[aria-labelledby="from-entry-parts-h"] `
-	tb.do(chromedp.Navigate(base + "/vocab"))
-	tb.wait("#vocab-translate")
-	tb.do(chromedp.SetValue(chromedp.CSS(parts+"select"), "shelf"),
-		chromedp.Click(chromedp.CSS(parts+`input[value="listing"]`)),
-		chromedp.Click(chromedp.CSS(parts+"button[type=submit]")))
-	tb.wait("#entry-category")
-	const chosen = "/ui/translate?from.vocabulary=shelf&to=listing"
+	// The tab opens on its first vocabulary, listing. shelf chosen, to
+	// listing: sent, the form is shelf's; then its entry translates.
+	tb.open(partsTab)
+	tb.do(chromedp.SetValue(chromedp.CSS(partsForm+"select"), "shelf"),
+		chromedp.Click(chromedp.CSS(partsForm+`input[value="listing"]`)),
+		chromedp.Click(chromedp.CSS(partsForm+"button[type=submit]")))
+	tb.wait(partsForm + `option[value="shelf"][selected]`)
+	const chosen = "/?from.vocabulary=shelf&from.entry.category=&to=listing"
 	if got := tb.at(); got != chosen {
 		t.Errorf("JS off, shelf chosen: at %s; want %s", got, chosen)
 	}
-	checkFilled(tb, "JS off, shelf chosen", chosen)
+	if n := tb.count("#result"); n != 0 {
+		t.Errorf("JS off, shelf chosen: an answer before an entry")
+	}
 	tb.do(chromedp.SetValue(chromedp.CSS("#entry-category"), "Brake Pads"),
-		chromedp.Click(chromedp.CSS(`form:has(#entry-category) button[type=submit]`)))
-	tb.wait("#translation")
-	const translated = "/ui/translate?from.vocabulary=shelf&from.entry.category=Brake+Pads&to=listing"
+		chromedp.Click(chromedp.CSS(partsForm+`button[type=submit]`)))
+	tb.wait("#result")
+	const translated = "/?from.vocabulary=shelf&from.entry.category=Brake+Pads&to=listing"
 	if got := tb.at(); got != translated {
 		t.Errorf("JS off, a part translation: at %s; want %s", got, translated)
 	}
 	checkFilled(tb, "JS off, a part translation", translated)
-	if s := tb.html("#translation"); !strings.Contains(s, "<h3>listing</h3>") || !strings.Contains(s, "Brake Pads") {
+	if s := tb.html("#result"); !strings.Contains(s, `<h4 class="map-group">listing</h4>`) || !strings.Contains(s, `<span class="name">Brake Pads</span>`) {
 		t.Errorf("JS off, a part translation: %s", s)
 	}
-	// The page's examples on parts keep its target.
-	for _, a := range attributes(tb, `#ui-main a.example[data-spine="parts"]`) {
+	// The page's examples keep its target.
+	for _, a := range attributes(tb, `#controls a.example`) {
 		if u, err := url.Parse(a["href"]); err != nil || !slices.Equal(u.Query()["to"], []string{"listing"}) {
 			t.Errorf("JS off, a part translation: the example %s does not keep to=listing", a["href"])
 		}
@@ -151,50 +166,43 @@ func partTargetsJSOff(t *testing.T, path, base string) {
 // listing, shelf, bins and bin-labels) as one batch.
 func partTargetsJSOn(t *testing.T, path, base string, wire *wireLog, paths []string) {
 	tb := newTab(t, path, base, &requestLog{}, true)
-	ready := func() {
-		tb.t.Helper()
-		tb.do(chromedp.Navigate(base + "/vocab"))
-		tb.waitState("ready")
-		eval[bool](tb, `window.stayed = true`)
-	}
-	ready()
+	tb.open(vinTab)
+	eval[bool](tb, `window.stayed = true`)
+	tb.vocabularies()
 	tb.do(chromedp.SetUploadFiles(chromedp.CSS("#vocab-files"), paths))
 	tb.waitPrefix("#load-status", "Loaded ")
+	// The page's tabs follow the files, without a reload.
+	tb.until("the tabs of the files loaded", `document.getElementById("tab-entry-parts") !== null`)
+	if got, want := tabHrefs(tb), []string{vinTab, binsTab, partsTab, idTab}; !slices.Equal(got, want) || !eval[bool](tb, `window.stayed === true`) {
+		t.Errorf("JS on: tabs %q, or the page reloaded; want %q", got, want)
+	}
 	loaded := selection{"bins": {"bin-labels"}, "parts": {"listing", "shelf"}}
 	checkTicked(tb, "a batch of part files", loaded)
-	if got, want := targetsOffered(tb, "#vocab-translate"), []offered{
-		{"from-entry-bins-h", "bins", []string{"bin-labels"}, []string{"bin-labels"}},
-		{"from-entry-parts-h", "parts", []string{"listing", "shelf"}, []string{"listing", "shelf"}},
-	}; fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("JS on: /vocab's targets\n%v\nwant\n%v", got, want)
-	}
-	tb.audit("/vocab, part vocabularies on two spines loaded and ticked")
+	tb.open(partsTab)
+	tb.audit("the parts tab, part vocabularies on two spines loaded and ticked")
 
 	// A target cleared stays cleared through a reload and a cold start.
-	const parts = `#vocab-translate form[aria-labelledby="from-entry-parts-h"] `
-	tb.do(chromedp.Click(chromedp.CSS(parts + `input[value="shelf"]`)))
+	tb.waitState("ready")
+	tb.do(chromedp.Click(chromedp.CSS(partsForm + `input[value="shelf"]`)))
 	cleared := selection{"bins": {"bin-labels"}, "parts": {"listing"}}
 	waitSelection(tb, "clearing shelf", cleared)
-	ready()
 	checkTicked(tb, "a reload", cleared)
 	tb.stopWorkers()
-	ready()
 	checkTicked(tb, "a cold start", cleared)
 
 	// shelf's example goes to listing, ticked on its spine, by htmx.
-	shelfExample := "/ui/translate?from.entry.category=Brake+Pads&from.vocabulary=shelf&to=listing"
-	if got, want := exampleHrefs(tb, "#vocab-translate"), []string{
-		ramExample,
-		vinExample,
-		modelExample,
-		"/ui/translate?from.entry.category=Brake+Pads&from.vocabulary=bin-labels&to=bin-labels",
-		"/ui/translate?from.entry.category=Brake+Pads&from.vocabulary=listing&to=listing",
-		shelfExample,
-	}; !slices.Equal(got, want) {
-		t.Errorf("JS on: examples\n%q\nwant\n%q", got, want)
+	const shelfExample = "/?from.entry.category=Brake+Pads&from.vocabulary=shelf&to=listing"
+	tb.open(binsTab)
+	if got, want := exampleHrefs(tb, "#controls"), []string{"/?from.entry.category=Brake+Pads&from.vocabulary=bin-labels&to=bin-labels"}; !slices.Equal(got, want) {
+		t.Errorf("JS on, the bins tab: examples %q; want %q", got, want)
 	}
-	tb.do(chromedp.Click(chromedp.CSS(`#vocab-translate a.example[href="` + shelfExample + `"]`)))
-	tb.wait("#translation")
+	tb.open(partsTab)
+	eval[bool](tb, `window.stayed = true`)
+	if got, want := exampleHrefs(tb, "#controls"), []string{listingExample, shelfExample}; !slices.Equal(got, want) {
+		t.Errorf("JS on, the parts tab: examples\n%q\nwant\n%q", got, want)
+	}
+	tb.do(chromedp.Click(chromedp.CSS(`#controls a.example[href="` + shelfExample + `"]`)))
+	tb.wait("#result")
 	if got := tb.at(); got != shelfExample {
 		t.Errorf("JS on, shelf's example: at %s; want %s", got, shelfExample)
 	}
@@ -205,14 +213,16 @@ func partTargetsJSOn(t *testing.T, path, base string, wire *wireLog, paths []str
 	tb.audit("a part translation in the browser")
 	waitSelection(tb, "a part translation", cleared)
 
-	// A removed file drops out, and its spine's form with it.
-	ready()
-	tb.do(chromedp.Click(chromedp.CSS(parts + `input[value="shelf"]`)))
+	// A removed file drops out, and its spine's tab with it.
+	tb.open(partsTab)
+	tb.waitState("ready")
+	tb.do(chromedp.Click(chromedp.CSS(partsForm + `input[value="shelf"]`)))
 	waitSelection(tb, "ticking shelf", loaded)
+	tb.vocabularies()
 	tb.do(chromedp.Click(chromedp.CSS(`form.inline:has(input[value="bin-labels"]) button`)))
-	tb.until("removing bin-labels", `!document.querySelector('#vocab-translate form[aria-labelledby="from-entry-bins-h"]')`)
+	tb.until("removing bin-labels", `!document.getElementById("tab-entry-bins")`)
+	tb.audit("the dialog after removing bin-labels")
 	checkTicked(tb, "a removal", selection{"parts": {"listing", "shelf"}})
-	tb.audit("/vocab after removing bin-labels")
 
 	// No file reached the server, nothing threw and CSP refused nothing.
 	for _, r := range wire.all() {
@@ -241,19 +251,22 @@ func partTargetsJSOn(t *testing.T, path, base string, wire *wireLog, paths []str
 }
 
 // attributes are the attributes of each element sel matches, as the page
-// has them: no script needed.
+// has them, none when it matches nothing: no script needed.
 func attributes(tb *tab, sel string) []map[string]string {
 	tb.t.Helper()
+	if tb.count(sel) == 0 {
+		return nil
+	}
 	var out []map[string]string
 	tb.call(func(ctx context.Context) (err error) {
-		out, err = chromedp.Run(ctx, chromedp.AttributesAll(chromedp.CSSAll(sel), chromedp.AtLeast(0)))
+		out, err = chromedp.Run(ctx, chromedp.AttributesAll(chromedp.CSSAll(sel)))
 		return err
 	})
 	return out
 }
 
-// renderedTargets are the targets each translate form under the element
-// root offers, as the page has them, ticked as drawn: no script needed.
+// renderedTargets are the targets each form under the element root
+// offers, as the page has them, ticked as drawn: no script needed.
 func renderedTargets(tb *tab, root string) []offered {
 	tb.t.Helper()
 	var out []offered

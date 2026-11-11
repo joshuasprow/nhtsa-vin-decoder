@@ -1,12 +1,12 @@
-// Package ui serves nitrovin's pages (ADR 0013): the entry page at /,
-// /vocab, the Service Worker at /sw.js and everything under /ui,
-// html/template pages and htmx fragments. Like the routes, which are
-// outside the /v1 contract and openapi.yaml, its Go API is free to change.
+// Package ui serves nitrovin's pages (ADR 0013): the page at /, the
+// Service Worker at /sw.js and everything under /ui, html/template pages
+// and htmx fragments. Like the routes, which are outside the /v1 contract
+// and openapi.yaml, its Go API is free to change.
 //
 // `nitrovin serve` runs the Handler against its decoder and loaded files
-// (New); the browser's Service Worker runs the same vocabulary pages, built
-// with Go's toolchain to WebAssembly (cmd/nitrovin-sw), against the files
-// the browser holds and the server's (NewInBrowser, a Library). So the
+// (New); the browser's Service Worker runs the same pages, built with
+// Go's toolchain to WebAssembly (cmd/nitrovin-sw), against the files the
+// browser holds and the server's (NewInBrowser, a Library). So the
 // package never imports the artifact, the decoder or pkg/nitrovin: what a
 // page answers from is an interface, and the package builds for js/wasm.
 //
@@ -14,20 +14,23 @@
 // a full page in the one layout when it doesn't or when htmx restores
 // history, so every page works without JavaScript and htmx only enhances
 // links and forms that already work. A fragment carries its page's title,
-// which htmx gives the document. Every response varies by HX-Request and
-// carries CSP, script-src 'self' among it. Errors carry real status codes:
-// a page request gets the one full-page error template, unknown paths
-// included; an htmx request gets the error fragment, which the layout's
-// htmx configuration (responseHandling) swaps into the page's error slot.
-// A page that refuses with its own content instead, as the decode form
-// shows a refusal beside its field, names the element it fills, and htmx
-// is sent there (HX-Retarget). The pages' assets, htmx (vendored, one
-// pinned file), the stylesheet and copy.js, are served under
-// /ui/r/<release>/, immutable for a year: a new release is a new URL. So
-// are what a Service Worker needs of the server to translate in the
-// browser: the data month's spine bundle (SpinePath), each file the
-// server loaded (FilePath), and EPA's vocabulary, which /vocab offers to
-// load into the browser (Offer).
+// which htmx gives the document, and fills the layout's main, which is
+// also all that htmx keeps and restores as history: the vocabularies'
+// dialog, beside the main, is the whole page's. Every response varies by
+// HX-Request and carries CSP, script-src 'self' among it. Errors carry
+// real status codes: a page request gets the one full-page error
+// template, unknown paths included; an htmx request gets the error
+// fragment, which the layout's htmx configuration (responseHandling)
+// swaps into the page's error slot. A page that refuses with its own
+// content instead, as the page's controls show a refusal beside its
+// field, names the element it fills, and htmx is sent there
+// (HX-Retarget). The pages' assets, htmx (vendored, one pinned file), the
+// stylesheet, copy.js and map.js, are served under /ui/r/<release>/,
+// immutable for a year: a new release is a new URL. So are what a Service
+// Worker needs of the server to translate in the browser: the data
+// month's spine bundle (SpinePath), each file the server loaded
+// (FilePath), and EPA's vocabulary, which the page offers to load into
+// the browser (Offer).
 package ui
 
 import (
@@ -66,8 +69,10 @@ const htmxVersion = "2.0.11"
 // settles at once (no settle delay, which only serves CSS transitions the
 // pages have none of), so what a swap brings is live, its forms htmx's,
 // the moment the swap is done: a button clicked right away never posts
-// as a page.
-const htmxConfig = `{"allowEval":false,"includeIndicatorStyles":false,"defaultSettleDelay":0,"responseHandling":[` +
+// as a page. Settling carries no style attribute over from what a swap
+// replaces: one a script or an extension left, even empty, is an inline
+// style CSP refuses.
+const htmxConfig = `{"allowEval":false,"includeIndicatorStyles":false,"defaultSettleDelay":0,"attributesToSettle":["class","width","height"],"responseHandling":[` +
 	`{"code":"204","swap":false},` +
 	`{"code":"[23]..","swap":true},` +
 	`{"code":"[45]..","swap":true,"error":true,"target":"#ui-error","swapOverride":"innerHTML"}]}`
@@ -101,6 +106,7 @@ var static = func() map[string]asset {
 	return map[string]asset{
 		"copy.js":     {"text/javascript; charset=utf-8", read("copy.js")},
 		"htmx.min.js": {"text/javascript; charset=utf-8", read("htmx.min.js")},
+		"map.js":      {"text/javascript; charset=utf-8", read("map.js")},
 		"ui.css":      {"text/css; charset=utf-8", read("ui.css")},
 		"vocab.js":    {"text/javascript; charset=utf-8", read("vocab.js")},
 		"worker.js":   {"text/javascript; charset=utf-8", read("worker.js")},
@@ -118,16 +124,16 @@ type Pages interface {
 }
 
 // Backend is what the server's pages answer from: its decoder and loaded
-// files. Decode answers as GET /v1/decode/{vin} does. ErrorText is an
-// error code's text as NHTSA's ErrorText spells it ("1 - Check Digit (9th
-// position) does not calculate properly"), "" when the data has none.
+// files. Decode answers as GET /v1/decode/{vin} does. ErrorTexts are the
+// data's error codes' texts by code, as NHTSA's ErrorText spells them ("1
+// - Check Digit (9th position) does not calculate properly").
 //
 // SpineBundle and File are what the server publishes under /ui/r/: the
 // Service Worker forwards those paths to it.
 type Backend interface {
 	Pages
 	Decode(contract.Request) (contract.Decode, error)
-	ErrorText(code int) string
+	ErrorTexts() map[int]string
 	// SpineBundle is the data month's spine bundle (vocab.WriteBundle),
 	// published at SpinePath. The Handler asks for it once.
 	SpineBundle() ([]byte, error)
@@ -140,7 +146,7 @@ type Backend interface {
 // Worker is the browser's Service Worker module, the same pages built
 // with Go's toolchain for js/wasm (cmd/nitrovin-sw, scripts/sw.sh), and
 // the wasm_exec.js of the Go that built it. EPA is EPA's vocabulary
-// (epa-vehicles.jsonl, scripts/epa.sh), which /vocab offers as a
+// (epa-vehicles.jsonl, scripts/epa.sh), which the page offers as a
 // one-click load into the browser; nil for none.
 type Worker struct {
 	Module, Exec, EPA []byte
@@ -200,7 +206,7 @@ type Handler struct {
 	// worker is the Service Worker's module, nil on the server when it
 	// has none and in the browser.
 	worker *Worker
-	// offer is the vocabulary /vocab offers to load into the browser,
+	// offer is the vocabulary the page offers to load into the browser,
 	// EPA's, nil for none; on the server, read on first need.
 	offer func() *Offer
 	log   *log.Logger
@@ -209,6 +215,11 @@ type Handler struct {
 	// routes are the pages by path, and posts the forms that change
 	// something, by path.
 	routes, posts map[string]route
+	// dataRelease is the page's link to the data month's release in the
+	// browser, "" on the server, which derives it (links); errorTexts are
+	// the error codes' texts in the browser, the Backend's on the server.
+	dataRelease string
+	errorTexts  map[int]string
 }
 
 // route answers one page: the view, or the error the page shows instead.
@@ -226,34 +237,32 @@ type view struct {
 	status   int
 	target   string
 	location string
-	// vocab loads vocab.js, the browser files' script: /vocab's.
-	vocab bool
-	// nav is the top nav's current entry (navSection).
-	nav string
+	// vocabDialog marks a page that shows the Vocabularies dialog behind
+	// its button; dialog is what ServeHTTP then draws beside the page's
+	// main, when the page is whole.
+	vocabDialog bool
+	dialog      *vocabDialog
 }
 
-// New is the server's handler of /, /vocab, /sw.js and /ui answering from
-// b. A route's fault and a panic are logged to log.
+// New is the server's handler of /, /sw.js and /ui answering from b. A
+// route's fault and a panic are logged to log.
 func New(b Backend, log *log.Logger) *Handler {
-	h := &Handler{p: b, b: b, log: log, spine: sync.OnceValues(b.SpineBundle), routes: map[string]route{}, posts: map[string]route{}}
-	h.routes["/"] = h.home
-	h.routes[decodePath] = h.decode
-	h.vocabRoutes()
+	h := &Handler{p: b, b: b, errorTexts: b.ErrorTexts(), log: log, spine: sync.OnceValues(b.SpineBundle), routes: map[string]route{}, posts: map[string]route{}}
+	h.pageRoutes()
 	return h
 }
 
 // NewInBrowser is the Service Worker's handler, answering from the files
-// the browser holds and the server's it links (Library), and offering
-// what the server offers (ReadWorkerConfig): the vocabulary pages alone,
-// since the worker forwards every other request.
-func NewInBrowser(lib *Library, offer *Offer, log *log.Logger) *Handler {
-	h := &Handler{p: lib, lib: lib, offer: func() *Offer { return offer }, log: log, routes: map[string]route{}, posts: map[string]route{}}
-	h.vocabRoutes()
+// the browser holds and the server's it links (Library), with what the
+// server gave it (ReadWorkerConfig).
+func NewInBrowser(lib *Library, c BrowserConfig, log *log.Logger) *Handler {
+	h := &Handler{p: lib, lib: lib, offer: func() *Offer { return c.Offer }, dataRelease: c.DataRelease, errorTexts: c.ErrorTexts, log: log, routes: map[string]route{}, posts: map[string]route{}}
+	h.pageRoutes()
 	return h
 }
 
 // WithWorker gives the server's handler the Service Worker's module: it
-// then serves /sw.js and the module, and /vocab offers browser files,
+// then serves /sw.js and the module, and the page offers browser files,
 // and EPA's vocabulary as a one-click load when w has it and it is of
 // the server's data month.
 func (h *Handler) WithWorker(w Worker) *Handler {
@@ -338,22 +347,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, v.location, v.status)
 		return
 	}
-	v.nav = navSection(r.URL.Path)
-	h.render(w, frag, base, v, false)
-}
-
-// navSection is the top nav's entry path is under: "decode", "translate",
-// "vocab", or "" for none.
-func navSection(path string) string {
-	switch {
-	case path == "/" || path == decodePath:
-		return "decode"
-	case path == translatePath:
-		return "translate"
-	case path == vocabPath || path == filesPath || path == removePath || path == vocabulariesPath || strings.HasPrefix(path, vocabulariesPath+"/"):
-		return "vocab"
+	if v.vocabDialog && !frag {
+		d, err := h.newVocabDialog()
+		if err != nil {
+			h.fail(w, frag, base, h.pageError(err))
+			return
+		}
+		v.dialog = &d
 	}
-	return ""
+	h.render(w, frag, base, v, false)
 }
 
 // getOrHead reports whether r is a GET or HEAD, else sets the Allow header
@@ -480,11 +482,10 @@ type layout struct {
 	Assets     string
 	HTMXConfig string
 	Body       template.HTML
-	// Vocab loads vocab.js.
-	Vocab bool
-	// Nav is the top nav's current entry: "decode", "translate", "vocab"
-	// or "".
-	Nav string
+	// VocabDialog is the Vocabularies dialog behind its button, beside the
+	// page's main, "" for a page without it; with it the page loads
+	// vocab.js, the browser files' script.
+	VocabDialog template.HTML
 }
 
 // render writes v: its fragment alone, or the page around it. A fragment
@@ -514,7 +515,14 @@ func (h *Handler) render(w http.ResponseWriter, frag bool, base string, v view, 
 	}
 	if !frag {
 		out = new(bytes.Buffer)
-		page := layout{Title: v.title, Assets: base, HTMXConfig: htmxConfig, Body: template.HTML(body.String()), Vocab: v.vocab, Nav: v.nav}
+		page := layout{Title: v.title, Assets: base, HTMXConfig: htmxConfig, Body: template.HTML(body.String())}
+		if v.dialog != nil {
+			var dialog bytes.Buffer
+			if err := tpl.ExecuteTemplate(&dialog, "vocab-dialog", v.dialog); err != nil {
+				panic(fmt.Errorf("template vocab-dialog: %w", err))
+			}
+			page.VocabDialog = template.HTML(dialog.String())
+		}
 		if err := tpl.ExecuteTemplate(out, "page", page); err != nil {
 			panic(fmt.Errorf("template page: %w", err))
 		}

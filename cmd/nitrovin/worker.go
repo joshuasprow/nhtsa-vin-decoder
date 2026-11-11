@@ -10,7 +10,7 @@ import (
 // scripts/sw.sh built it into sw/ before this binary, and EPA's
 // vocabulary when scripts/epa.sh fetched it there: release builds do both
 // (.goreleaser.yaml). A build without the module, such as `go install`,
-// serves /vocab without the visitor's own files, and says so; one without
+// serves the page without the visitor's own files, and says so; one without
 // EPA's vocabulary offers no one-click load of it.
 //
 //go:embed all:sw

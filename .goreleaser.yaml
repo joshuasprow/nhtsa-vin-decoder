@@ -6,7 +6,7 @@
 #   browser's Service Worker module (scripts/sw.sh, run in the before hook
 #   into cmd/nitrovin/sw, which git ignores) that `serve` publishes, with
 #   EPA's vocabulary of that data month (scripts/epa.sh, from its
-#   nitrovin-data release, likewise) that `/vocab` offers to load.
+#   nitrovin-data release, likewise) that the page offers to load.
 # - libnitrovin_<version>_<os>_<arch>.{tar.gz,zip}: the lean C library and
 #   nitrovin.h for the same six targets, built by scripts/libnitrovin.sh
 #   (zig cc) in the before hook and packed as meta archives.

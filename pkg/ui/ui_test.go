@@ -39,10 +39,14 @@ func (b backend) Decode(req contract.Request) (contract.Decode, error) {
 	return contract.Decode{VIN: req.VIN, ErrorCodes: []int{0}, Attributes: contract.VpicAttributes{}}, nil
 }
 
-func (backend) ErrorText(code int) string { return "" }
+func (backend) ErrorTexts() map[int]string { return nil }
 
-// Translate and List answer from no files: the catalog is vPIC alone.
-func (backend) Translate(contract.TranslateRequest) (contract.Translation, error) {
+// Translate and List answer from no files: the catalog is vPIC alone, a
+// VIN reaches nothing on it, and nothing else translates.
+func (backend) Translate(req contract.TranslateRequest) (contract.Translation, error) {
+	if req.From.VIN != "" {
+		return contract.Translation{From: contract.TranslationFrom{VIN: req.From.VIN, Status: contract.FromUnknown}, Spine: []contract.SpineEntry{}, To: []contract.Translated{}}, nil
+	}
 	return contract.Translation{}, contract.NewProblem(contract.InvalidRequest, "/from", "nothing to translate in the stub")
 }
 
@@ -122,7 +126,7 @@ func checkHTML(t *testing.T, name string, header http.Header) {
 }
 
 // checkPage checks body is a whole page in the layout, titled title,
-// linking the release's htmx, copy.js and stylesheet.
+// linking the release's htmx, copy.js, map.js and stylesheet.
 func checkPage(t *testing.T, name, body, title string) {
 	t.Helper()
 	for _, want := range []string{
@@ -132,6 +136,7 @@ func checkPage(t *testing.T, name, body, title string) {
 		`<link rel="stylesheet" href="` + testAssetsAttr + `/ui.css">`,
 		`<script src="` + testAssetsAttr + `/htmx.min.js" defer></script>`,
 		`<script src="` + testAssetsAttr + `/copy.js" defer></script>`,
+		`<script src="` + testAssetsAttr + `/map.js" defer></script>`,
 		`<div id="ui-error" role="alert"></div>`,
 		"</html>\n",
 	} {
@@ -160,7 +165,7 @@ func TestStubRoute(t *testing.T) {
 		}
 		checkHTML(t, name, hdr)
 		checkPage(t, name, body, "Stub")
-		if !strings.Contains(body, "<main id=\"ui-main\">\n<p id=\"stub\">hello</p>\n</main>") {
+		if !strings.Contains(body, "<main id=\"ui-main\" hx-history-elt hx-history=\"false\">\n<p id=\"stub\">hello</p>\n</main>") {
 			t.Errorf("%s: the fragment is not the page's main:\n%s", name, body)
 		}
 	}
@@ -256,6 +261,7 @@ func TestAssets(t *testing.T) {
 	for name, contentType := range map[string]string{
 		"copy.js":     "text/javascript; charset=utf-8",
 		"htmx.min.js": "text/javascript; charset=utf-8",
+		"map.js":      "text/javascript; charset=utf-8",
 		"ui.css":      "text/css; charset=utf-8",
 	} {
 		want, err := files.ReadFile("static/" + name)

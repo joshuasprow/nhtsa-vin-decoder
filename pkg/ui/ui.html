@@ -1,7 +1,13 @@
-{{/* The one layout: every /ui page is a route's fragment in it. Its error
-slot (#ui-error) is where htmx swaps a 4xx or 5xx fragment (htmx-config's
-responseHandling); a fragment that is no error clears it (clear-error). No
-inline script or style: CSP refuses both. */}}
+{{/* The one layout: every page is a route's fragment in its main, which is
+also what htmx restores on back and forward (hx-history-elt), from the
+server and never from a snapshot of the page (hx-history false): a
+snapshot keeps what a script or an extension left on the page, such as an
+empty style attribute, which CSP refuses when the snapshot is put back.
+Its error slot (#ui-error) is where htmx swaps a 4xx or 5xx fragment
+(htmx-config's responseHandling); a fragment that is no error clears it
+(clear-error). The header holds the Vocabularies button, and beside the
+main is its dialog (VocabDialog, page.html's vocab-dialog), which no fragment
+replaces. No inline script or style: CSP refuses both. */}}
 {{define "page" -}}
 <!doctype html>
 <html lang="en">
@@ -14,7 +20,8 @@ inline script or style: CSP refuses both. */}}
 <link rel="stylesheet" href="{{.Assets}}/ui.css">
 <script src="{{.Assets}}/htmx.min.js" defer></script>
 <script src="{{.Assets}}/copy.js" defer></script>
-{{- if .Vocab}}
+<script src="{{.Assets}}/map.js" defer></script>
+{{- if .VocabDialog}}
 <script src="{{.Assets}}/vocab.js" defer></script>
 {{- end}}
 {{- end}}
@@ -22,16 +29,15 @@ inline script or style: CSP refuses both. */}}
 <body>
 <header>
 <a class="brand" href="/">nitrovin</a>
-<nav aria-label="Main">
-<a href="/"{{if eq .Nav "decode"}} aria-current="page"{{end}}>Decode</a>
-<a href="/ui/translate"{{if eq .Nav "translate"}} aria-current="page"{{end}}>Translate</a>
-<a href="/vocab"{{if eq .Nav "vocab"}} aria-current="page"{{end}}>Vocabularies</a>
-</nav>
+{{- if .VocabDialog}}
+<button type="button" class="open-vocabularies" popovertarget="vocabularies">Vocabularies</button>
+{{- end}}
 </header>
 <div id="ui-error" role="alert"></div>
-<main id="ui-main">
+<main id="ui-main" hx-history-elt hx-history="false">
 {{.Body}}
 </main>
+{{.VocabDialog}}
 </body>
 </html>
 {{end}}

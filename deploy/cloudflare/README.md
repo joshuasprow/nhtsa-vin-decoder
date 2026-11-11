@@ -1,9 +1,8 @@
 # nitrovin.app on Cloudflare
 
-`https://nitrovin.app` runs the released image's `nitrovin serve`: the pages
-at `/` and `/ui/` (the decode form at `/ui/decode`), `/vocab` with the
-browser's Service Worker at `/sw.js` (ADR 0013), the `/v1` API and MCP over
-Streamable HTTP at `/mcp`
+`https://nitrovin.app` runs the released image's `nitrovin serve`: the page
+at `/`, which decodes and translates, with the browser's Service Worker at
+`/sw.js` (ADR 0013), the `/v1` API and MCP over Streamable HTTP at `/mcp`
 ([#104](https://github.com/joshuasprow/nitrovin/issues/104),
 [#175](https://github.com/joshuasprow/nitrovin/issues/175)).
 
@@ -55,8 +54,8 @@ flowchart LR
   new release is a new URL (ADR 0013). Everything else, refusals included,
   is `no-store`, but `/sw.js`, which keeps its `no-cache` so a browser
   asks for it on every update check; `POST` and `/mcp` never touch the
-  cache. The pages, `/vocab` among them, are not cached: one URL answers a
-  fragment for htmx and a whole page otherwise.
+  cache. The pages are not cached: one URL answers a fragment for htmx
+  and a whole page otherwise.
 - **CORS** is the container's (`serve --cors '*'`): `/v1` and `/mcp` only.
 - **Logs.** Workers Logs without invocation logs, which would record each
   URL and so each VIN. The Worker logs nothing itself.
@@ -105,7 +104,7 @@ decode is a `MISS`, then a `HIT`; the second image's first decode of the
 same URL is a `MISS` again (the release is in the key), and the first
 image's, run again, a `HIT` (the cache did persist). The release's
 `sw.wasm` under `/ui/r/` goes the same way, `immutable` throughout, while
-`/vocab` without JavaScript, a `/ui/decode` fragment and `/sw.js`
+the page without JavaScript, its fragment for a VIN and `/sw.js`
 (`no-cache`) are never cached. Last, the second image under the first
 one's `RELEASE`, a rollout not yet done, is `BYPASS` twice: nothing it
 answers is stored. Pull requests touching `deploy/cloudflare` run it, with

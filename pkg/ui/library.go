@@ -446,10 +446,19 @@ func (l *Library) translator(s *shelf) contract.Translator {
 // (a newer server: the worker updates once its pages close), and in words
 // when the server cannot be reached.
 func (l *Library) Translate(req contract.TranslateRequest) (contract.Translation, error) {
+	return l.translate(req, nil)
+}
+
+// translate is Translate, a VIN's decode dec when it is not nil: the one
+// the page decoded already (decodeVIN), which is not asked for again.
+func (l *Library) translate(req contract.TranslateRequest, dec *contract.VINDecode) (contract.Translation, error) {
 	t := l.translator(l.state.Load())
 	var decodeErr error
 	t.Decode = func(vin string, year contract.Null[int32], now time.Time) (contract.VINDecode, error) {
-		d, err := l.decode(vin, year, now)
+		if dec != nil {
+			return *dec, nil
+		}
+		d, _, err := l.decode(vin, year, now)
 		decodeErr = err
 		return d, err
 	}
@@ -465,54 +474,103 @@ func (l *Library) List(req contract.ListRequest) (contract.List, error) {
 	return l.translator(l.state.Load()).List(req)
 }
 
-// decode is vin's decode by the server, every item.
-func (l *Library) decode(vin string, year contract.Null[int32], now time.Time) (contract.VINDecode, error) {
-	u := "/v1/decode/" + url.PathEscape(vin) + "?full=true&now=" + url.QueryEscape(now.UTC().Format(time.RFC3339))
-	if year.Valid {
-		u += "&model_year=" + strconv.Itoa(int(year.V))
-	}
-	status, body, err := l.remote.Get(u)
+// ask is a GET of path on the server, which answers something of vin's
+// decode: its body, the server's refusal, or in words why it gave none.
+func (l *Library) ask(path, vin string) ([]byte, error) {
+	status, body, err := l.remote.Get(path)
 	if err != nil {
 		// err is the browser's ("TypeError: Failed to fetch"), which says
 		// nothing more than that the request failed.
-		return contract.VINDecode{}, &pageError{Status: http.StatusServiceUnavailable, Message: "Decoding the VIN " + vin +
+		return nil, &pageError{Status: http.StatusServiceUnavailable, Message: "Decoding the VIN " + vin +
 			" needs this nitrovin's server, which could not be reached: this browser may be offline. Translating a vocabulary entry works without it."}
 	}
 	if status != http.StatusOK {
 		var p contract.Problem
 		if json.Unmarshal(body, &p) == nil && p.Status != 0 && p.Type != contract.Internal {
-			return contract.VINDecode{}, &p
+			return nil, &p
 		}
-		return contract.VINDecode{}, &pageError{Status: http.StatusBadGateway, Message: fmt.Sprintf("The server answered HTTP %d to the decode of %s: %s", status, vin, p.Detail)}
+		return nil, &pageError{Status: http.StatusBadGateway, Message: fmt.Sprintf("The server answered HTTP %d to the decode of %s: %s", status, vin, p.Detail)}
+	}
+	return body, nil
+}
+
+// decodeVIN is the decode req asks for of vin as sent, laid out here as
+// the server lays it out (the server's items, asked for once), and the
+// same decode as a translation reads it.
+func (l *Library) decodeVIN(vin string, req contract.Request) (contract.Decode, *contract.VINDecode, error) {
+	vd, now, err := l.decode(vin, req.ModelYear, req.Now)
+	if err != nil {
+		return contract.Decode{}, nil, err
+	}
+	req.Now = now
+	p := vd.Projection
+	p.Items = slices.Clone(p.Items) // NewDecode sorts a full request's in place
+	dec, err := contract.NewDecode(p, req, &l.info)
+	if err != nil {
+		return contract.Decode{}, nil, fmt.Errorf("laying out the server's decode of %s: %w", vin, err)
+	}
+	return dec, &vd, nil
+}
+
+// serverItem is an item of the server's full decode (contract.Item's
+// JSON).
+type serverItem struct {
+	GroupName   contract.Null[string] `json:"group_name"`
+	Variable    string                `json:"variable"`
+	Value       contract.Null[string] `json:"value"`
+	PatternID   contract.Null[int32]  `json:"pattern_id"`
+	VinSchemaID contract.Null[int32]  `json:"vin_schema_id"`
+	Keys        contract.Null[string] `json:"keys"`
+	ElementID   int32                 `json:"element_id"`
+	AttributeID contract.Null[string] `json:"attribute_id"`
+	CreatedOn   contract.Null[string] `json:"created_on"`
+	WmiID       contract.Null[int32]  `json:"wmi_id"`
+	Code        contract.Null[string] `json:"code"`
+	DataType    contract.Null[string] `json:"data_type"`
+	Decode      contract.Null[string] `json:"decode"`
+	Source      contract.Null[string] `json:"source"`
+	ToBeQCed    contract.Null[bool]   `json:"to_be_qced"`
+}
+
+// decode is vin's decode by the server, every item, and the clock it
+// used: now, or the server's when now is zero.
+func (l *Library) decode(vin string, year contract.Null[int32], now time.Time) (contract.VINDecode, time.Time, error) {
+	u := "/v1/decode/" + url.PathEscape(vin) + "?full=true"
+	if !now.IsZero() {
+		u += "&now=" + url.QueryEscape(now.UTC().Format(time.RFC3339))
+	}
+	if year.Valid {
+		u += "&model_year=" + strconv.Itoa(int(year.V))
+	}
+	body, err := l.ask(u, vin)
+	if err != nil {
+		return contract.VINDecode{}, time.Time{}, err
 	}
 	var d struct {
-		VIN             string `json:"vin"`
-		WMI             string `json:"wmi"`
-		CheckDigitValid bool   `json:"check_digit_valid"`
-		DataMonth       string `json:"data_month"`
-		DecoderVersion  string `json:"decoder_version"`
-		Items           []struct {
-			ElementID   int32                 `json:"element_id"`
-			Value       contract.Null[string] `json:"value"`
-			AttributeID contract.Null[string] `json:"attribute_id"`
-		} `json:"items"`
+		VIN             string       `json:"vin"`
+		WMI             string       `json:"wmi"`
+		CheckDigitValid bool         `json:"check_digit_valid"`
+		Now             time.Time    `json:"now"`
+		DataMonth       string       `json:"data_month"`
+		DecoderVersion  string       `json:"decoder_version"`
+		Items           []serverItem `json:"items"`
 	}
 	if err := json.Unmarshal(body, &d); err != nil {
-		return contract.VINDecode{}, fmt.Errorf("reading the server's decode of %s: %w", vin, err)
+		return contract.VINDecode{}, time.Time{}, fmt.Errorf("reading the server's decode of %s: %w", vin, err)
 	}
 	if d.DataMonth != l.month.Name() {
-		return contract.VINDecode{}, &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
+		return contract.VINDecode{}, time.Time{}, &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
 			"This server now decodes with data month %s, but the translator in this browser is of data month %s (release %s): close every nitrovin tab and open it again to update it.",
 			d.DataMonth, l.month.Name(), Release(l.info))}
 	}
 	items := make([]contract.Item, len(d.Items))
 	for i, it := range d.Items {
-		items[i] = contract.Item{ElementID: it.ElementID, Value: it.Value, AttributeID: it.AttributeID}
+		items[i] = contract.Item(it)
 	}
 	return contract.VINDecode{
 		Projection: contract.Projection{VIN: d.VIN, WMI: d.WMI, CheckDigitValid: d.CheckDigitValid, Items: items},
 		DataMonth:  d.DataMonth, DecoderVersion: d.DecoderVersion,
-	}, nil
+	}, d.Now, nil
 }
 
 // Load reads picked as one batch and stores it: each file checked alone

@@ -544,7 +544,7 @@ func TestBrowserPages(t *testing.T) {
 		}
 	}
 	offer := &Offer{Name: "yard", Version: "2026.12", Blake3: "ff00", Size: 956_057, URL: testAssets + "/vocab/ff00/yard.jsonl"}
-	h := NewInBrowser(l, offer, log.New(io.Discard, "", 0))
+	h := NewInBrowser(l, BrowserConfig{Offer: offer}, log.New(io.Discard, "", 0))
 	status, _, body := response(t, h, "GET", "/ui/files", htmx)
 	for _, want := range []string{
 		`<tr data-where="vpic"><th scope="row"><a href="/ui/vocabularies/vpic">vpic</a></th>` + "\n<td>spine of vehicles\n", `<dd class="version">2026_10</dd>` + "\n<dt>Kept in</dt><dd>built in</dd>",
@@ -582,7 +582,7 @@ func TestBrowserPages(t *testing.T) {
 		t.Errorf("refused remove: %d %v\n%s", status, hdr, body)
 	}
 	status, hdr, _ = form("name=classics&all=true", nil)
-	if status != http.StatusSeeOther || hdr.Get("Location") != vocabPath || len(l.Files()) != 0 {
+	if status != http.StatusSeeOther || hdr.Get("Location") != homePath || len(l.Files()) != 0 {
 		t.Errorf("remove all without htmx: %d %v, %d files", status, hdr, len(l.Files()))
 	}
 
@@ -617,7 +617,7 @@ func TestBrowserDrift(t *testing.T) {
 	}
 	d.records["broken"] = Record{Name: "broken", FileName: "broken.jsonl", Blake3: "00", Size: 3}
 	d.texts["00"] = []byte("{}\n")
-	h := NewInBrowser(open(t, s, d), nil, log.New(io.Discard, "", 0))
+	h := NewInBrowser(open(t, s, d), BrowserConfig{}, log.New(io.Discard, "", 0))
 	_, _, body := response(t, h, "GET", "/ui/files", htmx)
 	for _, want := range []string{
 		"<details><summary>Drift: 1 make, 1 model, 2 qualifier</summary><ul><li>line 4: /mappings/0/make: vPIC make 99999 is not in data month 2026_10</li><li>line 5: /mappings/0/model: vPIC model 99999 is not in data month 2026_10</li><li>line 2: ",
@@ -646,9 +646,9 @@ func TestServiceWorker(t *testing.T) {
 	if status, _, _ := response(t, h, "GET", testAssets+"/sw.wasm", nil); status != 404 {
 		t.Errorf("sw.wasm without a module: %d", status)
 	}
-	_, _, body := response(t, h, "GET", "/vocab", nil)
+	_, _, body := response(t, h, "GET", "/", nil)
 	if !strings.Contains(body, "built without its browser translator") || strings.Contains(body, "data-worker") {
-		t.Errorf("/vocab without a module:\n%s", body)
+		t.Errorf("the page without a module:\n%s", body)
 	}
 
 	h.WithWorker(Worker{Module: []byte("\x00asm"), Exec: []byte("// go")})
@@ -668,12 +668,12 @@ func TestServiceWorker(t *testing.T) {
 	if status != 200 || hdr.Get("Content-Type") != "application/wasm" || hdr.Get("Cache-Control") != immutable || body != "\x00asm" {
 		t.Errorf("sw.wasm: %d %v", status, hdr)
 	}
-	_, _, body = response(t, h, "GET", "/vocab", nil)
+	_, _, body = response(t, h, "GET", "/", nil)
 	if !strings.Contains(body, `data-worker="/sw.js"`) || !strings.Contains(body, "/vocab.js") {
-		t.Errorf("/vocab with a module:\n%s", body)
+		t.Errorf("the page with a module:\n%s", body)
 	}
 	// A link naming a file this server lacks says where such a file lives.
-	status, _, body = response(t, h, "GET", "/ui/translate?from.vocabulary=mine&from.entry.make=x&to=mine", nil)
+	status, _, body = response(t, h, "GET", "/?from.vocabulary=mine&from.entry.make=x&to=mine", nil)
 	if status != 404 || !strings.Contains(body, "open this link in the browser that holds it") {
 		t.Errorf("a browser file's link on the server: %d\n%s", status, body)
 	}

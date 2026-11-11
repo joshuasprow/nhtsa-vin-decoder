@@ -3,7 +3,7 @@
 # from its nitrovin-data release, checked against that release's
 # checksums.txt, into cmd/nitrovin/sw (the default <dir>), beside the
 # Service Worker module scripts/sw.sh builds. `nitrovin serve` embeds it,
-# publishes it under /ui/r/<release>/ and offers it on /vocab as a
+# publishes it under /ui/r/<release>/ and offers it on its page as a
 # one-click load into the browser (ADR 0013); a build without it offers
 # none. goreleaser's before hook (.goreleaser.yaml) runs it.
 #

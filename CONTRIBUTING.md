@@ -377,8 +377,8 @@ else `NITROVIN_VOCAB` (`env.load`).
 `go test ./cmd/nitrovin` runs the built binary: usage, refusal and
 unloadable-data cases, and `info`, `--version` and a decode on the embedded
 data; `TestStdioOps` a stdio session mixing decode, translate and list
-lines with `testdata/vocab`; `TestForm` drives the decode form (`/` and
-`/ui/decode`) on the embedded data, over HTTP and then in a browser (below),
+lines with `testdata/vocab`; `TestForm` drives the page's VIN form (`/`)
+on the embedded data, over HTTP and then in a browser (below),
 and `TestServeCORS` `serve --cors` on it. With
 `NITROVIN_ARTIFACT` it adds `decode -` over the answer key's VINs
 against the contract layer's bytes, the data precedence, the `-o text`
@@ -390,21 +390,28 @@ and `cmd/nitrovin/mcp-tools.json` are generated copies of the files in
 `docs/api/`; tests fail when they drift (`-update-openapi`,
 `go generate ./cmd/nitrovin`).
 
-`pkg/ui` is the pages for browsers, the entry page at `/` and everything
+`pkg/ui` is the pages for browsers, the one page at `/` and everything
 under `/ui`
 ([ADR 0013](docs/adr/0013-browser-vocabularies-in-a-service-worker.md)),
-which `serve` hands those paths to (and `/vocab` and `/sw.js`) and the
+which `serve` hands those paths to (and `/sw.js`) and the
 browser's Service Worker runs too, so it reaches its data through
 interfaces (`ui.Pages`, the server's `ui.Backend`) and builds for
 `js/wasm`. Each route answers a fragment of its templates (`ui.html`,
-`decode.html`) for a request with `HX-Request`, its page's title first, and
+`page.html`, `decode.html`, `vocab.html`) for a request with `HX-Request`, its page's title first, and
 the same fragment in the one layout for any other, with
 `Vary: HX-Request` and the CSP (`ui.CSP`, `script-src 'self'`). Every error
 has its real status: the one error page, or the error fragment that the
 layout's htmx configuration swaps into its error slot; a page that refuses
-with its own content, as the decode form does beside a field, sends htmx
-to its target instead (`HX-Retarget`). The layout loads its stylesheet,
-htmx and `copy.js` (copy buttons) from `/ui/r/<release>/` (`ui.Release`:
+with its own content, as the page's controls do beside a field, sends htmx
+to its target instead (`HX-Retarget`). A fragment fills the layout's
+main (`hx-history-elt`), and htmx keeps no snapshot of it
+(`hx-history="false"`): back and forward ask the server for each page
+again, so a page put back never carries what a script or an extension
+left on it, which CSP would refuse. The header's Vocabularies button
+and its dialog sit beside the main and are the whole page's. The layout
+loads its stylesheet,
+htmx, `copy.js` (copy buttons) and `map.js` (the translation map's
+highlighting) from `/ui/r/<release>/` (`ui.Release`:
 decoder version, data month and artifact hash, the Worker's cache key),
 immutable for a year. htmx is vendored, one file
 (`pkg/ui/static/htmx.min.js`, npm's `htmx.org` at `htmxVersion`), held to
@@ -416,14 +423,61 @@ asked of the `Backend` once) and each loaded file, byte for byte
 name the files a server loads). `serve` reads a file again from disk when
 asked and refuses bytes whose blake3 is not the one loaded.
 `go test ./pkg/ui` walks a stub route as page and fragment, the errors, the
-assets, the published files and the decode form's routes; `TestUI` and
+assets, the published files and the page's routes; `TestUI` and
 `TestServePublished` in
 `cmd/nitrovin` the same through `serve`.
 
-The vocabulary pages (`vocab.go`, `vocab.html`: `/vocab`, `/ui/translate`,
-`/ui/vocabularies[/{name}]`, the browser's `/ui/files`) answer the same on
+The page (`page.go`, `page.html`) is everything a visitor does. Its
+controls (Translate from) are a box with a tab for each thing to
+translate from: VIN, which is decoded and translated; Year, make and
+model, an entry of the vehicle vocabularies; one for each declared
+spine, named by what its vocabularies name (Part (parts spine)), an
+entry of its vocabularies, since a translation crosses exactly one spine
+(ADR 0010); and vPIC id, a make or model id. A tab is a link (`/?tab=…`)
+and holds one form, which asks the page itself: its query is
+`GET /v1/translate`'s, with a VIN's decode options (`shape`, `full`)
+beside it, and a query's `from` says which tab it is of. A from that no
+form asks for, which a map's card links to, is shown in its tab's form
+too: an extension in a field of the vPIC id's form, a declared spine's
+entry read-only in its tab's. Below the controls the answer is a VIN's
+decode (`decode.go`, `decode.html`) and, for every translation, its map,
+with the JSON of both behind a button, in a dialog. A refusal is the page
+still, said in the controls beside the field holding the value its
+pointer names (`controls.field`), on every tab, else above the form.
+Both dialogs, the JSON's and the vocabularies', are popovers, so they
+open without a script; the vocabularies' is on each entry list too. Old
+links (`/?vin=…`, `/ui/decode`, `/ui/translate`, `/vocab`,
+`/ui/vocabularies`) move to the page with a `301`.
+
+The map (`map.go`) is from, the spine and the targets as three columns of
+cards, each mapping a line, each card a link to the page from it, the
+From card to the answer's own URL. Its key names the lines it draws: a
+mapping, one matched by rule (dashed), a model under its make, a VIN to
+the model it decodes to; and a marked card, not every qualifier or the
+model year checked. What a card's lines draw is in its text too (its
+make, what it was reached through and how): visually hidden and read
+with its name on a wide window, shown when a narrow one (a phone) stacks
+the columns and hides the lines and their key. A name shows on two
+lines, and whole while its card is under the pointer or focused,
+spilling over the cards below without moving them. The server draws the
+lines, an SVG behind the cards stretched across the columns, from the
+cards' places, which it knows because every card is one height:
+`map.go`'s geometry constants and `ui.css`'s map rules say the same
+sizes, and `translationMap` (`cmd/nitrovin/map_test.go`, run by
+`TestVocabTranslate`) holds every line to its cards as the browser lays
+them out, and checks a narrow window stacks the columns. So the map
+needs no script; `map.js` only lights the routes through the card under
+the pointer or focus, which the server works out too (each card's
+`data-lit`).
+
+The page and a file's entries (`vocab.go`, `vocab.html`:
+`/ui/vocabularies/{name}`) answer the same on
 the server and in the browser's Service Worker
-([ADR 0013](docs/adr/0013-browser-vocabularies-in-a-service-worker.md)).
+([ADR 0013](docs/adr/0013-browser-vocabularies-in-a-service-worker.md)),
+which answers only a request naming a file the browser holds (what it is
+from, or a target `to=`), and the entry lists of the files it holds, and
+leaves everything else to the server: a bare `/?from.vin=…` is the
+server's in every browser.
 In the browser they answer from a `ui.Library`: the release's spine
 bundle, the server's files linked from their published URLs, and the
 browser's own files in IndexedDB, each with its parsed index
@@ -433,54 +487,62 @@ loads that link or change nothing, replace by name, refused removes with
 dependants, stored files that fault left out and listed, the decode's data
 month checked, each vocabulary loaded selected as a target and each file
 removed no longer) are plain Go, tested with an in-memory `ui.Disk`
-(`library_test.go`). `cmd/nitrovin-sw` is the module: `ui.NewInBrowser`
+(`library_test.go`). The worker has no decoder: for a VIN it answers, the
+Library asks the server's `GET /v1/decode/{vin}` once, with the decode's
+own query alone (no file's name goes with it), lays it out as the server
+does and translates the same decode; no route under `/ui` answers JSON.
+`cmd/nitrovin-sw` is the module: `ui.NewInBrowser`
 over a `Library`, given IndexedDB and `fetch` by `pkg/ui/static/worker.js`,
 the worker script that `/sw.js` (its release and the server's files, never
 cached without asking, the only response allowed `'wasm-unsafe-eval'`)
 imports. `scripts/sw.sh [<dir>]` builds the module reproducibly
 (`-trimpath -buildvcs=false`) into `cmd/nitrovin/sw`, which git ignores
 and `serve` embeds; goreleaser's before hook runs it, so release builds
-serve the worker and others serve `/vocab` without it. Beside it,
+serve the worker and others serve the page without it. Beside it,
 `scripts/epa.sh [<dir>]` fetches `epa-vehicles.jsonl` from the
 nitrovin-data release `go.mod` pins, checked against that release's
 `checksums.txt`; goreleaser's before hook runs it too, and `serve` offers
-the file on `/vocab` as a one-click load when it is of the server's data
-month (`ui.Offer`). `vocab.js` is `/vocab`'s script: it registers the
-worker, says its state (ready, paused after a hard reload, an update
+the file in the dialog as a one-click load when it is of the server's data
+month (`ui.Offer`). `vocab.js` is the dialog's script: it registers the
+worker when the dialog first opens or a file is dropped on the page, and
+at page load in a browser that has it registered already (so a visitor who
+never opens the dialog never downloads the module), says its state (ready, paused
+after a hard reload, an update
 waiting for the old release's tabs to close), swaps the worker's panel
 (`/ui/files`: the merged catalog, each file marked by where it lives, with
-its drift, and out of band `/vocab`'s translate forms over it) over the
-server's, and hands picked or dropped files, EPA's on a click, and each
+its drift) over the
+server's catalog, and hands picked or dropped files, EPA's on a click, and each
 target ticked or cleared to it by `postMessage`, never in a request,
-giving up on a load after a minute without progress.
+giving up on a load after a minute without progress. After a load or a
+removal it asks for the page's main again: its forms and its answer are
+over the files loaded.
 
-The translate forms, on `/ui/translate` and on `/vocab`, come with
-examples, each a link to the translate page with its form filled in: a
-VIN and the vPIC model it decodes to, which need no file, and one from
-each vocabulary loaded, its first mapped entry in a year its mapping holds
+Each tab's form comes with
+examples, each a link to the page with the form filled in: VINs and the
+vPIC model one decodes to, which need no file, and on an entry tab one from
+each of its vocabularies, its first mapped entry in a year its mapping holds
 for, built from the file, so a private file gets one without its name in
-the repository. A vocabulary's entry has a form per spine, the vehicle
-vocabularies' and each declared spine's part vocabularies', each offering
-its spine's targets before a vocabulary is chosen, since a translation
-crosses exactly one spine (ADR 0010). An example goes to the targets
-ticked on its spine, else to another vocabulary on it. Without
-JavaScript the ticked targets travel
-in the URL (`to=`); with it, `/vocab` ticks the visitor's selection, which
+the repository. An example goes to the targets
+ticked on its spine, else to another vocabulary on it. Targets are
+always explicit: the ticked ones travel in the URL (`to=`), and a link
+naming none means the same in every browser. With JavaScript the forms
+tick the visitor's selection, which
 IndexedDB keeps beside the files, by spine, in a database of its own
 (`nitrovin-state`, so an older release still opens `nitrovin`): a file
 loaded joins it, a file removed leaves it, `vocab.js` changes it as the
 visitor ticks, and each translation asked for, a link's own `to=`
 included, sets it on its spine to its targets (the worker's pages for the
-translations they answer, `worker.js` for those it sends to the server,
+ones they answer, `worker.js` for those it sends to the server,
 by the spines `/sw.js` gives the server's files).
 
-`TestForm` then runs the form in headless Chrome or Chromium
+`TestForm` then runs the VIN's form in headless Chrome or Chromium
 (`browser_test.go`, over the DevTools protocol with chromedp), twice, each
 in a browser with a fresh profile: an installed Service Worker survives
 JavaScript being turned off, so a profile that had JavaScript would answer
 the JavaScript-off run from the worker. Without JavaScript every step is a
 page load; with it, every step must reach the server with `HX-Request` and
-never reload the page, and back and forward restore each state. axe-core
+never reload the page, and back and forward ask the server for each state
+again, never a snapshot, with nothing refused by CSP. axe-core
 audits every state of both runs and fails on any violation; it is vendored
 as `cmd/nitrovin/testdata/axe.min.js` (npm's `axe-core` at `axeVersion`,
 held to its sha256 by `TestAxePin`, reported by the weekly tools issue
@@ -492,7 +554,8 @@ or in `/Applications`; without one the browser runs skip, except in CI
 `scripts/sw.sh` (the builds must be the same bytes) and runs it in a fresh
 profile against a server that loaded `classics` alone: it loads `listing`,
 `yard` and `parts` as one batch, in an order that links only as a whole,
-and holds every translation and list page and fragment to a server that
+and holds the page, with each tab and each translation, and each list page, as
+page and fragment, to a server that
 loaded the same files; stops the worker and checks it answers again; checks
 a hard reload says the files are paused; stops the worker during a load,
 which the page gives up on (after `#browser`'s `data-stall`, here 3 s, in
@@ -506,7 +569,7 @@ request with a body and none naming a browser file. Set
 `NITROVIN_COLD_START_BUDGET=1s` to hold the cold start to a budget, on the
 reference machine.
 
-`TestVocabPage` (`vocabpage_test.go`) runs `/vocab` in a fresh profile
+`TestVocabPage` (`vocabpage_test.go`) runs the page's Vocabularies dialog in a fresh profile
 without JavaScript and then in another with it, against a server that
 loaded the drift fixture's `classics` and offers the EPA sample
 (`cmd/nitrovin-epa/testdata/vehicles.jsonl`) as EPA's vocabulary, and
@@ -523,8 +586,8 @@ clicked the moment the panel shows goes by htmx, and an unreachable server
 is said in words (8). `TestWorker` covers the stalled load (5). It also
 loads EPA's vocabulary in one click and drops a file on the page.
 
-`TestVocabTranslate` (`vocabtranslate_test.go`) clicks every example on
-`/vocab` without JavaScript, against a server that loaded the fixture and
+`TestVocabTranslate` (`vocabtranslate_test.go`) clicks every example of
+every tab without JavaScript, against a server that loaded the fixture and
 the EPA sample, and with it, the files in the browser, and checks that
 each fills its form; with JavaScript, that a file loaded is ticked, that
 the selection survives a second load, a removal, a reload and a cold start
@@ -534,8 +597,8 @@ its spine alone. axe audits both runs.
 `TestVocabPartTargets` (`vocabparts_test.go`) adds, beside the fixture,
 `shelf`, a second part vocabulary on `parts`, and `bin-labels` on another
 spine, `bins`, both written from the fixture's files at run time. Without
-JavaScript it checks that each spine's form offers its own vocabularies
-alone and that a `shelf` entry translates to a ticked `listing`; with it,
+JavaScript it checks that each spine has its tab, whose form offers its own vocabularies
+alone, and that a `shelf` entry translates to a ticked `listing`; with it,
 that a batch loaded is ticked on each spine and the selection survives a
 tick, a reload, a cold start, a translation and a removal. axe audits both
 runs.

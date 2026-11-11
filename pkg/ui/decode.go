@@ -3,7 +3,6 @@ package ui
 import (
 	"cmp"
 	"encoding/json"
-	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -17,25 +16,26 @@ import (
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 )
 
-// The decode form (ADR 0013). GET / is the entry page: what nitrovin is,
-// the form, examples, install, MCP, verify and links, all derived from the
-// running binary's version and data month. The form asks GET /ui/decode,
-// whose query is GET /v1/decode/{vin}'s with the VIN as a parameter, so a
-// decode is a shareable URL, and whose refusals are contract.ParseQuery's,
-// each shown beside the field its pointer names. The pages are whole
-// without JavaScript. With it, htmx swaps the answer into the page's main
-// and pushes its URL, and copy.js adds copy buttons to the text the page
-// already shows. Old links to the form, /?vin=…, redirect to /ui/decode.
+// A VIN's decode on the page (page.go, ADR 0013): the vehicle in a line,
+// the VIN's error codes and suggested VIN, every element by vPIC's
+// groups, and the same request as JSON, curl and the command line, all
+// derived from the running binary's version and data month. The decode's
+// query is GET /v1/decode/{vin}'s, and its refusals contract.ParseQuery's,
+// each shown beside the field its pointer names. copy.js adds copy
+// buttons to the text the page already shows.
+//
+// The server decodes with its decoder. The browser's Service Worker,
+// which draws the page itself when a lookup names a file it holds, has
+// none: it asks the server's GET /v1/decode/{vin} for every item, once,
+// lays the decode out as the server does (contract.NewDecode, over the
+// elements the server gave it) and translates the same decode.
 
-// decodePath is the decode form's page.
+// decodePath was the decode form's page: old links to it move to the
+// page (moved).
 const decodePath = "/ui/decode"
 
-// mainTarget is the layout's main, which the form's answer fills.
+// mainTarget is the layout's main, which the page's answer fills.
 const mainTarget = "#ui-main"
-
-// formFields are the query parameters the form has a field for; a refusal
-// pointing elsewhere shows above the form.
-var formFields = []string{"vin", "model_year", "shape", "full"}
 
 // showEmpty is the page's own query parameter, never the decode's: "true"
 // shows the vpic shape's empty values, which are hidden otherwise.
@@ -53,20 +53,8 @@ const (
 	otherGroup = "Other"
 )
 
-// formPage is what the home and decode templates render.
-type formPage struct {
-	VIN, ModelYear, Shape string
-	Full, ShowEmpty       bool
-	// Errors holds a refusal's detail under its field's name, or under ""
-	// when no field holds the offending value.
-	Errors                    map[string]string
-	Decode                    *formDecode
-	DataMonth, DecoderVersion string
-	Links                     formLinks
-}
-
-// formLinks are the page's links that depend on the running binary.
-type formLinks struct {
+// pageLinks are the page's links that depend on the running binary.
+type pageLinks struct {
 	// Tag is the release this build is, "" for any other build.
 	Tag string
 	// Release is Tag's release page, or the releases index without one.
@@ -79,29 +67,41 @@ type formLinks struct {
 	Parity, ParityReport string
 }
 
-// formDecode is a decode as the page shows it.
-type formDecode struct {
-	contract.Decode
+// decodeView is a decode as the page shows it.
+type decodeView struct {
+	VIN             string
+	ErrorCodes      []int
+	CheckDigitValid bool
 	// JSON is the same request on GET /v1/decode/{vin}; NHTSA is the VIN
 	// on vPIC's own decoder.
 	JSON, NHTSA string
-	Groups      []formGroup
-	// Hidden counts the empty values not shown; EmptyToggle, set in the
-	// vpic shape only, is this page with the empty values shown or hidden.
-	Hidden      int
-	EmptyToggle string
-	Codes       []formCode
+	Groups      []elementGroup
+	// VPIC marks the vpic shape, whose empty values are hidden unless
+	// asked for; Hidden counts those not shown.
+	VPIC   bool
+	Hidden int
+	Codes  []errorCodeText
 	// AdditionalErrorText is the decode's AdditionalErrorText (element 156).
 	AdditionalErrorText string
 	// Input and Suggested are the VIN and its corrected_vin, by character,
 	// when the decode suggests one; DifferAt names the positions in which
 	// they differ.
-	Input, Suggested []formChar
+	Input, Suggested []vinChar
 	DifferAt         string
-	Copy             formCopies
+	Copy             decodeCopies
 	// Summary is the vehicle in one line: year, make, model, trim or
-	// series, engine and plant; Translate is this VIN on the translate page.
-	Summary, Translate string
+	// series, engine and plant.
+	Summary string
+	// Items are every row the decoder emitted, for a full request.
+	Items []decodeItem
+}
+
+// decodeItem is one item as the page's table shows it.
+type decodeItem struct {
+	ElementID                        int32
+	Variable                         string
+	Value, AttributeID, Source, Keys contract.Null[string]
+	PatternID, VinSchemaID           contract.Null[int32]
 }
 
 // vPIC's element ids the summary line reads.
@@ -144,42 +144,41 @@ func summary(dec contract.Decode, elements contract.Elements) string {
 	return join(" · ", join(" ", get(elementModelYear), get(elementMake), get(elementModel), trim), join(", ", displacement, cylinders), plant)
 }
 
-// formCopies are the decode's copyable texts, rendered on the server.
-type formCopies struct {
-	// JSON is the decode as the contract layer marshals it; URL is this
-	// page's; Curl and CLI make the same request on /v1 and the command
-	// line.
-	JSON, URL, Curl, CLI string
+// decodeCopies are the decode's copyable texts, rendered on the server.
+type decodeCopies struct {
+	// JSON is the decode as the contract layer marshals it; Curl and CLI
+	// make the same request on /v1 and the command line.
+	JSON, Curl, CLI string
 }
 
 // Clean reports a decode without errors: error code 0 alone.
-func (d *formDecode) Clean() bool { return len(d.ErrorCodes) == 1 && d.ErrorCodes[0] == 0 }
+func (d *decodeView) Clean() bool { return len(d.ErrorCodes) == 1 && d.ErrorCodes[0] == 0 }
 
-// formCode is one error code and its text from the data's error-code
+// errorCodeText is one error code and its text from the data's error-code
 // table, "" when the table lacks it.
-type formCode struct {
+type errorCodeText struct {
 	Code int
 	Text string
 }
 
-// formChar is one character of a VIN; Differs marks a position in which
+// vinChar is one character of a VIN; Differs marks a position in which
 // the VIN and its suggested VIN differ.
-type formChar struct {
+type vinChar struct {
 	C       string
 	Differs bool
 }
 
-// formGroup is one of vPIC's element groups; Open shows it unfolded.
-type formGroup struct {
+// elementGroup is one of vPIC's element groups; Open shows it unfolded.
+type elementGroup struct {
 	Name string
 	Open bool
-	Rows []formRow
+	Rows []elementRow
 }
 
-// formRow is one element: its key in the decode's shape and its non-empty
+// elementRow is one element: its key in the decode's shape and its non-empty
 // values, none for an empty value shown. List marks a multi-valued element
 // of the nitrovin shape, shown as a list however many values it has.
-type formRow struct {
+type elementRow struct {
 	Name   string
 	Values []string
 	List   bool
@@ -226,14 +225,14 @@ var groupRank = func() func(string) int {
 	}
 }()
 
-// formGroups are dec's elements by group in vPIC's group order, General and
+// elementGroups are dec's elements by group in vPIC's group order, General and
 // Engine open, each group's elements in element id order: in the vpic shape
 // every element, its empty values counted in hidden unless showEmpty, and in
 // the nitrovin shape every decoded element with a non-empty value. A group
 // with nothing to show is left out.
-func formGroups(dec contract.Decode, elements contract.Elements, showEmpty bool) (groups []formGroup, hidden int) {
+func elementGroups(dec contract.Decode, elements contract.Elements, showEmpty bool) (groups []elementGroup, hidden int) {
 	at := map[string]int{}
-	add := func(e contract.Element, row formRow) {
+	add := func(e contract.Element, row elementRow) {
 		name := e.GroupName.V
 		if name == "" {
 			name = otherGroup
@@ -241,7 +240,7 @@ func formGroups(dec contract.Decode, elements contract.Elements, showEmpty bool)
 		i, ok := at[name]
 		if !ok {
 			i, at[name] = len(groups), len(groups)
-			groups = append(groups, formGroup{Name: name, Open: name == "General" || name == "Engine"})
+			groups = append(groups, elementGroup{Name: name, Open: name == "General" || name == "Engine"})
 		}
 		groups[i].Rows = append(groups[i].Rows, row)
 	}
@@ -251,9 +250,9 @@ func formGroups(dec contract.Decode, elements contract.Elements, showEmpty bool)
 			v := attrs[e.Code]
 			switch {
 			case v != "":
-				add(e, formRow{Name: e.Code, Values: []string{v}})
+				add(e, elementRow{Name: e.Code, Values: []string{v}})
 			case showEmpty:
-				add(e, formRow{Name: e.Code})
+				add(e, elementRow{Name: e.Code})
 			default:
 				hidden++
 			}
@@ -266,7 +265,7 @@ func formGroups(dec contract.Decode, elements contract.Elements, showEmpty bool)
 			}
 			if a.Values == nil {
 				if a.Value != "" {
-					add(e, formRow{Name: e.Variable, Values: []string{a.Value}})
+					add(e, elementRow{Name: e.Variable, Values: []string{a.Value}})
 				}
 				continue
 			}
@@ -277,11 +276,11 @@ func formGroups(dec contract.Decode, elements contract.Elements, showEmpty bool)
 				}
 			}
 			if values != nil {
-				add(e, formRow{Name: e.Variable, Values: values, List: true})
+				add(e, elementRow{Name: e.Variable, Values: values, List: true})
 			}
 		}
 	}
-	slices.SortStableFunc(groups, func(a, b formGroup) int {
+	slices.SortStableFunc(groups, func(a, b elementGroup) int {
 		return cmp.Or(cmp.Compare(groupRank(a.Name), groupRank(b.Name)), strings.Compare(a.Name, b.Name))
 	})
 	return groups, hidden
@@ -305,16 +304,16 @@ func attribute(dec contract.Decode, elements contract.Elements, id int32) string
 // diffVINs splits vin and suggested into characters, marking each position
 // in which they differ (case aside, as the decoder upper-cases), and names
 // those positions, counted from 1.
-func diffVINs(vin, suggested string) (in, out []formChar, at string) {
+func diffVINs(vin, suggested string) (in, out []vinChar, at string) {
 	a, b := []rune(vin), []rune(suggested)
 	var positions []string
 	for i := range max(len(a), len(b)) {
 		differs := i >= len(a) || i >= len(b) || unicode.ToUpper(a[i]) != unicode.ToUpper(b[i])
 		if i < len(a) {
-			in = append(in, formChar{string(a[i]), differs})
+			in = append(in, vinChar{string(a[i]), differs})
 		}
 		if i < len(b) {
-			out = append(out, formChar{string(b[i]), differs})
+			out = append(out, vinChar{string(b[i]), differs})
 		}
 		if differs {
 			positions = append(positions, strconv.Itoa(i+1))
@@ -354,8 +353,8 @@ var embeddedDataTag = sync.OnceValue(func() string {
 
 // newFormLinks derives the page's links from the running binary: its
 // version, and its data month and source.
-func newFormLinks(info contract.Info) formLinks {
-	var l formLinks
+func newFormLinks(info contract.Info) pageLinks {
+	var l pageLinks
 	if releaseTag.MatchString(info.DecoderVersion) && !pseudoVersion.MatchString(info.DecoderVersion) {
 		l.Tag = info.DecoderVersion
 	}
@@ -373,98 +372,43 @@ func newFormLinks(info contract.Info) formLinks {
 	return l
 }
 
-// newFormPage is the empty form on info.
-func newFormPage(info contract.Info) *formPage {
-	return &formPage{
-		Shape: string(contract.ShapeVPIC), DataMonth: info.DataMonth, DecoderVersion: info.DecoderVersion,
-		Links: newFormLinks(info),
+// links are the page's links: the running binary's, and in the browser
+// the data release the server's build named (WithDataRelease).
+func (h *Handler) links(info contract.Info) pageLinks {
+	l := newFormLinks(info)
+	if h.dataRelease != "" {
+		l.DataRelease = h.dataRelease
 	}
+	return l
 }
 
-// formTitle is the form's title before it has a decode.
-const formTitle = "Decode a VIN"
-
-// home is GET /: the entry page. A query is an old link to the form,
-// which lives at /ui/decode now: redirected there, query and all.
-func (h *Handler) home(r *http.Request) (view, error) {
-	if r.URL.RawQuery != "" {
-		return view{location: decodePath + "?" + r.URL.RawQuery, status: http.StatusMovedPermanently}, nil
-	}
-	return view{title: formTitle, template: "home", data: newFormPage(h.b.Info())}, nil
-}
-
-// decode is GET /ui/decode: the empty form without a query, otherwise the
-// form filled in from the query and the decode below it, or the refusal
-// beside the field it names. A refusal is the form still, with its status,
-// so htmx sends it to the page's main and not to the error slot.
-func (h *Handler) decode(r *http.Request) (view, error) {
-	info := h.b.Info()
-	page := newFormPage(info)
-	v := view{title: formTitle, template: "decode", data: page, target: mainTarget}
-	if r.URL.RawQuery == "" {
-		return v, nil
-	}
-	refuse := func(err error) (view, error) {
-		p := contract.AsProblem(err)
-		if p.Type == contract.Internal {
-			return view{}, err // a fault in nitrovin: the error page, logged
-		}
-		field := strings.TrimPrefix(p.Pointer, "/")
-		if !slices.Contains(formFields, field) {
-			field = ""
-		}
-		page.Errors = map[string]string{field: p.Detail}
-		v.status = p.Status
-		return v, nil
-	}
-	query, err := url.ParseQuery(r.URL.RawQuery)
+// decoded is the decode of vin as sent, asked with query, the decode's
+// own (GET /v1/decode/{vin}'s), as the page shows it, and in the browser
+// the same decode as a translation reads it (nil on the server, whose
+// translator decodes itself). The error is a refusal (a
+// *contract.Problem, or in the browser a *pageError when the server
+// cannot be asked) or a fault.
+func (h *Handler) decoded(r *http.Request, vin string, query url.Values, showEmpty bool) (*decodeView, *contract.VINDecode, error) {
+	req, err := contract.ParseQuery(vin, query)
 	if err != nil {
-		return refuse(contract.NewProblem(contract.InvalidRequest, "", "the query string is malformed: "+err.Error()))
+		return nil, nil, err
 	}
-	vins := query["vin"]
-	delete(query, "vin")
-	page.ShowEmpty = query.Get(showEmpty) == "true"
-	delete(query, showEmpty)
-	// The form always sends model_year; empty is no hint.
-	if ys := query["model_year"]; len(ys) == 1 && ys[0] == "" {
-		delete(query, "model_year")
+	var dec contract.Decode
+	var vd *contract.VINDecode
+	if h.b != nil {
+		dec, err = h.b.Decode(req)
+	} else {
+		dec, vd, err = h.lib.decodeVIN(vin, req)
 	}
-	if len(vins) > 0 {
-		page.VIN = vins[0]
-	}
-	page.ModelYear = query.Get("model_year")
-	if shape := query.Get("shape"); shape != "" {
-		page.Shape = shape
-	}
-	page.Full = query.Get("full") == "true"
-	if len(vins) > 1 {
-		return refuse(contract.NewProblem(contract.InvalidRequest, "/vin", "vin is given more than once"))
-	}
-
-	req, err := contract.ParseQuery(page.VIN, query)
 	if err != nil {
-		return refuse(err)
+		return nil, nil, err
 	}
-	dec, err := h.b.Decode(req)
-	if err != nil {
-		return refuse(err)
-	}
-	page.Decode, err = h.decodePage(r, page, query, req, dec, info.Elements)
-	if err != nil {
-		return view{}, err
-	}
-	v.title = dec.VIN
-	return v, nil
-}
-
-// decodePage is dec as the page shows it. query is the decode's own query,
-// the VIN and the page's parameters taken out.
-func (h *Handler) decodePage(r *http.Request, page *formPage, query url.Values, req contract.Request, dec contract.Decode, elements contract.Elements) (*formDecode, error) {
 	body, err := json.Marshal(dec) // as GET /v1/decode/{vin} writes it
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	jsonURL := "/v1/decode/" + url.PathEscape(page.VIN)
+	elements := h.p.Info().Elements
+	jsonURL := "/v1/decode/" + url.PathEscape(vin)
 	if len(query) > 0 {
 		jsonURL += "?" + query.Encode()
 	}
@@ -472,48 +416,43 @@ func (h *Handler) decodePage(r *http.Request, page *formPage, query url.Values, 
 	if req.ModelYear.Valid {
 		nhtsa += "&ModelYear=" + strconv.Itoa(int(req.ModelYear.V))
 	}
-	origin := requestOrigin(r)
-	d := &formDecode{
-		Decode: dec, JSON: jsonURL, NHTSA: nhtsa,
+	d := &decodeView{
+		VIN: dec.VIN, ErrorCodes: dec.ErrorCodes, CheckDigitValid: dec.CheckDigitValid,
+		JSON: jsonURL, NHTSA: nhtsa,
 		AdditionalErrorText: attribute(dec, elements, elementAdditionalErrorText),
-		Copy: formCopies{
+		Copy: decodeCopies{
 			JSON: string(body),
-			URL:  origin + r.URL.RequestURI(),
-			Curl: "curl " + shellQuote(origin+jsonURL),
-			CLI:  cliCommand(page.VIN, req, query.Get("now")),
+			Curl: "curl " + shellQuote(requestOrigin(r)+jsonURL),
+			CLI:  cliCommand(vin, req, query.Get("now")),
 		},
+		Summary: summary(dec, elements),
 	}
-	d.Groups, d.Hidden = formGroups(dec, elements, page.ShowEmpty)
-	d.Summary = summary(dec, elements)
-	d.Translate = translatePath + "?" + url.Values{"from.vin": {dec.VIN}}.Encode()
-	if _, ok := dec.Attributes.(contract.VpicAttributes); ok {
-		toggle := url.Values{}
-		maps.Copy(toggle, query)
-		if !page.ShowEmpty {
-			toggle.Set(showEmpty, "true")
-		}
-		d.EmptyToggle = decodePath + "?vin=" + url.QueryEscape(page.VIN)
-		if len(toggle) > 0 {
-			d.EmptyToggle += "&" + toggle.Encode()
-		}
-	}
+	d.Groups, d.Hidden = elementGroups(dec, elements, showEmpty)
+	_, d.VPIC = dec.Attributes.(contract.VpicAttributes)
 	for _, c := range dec.ErrorCodes {
-		d.Codes = append(d.Codes, formCode{c, h.b.ErrorText(c)})
+		d.Codes = append(d.Codes, errorCodeText{c, h.errorTexts[c]})
 	}
 	if dec.CorrectedVIN.Valid {
 		d.Input, d.Suggested, d.DifferAt = diffVINs(dec.VIN, dec.CorrectedVIN.V)
 	}
-	return d, nil
+	for _, it := range dec.Items {
+		d.Items = append(d.Items, decodeItem{
+			ElementID: it.ElementID, Variable: it.Variable, Value: it.Value, AttributeID: it.AttributeID,
+			Source: it.Source, Keys: it.Keys, PatternID: it.PatternID, VinSchemaID: it.VinSchemaID,
+		})
+	}
+	return d, vd, nil
 }
 
 // requestOrigin is the scheme and host r was sent to, as the client named
-// them: https behind a proxy that says so.
+// them: https behind a proxy that says so, and in the browser's worker,
+// whose requests carry their whole URL, that URL's.
 func requestOrigin(r *http.Request) string {
 	if r.Host == "" {
 		return ""
 	}
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" || r.URL.Scheme == "https" {
 		scheme = "https"
 	}
 	return scheme + "://" + r.Host

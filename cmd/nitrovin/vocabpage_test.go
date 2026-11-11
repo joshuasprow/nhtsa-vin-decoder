@@ -18,13 +18,14 @@ import (
 	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
 )
 
-// TestVocabPage runs /vocab in headless Chrome or Chromium, each run in a
-// fresh profile, against a server that loaded the drift fixture's classics
-// and offers the EPA sample (cmd/nitrovin-epa/testdata) as EPA's
-// vocabulary. Without JavaScript the page lists the server's catalog and
-// says that your own files need JavaScript; with it, the worker's panel
-// lists the same rows and the browser's beside them. Each finding of the
-// browser prototype's first review
+// TestVocabPage runs the page's Vocabularies dialog in headless Chrome or
+// Chromium, each run in a fresh profile, against a server that loaded the
+// drift fixture's classics and offers the EPA sample
+// (cmd/nitrovin-epa/testdata) as EPA's vocabulary. Without JavaScript the
+// dialog lists the server's catalog and says that your own files need
+// JavaScript; with it, the worker's panel lists the same rows and the
+// browser's beside them. Each finding of the browser prototype's first
+// review
 // (https://github.com/joshuasprow/nitrovin/issues/147#issuecomment-6779155104)
 // has its step, marked "finding N"; TestWorker also covers 1 (hard
 // reload), 4 (batch order) and 5 (a stalled load). axe audits every state,
@@ -60,18 +61,21 @@ type offPages struct {
 	serverRow, translation string
 }
 
-// throughServer names the server's file alone: the worker forwards it, so
-// it answers the same with JavaScript on and off.
-const throughServer = "/ui/translate?from.ext=ext:classics/silverado"
+// throughServer names the server's file alone, and when it was asked: it
+// answers the same with JavaScript on and off.
+const throughServer = "/?from.ext=ext:classics/silverado" + pinned
 
-// vocabJSOff: /vocab without JavaScript, in a fresh profile, says your own
-// files need it, offers no file input or EPA load, and lists the server's
-// catalog, its drift behind a disclosure; translation and listing through
-// the server's file work as pages, and /ui/files says what it is for.
+// vocabJSOff: the dialog without JavaScript, in a fresh profile, opens,
+// says your own files need JavaScript, offers no file input or EPA load,
+// and lists the server's catalog, its drift behind a disclosure;
+// translation and listing through the server's file work as pages, and
+// /ui/files says what it is for.
 func vocabJSOff(t *testing.T, path, base string) offPages {
 	tb := newTab(t, path, base, &requestLog{}, false)
-	tb.do(chromedp.Navigate(base + "/vocab"))
+	tb.do(chromedp.Navigate(base + "/"))
 	tb.wait("#browser")
+	tb.do(chromedp.Click(chromedp.CSS("button.open-vocabularies")))
+	tb.wait("#vocabularies:popover-open")
 	if s := tb.html("#browser-status"); !strings.Contains(s, "Loading your own files needs JavaScript. Your files never leave this browser.") || !strings.Contains(s, "works without it") {
 		t.Errorf("JS off: %s", s)
 	}
@@ -86,16 +90,13 @@ func vocabJSOff(t *testing.T, path, base string) offPages {
 	if !strings.Contains(p.serverRow, "<summary>Drift: 1 extension</summary>") {
 		t.Errorf("JS off: the server's file without its drift: %s", p.serverRow)
 	}
-	tb.audit("/vocab, JS off")
+	tb.audit("the dialog, JS off")
 
 	tb.do(chromedp.Navigate(base + throughServer))
-	tb.wait("#translation")
+	tb.wait("#result")
 	p.translation = tb.html("#ui-main")
 	tb.audit("translation through the server's file, JS off")
 
-	tb.do(chromedp.Navigate(base + "/ui/vocabularies"))
-	tb.wait("table.catalog")
-	tb.audit("/ui/vocabularies, JS off")
 	tb.do(chromedp.Navigate(base + "/ui/vocabularies/classics"))
 	tb.wait("#ui-main table")
 	tb.audit("/ui/vocabularies/classics, JS off")
@@ -110,11 +111,11 @@ func vocabJSOff(t *testing.T, path, base string) offPages {
 	return p
 }
 
-// vocabJSOn: /vocab with JavaScript, in a fresh profile.
+// vocabJSOn: the dialog with JavaScript, in a fresh profile.
 func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epaPath, driftDir string) {
 	tb := newTab(t, path, base, &requestLog{}, true)
-	tb.do(chromedp.Navigate(base + "/vocab"))
-	tb.waitState("ready")
+	tb.do(chromedp.Navigate(base + "/"))
+	tb.vocabularies()
 
 	// Finding 6: the catalog does not flip. The worker's panel lists the
 	// server's rows as the server does, and the browser's beside them; a
@@ -129,10 +130,10 @@ func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epa
 	if !strings.Contains(tb.html("#browser-files"), "No files are kept in this browser yet.") {
 		t.Error("ready: no word that the browser keeps no file")
 	}
-	tb.audit("/vocab ready, no file kept")
+	tb.audit("the dialog ready, no file kept")
 	tb.do(chromedp.Navigate(base + throughServer))
-	tb.wait("#translation")
-	if got := tb.html("#ui-main"); got != off.translation {
+	tb.wait("#result")
+	if got := mainHTML(tb); got != off.translation {
 		t.Errorf("%s with JS on differs from JS off\nJS on:  %s\nJS off: %s", throughServer, got, off.translation)
 	}
 
@@ -153,8 +154,8 @@ func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epa
 		}
 	}
 
-	tb.do(chromedp.Navigate(base + "/vocab"))
-	tb.waitState("ready")
+	tb.do(chromedp.Navigate(base + "/"))
+	tb.vocabularies()
 	eval[bool](tb, `window.stayed = true`)
 
 	// Finding 4: one batch, in an order that links only as a whole:
@@ -191,23 +192,23 @@ func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epa
 	same := vocabServer(t, nil, filepath.Join(driftDir, "classics.jsonl"), filepath.Join(fixture, "listing.jsonl"), filepath.Join(fixture, "parts.jsonl"),
 		filepath.Join(driftDir, "yard.jsonl"), epaPath)
 	for _, target := range []string{
-		"/ui/translate?from.model=3876&model_year=2003&to=epa-vehicles",
-		"/ui/translate?from.vocabulary=epa-vehicles&from.entry.make=GMC&from.entry.model=Sierra+LTD+K15+4WD&to=yard",
+		"/?from.model=3876&model_year=2003&to=epa-vehicles" + pinned,
+		"/?from.vocabulary=epa-vehicles&from.entry.make=GMC&from.entry.model=Sierra+LTD+K15+4WD&to=yard" + pinned,
 	} {
 		tb.do(chromedp.Navigate(base + target))
-		tb.wait("#translation")
-		want := eval[string](tb, `new DOMParser().parseFromString(`+jsString(mainOf(t, same, target, false))+`, "text/html").getElementById("ui-main").outerHTML`)
-		if got := tb.html("#ui-main"); got != want {
+		tb.wait("#result")
+		want := eval[string](tb, `new DOMParser().parseFromString(`+jsString(mainOf(t, same, base, target, false))+`, "text/html").getElementById("ui-main").outerHTML`)
+		if got := mainHTML(tb); got != want {
 			t.Errorf("%s: the worker's page differs from the server's\nworker: %s\nserver: %s", target, got, want)
 		}
 	}
 	tb.audit("a translation in the browser")
 
-	tb.do(chromedp.Navigate(base + "/vocab"))
-	tb.waitState("ready")
+	tb.do(chromedp.Navigate(base + "/"))
+	tb.vocabularies()
 	eval[bool](tb, `window.stayed = true`)
 	eval[bool](tb, `(document.querySelectorAll("table.catalog details").forEach(d => d.open = true), true)`)
-	tb.audit("/vocab with files, drift shown, EPA's held")
+	tb.audit("the dialog with files, drift shown, EPA's held")
 
 	// A file named like a stored one replaces it, and what links to it
 	// still links.
@@ -271,7 +272,7 @@ func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epa
 
 	// Finding 8: Remove clicked the moment the panel is ready goes by htmx,
 	// never as a page.
-	tb.do(chromedp.Navigate(base + "/vocab"))
+	tb.do(chromedp.Navigate(base + "/"))
 	eval[bool](tb, `new Promise(resolve => {
 		(function poll() {
 			const button = document.querySelector('form.inline:has(input[value="yard"]) button');
@@ -300,8 +301,8 @@ func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epa
 		};
 	})`)
 	tb.stopWorkers()
-	tb.do(chromedp.Navigate(base + "/vocab"))
-	tb.waitState("ready")
+	tb.do(chromedp.Navigate(base + "/"))
+	tb.vocabularies()
 	if s := tb.html(`tr[data-where="browser"]:has(input[value="broken"])`); !strings.Contains(s, `<span class="error">Left out: broken.jsonl:1: `) {
 		t.Errorf("a stored file that faults: %s", s)
 	}
@@ -311,16 +312,17 @@ func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epa
 		t.Errorf("a stored file that faults, removed: IndexedDB holds %q", got)
 	}
 
-	// Finding 8: a VIN with the server out of reach fails in words.
+	// Finding 8: a VIN with the server out of reach fails in words, in the
+	// page's controls. The worker answers it for naming a browser file,
+	// epa-vehicles, among its targets: a VIN naming none is the server's.
 	wire.mu.Lock()
 	wire.cutDecodes = true
 	wire.mu.Unlock()
-	tb.do(chromedp.Navigate(base + "/ui/translate?from.vocabulary=epa-vehicles"))
-	tb.wait("#from-vin")
-	tb.do(chromedp.SetValue(chromedp.CSS("#from-vin"), vin), chromedp.Click(chromedp.CSS(`form[aria-labelledby="from-vin-h"] input[value="epa-vehicles"]`)),
-		chromedp.Click(chromedp.CSS(`form[aria-labelledby="from-vin-h"] button[type=submit]`)))
-	tb.until("an unreachable server", `document.getElementById("ui-error").textContent !== ""`)
-	if s := tb.html("#ui-error"); !strings.Contains(s, "could not be reached") || strings.Contains(s, "Failed to fetch") || strings.Contains(s, "TypeError") {
+	tb.closeVocabularies()
+	eval[bool](tb, `(document.querySelector('#controls input[name=to][value="epa-vehicles"]').checked = true)`)
+	tb.do(chromedp.SetValue(chromedp.CSS("#from-vin"), vin), chromedp.Click(chromedp.CSS(`#controls form button[type=submit]`)))
+	tb.until("an unreachable server", `document.querySelector("#controls .error") !== null`)
+	if s := tb.html("#controls .error"); !strings.Contains(s, "could not be reached") || strings.Contains(s, "Failed to fetch") || strings.Contains(s, "TypeError") {
 		t.Errorf("an unreachable server: %s", s)
 	}
 	tb.audit("an unreachable server")
@@ -330,7 +332,7 @@ func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epa
 
 	// Finding 1: a hard reload says the files are paused, offers no
 	// loading, and still lists the server's catalog.
-	tb.do(chromedp.Navigate(base + "/vocab"))
+	tb.do(chromedp.Navigate(base + "/"))
 	tb.waitState("ready")
 	tb.call(func(ctx context.Context) error {
 		_, err := chromedp.Call(ctx, page.Reload, page.ReloadParams{IgnoreCache: new(true)})
@@ -348,7 +350,7 @@ func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epa
 	// Finding 7: cold starts download nothing again. The worker fetched
 	// the module and the spine bundle once, at install, from immutable
 	// URLs, and starts from its cache after every stop.
-	tb.do(chromedp.Navigate(base + "/vocab"))
+	tb.do(chromedp.Navigate(base + "/"))
 	tb.waitState("ready")
 	tb.stopWorkers()
 	if f := tb.timeFetch("/ui/vocabularies/epa-vehicles"); !strings.Contains(f.Timing, "module;dur=") {

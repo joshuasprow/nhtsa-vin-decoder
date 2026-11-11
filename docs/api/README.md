@@ -161,10 +161,15 @@ Routes, bodies and status codes are in [`openapi.yaml`](openapi.yaml):
 `GET /v1/vocabularies/{name}/entries`, `GET /v1/info`,
 `GET /v1/openapi.json`, `GET /healthz`, and `POST /mcp`, the MCP server
 below over Streamable HTTP. `GET /` (`HEAD` too) and `/ui/…` are pages for
-browsers (HTML, a fragment for htmx, ADR 0013): `/` the entry page,
-`/ui/decode` the decode form, which `/?vin=…` redirects to (`301`), and
-their assets under `/ui/r/<release>/`; all are outside the contract, not
-in `openapi.yaml`, and may change.
+browsers (HTML, a fragment for htmx, and the whole page for its history
+restore: back and forward ask again, htmx keeps no snapshot; ADR 0013):
+`/` the one page, which decodes and translates, drawing each translation
+as a map of linked cards, and which old links (`/?vin=…`, `/ui/decode`,
+`/ui/translate`, `/vocab`, `/ui/vocabularies`) redirect to (`301`); a
+vocabulary's entries (`/ui/vocabularies/{name}`), which carries the same
+Vocabularies dialog; the Service Worker's panel (`/ui/files`) and
+`/sw.js`; and their assets under `/ui/r/<release>/`. All are outside the
+contract, not in `openapi.yaml`, and may change.
 
 **Translate and list** ([Translation](#translation-translate),
 [Listing](#listing-list)) carry the same request objects:

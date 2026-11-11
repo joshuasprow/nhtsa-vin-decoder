@@ -322,16 +322,44 @@ file again when it is asked for, and refuses with a 500 a file that
 changed on disk since it was loaded: restart `serve` to publish the new
 one.
 
-**In a browser**: `serve`'s `/vocab` page lists what is loaded, each file
-marked by where it is kept, with its drift counted by kind as `/v1/info`
-counts it (the first examples behind a disclosure), and translates and
-lists through the server's files (`/ui/translate`, `/ui/vocabularies`),
-with JavaScript or without. With JavaScript it also loads your own files,
+**In a browser**: `serve`'s page at `/` decodes a VIN and translates,
+through the server's files, with JavaScript or without. Its controls
+(Translate from) have a tab for each thing to translate from: VIN ·
+Year, make and model (an entry of a vehicle vocabulary) · one for each
+declared spine, named by what its vocabularies name (Part (parts spine):
+an entry of its vocabularies) · vPIC id (a make or model id, or an
+extension when a map's card asks for one). Each tab's form shows what
+the page's URL asks, a declared spine's own entry read-only, and a
+refusal is said beside the field holding the value it names, else above
+the form. Older links (`/?vin=…`, `/ui/decode`, `/ui/translate`, `/vocab`,
+`/ui/vocabularies`) redirect to it (`301`). Below the controls the answer
+is drawn as a map: what it is from, the spine entries it crosses and the
+entries it reaches as cards in three columns, each mapping a line. Its
+key: a mapping; a mapping matched by rule, dashed; a model under its
+make; a VIN to the model it decodes to; and a card marked when not every
+qualifier or the model year was checked. Each card's text says what its
+lines draw (its make, what it was reached through and how), so a screen
+reader reads it with the card's name; a name shows on two lines, and
+whole while its card is under the pointer or focused. On a phone the
+columns stack, the lines and their key are hidden, and each card shows
+that text instead. Every card is a link to the page from it (the From
+card to the answer's own URL); with JavaScript the card under the
+pointer or focus lights the routes through it, and a button shows the
+translation's JSON. Back and forward ask the server for each page again,
+never a copy the browser kept. The Vocabularies button in the page's
+header opens a dialog that
+lists what is loaded, each file marked by where it is kept, with its
+drift counted by kind as `/v1/info` counts it (the first examples behind
+a disclosure), each linked to its entries (`/ui/vocabularies/{name}`, a
+page that carries the same dialog).
+With JavaScript the dialog also loads your own files,
 picked from disk or dropped anywhere on the page, into the browser: a
-Service Worker (`/sw.js`) keeps each file's text and parsed index in
+Service Worker (`/sw.js`), started when the dialog first opens or a file
+is dropped, and at page load when one is already registered, keeps
+each file's text and parsed index in
 IndexedDB and runs the same pages, built from the same Go to WebAssembly,
 over them and the server's files, which it links from the URLs above.
-The page then lists one catalog: vPIC, the server's files and yours, each
+The dialog then lists one catalog: vPIC, the server's files and yours, each
 marked as built in, on this server or in this browser, yours with their
 file name, size and when they were stored, and how much the site keeps in
 the browser. Files loaded together load as one batch, which must link
@@ -341,10 +369,15 @@ refused, and so is a file with a fault, naming the file and line. Removing
 a file others link to is refused, naming them, with an offer to remove
 them all. A stored file that this release can no longer read, or that no
 longer links, is listed with its fault and can be removed. The worker
-answers only the pages that name a file the browser holds and leaves
-every other request to the server, so a link means the same with
-JavaScript on or off; opened in another browser, a link naming your file
-says where it lives. Answers carry the `decoder_version` and `data_month`
+answers only a request naming a file the browser holds (what it is from,
+or a target `to=`), and the entry lists of those files, and leaves
+every other request to the server (for a VIN it answers itself, the
+decode is `/v1/decode`'s), so a bare link such as `/?from.vin=…` is the
+server's answer and means the same with JavaScript on or off and in every
+browser; opened in another browser, a link naming your file
+says where it lives. The targets you tick are your selection, kept beside
+your files and ticked into the forms, so what you ask next names them as
+an explicit `to=`. Answers carry the `decoder_version` and `data_month`
 of the decode they used, and the worker refuses a VIN when the server has
 moved to another data month than its own: close every tab of the site and
 open it again, and the new release's worker takes over. A page loaded with
@@ -486,12 +519,12 @@ against, reaches every EPA name mapped to vPIC's Silverado for 2004.
 ## Keeping a vocabulary private
 
 nitrovin reads vocabulary files from the paths you give it and sends them
-nowhere (a file loaded on `/vocab` stays in that browser: only a VIN to
+nowhere (a file loaded in the page's Vocabularies dialog stays in that browser: only a VIN to
 decode goes to the server), and an answer names a file only by its `name` and `version`
 (`/v1/info` adds its hash and local path). nitrovin ships no third-party
 vocabulary but EPA's, and the hosted [nitrovin.app](https://nitrovin.app)
 loads none: there, the API's translate and list answer for vPIC alone, and
-`/vocab` offers EPA's to load into your browser. A vocabulary
+the page offers EPA's to load into your browser. A vocabulary
 built from licensed names (a parts catalog, a marketplace's compatibility
 data) is yours to build and load under your own licence, and stays on the
 machines you load it on.

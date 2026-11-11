@@ -252,6 +252,23 @@ func (tb *tab) requests(step string, htmx bool, targets ...string) {
 	}
 }
 
+// restores checks the page requests since the last check: htmx's, to
+// restore history, for targets.
+func (tb *tab) restores(step string, targets ...string) {
+	tb.t.Helper()
+	seen := tb.log.take()
+	var got []string
+	for _, r := range seen {
+		got = append(got, r.target)
+		if !r.htmx || !r.restore {
+			tb.t.Errorf("%s: %s with HX-Request %v, HX-History-Restore-Request %v; want both", step, r.target, r.htmx, r.restore)
+		}
+	}
+	if !slices.Equal(got, targets) {
+		tb.t.Errorf("%s: requests %q; want %q", step, got, targets)
+	}
+}
+
 // violation is one axe finding: the rule, its impact, where, and axe's
 // account of the first place.
 type violation struct {
@@ -346,11 +363,11 @@ func (tb *tab) waitText(sel, want string) {
 	}
 }
 
-// browserForm runs the decode form in a browser twice, each in a fresh
-// profile: without JavaScript every step is a page the browser loads, and
-// with it htmx makes the same steps fragments, the page never reloading.
-// axe audits each state in both runs. CI (CI set) needs the browser; a
-// machine without one skips.
+// browserForm runs the page's VIN form in a browser twice, each in a
+// fresh profile: without JavaScript every step is a page the browser
+// loads, and with it htmx makes the same steps fragments, the page never
+// reloading. Both dialogs open either way. axe audits each state in both
+// runs. CI (CI set) needs the browser; a machine without one skips.
 func browserForm(t *testing.T, srv *httptest.Server) {
 	path := chromePath()
 	if path == "" {
@@ -369,12 +386,29 @@ func browserForm(t *testing.T, srv *httptest.Server) {
 const (
 	vin = "1HGCM82633A004352"
 	// submitted is the form's request for vin, every field as it starts.
-	submitted = "/ui/decode?vin=" + vin + "&model_year=&shape=vpic"
+	submitted = "/?from.vin=" + vin + "&model_year=&shape=vpic"
+	// oldLink is an old link to the decode form, and movedLink where it
+	// lands.
+	oldLink   = "/?vin=5YJ3E1EA2JF000316"
+	movedLink = "/?from.vin=5YJ3E1EA2JF000316"
 )
 
-// formJSOff: the form without JavaScript, in a fresh profile. Each step is
+// dialogs opens each of the page's dialogs from its button, audits it
+// open, and closes it by its own button: popovers, which need no script.
+func (tb *tab) dialogs(step string) {
+	tb.t.Helper()
+	for dialog, opener := range map[string]string{"#vocabularies": "button.open-vocabularies", "#result-json": "button.open-dialog"} {
+		tb.do(chromedp.Click(chromedp.CSS(opener)))
+		tb.wait(dialog + ":popover-open")
+		tb.audit(step + ", " + dialog + " open")
+		tb.do(chromedp.Click(chromedp.CSS(dialog + " .dialog-head button")))
+		tb.wait(dialog + ":not(:popover-open)")
+	}
+}
+
+// formJSOff: the page without JavaScript, in a fresh profile. Each step is
 // a page; no copy buttons appear; back and forward are the browser's own,
-// and an old link redirects.
+// and an old link moves to the page.
 func formJSOff(t *testing.T, path, base string, log *requestLog) {
 	tb := newTab(t, path, base, log, false)
 
@@ -386,8 +420,8 @@ func formJSOff(t *testing.T, path, base string, log *requestLog) {
 	tb.requests("/", false, "/")
 	tb.audit("/")
 
-	tb.do(chromedp.SetValue(chromedp.CSS("#vin"), vin), chromedp.Click(chromedp.CSS(`form button[type=submit]`)))
-	tb.wait("#copy-json")
+	tb.do(chromedp.SetValue(chromedp.CSS("#from-vin"), vin), chromedp.Click(chromedp.CSS(`#controls form button[type=submit]`)))
+	tb.wait("#copy-url")
 	if got := tb.at(); got != submitted {
 		t.Errorf("submit: at %s; want %s", got, submitted)
 	}
@@ -396,41 +430,51 @@ func formJSOff(t *testing.T, path, base string, log *requestLog) {
 	}
 	tb.requests("submit", false, submitted)
 	tb.audit("decode")
+	tb.dialogs("decode, JS off")
 
-	// Back is the entry page again, forward the decode.
+	// Back is the empty page again, forward the decode.
 	tb.history(-1)
 	tb.wait("#install")
 	if got := tb.at(); got != "/" {
 		t.Errorf("back: at %s; want /", got)
 	}
 	tb.history(+1)
-	tb.wait("#copy-json")
+	tb.wait("#copy-url")
 	if got := tb.at(); got != submitted {
 		t.Errorf("forward: at %s; want %s", got, submitted)
 	}
 	tb.log.take() // the browser may or may not ask again: its cache's choice
 
 	// A refusal is the form with the refusal beside its field.
-	const refused = "/ui/decode?vin=" + vin + "&model_year=2003.5"
+	const refused = "/?from.vin=" + vin + "&model_year=2003.5"
 	tb.do(chromedp.Navigate(base + refused))
 	tb.wait("#model_year-error")
 	tb.requests("refusal", false, refused)
 	tb.audit("refusal")
 
-	// An old link lands on the same decode at /ui/decode.
-	tb.do(chromedp.Navigate(base + "/?vin=5YJ3E1EA2JF000316"))
-	tb.wait("#copy-json")
-	if got := tb.at(); got != "/ui/decode?vin=5YJ3E1EA2JF000316" {
-		t.Errorf("old link: at %s; want /ui/decode?vin=5YJ3E1EA2JF000316", got)
+	// A tab is a link to the page with its form.
+	tb.do(chromedp.Click(chromedp.CSS("#tab-id")))
+	tb.wait("#from-model")
+	if got := tb.at(); got != "/?tab=id" {
+		t.Errorf("the vPIC id tab: at %s; want /?tab=id", got)
 	}
-	tb.requests("old link", false, "/?vin=5YJ3E1EA2JF000316", "/ui/decode?vin=5YJ3E1EA2JF000316")
+	tb.requests("the vPIC id tab", false, "/?tab=id")
+	tb.audit("the vPIC id tab")
+
+	// An old link lands on the same decode on the page.
+	tb.do(chromedp.Navigate(base + oldLink))
+	tb.wait("#copy-url")
+	if got := tb.at(); got != movedLink {
+		t.Errorf("old link: at %s; want %s", got, movedLink)
+	}
+	tb.requests("old link", false, oldLink, movedLink)
 }
 
-// formJSOn: the form with JavaScript, in a fresh profile. htmx asks for
-// each step as a fragment (HX-Request), swaps it into the page and pushes
-// its URL, and the page never reloads; copy buttons come with each swap;
-// back and forward restore each state, from htmx's snapshot and from the
-// server; nothing is refused by CSP and nothing throws.
+// formJSOn: the page with JavaScript, in a fresh profile. htmx asks for
+// each step as a fragment (HX-Request), swaps it into the page's main and
+// pushes its URL, and the page never reloads; copy buttons come with each
+// swap; back and forward ask the server for each state, never a snapshot
+// (pkg/ui, ui.html); nothing is refused by CSP and nothing throws.
 func formJSOn(t *testing.T, path, base string, log *requestLog) {
 	tb := newTab(t, path, base, log, true)
 
@@ -442,44 +486,49 @@ func formJSOn(t *testing.T, path, base string, log *requestLog) {
 	// A page that reloads loses this.
 	eval[bool](tb, `window.stayed = true`)
 
-	tb.do(chromedp.SetValue(chromedp.CSS("#vin"), vin), chromedp.Click(chromedp.CSS(`form button[type=submit]`)))
-	tb.wait("#copy-json + button.copy")
+	tb.do(chromedp.SetValue(chromedp.CSS("#from-vin"), vin), chromedp.Click(chromedp.CSS(`#controls form button[type=submit]`)))
+	tb.wait("#copy-url + button.copy")
 	if got := tb.at(); got != submitted {
 		t.Errorf("submit: at %s; want %s", got, submitted)
 	}
 	if !strings.Contains(tb.html("main"), `<th scope="row">Make</th><td>HONDA</td>`) {
 		t.Errorf("submit: no Make HONDA")
 	}
-	if title := eval[string](tb, `document.title`); title != vin+" · nitrovin" {
+	if title := eval[string](tb, `document.title`); title != "2003 Honda Accord · nitrovin" {
 		t.Errorf("submit: title %q", title)
 	}
 	tb.requests("submit", true, submitted)
 	tb.audit("decode")
+	tb.dialogs("decode")
 
-	// A copy button copies its text and says so, once its "For
-	// developers" disclosure is open.
-	eval[bool](tb, `document.querySelectorAll("details.dev").forEach(d => d.open = true), true`)
-	tb.do(chromedp.Click(chromedp.CSS(`#copy-json + button.copy`)))
+	// A copy button copies its text and says so: the decode's JSON, in
+	// its dialog.
+	tb.do(chromedp.Click(chromedp.CSS("button.open-dialog")))
+	tb.wait("#result-json:popover-open")
+	tb.do(chromedp.Click(chromedp.CSS(`#decode-json + button.copy`)))
 	tb.waitText("#copy-status", "Copied the decode's JSON")
-	if got, want := eval[string](tb, `navigator.clipboard.readText()`), eval[string](tb, `document.getElementById("copy-json").textContent`); got != want {
+	if got, want := eval[string](tb, `navigator.clipboard.readText()`), eval[string](tb, `document.getElementById("decode-json").textContent`); got != want {
 		t.Errorf("copy: clipboard %q; want the decode's JSON", got)
 	}
+	tb.do(chromedp.Click(chromedp.CSS("#result-json .dialog-head button")))
+	tb.wait("#result-json:not(:popover-open)")
 
 	// A refusal is the form with the refusal beside its field, in the
 	// page's main, and the error slot stays empty.
-	tb.do(chromedp.SetValue(chromedp.CSS("#model_year"), "2003.5"), chromedp.Click(chromedp.CSS(`form button[type=submit]`)))
+	tb.do(chromedp.SetValue(chromedp.CSS("#model_year"), "2003.5"), chromedp.Click(chromedp.CSS(`#controls form button[type=submit]`)))
 	tb.wait("#model_year-error")
-	const refused = "/ui/decode?vin=" + vin + "&model_year=2003.5&shape=vpic"
+	const refused = "/?from.vin=" + vin + "&model_year=2003.5&shape=vpic"
 	tb.requests("refusal", true, refused)
 	if slot := eval[string](tb, `document.getElementById("ui-error").innerHTML`); slot != "" {
 		t.Errorf("refusal: error slot %q", slot)
 	}
 	tb.audit("refusal")
 
-	// Back and forward restore each state from htmx's snapshots, with live
-	// copy buttons, one each.
+	// Back and forward ask the server for each state, the whole page,
+	// which htmx takes the main out of: live copy buttons, one each, and
+	// one main and one Vocabularies button.
 	eval[bool](tb, `history.back(), true`)
-	tb.wait("#copy-json + button.copy")
+	tb.wait("#copy-url + button.copy")
 	if got := tb.at(); got != submitted {
 		t.Errorf("back: at %s; want %s", got, submitted)
 	}
@@ -490,7 +539,7 @@ func formJSOn(t *testing.T, path, base string, log *requestLog) {
 		t.Errorf("back: at %s; want /", got)
 	}
 	eval[bool](tb, `history.forward(), true`)
-	tb.wait("#copy-json + button.copy")
+	tb.wait("#copy-url + button.copy")
 	if got := tb.at(); got != submitted {
 		t.Errorf("forward: at %s; want %s", got, submitted)
 	}
@@ -500,29 +549,34 @@ func formJSOn(t *testing.T, path, base string, log *requestLog) {
 	eval[bool](tb, `document.querySelectorAll("details.dev").forEach(d => d.open = true), true`)
 	tb.do(chromedp.Click(chromedp.CSS(`#copy-cli + button.copy`)))
 	tb.waitText("#copy-status", "Copied the nitrovin decode command")
-	tb.requests("back and forward", true)
-
-	// Without a snapshot, htmx asks the server for the whole page.
-	eval[bool](tb, `sessionStorage.removeItem("htmx-history-cache"), history.back(), true`)
+	eval[bool](tb, `history.back(), true`)
 	tb.wait("#install")
 	if got := tb.at(); got != "/" {
-		t.Errorf("back without a snapshot: at %s; want /", got)
+		t.Errorf("back again: at %s; want /", got)
 	}
-	if n := tb.count("main"); n != 1 {
-		t.Errorf("back without a snapshot: %d mains", n)
+	if mains, buttons := tb.count("main"), tb.count("button.open-vocabularies"); mains != 1 || buttons != 1 {
+		t.Errorf("back again: %d mains, %d Vocabularies buttons", mains, buttons)
 	}
-	if seen := tb.log.take(); len(seen) != 1 || seen[0].target != "/" || !seen[0].restore {
-		t.Errorf("back without a snapshot: requests %+v; want / to restore history", seen)
+	tb.restores("back and forward", submitted, "/", submitted, "/")
+	if n := eval[int](tb, `sessionStorage.getItem("htmx-history-cache") === null ? 0 : JSON.parse(sessionStorage.getItem("htmx-history-cache")).length`); n != 0 {
+		t.Errorf("back and forward: htmx kept %d snapshots", n)
 	}
 	tb.audit("restored /")
 
-	// The examples are links htmx follows the same way.
-	tb.do(chromedp.Click(chromedp.CSS(`a.example[href="/ui/decode?vin=5YJ3E1EA2JF000316"]`)))
-	tb.wait("#copy-json + button.copy")
-	if got := tb.at(); got != "/ui/decode?vin=5YJ3E1EA2JF000316" {
+	// The examples and the tabs are links htmx follows the same way.
+	tb.do(chromedp.Click(chromedp.CSS(`a.example[href="` + movedLink + `"]`)))
+	tb.wait("#copy-url + button.copy")
+	if got := tb.at(); got != movedLink {
 		t.Errorf("example: at %s", got)
 	}
-	tb.requests("example", true, "/ui/decode?vin=5YJ3E1EA2JF000316")
+	tb.requests("example", true, movedLink)
+	tb.do(chromedp.Click(chromedp.CSS("#tab-id")))
+	tb.wait("#from-model")
+	if got := tb.at(); got != "/?tab=id" {
+		t.Errorf("the vPIC id tab: at %s; want /?tab=id", got)
+	}
+	tb.requests("the vPIC id tab", true, "/?tab=id")
+	tb.audit("the vPIC id tab")
 
 	if !eval[bool](tb, `window.stayed === true`) {
 		t.Errorf("the page reloaded")
@@ -536,11 +590,11 @@ func formJSOn(t *testing.T, path, base string, log *requestLog) {
 	}
 	tb.mu.Unlock()
 
-	// An old link lands on the same decode at /ui/decode.
-	tb.do(chromedp.Navigate(base + "/?vin=5YJ3E1EA2JF000316"))
-	tb.wait("#copy-json + button.copy")
-	if got := tb.at(); got != "/ui/decode?vin=5YJ3E1EA2JF000316" {
-		t.Errorf("old link: at %s; want /ui/decode?vin=5YJ3E1EA2JF000316", got)
+	// An old link lands on the same decode on the page.
+	tb.do(chromedp.Navigate(base + oldLink))
+	tb.wait("#copy-url + button.copy")
+	if got := tb.at(); got != movedLink {
+		t.Errorf("old link: at %s; want %s", got, movedLink)
 	}
-	tb.requests("old link", false, "/?vin=5YJ3E1EA2JF000316", "/ui/decode?vin=5YJ3E1EA2JF000316")
+	tb.requests("old link", false, oldLink, movedLink)
 }
