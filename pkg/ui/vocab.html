@@ -74,8 +74,8 @@ Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 {{define "translate" -}}
 <h1>Translate</h1>
 <p><a href="/vocab">Vocabularies</a>: what is loaded, and your own files to load.</p>
-{{template "translate-forms" .}}
 {{with .Result}}{{template "translation" .}}{{end}}
+{{template "translate-forms" .}}
 {{- end}}
 
 {{/* translate-forms is the examples, each a link to the translate page
@@ -88,7 +88,7 @@ that spine's targets before a vocabulary is chosen. */}}
 {{range .Examples}}<li><a class="example" href="{{.Href}}" data-spine="{{.Spine}}" data-to="{{.DefaultTo}}">{{.Label}}</a> <span class="hint">{{.Hint}}</span></li>
 {{end}}</ul>
 
-<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-push-url="true" aria-labelledby="from-vin-h">
+<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-swap="innerHTML show:window:top" hx-push-url="true" aria-labelledby="from-vin-h">
 <h2 id="from-vin-h">From a VIN</h2>
 <div>
 <label for="from-vin">VIN</label>
@@ -102,7 +102,9 @@ that spine's targets before a vocabulary is chosen. */}}
 <button type="submit">Translate the VIN</button>
 </form>
 
-<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-push-url="true" aria-labelledby="from-vpic-h">
+<details class="advanced"{{if or .FromMake .FromModel}} open{{end}}>
+<summary>Advanced: from a vPIC make or model id</summary>
+<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-swap="innerHTML show:window:top" hx-push-url="true" aria-labelledby="from-vpic-h">
 <h2 id="from-vpic-h">From a vPIC make or model</h2>
 <p class="hint">One of the two: an id from <a href="/ui/vocabularies/vpic">vPIC's makes and their models</a>.</p>
 <div>
@@ -120,9 +122,10 @@ that spine's targets before a vocabulary is chosen. */}}
 {{template "targets" (.TargetsOn "vpic")}}
 <button type="submit">Translate the vPIC entry</button>
 </form>
+</details>
 
 {{range $f := .EntryForms}}
-<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-push-url="true" aria-labelledby="from-{{.Key}}-h">
+<form method="get" action="/ui/translate" hx-get="/ui/translate" hx-target="#ui-main" hx-swap="innerHTML show:window:top" hx-push-url="true" aria-labelledby="from-{{.Key}}-h">
 <h2 id="from-{{.Key}}-h">{{if eq .Spine "vpic"}}From a vehicle vocabulary's entry{{else}}From a part vocabulary's entry, on the {{.Spine}} spine{{end}}</h2>
 <div>
 <label for="from-{{.Key}}-vocabulary">Vocabulary</label>
@@ -160,14 +163,19 @@ vocab.js keeps as the visitor's selection on /vocab. */}}
 
 {{define "translation" -}}
 <section id="translation" aria-labelledby="translation-h">
-<h2 id="translation-h">Translation</h2>
-<p>From {{.From}}: <strong>{{.Status}}</strong>{{with .Note}} ({{.}}){{end}}</p>
+<h2 id="translation-h">{{.Heading}}</h2>
+<p>From {{.From}}{{with .Status}}: <strong>{{.}}</strong>{{end}}{{with .Note}} ({{.}}){{end}}</p>
+{{range .To}}<h3>{{.Vocabulary}}</h3>
+{{if .Entries}}<ul class="entries">{{range .Entries}}<li><strong>{{.Name}}</strong>{{with .Details}}
+<details><summary>Details</summary><ul>{{range .}}<li>{{.}}</li>{{end}}</ul></details>{{end}}</li>
+{{end}}</ul>{{else}}<p>No name for this vehicle yet.</p>{{end}}
+{{else}}<p>No vocabulary to translate to: tick one in a form below.</p>
+{{end}}<details><summary>Details</summary>
 {{with .Vehicle}}<p>{{.}}</p>{{end}}
 <h3>Spine</h3>
 {{if .Spine}}<ul>{{range .Spine}}<li>{{.}}</li>{{end}}</ul>{{else}}<p>Nothing on the spine.</p>{{end}}
-{{range .To}}<h3>{{.Vocabulary}}</h3>
-{{if .Entries}}<ul>{{range .Entries}}<li>{{.}}</li>{{end}}</ul>{{else}}<p>No entry.</p>{{end}}
-{{end}}<p class="hint">Files: {{range $i, $f := .Files}}{{if $i}}, {{end}}{{$f}}{{else}}none{{end}} · data {{.DataMonth}} · decoder {{.DecoderVersion}}</p>
+<p class="hint">Files: {{range $i, $f := .Files}}{{if $i}}, {{end}}{{$f}}{{else}}none{{end}} · data {{.DataMonth}} · decoder {{.DecoderVersion}}</p>
+</details>
 </section>
 {{- end}}
 

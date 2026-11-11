@@ -224,9 +224,13 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   const n = named(url);
-  if (n.length === 0) return;
+  // A translation naming no target goes to the visitor's selection,
+  // which the module reads: answered here when the browser keeps a file.
+  const bare = url.pathname === '/ui/translate' && !url.searchParams.has('to') &&
+    [...url.searchParams.keys()].some((k) => k.startsWith('from.') && k !== 'from.vocabulary');
+  if (n.length === 0 && !bare) return;
   e.respondWith(storedNames().then((stored) => {
-    if (n.some((name) => stored.has(name))) return serve(e.request);
+    if (n.some((name) => stored.has(name)) || (bare && stored.size > 0)) return serve(e.request);
     e.waitUntil(remember(url, e.request));
     return fetch(e.request);
   }));
