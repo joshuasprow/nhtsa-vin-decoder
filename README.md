@@ -453,14 +453,16 @@ nitrovin --vocab testdata/vocab serve                                 # /v1/tran
 
 `serve`'s `/vocab` page lists what is loaded, each file marked by where it
 is kept and with its drift, and translates through vPIC and the server's
-own files with or without JavaScript; with it, it loads your own files,
-picked or dropped on the page, into your browser, where they stay: a
-Service Worker keeps them in IndexedDB and translates with the same Go,
-built to WebAssembly, linking them with the server's files, which `serve`
-publishes with the data month's spine bundle under `/ui/r/<release>/`
-([docs/vocabularies.md](docs/vocabularies.md)). Release builds include
-the worker, and EPA's vocabulary (below) as a one-click load into the
-browser; a `go install` build serves `/vocab` without them, and says so.
+own files with or without JavaScript, with an example to try from each
+vocabulary; with it, it loads your own files, picked or dropped on the
+page, into your browser, where they stay: a Service Worker keeps them in
+IndexedDB, with the targets you tick (each file you load ticked), and
+translates with the same Go, built to WebAssembly, linking them with the
+server's files, which `serve` publishes with the data month's spine bundle
+under `/ui/r/<release>/` ([docs/vocabularies.md](docs/vocabularies.md)).
+Release builds include the worker, and EPA's vocabulary (below) as a
+one-click load into the browser; a `go install` build serves `/vocab`
+without them, and says so.
 
 Each data release also carries `epa-vehicles.jsonl`, a vocabulary of the
 names EPA's fuel-economy data

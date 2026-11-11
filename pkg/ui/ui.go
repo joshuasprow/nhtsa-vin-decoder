@@ -303,7 +303,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.fail(w, frag, base, &pageError{Status: http.StatusMethodNotAllowed, Message: swPath + " takes GET, not " + r.Method + "."})
 			return
 		}
-		h.serviceWorker(w, info, base)
+		if err := h.serviceWorker(w, info, base); err != nil {
+			h.fail(w, frag, base, h.pageError(err))
+		}
 		return
 	}
 	answer, ok := h.routes[r.URL.Path]

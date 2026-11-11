@@ -1,9 +1,11 @@
 // /vocab's browser files (ADR 0013): registers the Service Worker
 // (worker.js), says what state it is in, swaps the worker's panel (the
-// merged catalog, with the browser's files) over the server's catalog,
-// and hands the files the visitor picks or drops, and EPA's vocabulary on
-// a click, to the worker by postMessage. Without this script the page
-// says that loading files needs JavaScript; everything else on it works.
+// merged catalog, with the browser's files, and the translate forms over
+// it, the visitor's selection ticked) over the server's, and hands the
+// files the visitor picks or drops, and EPA's vocabulary on a click, to
+// the worker by postMessage, and the targets the visitor ticks too.
+// Without this script the page says that loading files needs JavaScript;
+// everything else on it works.
 //
 // States, on #browser's data-state and in words in #browser-status:
 // starting, ready (the worker controls the page and its panel is in
@@ -70,6 +72,33 @@
   })().catch((err) => say('failed', 'The translator in this browser could not start: ' + err + '.'));
 
   const ready = () => section.dataset.state === 'ready' && sw.controller;
+
+  // The targets ticked in /vocab's translate forms are the visitor's
+  // selection, which the worker keeps beside the files: a tick goes to it
+  // at once, and to every form's box for the same vocabulary.
+  document.addEventListener('change', (e) => {
+    const box = e.target;
+    if (!box.matches || !box.matches('#vocab-translate input[name=to]') || !ready()) return;
+    for (const other of document.querySelectorAll('#vocab-translate input[name=to]')) {
+      if (other.value === box.value) other.checked = box.checked;
+    }
+    sw.controller.postMessage({ op: 'select', name: box.value, spine: box.closest('fieldset').dataset.spine, checked: box.checked });
+  });
+
+  // An example clicked on /vocab translates to the targets ticked there
+  // now on its spine, else to its own (data-to), not to those ticked when
+  // the forms were drawn.
+  document.addEventListener('htmx:configRequest', (e) => {
+    const a = e.detail.elt;
+    if (!a.matches || !a.matches('#vocab-translate a.example')) return;
+    const boxes = document.querySelector('#vocab-translate fieldset[data-spine="' + CSS.escape(a.dataset.spine) + '"]');
+    if (!boxes) return;
+    const ticked = [...boxes.querySelectorAll('input[name=to]:checked')].map((b) => b.value);
+    const url = new URL(e.detail.path, location.origin);
+    url.searchParams.delete('to');
+    for (const name of ticked.length ? ticked : a.dataset.to.split(' ').filter(Boolean)) url.searchParams.append('to', name);
+    e.detail.path = url.pathname + url.search;
+  });
 
   // usage says, below the panel, how much this site keeps in the browser
   // and whether the browser may clear it.

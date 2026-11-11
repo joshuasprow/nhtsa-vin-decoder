@@ -14,6 +14,12 @@
 //   that have none (clients.claim). It keeps its release's assets in a
 //   cache of its own, so pages it renders keep working while the server
 //   runs a newer release.
+// - It keeps the visitor's selection of targets beside the files, by the
+//   spine they are on, which /vocab's forms tick: each file loaded joins
+//   it, each removed leaves it, a target ticked or cleared on /vocab
+//   changes it, and a translation asked for, a link's own included, sets
+//   it on its spine to its targets (the module's pages do, for the ones
+//   they answer; this script, for the ones it sends to the server).
 'use strict';
 
 const config = self.nitrovinConfig;
@@ -46,19 +52,31 @@ self.addEventListener('activate', (e) => {
 });
 
 // ---- IndexedDB: files (records, by name), texts (by blake3), indexes (by
-// release and blake3). A change is one transaction over all three.
+// release and blake3), and state: "selection", the vocabularies the
+// visitor selected as targets by spine ({spine: [name]}). A change is one
+// transaction over them all.
 
 let dbOpen = null;
 function db() {
   if (!dbOpen) {
     dbOpen = new Promise((resolve, reject) => {
-      const r = indexedDB.open(DB, 1);
+      // Version 2 added state; an older database gains it and keeps the rest.
+      const r = indexedDB.open(DB, 2);
       r.onupgradeneeded = () => {
-        r.result.createObjectStore('files', { keyPath: 'name' });
-        r.result.createObjectStore('texts');
-        r.result.createObjectStore('indexes');
+        const d = r.result;
+        if (!d.objectStoreNames.contains('files')) d.createObjectStore('files', { keyPath: 'name' });
+        for (const name of ['texts', 'indexes', 'state']) {
+          if (!d.objectStoreNames.contains(name)) d.createObjectStore(name);
+        }
       };
-      r.onsuccess = () => resolve(r.result);
+      r.onsuccess = () => {
+        // A newer release's worker upgrading the database closes this one.
+        r.result.onversionchange = () => {
+          r.result.close();
+          dbOpen = null;
+        };
+        resolve(r.result);
+      };
       r.onerror = () => reject(r.error);
     });
     dbOpen.catch(() => { dbOpen = null; });
@@ -96,6 +114,14 @@ async function storedNames() {
   return names;
 }
 
+// select changes the stored selection on spine to what f makes of it.
+const select = (spine, f) => tx(['state'], 'readwrite', async (t) => {
+  const state = t.objectStore('state');
+  const s = (await request(state.get('selection'))) || {};
+  s[spine] = f(s[spine] || []);
+  await request(state.put(s, 'selection'));
+});
+
 // disk is what the module's Library calls (ui.Disk).
 self.nitrovinDisk = {
   records: () => tx(['files'], 'readonly', (t) => request(t.objectStore('files').getAll())),
@@ -105,10 +131,12 @@ self.nitrovinDisk = {
     if (v === undefined) throw new Error('its text is not stored');
     return bytes(v);
   }),
-  // change puts [{record, text, index}] and deletes the records named
-  // remove; a text or index no record keeps any more goes with them.
-  change: async (put, remove) => {
-    await tx(['files', 'texts', 'indexes'], 'readwrite', async (t) => {
+  selection: () => tx(['state'], 'readonly', (t) => request(t.objectStore('state').get('selection'))).then((v) => v || {}),
+  // change puts [{record, text, index}], deletes the records named remove
+  // and stores selection; a text or index no record keeps any more goes
+  // with them.
+  change: async (put, remove, selection) => {
+    await tx(['files', 'texts', 'indexes', 'state'], 'readwrite', async (t) => {
       const files = t.objectStore('files'), texts = t.objectStore('texts'), indexes = t.objectStore('indexes');
       const before = await request(files.getAll());
       for (const name of remove) await request(files.delete(name));
@@ -124,6 +152,7 @@ self.nitrovinDisk = {
           await request(indexes.delete(indexKey(r.blake3)));
         }
       }
+      await request(t.objectStore('state').put(selection, 'selection'));
     });
     names = null;
   },
@@ -199,8 +228,32 @@ self.addEventListener('fetch', (e) => {
   }
   const n = named(url);
   if (n.length === 0) return;
-  e.respondWith(storedNames().then((stored) => (n.some((name) => stored.has(name)) ? serve(e.request) : fetch(e.request))));
+  e.respondWith(storedNames().then((stored) => {
+    if (n.some((name) => stored.has(name))) return serve(e.request);
+    e.waitUntil(remember(url, e.request));
+    return fetch(e.request);
+  }));
 });
+
+// remember makes the targets of a translation sent to the server, a
+// link's own included, the visitor's selection on their spine, as the
+// module's pages do for the ones they answer (ui's remember): vPIC's for
+// a VIN, a vPIC entry or an extension's, else the from's spine. History
+// going back to an older page changes nothing.
+async function remember(url, req) {
+  const q = url.searchParams;
+  if (url.pathname !== '/ui/translate' || !q.has('to') || req.headers.get('HX-History-Restore-Request')) return;
+  let spine = 'vpic';
+  if (q.has('from.spine')) {
+    spine = q.get('from.spine');
+  } else if (q.has('from.vocabulary')) {
+    const f = config.files.find((f) => f.name === q.get('from.vocabulary'));
+    if (!f || !f.spine) return; // nothing loaded by its name: the translation is refused
+    spine = f.spine;
+  }
+  const to = q.getAll('to');
+  await select(spine, () => to);
+}
 
 // serve answers req from the module's pages.
 async function serve(req) {
@@ -223,8 +276,15 @@ async function serve(req) {
 
 // A load: {op: "load", files: [{name, data: ArrayBuffer}]} on a
 // MessageChannel. The page hears {progress} at each step, then {done, ok,
-// message}; it gives up after a minute without either.
+// message}; it gives up after a minute without either. A tick: {op:
+// "select", name, spine, checked}, a target the visitor ticked on /vocab
+// or cleared, kept in the selection on its spine or dropped from it.
 self.addEventListener('message', (e) => {
+  if (e.data && e.data.op === 'select' && typeof e.data.name === 'string' && typeof e.data.spine === 'string') {
+    const { name, spine, checked } = e.data;
+    e.waitUntil(select(spine, (s) => s.filter((n) => n !== name).concat(checked ? [name] : [])));
+    return;
+  }
   const port = e.ports[0];
   if (!port || !e.data || e.data.op !== 'load') return;
   e.waitUntil((async () => {
