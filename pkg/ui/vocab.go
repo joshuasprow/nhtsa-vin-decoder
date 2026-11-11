@@ -464,7 +464,9 @@ func (h *Handler) translateForms(cat []contract.CatalogEntry, q url.Values) (tra
 			if err != nil {
 				continue
 			}
-			if !slices.ContainsFunc(tr.To, func(t contract.Translated) bool { return len(t.Entries) > 0 && (t.Vocabulary != v.Name || len(tr.To) == 1) }) {
+			if !slices.ContainsFunc(tr.To, func(t contract.Translated) bool {
+				return len(t.Entries) > 0 && (t.Vocabulary != v.Name || len(tr.To) == 1)
+			}) {
 				continue
 			}
 		}
