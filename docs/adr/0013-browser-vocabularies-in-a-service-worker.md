@@ -129,3 +129,53 @@ selection is ticked into the forms and travels as an explicit `to=`, never
 implied. The worker has no decoder and no decode page of its own: it
 renders a VIN's decode from `/v1/decode`, which is still all that travels
 from the browser to the server.
+
+## Amendment (2026-11-11): Update now, and an outdated worker answers nothing
+
+This amends **Lifecycle and errors**. After v0.3.2 → v0.3.3 a visitor's
+v0.3.2 worker, waiting for its tabs to close, kept controlling pages
+against the v0.3.3 server: it drew its own pages for URLs that server no
+longer had (`/ui/translate`, which it moved to `/`), fetched its
+release's assets under `/ui/r/<v0.3.2 release>/`, which the server
+answers 404, and spoke an older protocol than the new page's `vocab.js`,
+so `/` showed no file-backed tabs or ticked targets and a refused batch
+never reached the visitor.
+
+**Update now.** The notice that a new release is ready carries an
+**Update now** button. It posts `{op: "skipWaiting"}` to the waiting
+worker, which calls `skipWaiting()`; the page reloads on
+`controllerchange`, and so does any other tab the old worker controlled.
+Without the click, the new worker still waits until every tab closes.
+Neither swaps code under an open page: the click reloads it.
+
+**An outdated worker answers nothing.** Every response of `pkg/ui`'s
+handler (pages, errors, assets and `/sw.js`) names its release in a
+`Nitrovin-Release` header (`decoder_version/data_month/artifact_hash`).
+The worker reads it on every answer of the server's. Before it answers
+anything itself, it asks for it with a `HEAD /sw.js`, sent while the
+module draws the answer, so a warm answer waits one round trip at most
+and a cold start none. A 404 for one of its own release's assets that
+names no release says the same. A server it cannot reach within 3 s
+leaves it answering, as offline. Once the server runs another release,
+the worker is outdated until a newer worker replaces it. Every request
+then goes to the server unchanged, and the worker fetches none of its
+release's assets. It refuses a load, saying why in words, and tells the
+pages it controls (`{op: "outdated"}`). The page asks the worker in control
+for its release (`{op: "release"}`) and compares it with its own
+(`#browser`'s `data-release`). On a mismatch, an outdated worker, or no
+answer in 5 s (a worker that speaks another protocol), it says the files
+are paused and every page is the server's, has the browser look for the
+new worker, and offers Update now once it waits. While outdated, a link
+naming a browser file reaches the server, which refuses it: the name
+travels, never the file.
+
+**Errors reach the visitor.** A load the worker cannot answer (outdated,
+an asset the server no longer has, a refused batch naming the file and
+line, no word within the stall time) is said in the dialog, and so is a
+load tried in a state that cannot take one (outdated, paused, failed).
+
+**The release is on every page.** The header shows the running release's
+version beside the brand (`nitrovin v0.3.4`, or what `/v1/info`'s
+`decoder_version` says, such as `(devel)`), linked to its GitHub release
+when it is a tagged release. The server and the worker draw it from the
+same template, so their pages agree.
