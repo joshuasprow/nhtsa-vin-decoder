@@ -40,17 +40,14 @@ func TestVocabTranslate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the worker's module")
 	}
-	epaPath := abs("../nitrovin-epa/testdata/vehicles.jsonl")
+	fixtureData(t)
+	epaPath, epa := epaSample(t)
 
 	off := httptest.NewServer(vocabServer(t, nil, fixture, epaPath))
 	t.Cleanup(off.Close)
 	examplesJSOff(t, path, off.URL)
 
 	module := buildWorker(t)
-	epa, err := os.ReadFile(epaPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	module.EPA = epa
 	wire := &wireLog{h: vocabServer(t, &module, filepath.Join(fixture, "classics.jsonl"), filepath.Join(fixture, "parts.jsonl"), filepath.Join(fixture, "listing.jsonl"))}
 	on := httptest.NewServer(wire)

@@ -60,7 +60,7 @@ jobs:
       - uses: ./.github/actions/mise
         id: go
         with:
-          tools: go
+          tools: go jq
       # As import.yml: Go version, go.sum and the Go sources name the entry.
       # A first run on a branch falls back to the artifact job's entry, which
       # import.yml's runs on main keep current.
@@ -76,7 +76,29 @@ jobs:
             go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
             go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
       - run: go vet ./pkg/contract/ ./pkg/nitrovin/ ./pkg/vocab/ ./pkg/ui/ ./cmd/nitrovin/ ./cmd/nitrovin-epa/
-      - run: go test -count=1 ./pkg/contract/ ./pkg/nitrovin/ ./pkg/vocab/ ./pkg/ui/ ./cmd/nitrovin/ ./cmd/nitrovin-epa/
+      # Every test that runs the vocabulary fixture (testdata/vocab) or the
+      # EPA sample against the embedded month must pass, never skip. They
+      # assert against whatever month go.mod pins, so on the refresh's bump
+      # PR a month that breaks one fails here, and the test names the month.
+      - name: Test
+        shell: bash
+        run: |
+          go test -count=1 -json ./pkg/contract/ ./pkg/nitrovin/ ./pkg/vocab/ ./pkg/ui/ ./cmd/nitrovin/ ./cmd/nitrovin-epa/ |
+            tee "$RUNNER_TEMP/test.json" | jq -rj 'select(.Action == "output") | .Output'
+          month=$(jq -r .data_month "$(go list -m -f '{{.Dir}}' github.com/joshuasprow/nitrovin-data)/pkg/embedded/manifest.json")
+          passed=$(jq -r 'select(.Action == "pass" and .Test != null) | "\(.Package | ltrimstr("github.com/joshuasprow/nitrovin/")) \(.Test)"' "$RUNNER_TEMP/test.json")
+          required=(
+            "pkg/nitrovin "{TestFixtureLoadsClean,TestFixtureDrift,TestTranslatorRefusesUnlinked,TestTranslate,TestTranslateAnswer}
+            "pkg/nitrovin "{TestTranslateBatch,TestTranslateDrift,TestTranslateWithoutFiles,TestList,TestListPaging,TestSpineBundleTranslates}
+            "cmd/nitrovin "{TestVocabCheck,TestVocabLoad,TestServeVocabularies,TestTranslate,TestTranslateRefused,TestList,TestListRefused}
+            "cmd/nitrovin "{TestStdioOps,TestMCPVocabSession,TestWorker,TestVocabPage,TestVocabTranslate}
+            "cmd/nitrovin-epa "{TestBuild,TestEntry,TestCuratedLoadsClean}
+          )
+          status=0
+          for t in "${required[@]}"; do
+            grep -qxF "$t" <<<"$passed" || { echo "contract: $t did not pass on data month $month" >&2; status=1; }
+          done
+          exit "$status"
       # The Service Worker's packages never import the embedded data, the
       # decoder or pkg/nitrovin, so they build for the browser; the module
       # itself (cmd/nitrovin-sw) is js/wasm alone.

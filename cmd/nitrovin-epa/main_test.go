@@ -19,19 +19,21 @@ import (
 // testdata/vehicles.csv is 78 rows of EPA's vehicles.csv (fueleconomy.gov,
 // fetched 2026-11-10; US government work, public domain), chosen to reach
 // every rule and outcome; testdata/curated.jsonl overrides some of them.
-// testdata/vehicles.jsonl is what they build against 2026_10.
+// testdata/vehicles.jsonl is what they build against the data month its
+// header names; on any other month the build must differ only in that name.
 
 var update = flag.Bool("update", false, "rewrite testdata/vehicles.jsonl")
 
-// buildMonth is the data month the curated ids and the golden file are
-// 2026_10's.
-const buildMonth = "2026_10"
-
+// embeddedDecoder is the embedded data. The curated ids and the sample's
+// models are long-lived, so the tests run on whatever month is embedded; one
+// that fails names the month, so a refresh that breaks them says which.
 func embeddedDecoder(t *testing.T) *nitrovin.Decoder {
 	t.Helper()
-	if embedded.Month != buildMonth {
-		t.Skipf("the curated ids are %s's; the embedded data is %s", buildMonth, embedded.Month)
-	}
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("on the embedded data month %s", embedded.Month)
+		}
+	})
 	d, err := nitrovin.Embedded()
 	if err != nil {
 		t.Fatal(err)
@@ -49,8 +51,9 @@ func runBuild(t *testing.T, args ...string) (out []byte, stderr string) {
 }
 
 // TestBuild: the same inputs give the same bytes, from the CSV or its zip;
-// they are the golden file's; the vocabulary loads against 2026_10 with no
-// drift, and every rule and outcome is in it.
+// they are the golden file's, but for the data month it names; the
+// vocabulary loads against the embedded month with no drift, and every rule
+// and outcome is in it.
 func TestBuild(t *testing.T) {
 	d := embeddedDecoder(t)
 	out, stderr := runBuild(t, "-curated", "testdata/curated.jsonl", "testdata/vehicles.csv")
@@ -74,15 +77,21 @@ func TestBuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(out, want) {
-		t.Errorf("the build differs from %s (go test -update rewrites it)", golden)
+	g, err := vocab.Read(golden, bytes.NewReader(want))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The month is named in the header alone: the version's suffix and
+	// data_month.
+	if !bytes.Equal(out, bytes.ReplaceAll(want, []byte(g.DataMonth), []byte(embedded.Month))) {
+		t.Errorf("the build differs from %s, built against %s, in more than the month (go test -update rewrites it)", golden, g.DataMonth)
 	}
 
 	f, err := vocab.Read("vehicles.jsonl", bytes.NewReader(out))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Name != Name || f.Version != "2026-06-09+2026_10" || f.DataMonth != buildMonth || !slices.Equal(f.Fields, []string{"make", "model"}) {
+	if f.Name != Name || f.Version != "2026-06-09+"+embedded.Month || f.DataMonth != embedded.Month || !slices.Equal(f.Fields, []string{"make", "model"}) {
 		t.Errorf("header: %s %s %s %v", f.Name, f.Version, f.DataMonth, f.Fields)
 	}
 	tr, err := nitrovin.NewTranslator(d, f)
@@ -90,7 +99,7 @@ func TestBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	if drift := tr.Drift(); len(drift) > 0 {
-		t.Errorf("the build drifts from %s: %v", buildMonth, drift)
+		t.Errorf("the build drifts from %s: %v", embedded.Month, drift)
 	}
 
 	notes := map[string]bool{}
@@ -202,7 +211,7 @@ func describe(e *vocab.Entry) string {
 func itoa(n int) string { return strconv.Itoa(n) }
 
 // TestCuratedLoadsClean: the built-in overrides read without a fault and
-// name only ids 2026_10 has.
+// name only ids the embedded month has.
 func TestCuratedLoadsClean(t *testing.T) {
 	d := embeddedDecoder(t)
 	f, err := readCurated("")
@@ -214,7 +223,7 @@ func TestCuratedLoadsClean(t *testing.T) {
 		t.Fatal(err)
 	}
 	if drift := tr.Drift(); len(drift) > 0 {
-		t.Errorf("%s drifts from %s: %v", curatedName, buildMonth, drift)
+		t.Errorf("%s drifts from %s: %v", curatedName, embedded.Month, drift)
 	}
 	for _, e := range f.Entries {
 		for _, m := range e.Mappings {

@@ -100,7 +100,10 @@ text `TestFormREADME` holds to the form's.
 - `contract.yml` (schemas, the no-data tests and the `js/wasm` build):
   `pkg/contract`, `pkg/nitrovin`, `pkg/decoder`, `pkg/vocab`, `pkg/ui`,
   `cmd/nitrovin`, `cmd/nitrovin-epa`, `testdata/vocab/`, `docs/api`'s four
-  schema documents, `README.md`, `go.mod`, `go.sum`.
+  schema documents, `README.md`, `go.mod`, `go.sum`. The tests that run
+  the vocabulary fixture or the EPA sample against the embedded month must
+  pass, not skip: on the refresh's bump PR they fail it, naming the month,
+  if the new month breaks them ([the fixture](#vocabularies)).
 - `import.yml`, **Tests**, on `pkg/`, `cmd/`, `go.mod`, `go.sum`,
   `testdata/parity/`, `testdata/vocab/`, `scripts/oracle.sh`, in three
   jobs. *Changed paths* decides whether Postgres is needed. *Artifact*
@@ -309,8 +312,8 @@ model and element and every value against every element;
 it on the fixture, and `TestBundle` the cases 2026_10 lacks (a model with
 no `make_model` row, one under a make the lookup lacks).
 
-`testdata/vocab` is the synthetic fixture every vocabulary test shares,
-built against 2026_10: a vehicle vocabulary (`yard`: Dodge's Ram 1500
+`testdata/vocab` is the synthetic fixture every vocabulary test shares: a
+vehicle vocabulary (`yard`: Dodge's Ram 1500
 split by year across vPIC models 1938 and 13620, with Series and Drive
 Type qualifiers, extension mappings, make mappings and an unmapped entry),
 an extension set (`classics`), a declared spine (`parts`) and a part
@@ -319,6 +322,14 @@ entry). It loads with no drift; `testdata/vocab/drift/` has one drift of
 each kind. `go test ./pkg/vocab` refuses one file per fault class and
 validates the fixture against the schema; `go test ./pkg/nitrovin` loads
 the fixture and its drift variant against the embedded data.
+
+Its headers say 2026_10, but the ids, values and VINs it relies on are
+long-lived ones (2026_06 loads it the same), so its tests never skip on
+another month: they assert against the embedded month, and one that fails
+names it. A month that retires one of them fails the refresh's bump PR in
+`contract.yml`; fix the fixture, never skip. A test whose expectation
+truly belongs to one month (the answer keys, `pkg/contract`'s element
+table) skips on any other, and is not a vocabulary test.
 
 ### The EPA vocabulary
 
@@ -346,10 +357,11 @@ go run ./cmd/nitrovin vocab check epa-vehicles.jsonl
 
 `go test ./cmd/nitrovin-epa` builds a 78-row sample of vehicles.csv
 (`testdata/`) twice, from the CSV and from a zip, against its golden file
-(`-update` rewrites it), loads it against the embedded data with no drift,
-and checks the built-in overrides for drift. Every data month publishes the
-vocabulary: the monthly refresh builds it against the new month and its
-data release carries `epa-vehicles.jsonl` (below).
+(`-update` rewrites it; on another month than the one its header names, the
+build must differ in that name alone), loads it against the embedded data
+with no drift, and checks the built-in overrides for drift. Every data
+month publishes the vocabulary: the monthly refresh builds it against the
+new month and its data release carries `epa-vehicles.jsonl` (below).
 
 ## The surfaces
 

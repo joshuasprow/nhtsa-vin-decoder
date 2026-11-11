@@ -3,6 +3,7 @@ package nitrovin
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -14,17 +15,21 @@ import (
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
-// fixtureMonth is the data month testdata/vocab's ids and values are
-// taken from.
+// fixtureMonth is the data month testdata/vocab's headers say it was built
+// against. Its ids and values are long-lived ones, so it loads clean on any
+// month since; the tests run on whatever month is embedded and assert
+// against it.
 const fixtureMonth = "2026_10"
 
-// embeddedDecoder is the embedded data, skipping when it is not the
-// fixture's month.
+// embeddedDecoder is the embedded data. A test that fails on it names the
+// month, so a refresh that breaks the fixture says which month did.
 func embeddedDecoder(t *testing.T) *Decoder {
 	t.Helper()
-	if embedded.Month != fixtureMonth {
-		t.Skipf("testdata/vocab is %s's; the embedded data is %s", fixtureMonth, embedded.Month)
-	}
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("on the embedded data month %s; testdata/vocab was built against %s", embedded.Month, fixtureMonth)
+		}
+	})
 	d, err := Embedded()
 	if err != nil {
 		t.Fatal(err)
@@ -32,8 +37,19 @@ func embeddedDecoder(t *testing.T) *Decoder {
 	return d
 }
 
-// TestFixtureLoadsClean: the synthetic fixture loads against 2026_10 with
-// no drift, and Info lists its four files.
+// driftDetail is a drift finding's detail on testdata/vocab/drift as the
+// embedded month words it: format's %[1]s is the month, and a month other
+// than the files' own adds what they were built against.
+func driftDetail(format string) string {
+	s := fmt.Sprintf(format, embedded.Month)
+	if embedded.Month != fixtureMonth {
+		s += " (the file was built against " + fixtureMonth + ")"
+	}
+	return s
+}
+
+// TestFixtureLoadsClean: the synthetic fixture loads against the embedded
+// month with no drift, and Info lists its four files.
 func TestFixtureLoadsClean(t *testing.T) {
 	d := embeddedDecoder(t)
 	files, err := vocab.Open("../../testdata/vocab")
@@ -45,7 +61,7 @@ func TestFixtureLoadsClean(t *testing.T) {
 		t.Fatal(err)
 	}
 	if drift := tr.Drift(); len(drift) > 0 {
-		t.Errorf("the fixture drifts from %s: %v", fixtureMonth, drift)
+		t.Errorf("the fixture drifts from %s: %v", embedded.Month, drift)
 	}
 	info := tr.Info()
 	var got []string
@@ -81,11 +97,11 @@ func TestFixtureDrift(t *testing.T) {
 		got = append(got, string(f.Drift)+" "+filepath.Base(f.File)+":"+strconv.Itoa(f.Line)+": "+f.Detail)
 	}
 	want := []string{
-		`extension classics.jsonl:2: extension "silverado" is named like vPIC model 1850 (Silverado) under make 467 (Chevrolet) in data month 2026_10`,
-		`qualifier yard.jsonl:2: /mappings/0/qualifiers/34/1: data month 2026_10 never decodes element 34 to "1500 Megacab"`,
-		`qualifier yard.jsonl:3: /mappings/0/qualifiers/15/1: data month 2026_10 never decodes element 15 to attribute id 99`,
-		`make yard.jsonl:4: /mappings/0/make: vPIC make 99999 is not in data month 2026_10`,
-		`model yard.jsonl:5: /mappings/0/model: vPIC model 99999 is not in data month 2026_10`,
+		driftDetail(`extension classics.jsonl:2: extension "silverado" is named like vPIC model 1850 (Silverado) under make 467 (Chevrolet) in data month %[1]s`),
+		driftDetail(`qualifier yard.jsonl:2: /mappings/0/qualifiers/34/1: data month %[1]s never decodes element 34 to "1500 Megacab"`),
+		driftDetail(`qualifier yard.jsonl:3: /mappings/0/qualifiers/15/1: data month %[1]s never decodes element 15 to attribute id 99`),
+		driftDetail(`make yard.jsonl:4: /mappings/0/make: vPIC make 99999 is not in data month %[1]s`),
+		driftDetail(`model yard.jsonl:5: /mappings/0/model: vPIC model 99999 is not in data month %[1]s`),
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("drift:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

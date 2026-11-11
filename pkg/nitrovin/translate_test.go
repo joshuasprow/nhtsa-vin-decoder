@@ -13,12 +13,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// VINs of the embedded 2026_10 data the translation cases decode.
+// VINs of the embedded data the translation cases decode, chosen against
+// 2026_10 for decodes a later month keeps.
 const (
 	// ram2010 decodes to Dodge (476) Ram (1938), 2010, Series "DS (1500)",
 	// Drive Type 4WD (2).
@@ -453,7 +455,7 @@ func TestTranslateAnswer(t *testing.T) {
 	if want := []string{"listing 2026.11", "parts 2026.11"}; !slices.Equal(files, want) {
 		t.Errorf("vocabularies %v; want %v", files, want)
 	}
-	if got := ans.Now.Format("2006-01-02T15:04:05Z07:00"); got != "2026-11-10T12:34:56Z" || ans.DataMonth != fixtureMonth || ans.DecoderVersion != Version() {
+	if got := ans.Now.Format("2006-01-02T15:04:05Z07:00"); got != "2026-11-10T12:34:56Z" || ans.DataMonth != embedded.Month || ans.DecoderVersion != Version() {
 		t.Errorf("now %s, data month %s, decoder version %s", got, ans.DataMonth, ans.DecoderVersion)
 	}
 	// Brake Parts' own mappings carry no qualifiers, so it reaches all
@@ -589,7 +591,7 @@ func TestList(t *testing.T) {
 			name: "the catalog: vpic, then the files in load order",
 			req:  `{}`,
 			want: []string{
-				`{"name":"vpic","kind":"spine","version":"2026_10","subject":"vehicle"}`,
+				`{"name":"vpic","kind":"spine","version":"` + embedded.Month + `","subject":"vehicle"}`,
 				`{"name":"classics","kind":"extension-set","version":"2026.11","subject":"vehicle","spine":"vpic"}`,
 				`{"name":"listing","kind":"vocabulary","version":"2026.11","subject":"part","fields":["category"],"spine":"parts"}`,
 				`{"name":"parts","kind":"spine","version":"2026.11","subject":"part"}`,
