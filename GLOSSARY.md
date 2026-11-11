@@ -51,6 +51,17 @@ One of vPIC's numeric codes stating what is wrong with a VIN (0 clean, 1 check
 digit, 11 bad year code, 400 bad character…).
 _Avoid_: validation error, warning
 
+**VIN schema**:
+vPIC's group of patterns for one family of VINs. WMIs reach it through a model-year band.
+One schema may describe several models.
+_Avoid_: schema (alone, where a database schema could be meant), vinschema (in prose)
+
+**Pattern**:
+One row of a VIN schema. It holds a key over VIN positions and one element's attribute, and
+applies to every VIN its key matches. Of the patterns that match a VIN for one element, the
+decoder keeps one.
+_Avoid_: rule, mask
+
 **Charset**:
 The characters a VIN may hold at each position for one WMI and model year, as
 the dump's pattern rows allow. A character outside it is an error the decode
@@ -212,6 +223,12 @@ from a name.
 _Avoid_: trim (as the general term), filter, attribute (an attribute is the
 decode's value; a qualifier is the mapping's condition on it)
 
+**Model values**:
+The values a VIN of one vPIC model can decode to for one element, worked out from the
+patterns whose keys could match together with the model's own. It may list a value a VIN
+never ends up with, but it never leaves one out.
+_Avoid_: model attributes, series list
+
 **Extension**:
 A spine entry an author mints for a vehicle vPIC lacks: a make, or a model
 under a vPIC make or an extension make. It stands in until the author maps to
@@ -239,7 +256,7 @@ _Avoid_: lookup, aliasing
 **Drift**:
 Where a vocabulary, extension set or declared spine disagrees with the loaded
 data month: a vPIC id the month lacks, a qualifier value its decode cannot
-produce, an extension named like a vPIC entry under the same make. Reported,
+produce, or one the mapping's own model never decodes to, an extension named like a vPIC entry under the same make. Reported,
 never refused: NHTSA's monthly changes are not the author's mistakes.
 _Avoid_: stale, invalid, broken mapping
 
