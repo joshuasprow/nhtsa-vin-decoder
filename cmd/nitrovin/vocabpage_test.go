@@ -15,6 +15,7 @@ import (
 	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
+	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
 )
 
 // TestVocabPage runs /vocab in headless Chrome or Chromium, each run in a
@@ -39,12 +40,9 @@ func TestVocabPage(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the worker's module")
 	}
+	fixtureData(t)
 	module := buildWorker(t)
-	epaPath := abs("../nitrovin-epa/testdata/vehicles.jsonl")
-	epa, err := os.ReadFile(epaPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	epaPath, epa := epaSample(t)
 	module.EPA = epa
 	driftDir := filepath.Join(fixture, "drift")
 	wire := &wireLog{h: vocabServer(t, &module, filepath.Join(driftDir, "classics.jsonl"))}
@@ -175,14 +173,14 @@ func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epa
 	tb.dropFiles(filepath.Join(driftDir, "yard.jsonl"))
 	tb.waitPrefix("#load-status", "Loaded yard (")
 	if s := tb.html(`tr[data-where="browser"]:has(a[href="/ui/vocabularies/yard"])`); !strings.Contains(s, "<summary>Drift: 1 make, 1 model, 2 qualifier</summary>") ||
-		!strings.Contains(s, "<li>line 4: /mappings/0/make: vPIC make 99999 is not in data month 2026_10</li>") {
+		!strings.Contains(s, "<li>line 4: "+driftDetail("/mappings/0/make: vPIC make 99999 is not in data month %[1]s")+"</li>") {
 		t.Errorf("a dropped file with drift: %s", s)
 	}
 
 	// EPA's vocabulary in one click, from the release's assets.
 	tb.do(chromedp.Click(chromedp.CSS("#load-epa")))
 	tb.waitPrefix("#load-status", "Loaded epa-vehicles (32 lines).")
-	if s := tb.html("#browser-files"); !strings.Contains(s, "EPA's vocabulary, epa-vehicles 2026-06-09+2026_10, is kept in this browser.") || tb.count("#load-epa") != 0 {
+	if s := tb.html("#browser-files"); !strings.Contains(s, "EPA's vocabulary, epa-vehicles 2026-06-09+"+embedded.Month+", is kept in this browser.") || tb.count("#load-epa") != 0 {
 		t.Errorf("EPA loaded: %s", s)
 	}
 	tb.until("the storage usage", `(document.getElementById("storage-usage") || {}).textContent.startsWith("This site keeps ")`)

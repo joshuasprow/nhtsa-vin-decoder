@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http/httptest"
@@ -19,7 +21,8 @@ import (
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
-// The synthetic fixture: testdata/vocab loads clean against 2026_10, its
+// The synthetic fixture: testdata/vocab loads clean against the embedded
+// month (its headers say 2026_10; its ids and values are long-lived), its
 // drift/ variant with one drift of each kind.
 var (
 	fixture      = abs("../../testdata/vocab")
@@ -34,13 +37,54 @@ func abs(path string) string {
 	return p
 }
 
-// fixtureData skips a test that depends on the fixture agreeing with the
-// embedded data month.
+// fixtureMonth is the data month testdata/vocab's headers say it was built
+// against.
+const fixtureMonth = "2026_10"
+
+// fixtureData marks a test that runs the fixture against the embedded data:
+// when it fails, it names the month, so a refresh that breaks the fixture
+// says which month did.
 func fixtureData(t *testing.T) {
 	t.Helper()
-	if embedded.Month != "2026_10" {
-		t.Skipf("testdata/vocab is 2026_10's; the embedded data is %s", embedded.Month)
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("on the embedded data month %s; testdata/vocab was built against %s", embedded.Month, fixtureMonth)
+		}
+	})
+}
+
+// driftDetail is a drift finding's detail on testdata/vocab/drift as the
+// embedded month words it: format's %[1]s is the month, and a month other
+// than the files' own adds what they were built against.
+func driftDetail(format string) string {
+	s := fmt.Sprintf(format, embedded.Month)
+	if embedded.Month != fixtureMonth {
+		s += " (the file was built against " + fixtureMonth + ")"
 	}
+	return s
+}
+
+// epaSample is the EPA sample, cmd/nitrovin-epa/testdata/vehicles.jsonl,
+// as built against the embedded month (that package's TestBuild holds a
+// build to differ from it in the month alone, which its header names): a
+// copy's path and its bytes. The server offers EPA's vocabulary only for
+// its own month.
+func epaSample(t *testing.T) (string, []byte) {
+	t.Helper()
+	b, err := os.ReadFile("../nitrovin-epa/testdata/vehicles.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := vocab.Read("vehicles.jsonl", bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b = bytes.ReplaceAll(b, []byte(f.DataMonth), []byte(embedded.Month))
+	p := filepath.Join(t.TempDir(), "vehicles.jsonl")
+	if err := os.WriteFile(p, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p, b
 }
 
 // faultyFile writes a vocabulary whose line 2 is a fault.

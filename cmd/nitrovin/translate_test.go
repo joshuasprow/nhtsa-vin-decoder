@@ -138,6 +138,7 @@ func TestTranslate(t *testing.T) {
 // a refused stdin line stops the run with exit 1, the answers before it
 // complete; a mistake on the command line is a usage error.
 func TestTranslateRefused(t *testing.T) {
+	fixtureData(t)
 	for _, tc := range []struct {
 		args            []string
 		detail, pointer string
@@ -148,9 +149,6 @@ func TestTranslateRefused(t *testing.T) {
 		{[]string{"--vocab", fixture, "translate", "--to", "nope", ram2010, ram2015}, "argument 1: ", "/to/0"},
 		{[]string{"translate", "--to", "yard", ram2010}, "argument 1: ", "/to/0"}, // nothing loaded
 	} {
-		if strings.Contains(strings.Join(tc.args, " "), fixture) {
-			fixtureData(t)
-		}
 		r := cli(t, nil, "", tc.args...)
 		p := problem(t, r)
 		if r.exit != 2 || r.stdout != "" || p.Type != contract.InvalidRequest || p.Pointer != tc.pointer || !strings.HasPrefix(p.Detail, tc.detail) {

@@ -63,7 +63,7 @@ func spineBundle(t *testing.T, d *Decoder, checked bool) *vocab.Bundle {
 }
 
 // TestSpineBundleTranslates: drift, translations and lists through
-// 2026_10's spine bundle are the artifact's, on testdata/vocab.
+// the embedded month's spine bundle are the artifact's, on testdata/vocab.
 func TestSpineBundleTranslates(t *testing.T) {
 	tr := fixtureTranslator(t, "../../testdata/vocab")
 	b := spineBundle(t, tr.d, false)

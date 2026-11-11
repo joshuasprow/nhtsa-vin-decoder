@@ -193,6 +193,7 @@ func TestWorker(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the module and loads 150,000 entries in a browser")
 	}
+	fixtureData(t)
 	module := buildWorker(t)
 	big := filepath.Join(t.TempDir(), "synthetic.jsonl")
 	const entries = 150_000
