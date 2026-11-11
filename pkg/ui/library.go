@@ -72,9 +72,10 @@ type Disk interface {
 	// worker.js changes it too: as the visitor ticks a target, and to
 	// the targets of a translation it sends to the server.
 	Selection() (Selection, error)
-	// Change stores put (replacing records of the same names), drops the
-	// records named remove, and stores selection, in one transaction: all
-	// of it, or none.
+	// Change stores put (replacing records of the same names) and drops
+	// the records named remove, in one transaction: all of it, or none;
+	// then it stores selection (in a database of its own, which an older
+	// release does not open).
 	Change(put []Stored, remove []string, selection Selection) error
 }
 

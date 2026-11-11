@@ -51,43 +51,40 @@ self.addEventListener('activate', (e) => {
   })());
 });
 
-// ---- IndexedDB: files (records, by name), texts (by blake3), indexes (by
-// release and blake3), and state: "selection", the vocabularies the
-// visitor selected as targets by spine ({spine: [name]}). A change is one
-// transaction over them all.
+// ---- IndexedDB "nitrovin": files (records, by name), texts (by blake3)
+// and indexes (by release and blake3); a change is one transaction over
+// the three. Beside it, "nitrovin-state": state, whose "selection" is the
+// vocabularies the visitor selected as targets by spine ({spine:
+// [name]}), a database of its own so that an older release, which opens
+// "nitrovin" at version 1, still can.
 
-let dbOpen = null;
-function db() {
-  if (!dbOpen) {
-    dbOpen = new Promise((resolve, reject) => {
-      // Version 2 added state; an older database gains it and keeps the rest.
-      const r = indexedDB.open(DB, 2);
-      r.onupgradeneeded = () => {
-        const d = r.result;
-        if (!d.objectStoreNames.contains('files')) d.createObjectStore('files', { keyPath: 'name' });
-        for (const name of ['texts', 'indexes', 'state']) {
-          if (!d.objectStoreNames.contains(name)) d.createObjectStore(name);
-        }
-      };
-      r.onsuccess = () => {
-        // A newer release's worker upgrading the database closes this one.
-        r.result.onversionchange = () => {
-          r.result.close();
-          dbOpen = null;
-        };
-        resolve(r.result);
-      };
-      r.onerror = () => reject(r.error);
-    });
-    dbOpen.catch(() => { dbOpen = null; });
-  }
-  return dbOpen;
+// opener opens database name once per worker, upgrade making its stores.
+function opener(name, upgrade) {
+  let opening = null;
+  return () => {
+    if (!opening) {
+      opening = new Promise((resolve, reject) => {
+        const r = indexedDB.open(name, 1);
+        r.onupgradeneeded = () => upgrade(r.result);
+        r.onsuccess = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+      });
+      opening.catch(() => { opening = null; });
+    }
+    return opening;
+  };
 }
+const filesDB = opener(DB, (d) => {
+  d.createObjectStore('files', { keyPath: 'name' });
+  d.createObjectStore('texts');
+  d.createObjectStore('indexes');
+});
+const stateDB = opener(DB + '-state', (d) => d.createObjectStore('state'));
 
-// tx runs f over the stores in one transaction, resolving with f's result
-// once the transaction completes.
-async function tx(stores, mode, f) {
-  const d = await db();
+// tx runs f over the stores of database open in one transaction,
+// resolving with f's result once the transaction completes.
+async function tx(stores, mode, f, open = filesDB) {
+  const d = await open();
   return new Promise((resolve, reject) => {
     const t = d.transaction(stores, mode);
     let out;
@@ -120,7 +117,7 @@ const select = (spine, f) => tx(['state'], 'readwrite', async (t) => {
   const s = (await request(state.get('selection'))) || {};
   s[spine] = f(s[spine] || []);
   await request(state.put(s, 'selection'));
-});
+}, stateDB);
 
 // disk is what the module's Library calls (ui.Disk).
 self.nitrovinDisk = {
@@ -131,12 +128,12 @@ self.nitrovinDisk = {
     if (v === undefined) throw new Error('its text is not stored');
     return bytes(v);
   }),
-  selection: () => tx(['state'], 'readonly', (t) => request(t.objectStore('state').get('selection'))).then((v) => v || {}),
-  // change puts [{record, text, index}], deletes the records named remove
-  // and stores selection; a text or index no record keeps any more goes
-  // with them.
+  selection: () => tx(['state'], 'readonly', (t) => request(t.objectStore('state').get('selection')), stateDB).then((v) => v || {}),
+  // change puts [{record, text, index}] and deletes the records named
+  // remove, a text or index no record keeps any more going with them;
+  // then it stores selection.
   change: async (put, remove, selection) => {
-    await tx(['files', 'texts', 'indexes', 'state'], 'readwrite', async (t) => {
+    await tx(['files', 'texts', 'indexes'], 'readwrite', async (t) => {
       const files = t.objectStore('files'), texts = t.objectStore('texts'), indexes = t.objectStore('indexes');
       const before = await request(files.getAll());
       for (const name of remove) await request(files.delete(name));
@@ -152,9 +149,9 @@ self.nitrovinDisk = {
           await request(indexes.delete(indexKey(r.blake3)));
         }
       }
-      await request(t.objectStore('state').put(selection, 'selection'));
     });
     names = null;
+    await tx(['state'], 'readwrite', (t) => request(t.objectStore('state').put(selection, 'selection')), stateDB);
   },
 };
 

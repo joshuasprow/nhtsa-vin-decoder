@@ -347,7 +347,7 @@ func waitSelection(tb *tab, step string, want selection) {
 func storedSelection(tb *tab) selection {
 	tb.t.Helper()
 	return eval[selection](tb, `new Promise((resolve, reject) => {
-		const r = indexedDB.open("nitrovin");
+		const r = indexedDB.open("nitrovin-state");
 		r.onerror = () => reject(r.error);
 		r.onsuccess = () => {
 			const db = r.result;

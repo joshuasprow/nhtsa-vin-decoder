@@ -449,12 +449,13 @@ for, built from the file, so a private file gets one without its name in
 the repository. An example goes to the targets ticked on its spine, else
 to another vocabulary on it. Without JavaScript the ticked targets travel
 in the URL (`to=`); with it, `/vocab` ticks the visitor's selection, which
-IndexedDB keeps beside the files (`state`), by spine: a file loaded joins
-it, a file removed leaves it, `vocab.js` changes it as the visitor ticks,
-and each translation asked for, a link's own `to=` included, sets it on
-its spine to its targets (the worker's pages for the translations they
-answer, `worker.js` for those it sends to the server, by the spines
-`/sw.js` gives the server's files).
+IndexedDB keeps beside the files, by spine, in a database of its own
+(`nitrovin-state`, so an older release still opens `nitrovin`): a file
+loaded joins it, a file removed leaves it, `vocab.js` changes it as the
+visitor ticks, and each translation asked for, a link's own `to=`
+included, sets it on its spine to its targets (the worker's pages for the
+translations they answer, `worker.js` for those it sends to the server,
+by the spines `/sw.js` gives the server's files).
 
 `TestForm` then runs the form in headless Chrome or Chromium
 (`browser_test.go`, over the DevTools protocol with chromedp), twice, each
