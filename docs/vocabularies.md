@@ -378,9 +378,13 @@ browser; opened in another browser, a link naming your file
 says where it lives. The targets you tick are your selection, kept beside
 your files and ticked into the forms, so what you ask next names them as
 an explicit `to=`. Answers carry the `decoder_version` and `data_month`
-of the decode they used, and the worker refuses a VIN when the server has
-moved to another data month than its own: close every tab of the site and
-open it again, and the new release's worker takes over. A page loaded with
+of the decode they used. When the server moves to a new release, the
+worker steps aside: every page comes from the server, your files are
+paused, and Vocabularies says so. Once the new release's worker is ready,
+**Update now** hands the page to it and reloads, and your files and
+selection stay; without the click, the new worker takes over once every
+tab of the site is closed. Every page's header names the release that
+drew it. A page loaded with
 a hard reload is not the worker's, and says your files are paused for
 that load. Release builds also offer [EPA's vocabulary](#epas-vocabulary)
 of their data month as a one-click load: `serve` publishes it, byte for

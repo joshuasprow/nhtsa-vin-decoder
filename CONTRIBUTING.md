@@ -407,8 +407,11 @@ to its target instead (`HX-Retarget`). A fragment fills the layout's
 main (`hx-history-elt`), and htmx keeps no snapshot of it
 (`hx-history="false"`): back and forward ask the server for each page
 again, so a page put back never carries what a script or an extension
-left on it, which CSP would refuse. The header's Vocabularies button
-and its dialog sit beside the main and are the whole page's. The layout
+left on it, which CSP would refuse. The header shows the running
+release's version beside the brand, linked to its GitHub release when it
+is a tagged one, and its Vocabularies button; the button's dialog sits
+beside the main, and both are the whole page's. Every response names its
+release in the `Nitrovin-Release` header (`ui.ReleaseHeader`). The layout
 loads its stylesheet,
 htmx, `copy.js` (copy buttons) and `map.js` (the translation map's
 highlighting) from `/ui/r/<release>/` (`ui.Release`:
@@ -503,17 +506,25 @@ serve the worker and others serve the page without it. Beside it,
 nitrovin-data release `go.mod` pins, checked against that release's
 `checksums.txt`; goreleaser's before hook runs it too, and `serve` offers
 the file in the dialog as a one-click load when it is of the server's data
-month (`ui.Offer`). `vocab.js` is the dialog's script: it registers the
+month (`ui.Offer`). The worker answers only while the server runs its
+release: it reads `Nitrovin-Release` on the server's answers, asks
+`HEAD /sw.js` for it before answering anything itself, and once the
+server runs another release it is outdated and answers nothing, every
+request going to the server unchanged, until a newer worker replaces it
+(ADR 0013's amendment). `vocab.js` is the dialog's script: it registers the
 worker when the dialog first opens or a file is dropped on the page, and
 at page load in a browser that has it registered already (so a visitor who
-never opens the dialog never downloads the module), says its state (ready, paused
-after a hard reload, an update
-waiting for the old release's tabs to close), swaps the worker's panel
+never opens the dialog never downloads the module), says its state (ready,
+paused after a hard reload, outdated when the worker in control is of
+another release than the page's `data-release` or the server's, an update
+waiting for the old release's tabs to close, with Update now, which hands
+the page to the new worker and reloads), swaps the worker's panel
 (`/ui/files`: the merged catalog, each file marked by where it lives, with
 its drift) over the
 server's catalog, and hands picked or dropped files, EPA's on a click, and each
 target ticked or cleared to it by `postMessage`, never in a request,
-giving up on a load after a minute without progress. After a load or a
+giving up on a load after a minute without progress, and saying in words
+why a load cannot be taken. After a load or a
 removal it asks for the page's main again: its forms and its answer are
 over the files loaded.
 
@@ -568,6 +579,17 @@ so; and checks from the server's side that it got no
 request with a body and none naming a browser file. Set
 `NITROVIN_COLD_START_BUDGET=1s` to hold the cold start to a budget, on the
 reference machine.
+
+`TestWorkerUpdate` (`workerupdate_test.go`) installs the worker from one
+release (the same build reporting v0.3.2) and then serves the next
+(v0.3.3) at the same address, as a deploy does: the old worker passes the
+page through, so the next release's page renders where it would have drawn
+its own; the server gets no request for the old release's assets; the page
+says the translator is outdated, refuses a load in words, and offers
+Update now once the next worker waits, which axe audits; the click hands
+the page to the next worker and reloads; the stored file survives and the
+next worker answers for it; and the worker's pages and the server's show
+the same versioned header.
 
 `TestVocabPage` (`vocabpage_test.go`) runs the page's Vocabularies dialog in a fresh profile
 without JavaScript and then in another with it, against a server that

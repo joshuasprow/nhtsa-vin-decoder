@@ -667,18 +667,20 @@ func (h *Handler) translate(req contract.TranslateRequest, dec *contract.VINDeco
 
 // vocabDialog is the Vocabularies dialog, behind the header's button: the
 // catalog, and whether the visitor's own files can be loaded, which needs
-// the worker's module on the server.
+// the worker's module on the server. Release is the release that drew
+// it, which vocab.js holds the worker in control to.
 type vocabDialog struct {
 	Catalog catalogTable
 	Worker  bool
+	Release string
 }
 
 // newVocabDialog is the Vocabularies dialog of a page that shows it,
-// drawn beside its main when the page is whole.
-func (h *Handler) newVocabDialog() (vocabDialog, error) {
+// drawn beside its main when the page is whole, by info's release.
+func (h *Handler) newVocabDialog(info contract.Info) (vocabDialog, error) {
 	cat, err := h.catalog()
 	if err != nil {
 		return vocabDialog{}, err
 	}
-	return vocabDialog{Catalog: catalogTable{Rows: h.rows(cat)}, Worker: h.worker != nil || h.lib != nil}, nil
+	return vocabDialog{Catalog: catalogTable{Rows: h.rows(cat)}, Worker: h.worker != nil || h.lib != nil, Release: Release(info)}, nil
 }

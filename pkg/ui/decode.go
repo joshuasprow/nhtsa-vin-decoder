@@ -351,13 +351,19 @@ var embeddedDataTag = sync.OnceValue(func() string {
 	return ""
 })
 
+// releaseTagOf is version when it is a release's tag, "" for any other
+// build: a Go pseudo-version or (devel).
+func releaseTagOf(version string) string {
+	if releaseTag.MatchString(version) && !pseudoVersion.MatchString(version) {
+		return version
+	}
+	return ""
+}
+
 // newFormLinks derives the page's links from the running binary: its
 // version, and its data month and source.
 func newFormLinks(info contract.Info) pageLinks {
-	var l pageLinks
-	if releaseTag.MatchString(info.DecoderVersion) && !pseudoVersion.MatchString(info.DecoderVersion) {
-		l.Tag = info.DecoderVersion
-	}
+	l := pageLinks{Tag: releaseTagOf(info.DecoderVersion)}
 	l.Release, l.Parity = repoURL+"/releases", repoURL+"/blob/main/docs/parity.md"
 	if l.Tag != "" {
 		l.Release, l.Parity = repoURL+"/releases/tag/"+l.Tag, repoURL+"/blob/"+l.Tag+"/docs/parity.md"

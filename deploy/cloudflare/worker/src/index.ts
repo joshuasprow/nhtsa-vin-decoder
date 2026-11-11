@@ -162,6 +162,11 @@ function cacheKey(url: URL, release: string): string {
 	return `${url.origin}/.cache/${encodeURIComponent(release)}${url.pathname}${url.search}`;
 }
 
+/**
+ * The response with headers set over its own, every one of which passes
+ * through: Nitrovin-Release among them, which the browser's Service Worker
+ * reads to step aside once the container runs another release (ADR 0013).
+ */
 function withHeaders(response: Response, headers: Record<string, string>): Response {
 	const out = new Response(response.body, response);
 	for (const [name, value] of Object.entries(headers)) {

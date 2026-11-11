@@ -676,9 +676,11 @@ func ReadWorkerConfig(config []byte) (BrowserConfig, error) {
 // serviceWorker answers /sw.js: the release's worker. Its bytes name the
 // release and the server's files, so a new release, or a server restarted
 // with other files, is a new worker, which the browser installs beside
-// the old one and starts once the old one's pages close. It is never
-// cached without asking (no-cache), and it alone may run WebAssembly.
-func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info, base string) error {
+// the old one and starts once the old one's pages close, or at once when
+// the visitor asks for it (Update now). It is never cached without asking
+// (no-cache), and it alone may run WebAssembly.
+func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info) error {
+	base := assetsPath(Release(info))
 	c := workerConfig{
 		Assets: base, Release: Release(info), DecoderVersion: info.DecoderVersion, DataMonth: info.DataMonth, ArtifactHash: info.ArtifactHash,
 		Files: []workerFile{}, EPA: h.offered(), Elements: info.Elements, ErrorTexts: h.errorTexts, DataRelease: h.links(info).DataRelease,

@@ -81,6 +81,12 @@ const htmxConfig = `{"allowEval":false,"includeIndicatorStyles":false,"defaultSe
 // never changes.
 const immutable = "public, max-age=31536000, immutable"
 
+// ReleaseHeader names the release (Release) answering on every response
+// of the Handler's, pages, assets, /sw.js and errors alike: the browser's
+// Service Worker reads it on the server's answers, and steps aside once
+// the server runs another release than its own (ADR 0013).
+const ReleaseHeader = "Nitrovin-Release"
+
 //go:embed *.html static
 var files embed.FS
 
@@ -292,30 +298,31 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", CSP)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	frag := fragment(r)
-	var base string // the release's assets, "" until it is known: the page then links none
+	var known *contract.Info // the release answering, nil until it is known: the page then links no assets
 	defer func() {
 		if v := recover(); v != nil {
 			if v == http.ErrAbortHandler {
 				panic(v)
 			}
 			h.log.Printf("panic serving %s %s: %v\n%s", r.Method, r.URL.EscapedPath(), v, debug.Stack())
-			h.fail(w, frag, base, &pageError{Status: http.StatusInternalServerError, Message: fmt.Sprint("nitrovin failed: ", v)})
+			h.fail(w, frag, known, &pageError{Status: http.StatusInternalServerError, Message: fmt.Sprint("nitrovin failed: ", v)})
 		}
 	}()
 	info := h.p.Info()
-	base = assetsPath(Release(info))
+	known = &info
+	w.Header().Set(ReleaseHeader, Release(info))
 
 	if rest, ok := strings.CutPrefix(r.URL.Path, assetsPrefix); ok && h.b != nil {
-		h.asset(w, r, frag, base, info, rest)
+		h.asset(w, r, frag, known, rest)
 		return
 	}
 	if r.URL.Path == swPath && h.b != nil && h.worker != nil {
 		if !getOrHead(w, r) {
-			h.fail(w, frag, base, &pageError{Status: http.StatusMethodNotAllowed, Message: swPath + " takes GET, not " + r.Method + "."})
+			h.fail(w, frag, known, &pageError{Status: http.StatusMethodNotAllowed, Message: swPath + " takes GET, not " + r.Method + "."})
 			return
 		}
-		if err := h.serviceWorker(w, info, base); err != nil {
-			h.fail(w, frag, base, h.pageError(err))
+		if err := h.serviceWorker(w, info); err != nil {
+			h.fail(w, frag, known, h.pageError(err))
 		}
 		return
 	}
@@ -326,21 +333,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	post, posted := h.posts[r.URL.Path]
 	switch {
 	case !ok && !posted:
-		h.fail(w, frag, base, &pageError{Status: http.StatusNotFound, Message: "There is no page at " + r.URL.Path + "."})
+		h.fail(w, frag, known, &pageError{Status: http.StatusNotFound, Message: "There is no page at " + r.URL.Path + "."})
 		return
 	case posted && r.Method == http.MethodPost:
 		answer = post
 	case posted:
 		w.Header().Set("Allow", http.MethodPost)
-		h.fail(w, frag, base, &pageError{Status: http.StatusMethodNotAllowed, Message: r.URL.Path + " takes POST, not " + r.Method + "."})
+		h.fail(w, frag, known, &pageError{Status: http.StatusMethodNotAllowed, Message: r.URL.Path + " takes POST, not " + r.Method + "."})
 		return
 	case !getOrHead(w, r):
-		h.fail(w, frag, base, &pageError{Status: http.StatusMethodNotAllowed, Message: r.URL.Path + " takes GET, not " + r.Method + "."})
+		h.fail(w, frag, known, &pageError{Status: http.StatusMethodNotAllowed, Message: r.URL.Path + " takes GET, not " + r.Method + "."})
 		return
 	}
 	v, err := answer(r)
 	if err != nil {
-		h.fail(w, frag, base, h.pageError(err))
+		h.fail(w, frag, known, h.pageError(err))
 		return
 	}
 	if v.location != "" {
@@ -348,14 +355,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if v.vocabDialog && !frag {
-		d, err := h.newVocabDialog()
+		d, err := h.newVocabDialog(info)
 		if err != nil {
-			h.fail(w, frag, base, h.pageError(err))
+			h.fail(w, frag, known, h.pageError(err))
 			return
 		}
 		v.dialog = &d
 	}
-	h.render(w, frag, base, v, false)
+	h.render(w, frag, known, v, false)
 }
 
 // getOrHead reports whether r is a GET or HEAD, else sets the Allow header
@@ -371,26 +378,26 @@ func getOrHead(w http.ResponseWriter, r *http.Request) bool {
 // asset serves rest, the path after /ui/r/: a file of info's release,
 // immutable. A file of another release is not found, so no cache ever
 // holds one under the wrong release.
-func (h *Handler) asset(w http.ResponseWriter, r *http.Request, frag bool, base string, info contract.Info, rest string) {
-	release := Release(info)
+func (h *Handler) asset(w http.ResponseWriter, r *http.Request, frag bool, info *contract.Info, rest string) {
+	release := Release(*info)
 	var contentType string
 	var body func() ([]byte, error)
 	e := &pageError{Status: http.StatusNotFound, Message: "This release of nitrovin (" + release + ") has no file " + r.URL.Path +
 		". A page from an earlier release asks for its own release's files: reload it."}
 	if name, ok := strings.CutPrefix(rest, release+"/"); ok {
-		contentType, body, e = h.published(info, name, e)
+		contentType, body, e = h.published(*info, name, e)
 	}
 	if e != nil {
-		h.fail(w, frag, base, e)
+		h.fail(w, frag, info, e)
 		return
 	}
 	if !getOrHead(w, r) {
-		h.fail(w, frag, base, &pageError{Status: http.StatusMethodNotAllowed, Message: r.URL.Path + " takes GET, not " + r.Method + "."})
+		h.fail(w, frag, info, &pageError{Status: http.StatusMethodNotAllowed, Message: r.URL.Path + " takes GET, not " + r.Method + "."})
 		return
 	}
 	b, err := body()
 	if err != nil {
-		h.fail(w, frag, base, h.pageError(err))
+		h.fail(w, frag, info, h.pageError(err))
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
@@ -464,13 +471,14 @@ func (h *Handler) pageError(err error) *pageError {
 	return &pageError{Status: http.StatusInternalServerError, Message: "nitrovin failed: " + err.Error()}
 }
 
-// fail answers e: the error fragment, or the error page.
-func (h *Handler) fail(w http.ResponseWriter, frag bool, base string, e *pageError) {
+// fail answers e: the error fragment, or the error page. info is the
+// release answering, nil when it is not known.
+func (h *Handler) fail(w http.ResponseWriter, frag bool, info *contract.Info, e *pageError) {
 	name := "error-page"
 	if frag {
 		name = "error"
 	}
-	h.render(w, frag, base, view{title: e.Title(), template: name, data: e, status: e.Status}, true)
+	h.render(w, frag, info, view{title: e.Title(), template: name, data: e, status: e.Status}, true)
 }
 
 // layout is what the page template renders: the view's fragment in the
@@ -481,7 +489,11 @@ type layout struct {
 	// links none.
 	Assets     string
 	HTMXConfig string
-	Body       template.HTML
+	// Version is the running release's decoder version, which the header
+	// shows beside the brand ("" when it is not known), and VersionURL its
+	// release on GitHub, "" for a build that is no tagged release.
+	Version, VersionURL string
+	Body                template.HTML
 	// VocabDialog is the Vocabularies dialog behind its button, beside the
 	// page's main, "" for a page without it; with it the page loads
 	// vocab.js, the browser files' script.
@@ -493,7 +505,7 @@ type layout struct {
 // error slot, and one with a target is sent there whatever its status.
 // Rendering is whole before anything is written, so a template's fault is
 // a clean 500.
-func (h *Handler) render(w http.ResponseWriter, frag bool, base string, v view, failed bool) {
+func (h *Handler) render(w http.ResponseWriter, frag bool, info *contract.Info, v view, failed bool) {
 	var body bytes.Buffer
 	if frag && !failed {
 		if err := tpl.ExecuteTemplate(&body, "fragment-title", v.title); err != nil {
@@ -515,7 +527,13 @@ func (h *Handler) render(w http.ResponseWriter, frag bool, base string, v view, 
 	}
 	if !frag {
 		out = new(bytes.Buffer)
-		page := layout{Title: v.title, Assets: base, HTMXConfig: htmxConfig, Body: template.HTML(body.String())}
+		page := layout{Title: v.title, HTMXConfig: htmxConfig, Body: template.HTML(body.String())}
+		if info != nil {
+			page.Assets, page.Version = assetsPath(Release(*info)), info.DecoderVersion
+			if tag := releaseTagOf(info.DecoderVersion); tag != "" {
+				page.VersionURL = repoURL + "/releases/tag/" + tag
+			}
+		}
 		if v.dialog != nil {
 			var dialog bytes.Buffer
 			if err := tpl.ExecuteTemplate(&dialog, "vocab-dialog", v.dialog); err != nil {

@@ -16,9 +16,13 @@
 // none before the worker is asked for, then starting, ready (the worker
 // controls the page and its panel is in #browser-files), paused (an
 // installed worker does not control this page: a hard reload bypasses
-// it), unsupported (no Service Workers), and failed. An update waiting for
-// the old worker's pages to close is said beside the state
-// (data-update="waiting").
+// it), outdated (the worker in control is of another release than the
+// page, #browser's data-release, or the server, or does not answer the
+// page at all: it answers nothing, so every page is the server's and the
+// visitor's files wait for the update), unsupported (no Service Workers),
+// and failed. An update waiting for the old worker's pages to close is
+// said beside the state (data-update="waiting"), with Update now, which
+// hands the page to it at once and reloads.
 'use strict';
 
 (() => {
@@ -26,6 +30,10 @@
   if (!section || !section.dataset.worker) return;
   const dialog = document.getElementById('vocabularies');
   const status = document.getElementById('browser-status');
+  // release is the release that drew the page, which the worker in
+  // control must be of.
+  const release = section.dataset.release || '';
+  const version = (r) => r.split('/')[0];
   // stall is how long a load may go without a word from the worker: a
   // minute, or #browser's data-stall (milliseconds), which a test sets.
   const stall = () => Number(section.dataset.stall) || 60000;
@@ -45,25 +53,94 @@
     return;
   }
   const sw = navigator.serviceWorker;
+  let registration = null;
+
+  // ask asks the worker in control msg on a MessageChannel, resolving with
+  // its answer, or with null after ms without one: a worker of another
+  // release may not know msg's op.
+  const ask = (msg, ms) => new Promise((resolve) => {
+    const ch = new MessageChannel();
+    const timer = setTimeout(() => resolve(null), ms);
+    ch.port1.onmessage = (e) => {
+      clearTimeout(timer);
+      resolve(e.data);
+    };
+    sw.controller.postMessage(msg, [ch.port2]);
+  });
 
   const showFiles = () => htmx.ajax('GET', '/ui/files', { target: '#browser-files', swap: 'innerHTML' });
   // redraw asks for the page's main again: its forms and its answer are
   // over the files loaded, which just changed.
   const redraw = () => htmx.ajax('GET', location.pathname + location.search, { target: '#ui-main', swap: 'innerHTML' });
 
+  // Update now hands the page to the waiting worker at once (it skips
+  // waiting) and reloads, once the new worker controls the page; another
+  // page's Update now reloads this one too, once it was the old worker's.
+  const updateNow = document.createElement('button');
+  updateNow.type = 'button';
+  updateNow.id = 'update-now';
+  updateNow.textContent = 'Update now';
+  updateNow.hidden = true;
+  status.after(updateNow);
+  let controlled = Boolean(sw.controller), updating = false;
+  sw.addEventListener('controllerchange', () => {
+    if (controlled || updating) location.reload();
+    controlled = true;
+  });
+  updateNow.addEventListener('click', () => {
+    const waiting = registration && registration.waiting;
+    updating = true;
+    updateNow.disabled = true;
+    status.textContent = 'Updating the translator in this browser…';
+    // None waits any more: another page took the update already.
+    if (!waiting) location.reload();
+    else waiting.postMessage({ op: 'skipWaiting' });
+  });
+
   const watchUpdates = (reg) => {
     const waiting = () => {
-      update = ' A new release of nitrovin is ready: it starts once every nitrovin tab is closed.';
+      update = ' A new release of nitrovin is ready: it starts once every nitrovin tab is closed, or now with Update now.';
       section.dataset.update = 'waiting';
       status.textContent = status.textContent.replace(/ A new release.*$/, '') + update;
+      updateNow.hidden = false;
+    };
+    // track waits for w, a worker installing, to be installed.
+    const track = (w) => {
+      if (w) w.addEventListener('statechange', () => { if (w.state === 'installed' && sw.controller) waiting(); });
     };
     if (reg.waiting && sw.controller) waiting();
-    reg.addEventListener('updatefound', () => {
-      const w = reg.installing;
-      if (!w) return;
-      w.addEventListener('statechange', () => { if (w.state === 'installed' && sw.controller) waiting(); });
-    });
+    track(reg.installing);
+    reg.addEventListener('updatefound', () => track(reg.installing));
   };
+
+  // outdated says the worker in control answers nothing, mine its answer
+  // to {op: "release"} ({release, server}), null when it gave none, and
+  // has the browser look for the new release's worker.
+  const outdated = (mine) => {
+    const server = mine && mine.server && mine.server.includes('/') ? mine.server : release;
+    const what = !mine ? 'does not answer this page, so it is of another release of nitrovin than this server\'s'
+      : version(mine.release) !== version(server) ? 'is nitrovin ' + version(mine.release) + ', and this server runs ' + version(server)
+        : 'is of another release of nitrovin than this server\'s';
+    say('outdated', 'Your own files are paused: the translator in this browser ' + what + '. Until it updates, every page comes from the server.');
+    if (registration && !registration.waiting && !registration.installing) registration.update().catch(() => {});
+  };
+  // The worker in control tells the page once it learns the server runs
+  // another release.
+  sw.addEventListener('message', (e) => {
+    if (e.data && e.data.op === 'outdated' && section.dataset.state !== 'outdated') outdated(e.data);
+  });
+  sw.startMessages();
+
+  // mine is the worker in control's answer to {op: "release"}, asked once
+  // a page ({release, server}; null when it gave none, asked again next
+  // time); matched reports whether that worker is of the page's release
+  // and not outdated.
+  let asked = null;
+  const mine = () => asked || (asked = ask({ op: 'release' }, 5000).then((m) => {
+    if (!m) asked = null;
+    return m;
+  }));
+  const matched = (m) => Boolean(m) && !m.server && m.release === release;
 
   // start registers the worker, once, and settles when its state is said.
   let starting = null;
@@ -74,13 +151,20 @@
         const before = await sw.getRegistration('/');
         if (before && before.active && !sw.controller) {
           // Installed, yet not in control: this load bypassed it (a hard reload).
+          registration = before;
           watchUpdates(before);
           say('paused', 'Your own files are paused for this load: a hard reload bypasses the Service Worker that holds them. Reload the page normally to use them.');
           return;
         }
         const reg = await sw.register(section.dataset.worker, { scope: '/' });
+        registration = reg;
         watchUpdates(reg);
         if (!sw.controller) await new Promise((resolve) => sw.addEventListener('controllerchange', resolve, { once: true }));
+        const m = await mine();
+        if (!matched(m)) {
+          outdated(m);
+          return;
+        }
         await showFiles();
         say('ready', 'Your files stay in this browser and are translated here.');
       })().catch((err) => say('failed', 'The translator in this browser could not start: ' + err + '.'));
@@ -91,6 +175,12 @@
   dialog.addEventListener('toggle', (e) => { if (e.newState === 'open') start(); });
 
   const ready = () => section.dataset.state === 'ready' && sw.controller;
+  // why is why files cannot load now, by the state.
+  const why = () => ({
+    outdated: 'the translator in this browser is of another release of nitrovin than this server\'s. Update it (Update now, or close every nitrovin tab), then load them again.',
+    paused: 'a hard reload bypassed the translator in this browser for this page. Reload the page normally, then load them again.',
+    failed: 'the translator in this browser could not start. Reload the page, then load them again.',
+  })[section.dataset.state] || 'files load once the translator in this browser is ready.';
 
   // retarget is href, a link to a lookup, to the targets ticked now on
   // spine, else to fallback (names): a link the page drew names its
@@ -125,14 +215,13 @@
   // holds targets for, when the page's lookup (path) named none of its
   // own: so what the visitor asks next names its targets (to=), and a
   // link naming none means the same in every browser. The selection is
-  // the worker's, asked for whenever one controls the page.
+  // the worker's, asked for whenever one of the page's release controls
+  // the page, beside that question: the forms are ticked without waiting
+  // for the dialog's panel.
   const tick = async (path) => {
     if (!sw.controller || new URL(path, location.origin).searchParams.has('to')) return;
-    const selection = await new Promise((resolve) => {
-      const ch = new MessageChannel();
-      ch.port1.onmessage = (e) => resolve(e.data || {});
-      sw.controller.postMessage({ op: 'selection' }, [ch.port2]);
-    });
+    const [m, selection] = await Promise.all([mine(), ask({ op: 'selection' }, 5000)]);
+    if (!matched(m) || section.dataset.state === 'outdated' || !selection) return;
     for (const set of document.querySelectorAll('#controls fieldset[data-spine]')) {
       const names = selection[set.dataset.spine];
       if (!names) continue;
@@ -205,7 +294,7 @@
       wait();
       sw.controller.postMessage({ op: 'load', files }, [ch.port2, ...files.map((f) => f.data)]);
     });
-    await showFiles();
+    if (ready()) await showFiles();
     tell(done.ok ? done.message : 'Nothing was loaded: ' + done.message);
     if (done.ok) await redraw();
   };
@@ -224,7 +313,7 @@
     if (!dialog.matches(':popover-open')) dialog.showPopover();
     await start();
     if (!ready()) {
-      tell('Nothing was loaded: files load once the translator in this browser is ready.');
+      tell('Nothing was loaded: ' + why());
       return;
     }
     await load(picked.map((f) => f.name).join(', '), picked.map(fromDisk));
@@ -265,7 +354,11 @@
   // EPA's vocabulary, from this release's assets: one click.
   document.addEventListener('click', (e) => {
     const button = e.target.closest && e.target.closest('#load-epa');
-    if (!button || !ready()) return;
+    if (!button) return;
+    if (!ready()) {
+      tell('Nothing was loaded: ' + why());
+      return;
+    }
     load("EPA's vocabulary", [{
       name: button.dataset.file,
       read: async () => {
@@ -275,8 +368,11 @@
         } catch {
           throw new Error("EPA's vocabulary could not be downloaded: this server could not be reached, and this browser may be offline.");
         }
-        if (!r.ok) throw new Error("EPA's vocabulary could not be downloaded: this server answered HTTP " + r.status + '. Reload the page and try again.');
-        return r.arrayBuffer();
+        if (r.ok) return r.arrayBuffer();
+        const server = r.headers.get('Nitrovin-Release');
+        throw new Error("EPA's vocabulary could not be downloaded: this server answered HTTP " + r.status + (server && server !== release
+          ? ', as it now runs another release of nitrovin than this page. Update the translator in this browser (Update now, or close every nitrovin tab), then try again.'
+          : '. Reload the page and try again.'));
       },
     }]).catch(failed);
   });

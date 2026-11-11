@@ -6,9 +6,11 @@
 }
 body { font: 15px/1.5 system-ui, sans-serif; max-width: 62rem; margin: 1rem auto; padding: 0 1rem; color: var(--fg); background: var(--bg); }
 a { color: var(--link); }
-/* The header: the brand, and the vocabularies' button at the other end. */
+/* The header: the brand and the running release's version, small and
+   muted, and the vocabularies' button at the other end. */
 header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; margin: .5rem 0 1rem; padding-bottom: .5rem; border-bottom: 1px solid var(--line); }
 header a.brand { font-weight: 700; color: var(--fg); text-decoration: none; }
+header .version, header .version a { font-size: 13px; color: var(--muted); }
 header button { padding: .25rem 1rem; }
 h1 { font-size: 1.4rem; margin: .5rem 0; }
 h2 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; }

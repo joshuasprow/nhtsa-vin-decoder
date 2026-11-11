@@ -14,10 +14,21 @@
 // - A file reaches it by postMessage from the page, never by a request: no
 //   file's bytes are ever sent to the server.
 // - It installs beside an older release's worker and waits until that
-//   one's pages close (no skipWaiting); once active it controls the pages
-//   that have none (clients.claim). It keeps its release's assets in a
-//   cache of its own, so pages it renders keep working while the server
-//   runs a newer release.
+//   one's pages close, or until the visitor asks for it (Update now:
+//   vocab.js posts {op: "skipWaiting"} to it, then reloads); once active it
+//   controls the pages that have none (clients.claim). It keeps its
+//   release's assets in a cache of its own.
+// - It answers only while the server runs its release. The server names
+//   its release on every page, asset and /sw.js (Nitrovin-Release), and
+//   before answering anything itself the worker asks /sw.js for it (a
+//   HEAD, while the module draws the answer); a 404 for one of its
+//   release's assets that names none says the same. Once the server runs
+//   another release the worker is outdated and answers nothing: every
+//   request goes to the server unchanged, it fetches none of its
+//   release's assets, it refuses a load in words, and the pages it
+//   controls hear {op: "outdated"}, so they say so and offer Update now,
+//   until a newer worker replaces it. A server it cannot reach leaves it
+//   answering, as offline.
 // - It keeps the visitor's selection of targets beside the files, by the
 //   spine they are on, which vocab.js ticks in the page's forms: each
 //   file loaded joins it, each removed leaves it, a target ticked or
@@ -33,6 +44,73 @@ const DB = 'nitrovin';
 // The assets a page or the module needs, kept per release.
 const ASSETS = ['htmx.min.js', 'ui.css', 'copy.js', 'map.js', 'vocab.js', 'worker.js', 'wasm_exec.js', 'sw.wasm', 'spine.json']
   .map((name) => config.assets + '/' + name);
+// The header the server names its release in (pkg/ui's ReleaseHeader).
+const RELEASE = 'Nitrovin-Release';
+
+// outdated is the release the server runs once it runs another than this
+// worker's (a 404 for one of this release's assets that names none:
+// "another"), "" until then. From then on the worker answers nothing.
+let outdated = '';
+
+// heard reads what res, the server's answer for path, says of the
+// server's release, telling the pages this worker controls once it is
+// another than the worker's.
+function heard(res, path) {
+  if (outdated) return res;
+  const release = res.headers.get(RELEASE);
+  if (release ? release !== config.release : res.status === 404 && path.startsWith(config.assets + '/')) {
+    outdated = release || 'another';
+    self.clients.matchAll({ type: 'window' })
+      .then((pages) => { for (const p of pages) p.postMessage({ op: 'outdated', release: config.release, server: outdated }); })
+      .catch(() => {});
+  }
+  return res;
+}
+
+// network is the server's answer to req.
+const network = (req) => fetch(req).then((res) => heard(res, new URL(req.url).pathname));
+
+// current resolves whether the server runs this worker's release, asking
+// its /sw.js (a HEAD, whose answer names it), one question at a time. A
+// server that cannot be reached, or does not answer in 3 s, leaves the
+// worker answering, as offline.
+let asking = null;
+function current() {
+  if (outdated) return Promise.resolve(false);
+  if (!asking) {
+    asking = fetch('/sw.js', { method: 'HEAD', cache: 'no-store', signal: AbortSignal.timeout(3000) })
+      .then((res) => { heard(res, '/sw.js'); }, () => {})
+      .then(() => {
+        asking = null;
+        return !outdated;
+      });
+  }
+  return asking;
+}
+
+// own answers req with make(), the worker's own answer, while the server
+// runs this worker's release, else with the server's. A GET's answer is
+// drawn while the server is asked; a POST, which changes the files, waits
+// for the server's word.
+async function own(req, make) {
+  const again = req.clone();
+  const making = req.method === 'GET' ? make() : null;
+  if (!(await current())) {
+    if (making) making.catch(() => {});
+    return network(again);
+  }
+  const res = await (making || make());
+  return outdated ? network(again) : res;
+}
+
+// stale says in words that the server runs another release than this
+// worker's, and what to do.
+function stale() {
+  const mine = config.release.split('/')[0], theirs = outdated.split('/')[0];
+  const now = outdated.includes('/') && theirs !== mine ? 'nitrovin ' + theirs : 'another release of nitrovin';
+  return 'the translator in this browser is nitrovin ' + mine + ', and this server now runs ' + now +
+    '. Update it (Update now, or close every nitrovin tab), then try again.';
+}
 
 self.addEventListener('install', (e) => {
   // Every page's request goes to the fetch handler, never to the network
@@ -174,9 +252,10 @@ async function dropStaleIndexes() {
 }
 
 // get is a GET on this origin, answered by the release's cache when it
-// holds the path (ui.Remote).
+// holds the path (ui.Remote). An outdated worker fetches nothing.
 self.nitrovinGet = async (path) => {
-  const r = (await caches.match(path, { cacheName: CACHE })) || (await fetch(path));
+  if (outdated) throw new Error(stale());
+  const r = (await caches.match(path, { cacheName: CACHE })) || heard(await fetch(path), path);
   return { status: r.status, body: new Uint8Array(await r.arrayBuffer()) };
 };
 
@@ -188,12 +267,14 @@ let booting = null;
 // Server-Timing metric beside the module's own (Library.Opened).
 let started = '';
 function boot() {
+  if (outdated) return Promise.reject(new Error(stale()));
   if (!booting) {
     booting = (async () => {
       const t0 = performance.now();
       const ready = new Promise((resolve) => { self.nitrovinReady = resolve; });
       const go = new Go();
-      const r = (await caches.match(config.assets + '/sw.wasm', { cacheName: CACHE })) || (await fetch(config.assets + '/sw.wasm'));
+      const module = config.assets + '/sw.wasm';
+      const r = (await caches.match(module, { cacheName: CACHE })) || heard(await fetch(module), module);
       const { instance } = await WebAssembly.instantiateStreaming(r, go.importObject);
       go.run(instance).finally(() => { booting = null; });
       await ready;
@@ -223,28 +304,30 @@ function named(q) {
 // name, a form's choice.
 const asks = (q) => [...q].some(([k, v]) => k.startsWith('from.') && k !== 'from.vocabulary' && v.trim() !== '');
 
+// The worker answers a request only while it is not outdated, and what it
+// draws itself (own) only while the server runs its release.
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (url.origin !== location.origin) return;
+  if (url.origin !== location.origin || outdated) return;
   if (url.pathname.startsWith(config.assets + '/')) {
-    e.respondWith(caches.match(e.request, { cacheName: CACHE }).then((r) => r || fetch(e.request)));
+    e.respondWith(caches.match(e.request, { cacheName: CACHE }).then((r) => r || network(e.request)));
     return;
   }
   if (url.pathname === '/ui/files' || url.pathname === '/ui/files/remove') {
-    e.respondWith(serve(e.request));
+    e.respondWith(own(e.request, () => serve(e.request)));
     return;
   }
   // An old link may name a file of this browser's: it moves here, as the
   // server moves it, and the server never sees it.
   if (url.pathname === MOVED) {
-    e.respondWith(Response.redirect(new URL(PAGE + url.search, location.origin).href, 301));
+    e.respondWith(own(e.request, async () => Response.redirect(new URL(PAGE + url.search, location.origin).href, 301)));
     return;
   }
   if (url.pathname === PAGE) {
     const q = url.searchParams;
     e.respondWith(storedNames().then((stored) => {
-      if (named(q).some((n) => stored.has(n)) || (stored.size > 0 && !asks(q))) return serve(e.request);
-      return fetch(e.request).then((r) => {
+      if (named(q).some((n) => stored.has(n)) || (stored.size > 0 && !asks(q))) return own(e.request, () => serve(e.request));
+      return network(e.request).then((r) => {
         e.waitUntil(remember(q, e.request, r.clone()).catch(() => {}));
         return r;
       });
@@ -255,7 +338,7 @@ self.addEventListener('fetch', (e) => {
   const list = '/ui/vocabularies/';
   if (!url.pathname.startsWith(list)) return;
   const name = decodeURIComponent(url.pathname.slice(list.length));
-  e.respondWith(storedNames().then((stored) => (stored.has(name) ? serve(e.request) : fetch(e.request))));
+  e.respondWith(storedNames().then((stored) => (stored.has(name) ? own(e.request, () => serve(e.request)) : network(e.request))));
 });
 
 // remember makes the targets of a lookup the server answered, a link's
@@ -293,34 +376,50 @@ async function serve(req) {
 
 // A load: {op: "load", files: [{name, data: ArrayBuffer}]} on a
 // MessageChannel. The page hears {progress} at each step, then {done, ok,
-// message}; it gives up after a minute without either. A tick: {op:
-// "select", name, spine, checked}, a target the visitor ticked in the
-// page's form or cleared, kept in the selection on its spine or dropped
-// from it. A question: {op: "selection"} on a MessageChannel, answered
-// with the selection ({spine: [name]}), which vocab.js ticks.
+// message}; it gives up after a minute without either. An outdated worker
+// refuses it in words. A tick: {op: "select", name, spine, checked}, a
+// target the visitor ticked in the page's form or cleared, kept in the
+// selection on its spine or dropped from it. Questions on a
+// MessageChannel: {op: "selection"}, answered with the selection ({spine:
+// [name]}), which vocab.js ticks; {op: "release"}, answered with {release,
+// server}, this worker's release and, once it is outdated, the server's.
+// {op: "skipWaiting"} is Update now: a waiting worker takes over at once.
 self.addEventListener('message', (e) => {
-  if (e.data && e.data.op === 'select' && typeof e.data.name === 'string' && typeof e.data.spine === 'string') {
+  const op = e.data && e.data.op;
+  if (op === 'skipWaiting') {
+    e.waitUntil(self.skipWaiting());
+    return;
+  }
+  if (op === 'select' && typeof e.data.name === 'string' && typeof e.data.spine === 'string') {
     const { name, spine, checked } = e.data;
     e.waitUntil(select(spine, (s) => s.filter((n) => n !== name).concat(checked ? [name] : [])));
     return;
   }
   const port = e.ports[0];
-  if (port && e.data && e.data.op === 'selection') {
+  if (port && op === 'release') {
+    port.postMessage({ release: config.release, server: outdated });
+    return;
+  }
+  if (port && op === 'selection') {
     e.waitUntil(tx(['state'], 'readonly', (t) => request(t.objectStore('state').get('selection')), stateDB)
       .then((s) => port.postMessage(s || {}), () => port.postMessage({})));
     return;
   }
-  if (!port || !e.data || e.data.op !== 'load') return;
+  if (!port || op !== 'load') return;
   e.waitUntil((async () => {
     try {
       port.postMessage({ progress: 'Starting the translator…' });
+      if (!(await current())) {
+        port.postMessage({ done: true, ok: false, message: stale() });
+        return;
+      }
       await boot();
       const files = e.data.files.map((f) => ({ name: f.name, data: new Uint8Array(f.data) }));
       const r = await self.nitrovin.load(files, (text) => port.postMessage({ progress: text }));
       names = null;
-      port.postMessage({ done: true, ok: r.ok, message: r.message });
+      port.postMessage({ done: true, ok: r.ok, message: !r.ok && outdated ? stale() : r.message });
     } catch (err) {
-      port.postMessage({ done: true, ok: false, message: String(err) });
+      port.postMessage({ done: true, ok: false, message: outdated ? stale() : String(err) });
     }
   })());
 });
