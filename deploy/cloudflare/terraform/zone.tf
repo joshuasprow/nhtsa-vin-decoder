@@ -45,3 +45,14 @@ resource "cloudflare_zone_setting" "hsts" {
     }
   }
 }
+
+# Web Analytics (RUM) off: on, Cloudflare injects its beacon, a script from
+# static.cloudflareinsights.com, into every HTML answer, which the pages'
+# CSP (script-src 'self', ADR 0013) refuses (#192). The site loads no
+# third-party script. Not a setting in the API's list, but the same
+# /zones/{zone_id}/settings/rum endpoint and shape, under Zone Settings Write.
+resource "cloudflare_zone_setting" "rum" {
+  zone_id    = local.zone_id
+  setting_id = "rum"
+  value      = "off"
+}
