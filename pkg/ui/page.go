@@ -33,9 +33,10 @@ import (
 // layout holds beside the page's main, so no answer replaces it.
 //
 // The page answers the same on the server and in the browser's Service
-// Worker, which answers it once the browser holds a file, over the
-// server's files and the browser's; a VIN's decode is the server's there
-// too (decodedPath). Without JavaScript every step is a page load, and
+// Worker, which answers a lookup naming a file the browser holds, over
+// the server's files and the browser's, and sends the server every other;
+// a VIN's decode is the server's there too, asked for once (decoded).
+// Without JavaScript every step is a page load, and
 // both dialogs still open: they are popovers. Old links, to /ui/decode,
 // /ui/translate, /vocab and the form at /?vin=…, move to the page.
 
@@ -255,17 +256,17 @@ func (h *Handler) newControls(cat []contract.CatalogEntry, raw, q url.Values) (*
 	}
 
 	// The tab is the from's own, whatever it holds, else the link's.
-	switch {
-	case raw.Has("from.vin"):
+	switch k := queryFrom(raw); k {
+	case fromVIN:
 		c.Tab = tabVIN
-	case raw.Has("from.vocabulary"):
+	case fromEntry:
 		if i := slices.IndexFunc(c.Vocabularies, func(v contract.CatalogEntry) bool { return v.Name == raw.Get("from.vocabulary") }); i >= 0 {
 			choose(&c.Vocabularies[i])
 			c.Tab = entryKey(c.From.Spine)
 		}
-	case raw.Has("from.spine"):
+	case fromSpine:
 		c.Tab = entryKey(raw.Get("from.spine"))
-	case raw.Has("from.make"), raw.Has("from.model"), raw.Has("from.ext"):
+	case fromMake, fromModel, fromExt:
 		c.Tab = tabID
 	default:
 		c.Tab = raw.Get(tabParam)
@@ -344,18 +345,23 @@ func (h *Handler) entryExample(c *controls, v contract.CatalogEntry) (example, b
 	ex := c.example(strings.Join(label, " · "), hint, v.Spine, []string{c.sensibleTarget(v)}, q)
 	if c.sensibleTarget(v) != v.Name {
 		// Kept only when it names something in another vocabulary, or
-		// the only target ticked is its own.
+		// the only target ticked is its own. An example that cannot be
+		// asked is a fault, logged, and left out.
+		skip := func(err error) (example, bool, error) {
+			h.log.Printf("ui: the example from %s: %v", v.Name, err)
+			return example{}, false, nil
+		}
 		u, err := url.Parse(ex.Href)
 		if err != nil {
-			return example{}, false, nil
+			return skip(err)
 		}
 		req, err := contract.ParseTranslateQuery(u.Query())
 		if err != nil {
-			return example{}, false, nil
+			return skip(err)
 		}
 		tr, err := h.p.Translate(req)
 		if err != nil {
-			return example{}, false, nil
+			return skip(err)
 		}
 		if !slices.ContainsFunc(tr.To, func(t contract.Translated) bool {
 			return len(t.Entries) > 0 && (t.Vocabulary != v.Name || len(tr.To) == 1)
@@ -398,6 +404,11 @@ func (c *controls) sensibleTarget(v contract.CatalogEntry) string {
 // result is the page's answer: a VIN's decode, nil for another lookup,
 // and the translation as its map and as JSON.
 type result struct {
+	// From is which from was looked up, and Spine the spine its targets
+	// are on: the answer carries both (data-from, data-spine), which
+	// worker.js reads.
+	From  fromKind
+	Spine string
 	// Heading names what was looked up: the vehicle, "2015 Ram 1500".
 	Heading string
 	Decode  *formDecode
@@ -479,11 +490,7 @@ func (h *Handler) home(r *http.Request) (view, error) {
 	}
 	explicit := q.Has("to")
 	if !explicit {
-		to, err := h.defaultTargets(q, cat)
-		if err != nil {
-			return view{}, err
-		}
-		if len(to) > 0 {
+		if to := h.defaultTargets(q, cat); len(to) > 0 {
 			q["to"] = to
 		}
 	}
@@ -515,8 +522,14 @@ func (h *Handler) home(r *http.Request) (view, error) {
 	if err := h.notHere(named(q), cat); err != nil {
 		return refuse(err)
 	}
+	// The lookup asked: a from the query holds, an entry with a field
+	// filled in, and a VIN even sent empty, which is refused.
 	entry := slices.ContainsFunc(c.Fields, func(f fieldValue) bool { return f.Value != "" })
-	if !(raw.Has("from.vin") || entry || q.Has("from.make") || q.Has("from.model") || q.Has("from.ext") || q.Has("from.spine")) {
+	kind := queryFrom(q)
+	if raw.Has("from.vin") {
+		kind = fromVIN
+	}
+	if kind == fromNone || kind == fromEntry && !entry {
 		return v, nil
 	}
 	// A lookup's own targets are the visitor's selection from now on; a
@@ -525,7 +538,9 @@ func (h *Handler) home(r *http.Request) (view, error) {
 		h.remember(r, q, cat)
 	}
 
-	res := &result{ShowEmpty: c.ShowEmpty, URL: requestOrigin(r) + r.URL.RequestURI()}
+	res := &result{From: kind, ShowEmpty: c.ShowEmpty, URL: requestOrigin(r) + r.URL.RequestURI()}
+	res.Spine, _ = spineOf(kind, q, cat)
+	var vd *contract.VINDecode
 	if c.Tab == tabVIN {
 		dq := url.Values{}
 		for _, k := range decodeParams {
@@ -533,7 +548,7 @@ func (h *Handler) home(r *http.Request) (view, error) {
 				dq[k] = vs
 			}
 		}
-		if res.Decode, err = h.decoded(r, c.FromVIN, dq, c.ShowEmpty); err != nil {
+		if res.Decode, vd, err = h.decoded(r, c.FromVIN, dq, c.ShowEmpty); err != nil {
 			return refuse(err)
 		}
 	}
@@ -544,7 +559,7 @@ func (h *Handler) home(r *http.Request) (view, error) {
 	if err != nil {
 		return refuse(err)
 	}
-	tr, err := h.p.Translate(req)
+	tr, err := h.translate(req, vd)
 	if err != nil {
 		return refuse(err)
 	}
@@ -578,6 +593,15 @@ func (h *Handler) home(r *http.Request) (view, error) {
 	page.Result = res
 	v.title = res.Heading
 	return v, nil
+}
+
+// translate answers req, in the browser over dec, the VIN's decode the
+// page has already, when it is not nil.
+func (h *Handler) translate(req contract.TranslateRequest, dec *contract.VINDecode) (contract.Translation, error) {
+	if h.lib != nil && dec != nil {
+		return h.lib.translate(req, dec)
+	}
+	return h.p.Translate(req)
 }
 
 // asidePage is the page's vocabularies, behind their button: the catalog,

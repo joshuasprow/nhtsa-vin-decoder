@@ -47,8 +47,8 @@ type wireLog struct {
 	// swTail, when not "", is added to /sw.js: another worker, as a new
 	// release or a restart with other files makes.
 	swTail string
-	// cutDecodes drops the connection of every request for a decode, the
-	// API's and the page's (/ui/decoded), as an unreachable server does.
+	// cutDecodes drops the connection of every request for a decode
+	// (/v1/decode), as an unreachable server does.
 	cutDecodes bool
 }
 
@@ -64,7 +64,7 @@ func (l *wireLog) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	l.seen = append(l.seen, wireRequest{r.Method, r.URL.RequestURI(), len(body)})
 	tail, cut := l.swTail, l.cutDecodes
 	l.mu.Unlock()
-	if cut && (strings.HasPrefix(r.URL.Path, "/v1/decode/") || r.URL.Path == "/ui/decoded") {
+	if cut && strings.HasPrefix(r.URL.Path, "/v1/decode/") {
 		if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
 			_ = conn.Close()
 		}
@@ -307,6 +307,48 @@ func TestWorker(t *testing.T) {
 	}
 	same1("list", "/ui/vocabularies/yard")
 	same1("list", "/ui/vocabularies/listing?limit=1")
+
+	// One URL, one meaning: a lookup naming no target is the server's,
+	// files stored or not, and its targets are the server's default, as
+	// with JavaScript off; one naming a file the browser holds, its from
+	// alone included, is the worker's. The forms tick the visitor's
+	// selection before anything names a browser file.
+	since := len(wire.all())
+	served := func(target string) bool {
+		return slices.ContainsFunc(wire.all()[since:], func(r wireRequest) bool { return r.target == target })
+	}
+	tb.do(chromedp.Navigate(srv.URL + "/"))
+	tb.until("the selection ticked", `document.querySelector('#controls input[name=to][value="yard"]').checked`)
+	if served("/") {
+		t.Error("the page without a lookup, files stored: the server answered it")
+	}
+	bare := "/?from.vin=1D7RV1GT5AS123456" + pinned
+	tb.do(chromedp.Navigate(srv.URL + bare))
+	tb.wait("#result")
+	if !served(bare) {
+		t.Errorf("%s, files stored: the worker answered it; want the server", bare)
+	}
+	// The answer is the server's: the forms above it tick the selection.
+	want := eval[string](tb, `new DOMParser().parseFromString(`+jsString(mainOf(t, wire.h, srv.URL, bare, false))+`, "text/html").getElementById("result").outerHTML`)
+	if got := eval[string](tb, `(() => {
+		const result = document.getElementById("result").cloneNode(true);
+		result.querySelectorAll("button.copy").forEach(b => b.remove());
+		return result.outerHTML;
+	})()`); got != want {
+		t.Errorf("%s: the answer differs from the server's\npage: %s\nserver: %s", bare, got, want)
+	}
+	if got := attributes(tb, `#result`); len(got) != 1 || got[0]["data-from"] != "vin" || got[0]["data-spine"] != "vpic" {
+		t.Errorf("%s: the answer's from %v; want vin on vpic", bare, got)
+	}
+	entry := "/?from.vocabulary=yard&from.entry.make=Packard&from.entry.model=Clipper" + pinned
+	tb.do(chromedp.Navigate(srv.URL + entry))
+	tb.wait("#result")
+	if served(entry) {
+		t.Errorf("%s: the server answered it; want the worker, yard is the browser's", entry)
+	}
+	if got, want := mainHTML(tb), eval[string](tb, `new DOMParser().parseFromString(`+jsString(mainOf(t, same, srv.URL, entry, false))+`, "text/html").getElementById("ui-main").outerHTML`); got != want {
+		t.Errorf("%s: the worker's page differs from the server's\nworker: %s\nserver: %s", entry, got, want)
+	}
 
 	// A stopped worker starts again on the next request and answers the same.
 	tb.stopWorkers()

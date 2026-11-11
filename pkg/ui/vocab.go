@@ -100,9 +100,10 @@ func (h *Handler) notHere(names []string, catalog []contract.CatalogEntry) error
 	return nil
 }
 
-// named is what a translate query names: the from's vocabulary, spine or
-// extension set, and the targets. worker.js reads the same parameters to
-// tell the requests it answers.
+// named is what a lookup on the page names: the from's vocabulary, spine
+// or extension set, and the targets. worker.js reads the same parameters
+// (its named): it answers a lookup naming a file the browser holds and
+// sends every other to the server, a lookup naming no target included.
 func named(q url.Values) []string {
 	var out []string
 	for _, k := range []string{"from.vocabulary", "from.spine"} {
@@ -238,80 +239,45 @@ func (h *Handler) rows(cat []contract.CatalogEntry) []catalogRow {
 }
 
 // remember makes the targets q names, in the browser, the visitor's
-// selection on their spine: a link's own to= wins over the selection, and
-// the forms tick what was last translated to. History going back to an
-// older page changes nothing. worker.js does the same for a translation
-// it sends to the server.
+// selection on their spine: a link's own to= wins over the selection,
+// which vocab.js ticks in the forms. History going back to an older page
+// changes nothing. worker.js does the same for a lookup it sends to the
+// server, by the answer's data-from and data-spine.
 func (h *Handler) remember(r *http.Request, q url.Values, cat []contract.CatalogEntry) {
 	if h.lib == nil || !q.Has("to") || r.Header.Get("HX-History-Restore-Request") == "true" {
 		return
 	}
-	spine := vocab.Reserved
-	switch {
-	case q.Has("from.spine"):
-		spine = q.Get("from.spine")
-	case q.Has("from.vocabulary"):
-		i := slices.IndexFunc(cat, func(c contract.CatalogEntry) bool {
-			return c.Name == q.Get("from.vocabulary") && c.Kind == "vocabulary"
-		})
-		if i < 0 {
-			return // nothing loaded by its name: the translation is refused
-		}
-		spine = cat[i].Spine
+	spine, ok := spineOf(queryFrom(q), q, cat)
+	if !ok {
+		return // nothing loaded by its name: the translation is refused
 	}
 	if err := h.lib.Select(spine, q["to"]); err != nil {
 		h.log.Printf("ui: %v", err)
 	}
 }
 
-// defaultTargets are a translation's targets when q names none: in the
-// browser the visitor's selection on the from's spine, else every
-// vocabulary loaded on that spine but the from's own. Before a from they
-// are what the forms tick: in the browser the visitor's selection on
-// every spine, on the server none.
-func (h *Handler) defaultTargets(q url.Values, cat []contract.CatalogEntry) ([]string, error) {
+// defaultTargets are a lookup's targets when q names none, the same on
+// the server and in the browser: every vocabulary loaded where it is
+// answered on the from's spine but the from's own. Before a lookup is
+// asked there are none: the forms tick none, and vocab.js ticks the
+// visitor's selection. A link naming no target is always the server's
+// (worker.js), so it means the same in every browser.
+func (h *Handler) defaultTargets(q url.Values, cat []contract.CatalogEntry) []string {
 	if !slices.ContainsFunc(slices.Collect(maps.Keys(q)), func(k string) bool { return strings.HasPrefix(k, "from.") && k != "from.vocabulary" }) {
-		if h.lib == nil {
-			return nil, nil
-		}
-		s, err := h.lib.Selection()
-		if err != nil {
-			return nil, err
-		}
-		return slices.DeleteFunc(s.Names(), func(n string) bool {
-			return !slices.ContainsFunc(cat, func(c contract.CatalogEntry) bool { return c.Name == n && c.Kind == "vocabulary" })
-		}), nil
+		return nil
 	}
-	spine, from := vocab.Reserved, q.Get("from.vocabulary")
-	switch {
-	case q.Has("from.spine"):
-		spine = q.Get("from.spine")
-	case from != "":
-		i := slices.IndexFunc(cat, func(c contract.CatalogEntry) bool { return c.Name == from && c.Kind == "vocabulary" })
-		if i < 0 {
-			return nil, nil
-		}
-		spine = cat[i].Spine
+	spine, ok := spineOf(queryFrom(q), q, cat)
+	if !ok {
+		return nil
 	}
-	loaded := func(n string) bool {
-		return slices.ContainsFunc(cat, func(c contract.CatalogEntry) bool { return c.Name == n && c.Kind == "vocabulary" && c.Spine == spine })
-	}
-	if h.lib != nil {
-		s, err := h.lib.Selection()
-		if err != nil {
-			return nil, err
-		}
-		if names, ok := s[spine]; ok {
-			return slices.DeleteFunc(slices.Clone(names), func(n string) bool { return !loaded(n) }), nil
-		}
-	}
+	from := q.Get("from.vocabulary")
 	var out []string
 	for _, c := range cat {
 		if c.Kind == "vocabulary" && c.Spine == spine && c.Name != from {
 			out = append(out, c.Name)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // entryText is an entry of vocabulary name in words, its fields' values in
@@ -662,43 +628,49 @@ type workerConfig struct {
 	ArtifactHash   string       `json:"artifact_hash"`
 	Files          []workerFile `json:"files"`
 	EPA            *Offer       `json:"epa,omitempty"`
-	// Elements are the data month's element names by id, which a
-	// translation's unchecked qualifiers are named by.
-	Elements map[int32]string `json:"elements,omitempty"`
+	// Elements are the data month's public elements, which the worker
+	// lays a VIN's decode out by and names a translation's unchecked
+	// qualifiers by; ErrorTexts its error codes' texts, by code.
+	Elements   contract.Elements `json:"elements,omitempty"`
+	ErrorTexts map[int]string    `json:"error_texts,omitempty"`
 	// DataRelease is the page's link to the data month's nitrovin-data
 	// release, which only the server's build can name.
 	DataRelease string `json:"data_release,omitempty"`
 }
 
-// workerFile is one of the server's files. Spine is a vocabulary's, which
-// worker.js keeps the selection by when it sends a translation from it to
-// the server.
+// workerFile is one of the server's files.
 type workerFile struct {
 	Name    string `json:"name"`
 	Kind    string `json:"kind"`
 	Version string `json:"version"`
 	Blake3  string `json:"blake3"`
 	URL     string `json:"url"`
-	Spine   string `json:"spine,omitempty"`
 }
 
-// ReadWorkerConfig reads a worker's config: the Info it describes (the
-// release and the server's files, what a Library links), the vocabulary
-// the server offers, nil for none (NewInBrowser), and the page's link to
-// the data month's release (WithDataRelease).
-func ReadWorkerConfig(config []byte) (info contract.Info, offer *Offer, dataRelease string, err error) {
+// BrowserConfig is what the server gives the browser's pages
+// (ReadWorkerConfig): the Info the worker describes (the release, its
+// elements and the server's files, what a Library links), the
+// vocabulary the server offers, nil for none, the page's link to the
+// data month's release, and the data's error-code texts, by code: what
+// the worker's module cannot know itself.
+type BrowserConfig struct {
+	Info        contract.Info
+	Offer       *Offer
+	DataRelease string
+	ErrorTexts  map[int]string
+}
+
+// ReadWorkerConfig reads a worker's config, /sw.js's.
+func ReadWorkerConfig(config []byte) (BrowserConfig, error) {
 	var c workerConfig
 	if err := json.Unmarshal(config, &c); err != nil {
-		return contract.Info{}, nil, "", err
+		return BrowserConfig{}, err
 	}
-	info = contract.Info{DecoderVersion: c.DecoderVersion, DataMonth: c.DataMonth, ArtifactHash: c.ArtifactHash, Vocabularies: []contract.VocabularyFile{}}
-	for _, id := range slices.Sorted(maps.Keys(c.Elements)) {
-		info.Elements = append(info.Elements, contract.Element{ElementID: id, Variable: c.Elements[id]})
-	}
+	info := contract.Info{DecoderVersion: c.DecoderVersion, DataMonth: c.DataMonth, ArtifactHash: c.ArtifactHash, Elements: c.Elements, Vocabularies: []contract.VocabularyFile{}}
 	for _, f := range c.Files {
 		info.Vocabularies = append(info.Vocabularies, contract.VocabularyFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3})
 	}
-	return info, c.EPA, c.DataRelease, nil
+	return BrowserConfig{Info: info, Offer: c.EPA, DataRelease: c.DataRelease, ErrorTexts: c.ErrorTexts}, nil
 }
 
 // serviceWorker answers /sw.js: the release's worker. Its bytes name the
@@ -707,23 +679,12 @@ func ReadWorkerConfig(config []byte) (info contract.Info, offer *Offer, dataRele
 // the old one and starts once the old one's pages close. It is never
 // cached without asking (no-cache), and it alone may run WebAssembly.
 func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info, base string) error {
-	cat, err := h.catalog()
-	if err != nil {
-		return err
-	}
-	c := workerConfig{Assets: base, Release: Release(info), DecoderVersion: info.DecoderVersion, DataMonth: info.DataMonth, ArtifactHash: info.ArtifactHash, Files: []workerFile{}, EPA: h.offered(), DataRelease: h.links(info).DataRelease}
-	if len(info.Elements) > 0 {
-		c.Elements = map[int32]string{}
-		for _, e := range info.Elements {
-			c.Elements[e.ElementID] = e.Variable
-		}
+	c := workerConfig{
+		Assets: base, Release: Release(info), DecoderVersion: info.DecoderVersion, DataMonth: info.DataMonth, ArtifactHash: info.ArtifactHash,
+		Files: []workerFile{}, EPA: h.offered(), Elements: info.Elements, ErrorTexts: h.errorTexts, DataRelease: h.links(info).DataRelease,
 	}
 	for _, f := range info.Vocabularies {
-		wf := workerFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3, URL: FilePath(info, f)}
-		if i := slices.IndexFunc(cat, func(e contract.CatalogEntry) bool { return e.Name == f.Name }); i >= 0 && cat[i].Kind == "vocabulary" {
-			wf.Spine = cat[i].Spine
-		}
-		c.Files = append(c.Files, wf)
+		c.Files = append(c.Files, workerFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3, URL: FilePath(info, f)})
 	}
 	config, err := json.Marshal(c)
 	if err != nil {

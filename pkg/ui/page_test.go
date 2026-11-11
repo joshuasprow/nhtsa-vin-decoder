@@ -131,41 +131,46 @@ func TestPage(t *testing.T) {
 	}
 }
 
-// TestDecoded: the server answers a VIN's decode as the page shows it, as
-// JSON, and a refusal as a problem; and the browser's page, which has no
-// decoder, shows the server's, asking it with the decode's query alone:
-// the names of the browser's files stay in the browser.
-func TestDecoded(t *testing.T) {
+// TestBrowserDecode: the browser's page, which has no decoder, decodes a
+// VIN once, asking the server's GET /v1/decode/{vin} for every item with
+// the decode's query alone (the names of the browser's files stay in the
+// browser), lays it out by the elements the server gave it, and
+// translates the same decode. No route under /ui answers JSON.
+func TestBrowserDecode(t *testing.T) {
 	const vin = "1D7RV1GT5AS123456"
 	srv := New(backend{info: testInfo}, log.New(io.Discard, "", 0))
-	status, hdr, body := response(t, srv, "GET", decodedPath+"?vin="+vin+"&full=true", nil)
-	if status != 200 || hdr.Get("Content-Type") != "application/json" || !strings.HasPrefix(body, `{"VIN":"`+vin+`","ErrorCodes":[0],`) {
-		t.Errorf("%s: %d %s\n%s", decodedPath, status, hdr.Get("Content-Type"), body)
-	}
-	status, hdr, body = response(t, srv, "GET", decodedPath+"?vin="+vin+"&model_year=x", nil)
-	if status != 400 || hdr.Get("Content-Type") != "application/problem+json" || !strings.Contains(body, `"pointer":"/model_year"`) {
-		t.Errorf("%s refused: %d %s\n%s", decodedPath, status, hdr.Get("Content-Type"), body)
+	if status, _, _ := response(t, srv, "GET", "/ui/decoded?vin="+vin, nil); status != 404 {
+		t.Errorf("/ui/decoded on the server: %d; want 404", status)
 	}
 
 	s, d := server(t, "classics"), newDisk()
-	s.pages = srv
-	s.decodes[vin] = `{"vin":"` + vin + `","wmi":"1D7","check_digit_valid":true,"data_month":"2026_10","decoder_version":"v9","items":[` +
-		`{"element_id":26,"value":"DODGE","attribute_id":"476"},{"element_id":28,"value":"Ram","attribute_id":"1938"},{"element_id":29,"value":"2010","attribute_id":"2010"},{"element_id":34,"value":"DS (1500)","attribute_id":"DS (1500)"}]}`
+	general := contract.Value("General")
+	s.info.Elements = contract.Elements{
+		{ElementID: 26, Variable: "Make", Code: "Make", GroupName: general, DataType: "lookup"},
+		{ElementID: 28, Variable: "Model", Code: "Model", GroupName: general, DataType: "lookup"},
+		{ElementID: 29, Variable: "Model Year", Code: "ModelYear", GroupName: general, DataType: "int"},
+		{ElementID: 34, Variable: "Series", Code: "Series", GroupName: general, DataType: "string"},
+		{ElementID: 143, Variable: "Error Code", Code: "ErrorCode", DataType: "lookup"},
+	}
+	s.decodes[vin] = `{"vin":"` + vin + `","wmi":"1D7","check_digit_valid":true,"now":"2026-11-10T00:00:00Z","data_month":"2026_10","decoder_version":"v9","items":[` +
+		`{"element_id":26,"value":"DODGE","attribute_id":"476"},{"element_id":28,"value":"Ram","attribute_id":"1938"},{"element_id":29,"value":"2010","attribute_id":"2010"},` +
+		`{"element_id":34,"value":"DS (1500)","attribute_id":"DS (1500)"},{"element_id":143,"value":"0","attribute_id":"0"}]}`
 	l := open(t, s, d)
 	if _, err := l.Load(pick(t, "yard"), quiet); err != nil {
 		t.Fatal(err)
 	}
 	s.gets = nil
-	h := NewInBrowser(l, nil, log.New(io.Discard, "", 0))
-	status, _, body = response(t, h, "GET", "/?from.vin="+vin+"&to=yard&show_empty=true", nil)
+	h := NewInBrowser(l, BrowserConfig{ErrorTexts: map[int]string{0: "0 - VIN decoded clean"}}, log.New(io.Discard, "", 0))
+	status, _, body := response(t, h, "GET", "/?from.vin="+vin+"&to=yard&show_empty=true", nil)
 	for _, want := range []string{
 		`<h2 id="result-h">Dodge Ram</h2>`,
+		`<section id="result" aria-labelledby="result-h" data-from="vin" data-spine="vpic">`,
 		`<span class="chip chip-ok">Valid VIN</span>`,
 		`<span class="name">Dodge Ram 1500</span>`,
-		`id="decode-json"`,
+		`&#34;Make&#34;: &#34;DODGE&#34;`,
+		`&#34;now&#34;: &#34;2026-11-10T00:00:00Z&#34;`,
 		`Empty values shown. <a href="/?from.vin=` + vin + `&amp;to=yard">Hide them</a>`,
 		`<tr data-where="browser"><th scope="row"><a href="/ui/vocabularies/yard">yard</a></th>`,
-		`<section id="browser" data-worker="/sw.js">`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the browser's page lacks %s\n%s", want, body)
@@ -174,17 +179,15 @@ func TestDecoded(t *testing.T) {
 	if status != 200 {
 		t.Errorf("the browser's page: %d\n%s", status, body)
 	}
-	if want := decodedPath + "?show_empty=true&vin=" + vin; !slices.Contains(s.gets, want) || slices.ContainsFunc(s.gets, func(p string) bool { return strings.Contains(p, "yard") }) {
-		t.Errorf("the browser asked the server %q; want %s among them, and none naming yard", s.gets, want)
+	if want := []string{"/v1/decode/" + vin + "?full=true"}; !slices.Equal(s.gets, want) {
+		t.Errorf("the browser asked the server %q; want %q: the VIN decoded once", s.gets, want)
 	}
 
-	// The server's refusal is the page's, beside the field it names.
+	// A refusal is the decode's own, beside the field it names, before
+	// the server is asked.
+	s.gets = nil
 	status, _, body = response(t, h, "GET", "/?from.vin="+vin+"&model_year=x&to=yard", nil)
-	if status != 400 || !strings.Contains(body, `<p class="error" id="model_year-error">model_year must be a 32-bit integer</p>`) {
-		t.Errorf("the server's refusal in the browser's page: %d\n%s", status, body)
-	}
-	// The decode is the server's alone: the browser's handler has none.
-	if status, _, _ := response(t, h, "GET", decodedPath+"?vin="+vin, nil); status != 404 {
-		t.Errorf("%s in the browser: %d; want 404", decodedPath, status)
+	if status != 400 || !strings.Contains(body, `<p class="error" id="model_year-error">model_year must be a 32-bit integer</p>`) || len(s.gets) != 0 {
+		t.Errorf("a refusal in the browser's page: %d, asked %q\n%s", status, s.gets, body)
 	}
 }

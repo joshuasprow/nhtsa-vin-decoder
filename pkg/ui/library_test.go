@@ -177,14 +177,11 @@ func (d *memDisk) cloneSelection(s Selection) Selection {
 }
 
 // fakeServer is the server as a Remote: the bundle, its files, and
-// decodes, each answering status with body; pages, when set, answers a
-// VIN's decode as the page shows it (decodedPath); down fails every
-// request.
+// decodes, each answering status with body; down fails every request.
 type fakeServer struct {
 	info    contract.Info
 	files   map[string][]byte // by path
 	decodes map[string]string // body by VIN
-	pages   http.Handler
 	status  int
 	down    bool
 	gets    []string
@@ -197,11 +194,6 @@ func (s *fakeServer) Get(path string) (int, []byte, error) {
 	}
 	if b, ok := s.files[path]; ok {
 		return http.StatusOK, b, nil
-	}
-	if s.pages != nil && strings.HasPrefix(path, decodedPath+"?") {
-		w := httptest.NewRecorder()
-		s.pages.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
-		return w.Code, w.Body.Bytes(), nil
 	}
 	if vin, ok := strings.CutPrefix(path, "/v1/decode/"); ok {
 		vin, _, _ = strings.Cut(vin, "?")
@@ -552,7 +544,7 @@ func TestBrowserPages(t *testing.T) {
 		}
 	}
 	offer := &Offer{Name: "yard", Version: "2026.12", Blake3: "ff00", Size: 956_057, URL: testAssets + "/vocab/ff00/yard.jsonl"}
-	h := NewInBrowser(l, offer, log.New(io.Discard, "", 0))
+	h := NewInBrowser(l, BrowserConfig{Offer: offer}, log.New(io.Discard, "", 0))
 	status, _, body := response(t, h, "GET", "/ui/files", htmx)
 	for _, want := range []string{
 		`<tr data-where="vpic"><th scope="row"><a href="/ui/vocabularies/vpic">vpic</a></th>` + "\n<td>spine of vehicles\n", `<dd class="version">2026_10</dd>` + "\n<dt>Kept in</dt><dd>built in</dd>",
@@ -625,7 +617,7 @@ func TestBrowserDrift(t *testing.T) {
 	}
 	d.records["broken"] = Record{Name: "broken", FileName: "broken.jsonl", Blake3: "00", Size: 3}
 	d.texts["00"] = []byte("{}\n")
-	h := NewInBrowser(open(t, s, d), nil, log.New(io.Discard, "", 0))
+	h := NewInBrowser(open(t, s, d), BrowserConfig{}, log.New(io.Discard, "", 0))
 	_, _, body := response(t, h, "GET", "/ui/files", htmx)
 	for _, want := range []string{
 		"<details><summary>Drift: 1 make, 1 model, 2 qualifier</summary><ul><li>line 4: /mappings/0/make: vPIC make 99999 is not in data month 2026_10</li><li>line 5: /mappings/0/model: vPIC model 99999 is not in data month 2026_10</li><li>line 2: ",

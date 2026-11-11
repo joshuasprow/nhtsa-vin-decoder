@@ -4,10 +4,13 @@
 // server's pages) over the files this browser holds in IndexedDB and the
 // server's, which it links from their release URLs.
 //
-// - It answers the page (/) once this browser holds a file, an entry list
-//   (/ui/vocabularies/<name>) of a file it holds, and /ui/files;
-//   everything else goes to the server unchanged, so one URL means one
-//   thing with JavaScript on or off.
+// - It answers a lookup on the page (/) only when it names a file this
+//   browser holds (its from or a target: named), the page without a
+//   lookup once it holds one (its forms over the browser's files too), an
+//   entry list (/ui/vocabularies/<name>) of a file it holds, and
+//   /ui/files; everything else goes to the server unchanged, a lookup
+//   naming no target included, so one URL means one thing with
+//   JavaScript on or off, and in every browser.
 // - A file reaches it by postMessage from the page, never by a request: no
 //   file's bytes are ever sent to the server.
 // - It installs beside an older release's worker and waits until that
@@ -16,11 +19,12 @@
 //   cache of its own, so pages it renders keep working while the server
 //   runs a newer release.
 // - It keeps the visitor's selection of targets beside the files, by the
-//   spine they are on, which the page's forms tick: each file loaded
-//   joins it, each removed leaves it, a target ticked or cleared changes
-//   it, and a translation asked for, a link's own included, sets it on
-//   its spine to its targets (the module's pages do, for the ones they
-//   answer; this script, for the ones it sends to the server).
+//   spine they are on, which vocab.js ticks in the page's forms: each
+//   file loaded joins it, each removed leaves it, a target ticked or
+//   cleared changes it, and a lookup naming its targets sets it on its
+//   spine to them (the module's pages do, for the ones they answer; this
+//   script, for the ones the server answers, by the answer's data-from
+//   and data-spine).
 'use strict';
 
 const config = self.nitrovinConfig;
@@ -205,6 +209,20 @@ function boot() {
 const PAGE = '/';
 const MOVED = '/ui/translate';
 
+// named is what a lookup on the page names, as the module's pages read
+// it (pkg/ui, named): the from's vocabulary, spine or extension set, and
+// the targets.
+function named(q) {
+  const out = [q.get('from.vocabulary'), q.get('from.spine'), ...q.getAll('to')];
+  const ext = q.get('from.ext');
+  if (ext && ext.startsWith('ext:')) out.push(ext.slice(4).split('/')[0]);
+  return out.filter(Boolean);
+}
+
+// asks reports whether q asks a lookup: a from beside a vocabulary's
+// name, a form's choice.
+const asks = (q) => [...q].some(([k, v]) => k.startsWith('from.') && k !== 'from.vocabulary' && v.trim() !== '');
+
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
@@ -222,13 +240,14 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(Response.redirect(new URL(PAGE + url.search, location.origin).href, 301));
     return;
   }
-  // The page is the module's once this browser holds a file: its forms
-  // and answers are over the browser's files too.
   if (url.pathname === PAGE) {
+    const q = url.searchParams;
     e.respondWith(storedNames().then((stored) => {
-      if (stored.size > 0) return serve(e.request);
-      e.waitUntil(remember(url, e.request));
-      return fetch(e.request);
+      if (named(q).some((n) => stored.has(n)) || (stored.size > 0 && !asks(q))) return serve(e.request);
+      return fetch(e.request).then((r) => {
+        e.waitUntil(remember(q, e.request, r.clone()).catch(() => {}));
+        return r;
+      });
     }));
     return;
   }
@@ -239,26 +258,18 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(storedNames().then((stored) => (stored.has(name) ? serve(e.request) : fetch(e.request))));
 });
 
-// remember makes the targets of a lookup sent to the server, a link's own
-// included, the visitor's selection on their spine, as the module's pages
-// do for the ones they answer (ui's remember): vPIC's for a VIN, a vPIC
-// entry or an extension's, else the from's spine. A form's targets before
-// anything is asked, and history going back to an older page, change
-// nothing.
-async function remember(url, req) {
-  const q = url.searchParams;
-  const asked = [...q].some(([k, v]) => k.startsWith('from.') && k !== 'from.vocabulary' && v.trim() !== '');
-  if (!asked || !q.has('to') || req.headers.get('HX-History-Restore-Request')) return;
-  let spine = 'vpic';
-  if (q.has('from.spine')) {
-    spine = q.get('from.spine');
-  } else if (q.has('from.vocabulary')) {
-    const f = config.files.find((f) => f.name === q.get('from.vocabulary'));
-    if (!f || !f.spine) return; // nothing loaded by its name: the translation is refused
-    spine = f.spine;
-  }
+// remember makes the targets of a lookup the server answered, a link's
+// own included, the visitor's selection on their spine, as the module's
+// pages do for the ones they answer (ui's remember): the answer says
+// which from it is of and its spine (data-from, data-spine). A lookup
+// naming no target, a refusal, and history going back to an older page
+// change nothing.
+async function remember(q, req, res) {
+  if (!res.ok || !q.has('to') || req.headers.get('HX-History-Restore-Request')) return;
+  const m = /<section id="result"[^>]* data-from="([^"]+)" data-spine="([^"]+)"/.exec(await res.text());
+  if (!m) return;
   const to = q.getAll('to');
-  await select(spine, () => to);
+  await select(m[2], () => to);
 }
 
 // serve answers req from the module's pages.
@@ -285,7 +296,8 @@ async function serve(req) {
 // message}; it gives up after a minute without either. A tick: {op:
 // "select", name, spine, checked}, a target the visitor ticked in the
 // page's form or cleared, kept in the selection on its spine or dropped
-// from it.
+// from it. A question: {op: "selection"} on a MessageChannel, answered
+// with the selection ({spine: [name]}), which vocab.js ticks.
 self.addEventListener('message', (e) => {
   if (e.data && e.data.op === 'select' && typeof e.data.name === 'string' && typeof e.data.spine === 'string') {
     const { name, spine, checked } = e.data;
@@ -293,6 +305,11 @@ self.addEventListener('message', (e) => {
     return;
   }
   const port = e.ports[0];
+  if (port && e.data && e.data.op === 'selection') {
+    e.waitUntil(tx(['state'], 'readonly', (t) => request(t.objectStore('state').get('selection')), stateDB)
+      .then((s) => port.postMessage(s || {}), () => port.postMessage({})));
+    return;
+  }
   if (!port || !e.data || e.data.op !== 'load') return;
   e.waitUntil((async () => {
     try {

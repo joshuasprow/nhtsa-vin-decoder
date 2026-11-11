@@ -313,11 +313,13 @@ func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epa
 	}
 
 	// Finding 8: a VIN with the server out of reach fails in words, in the
-	// page's controls.
+	// page's controls. The worker answers it for naming a browser file,
+	// epa-vehicles, among its targets: a VIN naming none is the server's.
 	wire.mu.Lock()
 	wire.cutDecodes = true
 	wire.mu.Unlock()
 	tb.closeVocabularies()
+	eval[bool](tb, `(document.querySelector('#controls input[name=to][value="epa-vehicles"]').checked = true)`)
 	tb.do(chromedp.SetValue(chromedp.CSS("#from-vin"), vin), chromedp.Click(chromedp.CSS(`#controls form button[type=submit]`)))
 	tb.until("an unreachable server", `document.querySelector("#controls .error") !== null`)
 	if s := tb.html("#controls .error"); !strings.Contains(s, "could not be reached") || strings.Contains(s, "Failed to fetch") || strings.Contains(s, "TypeError") {

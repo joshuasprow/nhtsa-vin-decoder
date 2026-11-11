@@ -39,7 +39,7 @@ func (b backend) Decode(req contract.Request) (contract.Decode, error) {
 	return contract.Decode{VIN: req.VIN, ErrorCodes: []int{0}, Attributes: contract.VpicAttributes{}}, nil
 }
 
-func (backend) ErrorText(code int) string { return "" }
+func (backend) ErrorTexts() map[int]string { return nil }
 
 // Translate and List answer from no files: the catalog is vPIC alone, a
 // VIN reaches nothing on it, and nothing else translates.

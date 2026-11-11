@@ -144,10 +144,10 @@ func newMapPage(tr contract.Translation, cat []contract.CatalogEntry, elements c
 	// From.
 	f := tr.From
 	from := mapItem{Details: f.Note}
-	switch {
-	case f.Vocabulary != "":
+	switch translatedFrom(f) {
+	case fromEntry:
 		from.Name, from.Meta = entryText(cat, f.Vocabulary, f.Entry), f.Vocabulary
-	case f.VIN != "":
+	case fromVIN:
 		from.Name, from.Mono, from.Meta = f.VIN, true, "VIN"
 		if year != "" {
 			from.Meta = "VIN, model year " + year
@@ -183,10 +183,10 @@ func newMapPage(tr contract.Translation, cat []contract.CatalogEntry, elements c
 		}
 	}
 	if p.Heading == "" {
-		switch {
-		case f.Vocabulary != "":
+		switch translatedFrom(f) {
+		case fromEntry:
 			p.Heading = from.Name
-		case f.VIN != "":
+		case fromVIN:
 			p.Heading = "VIN " + f.VIN
 		default:
 			p.Heading = named(f.SpineRef)

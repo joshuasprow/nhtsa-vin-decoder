@@ -24,20 +24,15 @@ import (
 // each shown beside the field its pointer names. copy.js adds copy
 // buttons to the text the page already shows.
 //
-// The server builds the view from its decoder. The browser's Service
-// Worker, which draws the page itself once the browser holds a file, has
-// no decoder: it asks the server for the view as JSON (decodedPath) and
-// renders it with the same templates.
+// The server decodes with its decoder. The browser's Service Worker,
+// which draws the page itself when a lookup names a file it holds, has
+// none: it asks the server's GET /v1/decode/{vin} for every item, once,
+// lays the decode out as the server does (contract.NewDecode, over the
+// elements the server gave it) and translates the same decode.
 
-const (
-	// decodePath was the decode form's page: old links to it move to the
-	// page (moved).
-	decodePath = "/ui/decode"
-	// decodedPath answers a VIN's decode as the page shows it, as JSON,
-	// for the worker's pages: GET /v1/decode/{vin}'s query with the VIN
-	// as vin, and show_empty. It is the server's alone and no page.
-	decodedPath = "/ui/decoded"
-)
+// decodePath was the decode form's page: old links to it move to the
+// page (moved).
+const decodePath = "/ui/decode"
 
 // mainTarget is the layout's main, which the page's answer fills.
 const mainTarget = "#ui-main"
@@ -77,8 +72,7 @@ type formLinks struct {
 	Parity, ParityReport string
 }
 
-// formDecode is a decode as the page shows it. It is plain data: the
-// server marshals it for the worker's pages (decodedPath).
+// formDecode is a decode as the page shows it.
 type formDecode struct {
 	VIN             string
 	ErrorCodes      []int
@@ -394,27 +388,31 @@ func (h *Handler) links(info contract.Info) formLinks {
 }
 
 // decoded is the decode of vin as sent, asked with query, the decode's
-// own (GET /v1/decode/{vin}'s), as the page shows it: the server's
-// decoder's, which the browser asks the server for. The error is a
-// refusal (a *contract.Problem, or in the browser a *pageError when the
-// server cannot be asked) or a fault.
-func (h *Handler) decoded(r *http.Request, vin string, query url.Values, showEmpty bool) (*formDecode, error) {
-	if h.b == nil {
-		return h.lib.decoded(vin, query, showEmpty)
-	}
+// own (GET /v1/decode/{vin}'s), as the page shows it, and in the browser
+// the same decode as a translation reads it (nil on the server, whose
+// translator decodes itself). The error is a refusal (a
+// *contract.Problem, or in the browser a *pageError when the server
+// cannot be asked) or a fault.
+func (h *Handler) decoded(r *http.Request, vin string, query url.Values, showEmpty bool) (*formDecode, *contract.VINDecode, error) {
 	req, err := contract.ParseQuery(vin, query)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	dec, err := h.b.Decode(req)
+	var dec contract.Decode
+	var vd *contract.VINDecode
+	if h.b != nil {
+		dec, err = h.b.Decode(req)
+	} else {
+		dec, vd, err = h.lib.decodeVIN(vin, req)
+	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	body, err := json.Marshal(dec) // as GET /v1/decode/{vin} writes it
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	elements := h.b.Info().Elements
+	elements := h.p.Info().Elements
 	jsonURL := "/v1/decode/" + url.PathEscape(vin)
 	if len(query) > 0 {
 		jsonURL += "?" + query.Encode()
@@ -437,7 +435,7 @@ func (h *Handler) decoded(r *http.Request, vin string, query url.Values, showEmp
 	d.Groups, d.Hidden = formGroups(dec, elements, showEmpty)
 	_, d.VPIC = dec.Attributes.(contract.VpicAttributes)
 	for _, c := range dec.ErrorCodes {
-		d.Codes = append(d.Codes, formCode{c, h.b.ErrorText(c)})
+		d.Codes = append(d.Codes, formCode{c, h.errorTexts[c]})
 	}
 	if dec.CorrectedVIN.Valid {
 		d.Input, d.Suggested, d.DifferAt = diffVINs(dec.VIN, dec.CorrectedVIN.V)
@@ -448,37 +446,7 @@ func (h *Handler) decoded(r *http.Request, vin string, query url.Values, showEmp
 			Source: it.Source, Keys: it.Keys, PatternID: it.PatternID, VinSchemaID: it.VinSchemaID,
 		})
 	}
-	return d, nil
-}
-
-// decodedJSON answers decodedPath: the decode its query asks for as the
-// page shows it, or the refusal as an RFC 9457 problem.
-func (h *Handler) decodedJSON(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	vin := query.Get("vin")
-	empty := query.Get(showEmpty) == "true"
-	delete(query, "vin")
-	delete(query, showEmpty)
-	status, contentType := http.StatusOK, "application/json"
-	var body []byte
-	d, err := h.decoded(r, vin, query, empty)
-	if err == nil {
-		body, err = json.Marshal(d)
-	}
-	if err != nil {
-		p := contract.AsProblem(err)
-		if p.Type == contract.Internal {
-			h.log.Printf("ui: decoding %q: %v", vin, err)
-		}
-		status, contentType = p.Status, "application/problem+json"
-		if body, err = json.Marshal(p); err != nil {
-			panic(err)
-		}
-	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-	w.WriteHeader(status)
-	_, _ = w.Write(body)
+	return d, vd, nil
 }
 
 // requestOrigin is the scheme and host r was sent to, as the client named

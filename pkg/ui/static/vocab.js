@@ -92,27 +92,74 @@
 
   const ready = () => section.dataset.state === 'ready' && sw.controller;
 
+  // retarget is href, a link to a lookup, to the targets ticked now on
+  // spine, else to fallback (names): a link the page drew names its
+  // targets when the page has them.
+  const retarget = (href, spine, fallback) => {
+    const url = new URL(href, location.origin);
+    url.searchParams.delete('to');
+    const boxes = spine && document.querySelector('#controls fieldset[data-spine="' + CSS.escape(spine) + '"]');
+    const ticked = boxes ? [...boxes.querySelectorAll('input[name=to]:checked')].map((b) => b.value) : [];
+    for (const name of ticked.length ? ticked : fallback) url.searchParams.append('to', name);
+    return url.pathname + url.search;
+  };
+  // An example goes to the targets ticked now on its spine (data-spine),
+  // else to its own (data-to), not to those ticked when the form was
+  // drawn.
+  const relink = () => {
+    for (const a of document.querySelectorAll('#controls a.example')) {
+      a.setAttribute('href', retarget(a.getAttribute('href'), a.dataset.spine, (a.dataset.to || '').split(' ').filter(Boolean)));
+    }
+  };
+
   // The targets ticked in the page's form are the visitor's selection,
   // which the worker keeps beside the files: a tick goes to it at once.
   document.addEventListener('change', (e) => {
     const box = e.target;
-    if (!box.matches || !box.matches('#controls input[name=to]') || !ready()) return;
-    sw.controller.postMessage({ op: 'select', name: box.value, spine: box.closest('fieldset').dataset.spine, checked: box.checked });
+    if (!box.matches || !box.matches('#controls input[name=to]')) return;
+    relink();
+    if (ready()) sw.controller.postMessage({ op: 'select', name: box.value, spine: box.closest('fieldset').dataset.spine, checked: box.checked });
   });
 
-  // An example clicked translates to the targets ticked now on its spine,
-  // else to its own (data-to), not to those ticked when the form was
-  // drawn.
+  // tick ticks the visitor's selection in the forms, on each spine it
+  // holds targets for, when the page's lookup (path) named none of its
+  // own: so what the visitor asks next names its targets (to=), and a
+  // link naming none means the same in every browser. The selection is
+  // the worker's, asked for whenever one controls the page.
+  const tick = async (path) => {
+    if (!sw.controller || new URL(path, location.origin).searchParams.has('to')) return;
+    const selection = await new Promise((resolve) => {
+      const ch = new MessageChannel();
+      ch.port1.onmessage = (e) => resolve(e.data || {});
+      sw.controller.postMessage({ op: 'selection' }, [ch.port2]);
+    });
+    for (const set of document.querySelectorAll('#controls fieldset[data-spine]')) {
+      const names = selection[set.dataset.spine];
+      if (!names) continue;
+      for (const box of set.querySelectorAll('input[name=to]')) box.checked = names.includes(box.value);
+    }
+    relink();
+  };
+  tick(location.pathname + location.search).catch(() => {});
+  document.addEventListener('htmx:afterSettle', (e) => {
+    if (e.detail.target && e.detail.target.id === 'ui-main') tick((e.detail.pathInfo && e.detail.pathInfo.requestPath) || location.href).catch(() => {});
+  });
+
+  // htmx asks with the href a link had when it was drawn: an example
+  // asks for its targets as relink sets them, and any other link to a
+  // lookup that names no target, a map's card among them, for the
+  // targets ticked now on the answer's spine.
   document.addEventListener('htmx:configRequest', (e) => {
     const a = e.detail.elt;
-    if (!a.matches || !a.matches('#controls a.example')) return;
-    const boxes = document.querySelector('#controls fieldset[data-spine="' + CSS.escape(a.dataset.spine) + '"]');
-    if (!boxes) return;
-    const ticked = [...boxes.querySelectorAll('input[name=to]:checked')].map((b) => b.value);
+    if (!a.matches || !a.matches('#ui-main a[href]')) return;
+    if (a.matches('#controls a.example')) {
+      e.detail.path = retarget(e.detail.path, a.dataset.spine, (a.dataset.to || '').split(' ').filter(Boolean));
+      return;
+    }
     const url = new URL(e.detail.path, location.origin);
-    url.searchParams.delete('to');
-    for (const name of ticked.length ? ticked : a.dataset.to.split(' ').filter(Boolean)) url.searchParams.append('to', name);
-    e.detail.path = url.pathname + url.search;
+    if (url.pathname !== '/' || url.searchParams.has('to') || ![...url.searchParams.keys()].some((k) => k.startsWith('from.'))) return;
+    const result = document.getElementById('result');
+    e.detail.path = retarget(e.detail.path, result && result.dataset.spine, []);
   });
 
   // A file removed changes what the page's forms and answer are over.

@@ -126,7 +126,7 @@ vocab.js keeps as the visitor's selection. */}}
 the translation's map, the JSON of both behind a button, and the rest of
 the decode. */}}
 {{define "result" -}}
-<section id="result" aria-labelledby="result-h">
+<section id="result" aria-labelledby="result-h" data-from="{{.From}}" data-spine="{{.Spine}}">
 <h2 id="result-h">{{.Heading}}</h2>
 {{with .Decode}}{{template "decoded-head" .}}{{end}}
 {{template "map" .Map}}

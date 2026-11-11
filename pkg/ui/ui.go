@@ -122,16 +122,16 @@ type Pages interface {
 }
 
 // Backend is what the server's pages answer from: its decoder and loaded
-// files. Decode answers as GET /v1/decode/{vin} does. ErrorText is an
-// error code's text as NHTSA's ErrorText spells it ("1 - Check Digit (9th
-// position) does not calculate properly"), "" when the data has none.
+// files. Decode answers as GET /v1/decode/{vin} does. ErrorTexts are the
+// data's error codes' texts by code, as NHTSA's ErrorText spells them ("1
+// - Check Digit (9th position) does not calculate properly").
 //
 // SpineBundle and File are what the server publishes under /ui/r/: the
 // Service Worker forwards those paths to it.
 type Backend interface {
 	Pages
 	Decode(contract.Request) (contract.Decode, error)
-	ErrorText(code int) string
+	ErrorTexts() map[int]string
 	// SpineBundle is the data month's spine bundle (vocab.WriteBundle),
 	// published at SpinePath. The Handler asks for it once.
 	SpineBundle() ([]byte, error)
@@ -214,8 +214,10 @@ type Handler struct {
 	// something, by path.
 	routes, posts map[string]route
 	// dataRelease is the page's link to the data month's release in the
-	// browser, "" on the server, which derives it (links).
+	// browser, "" on the server, which derives it (links); errorTexts are
+	// the error codes' texts in the browser, the Backend's on the server.
 	dataRelease string
+	errorTexts  map[int]string
 }
 
 // route answers one page: the view, or the error the page shows instead.
@@ -243,25 +245,17 @@ type view struct {
 // New is the server's handler of /, /sw.js and /ui answering from b. A
 // route's fault and a panic are logged to log.
 func New(b Backend, log *log.Logger) *Handler {
-	h := &Handler{p: b, b: b, log: log, spine: sync.OnceValues(b.SpineBundle), routes: map[string]route{}, posts: map[string]route{}}
+	h := &Handler{p: b, b: b, errorTexts: b.ErrorTexts(), log: log, spine: sync.OnceValues(b.SpineBundle), routes: map[string]route{}, posts: map[string]route{}}
 	h.pageRoutes()
 	return h
 }
 
 // NewInBrowser is the Service Worker's handler, answering from the files
-// the browser holds and the server's it links (Library), and offering
-// what the server offers (ReadWorkerConfig).
-func NewInBrowser(lib *Library, offer *Offer, log *log.Logger) *Handler {
-	h := &Handler{p: lib, lib: lib, offer: func() *Offer { return offer }, log: log, routes: map[string]route{}, posts: map[string]route{}}
+// the browser holds and the server's it links (Library), with what the
+// server gave it (ReadWorkerConfig).
+func NewInBrowser(lib *Library, c BrowserConfig, log *log.Logger) *Handler {
+	h := &Handler{p: lib, lib: lib, offer: func() *Offer { return c.Offer }, dataRelease: c.DataRelease, errorTexts: c.ErrorTexts, log: log, routes: map[string]route{}, posts: map[string]route{}}
 	h.pageRoutes()
-	return h
-}
-
-// WithDataRelease gives the browser's handler the page's link to the data
-// month's nitrovin-data release, as the server derived it
-// (ReadWorkerConfig): the worker's module cannot.
-func (h *Handler) WithDataRelease(link string) *Handler {
-	h.dataRelease = link
 	return h
 }
 
@@ -321,14 +315,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err := h.serviceWorker(w, info, base); err != nil {
 			h.fail(w, frag, base, h.pageError(err))
 		}
-		return
-	}
-	if r.URL.Path == decodedPath && h.b != nil {
-		if !getOrHead(w, r) {
-			h.fail(w, frag, base, &pageError{Status: http.StatusMethodNotAllowed, Message: decodedPath + " takes GET, not " + r.Method + "."})
-			return
-		}
-		h.decodedJSON(w, r)
 		return
 	}
 	answer, ok := h.routes[r.URL.Path]

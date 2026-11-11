@@ -26,7 +26,7 @@ func mapOf(t *testing.T, l *Library, q string) mapPage {
 	if err != nil {
 		t.Fatalf("%s: %v", q, err)
 	}
-	cat, err := NewInBrowser(l, nil, log.New(io.Discard, "", 0)).catalog()
+	cat, err := NewInBrowser(l, BrowserConfig{}, log.New(io.Discard, "", 0)).catalog()
 	if err != nil {
 		t.Fatal(err)
 	}

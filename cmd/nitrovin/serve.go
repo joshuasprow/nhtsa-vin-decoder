@@ -181,7 +181,7 @@ type pages struct {
 	errorTexts map[int]string
 }
 
-func (p pages) ErrorText(code int) string { return p.errorTexts[code] }
+func (p pages) ErrorTexts() map[int]string { return p.errorTexts }
 
 // errorTexts reads the error-code table of the artifact data: each code's
 // text as NHTSA's ErrorText spells it ("1 - Check Digit (9th position)

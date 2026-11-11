@@ -28,7 +28,6 @@ import (
 	"syscall/js"
 	"time"
 
-	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/ui"
 )
 
@@ -36,11 +35,11 @@ var logger = log.New(os.Stderr, "nitrovin-sw: ", 0)
 
 func main() {
 	config := js.Global().Get("JSON").Call("stringify", js.Global().Get("nitrovinConfig")).String()
-	info, offer, dataRelease, err := ui.ReadWorkerConfig([]byte(config))
+	c, err := ui.ReadWorkerConfig([]byte(config))
 	if err != nil {
 		logger.Fatalf("reading the worker's config: %v", err)
 	}
-	w := &worker{info: info, offer: offer, dataRelease: dataRelease}
+	w := &worker{config: c}
 	js.Global().Set("nitrovin", js.ValueOf(map[string]any{
 		"serve": js.FuncOf(func(_ js.Value, a []js.Value) any {
 			method, url, hx, restore, body := a[0].String(), a[1].String(), a[2].String(), a[3].String(), a[4].String()
@@ -72,15 +71,12 @@ func main() {
 }
 
 // worker is the module's state: the Library, opened on first need and
-// again after a failure, and what the server gave it for the page: the
-// vocabulary it offers and its link to the data month's release.
+// again after a failure, and what the server gave it for the pages.
 type worker struct {
-	info        contract.Info
-	offer       *ui.Offer
-	dataRelease string
-	mu          sync.Mutex
-	lib         *ui.Library
-	h           *ui.Handler
+	config ui.BrowserConfig
+	mu     sync.Mutex
+	lib    *ui.Library
+	h      *ui.Handler
 }
 
 func (w *worker) open() (*ui.Handler, error) {
@@ -90,12 +86,12 @@ func (w *worker) open() (*ui.Handler, error) {
 		return w.h, nil
 	}
 	start := time.Now()
-	lib, err := ui.OpenLibrary(w.info, remote{}, disk{})
+	lib, err := ui.OpenLibrary(w.config.Info, remote{}, disk{})
 	if err != nil {
 		return nil, fmt.Errorf("opening the browser's files: %w", err)
 	}
 	logger.Printf("opened %d stored files in %v", len(lib.Files()), time.Since(start).Round(time.Millisecond))
-	w.lib, w.h = lib, ui.NewInBrowser(lib, w.offer, logger).WithDataRelease(w.dataRelease)
+	w.lib, w.h = lib, ui.NewInBrowser(lib, w.config, logger)
 	return w.h, nil
 }
 
