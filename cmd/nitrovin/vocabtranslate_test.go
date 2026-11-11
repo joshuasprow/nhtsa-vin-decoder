@@ -263,6 +263,7 @@ func checkFilled(tb *tab, step, target string) {
 		tb.t.Fatal(err)
 	}
 	q := u.Query()
+	inForm := `form:has(select[name="from.vocabulary"] option[selected][value=` + cssString(q.Get("from.vocabulary")) + `]) `
 	form := "entry"
 	switch {
 	case q.Has("from.vin"):
@@ -270,7 +271,9 @@ func checkFilled(tb *tab, step, target string) {
 	case q.Has("from.make") || q.Has("from.model"):
 		form = "vpic"
 	}
-	inForm := `form[aria-labelledby="from-` + form + `-h"] `
+	if form != "entry" {
+		inForm = `form[aria-labelledby="from-` + form + `-h"] `
+	}
 	var want []string
 	for k, vs := range q {
 		v := cssString(vs[0])
@@ -282,7 +285,7 @@ func checkFilled(tb *tab, step, target string) {
 		case k == "model_year":
 			want = append(want, inForm+"#"+form+"-model-year[value="+v+"]")
 		case k == "from.vocabulary":
-			want = append(want, inForm+"#from-vocabulary option[value="+v+"][selected]")
+			want = append(want, inForm+`select[name="from.vocabulary"] option[value=`+v+"][selected]")
 		case k == "to":
 			for _, name := range vs {
 				want = append(want, inForm+"input[name=to][value="+cssString(name)+"][checked]")
@@ -310,24 +313,41 @@ func cssString(s string) string {
 // list sorted, no empty one.
 type selection map[string][]string
 
-// ticked are the targets ticked in /vocab's form named, by name.
-func ticked(tb *tab, form string) []string {
-	tb.t.Helper()
-	return eval[[]string](tb, `[...document.querySelectorAll('#vocab-translate form[aria-labelledby="from-`+form+`-h"] input[name=to]')].filter(b => b.checked).map(b => b.value).sort()`)
-}
-
-// checkTicked checks that /vocab's forms from a VIN and from a vPIC entry
-// tick want's vPIC targets alone, and that IndexedDB keeps want.
+// checkTicked checks that each of /vocab's forms ticks want's targets on
+// its spine alone, and that IndexedDB keeps want.
 func checkTicked(tb *tab, step string, want selection) {
 	tb.t.Helper()
-	for _, form := range []string{"vin", "vpic"} {
-		if got := ticked(tb, form); !slices.Equal(got, want["vpic"]) {
-			tb.t.Errorf("%s: the %s form ticks %q; want %q", step, form, got, want["vpic"])
+	for _, f := range targetsOffered(tb, "#vocab-translate") {
+		if !slices.Equal(f.Ticked, want[f.Spine]) {
+			tb.t.Errorf("%s: the form %s ticks %q; want %q", step, f.Form, f.Ticked, want[f.Spine])
 		}
 	}
 	if got := storedSelection(tb); fmt.Sprint(got) != fmt.Sprint(want) {
 		tb.t.Errorf("%s: IndexedDB keeps the selection %v; want %v", step, got, want)
 	}
+}
+
+// offered is the targets one of the translate forms offers, by name: the
+// form's heading id, the spine its targets are on, all of them and those
+// ticked.
+type offered struct {
+	Form, Spine     string
+	Targets, Ticked []string
+}
+
+// targetsOffered are the targets each translate form under the element
+// root matches offers, in page order, as they are ticked now.
+func targetsOffered(tb *tab, root string) []offered {
+	tb.t.Helper()
+	return eval[[]offered](tb, `[...document.querySelectorAll(`+jsString(root+" fieldset")+`)].map(f => {
+		const boxes = [...f.querySelectorAll("input[name=to]")];
+		return {
+			form: f.closest("form").getAttribute("aria-labelledby"),
+			spine: f.dataset.spine,
+			targets: boxes.map(b => b.value).sort(),
+			ticked: boxes.filter(b => b.checked).map(b => b.value).sort(),
+		};
+	})`)
 }
 
 // waitSelection waits, up to 10 s, for IndexedDB to keep want.

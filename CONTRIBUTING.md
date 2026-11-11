@@ -447,8 +447,12 @@ examples, each a link to the translate page with its form filled in: a
 VIN and the vPIC model it decodes to, which need no file, and one from
 each vocabulary loaded, its first mapped entry in a year its mapping holds
 for, built from the file, so a private file gets one without its name in
-the repository. An example goes to the targets ticked on its spine, else
-to another vocabulary on it. Without JavaScript the ticked targets travel
+the repository. A vocabulary's entry has a form per spine, the vehicle
+vocabularies' and each declared spine's part vocabularies', each offering
+its spine's targets before a vocabulary is chosen, since a translation
+crosses exactly one spine (ADR 0010). An example goes to the targets
+ticked on its spine, else to another vocabulary on it. Without
+JavaScript the ticked targets travel
 in the URL (`to=`); with it, `/vocab` ticks the visitor's selection, which
 IndexedDB keeps beside the files, by spine, in a database of its own
 (`nitrovin-state`, so an older release still opens `nitrovin`): a file
@@ -514,6 +518,15 @@ each fills its form; with JavaScript, that a file loaded is ticked, that
 the selection survives a second load, a removal, a reload and a cold start
 of the worker, and that a translation's or a link's `to=` replaces it on
 its spine alone. axe audits both runs.
+
+`TestVocabPartTargets` (`vocabparts_test.go`) adds, beside the fixture,
+`shelf`, a second part vocabulary on `parts`, and `bin-labels` on another
+spine, `bins`, both written from the fixture's files at run time. Without
+JavaScript it checks that each spine's form offers its own vocabularies
+alone and that a `shelf` entry translates to a ticked `listing`; with it,
+that a batch loaded is ticked on each spine and the selection survives a
+tick, a reload, a cold start, a translation and a removal. axe audits both
+runs.
 
 `cmd/libnitrovin` is the C library (`-buildmode=c-shared`, no data).
 `scripts/libnitrovin.sh <dir> [<goos>/<goarch>…]` builds it for all six

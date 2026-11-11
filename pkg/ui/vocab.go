@@ -304,6 +304,52 @@ func (p translatePage) TargetsOn(spine string) targetSet {
 	return out
 }
 
+// entryForm is a form from a vocabulary's entry, over the vocabularies on
+// one spine and offering that spine's targets, whether a vocabulary is
+// chosen yet or not: a translation crosses exactly one spine (ADR 0010).
+// Key names its elements ("entry" for vPIC's); From is the vocabulary
+// chosen, nil when it is not on this spine.
+type entryForm struct {
+	Spine, Key   string
+	Vocabularies []contract.CatalogEntry
+	From         *contract.CatalogEntry
+	Targets      targetSet
+}
+
+// EntryForms are the forms from a vocabulary's entry: one for the vehicle
+// vocabularies, on vpic, then one for each declared spine's part
+// vocabularies, by spine; none for a spine no vocabulary is on.
+func (p translatePage) EntryForms() []entryForm {
+	var spines, declared []string
+	for _, v := range p.Vocabularies {
+		switch {
+		case v.Spine == vocab.Reserved:
+			spines = []string{vocab.Reserved}
+		case !slices.Contains(declared, v.Spine):
+			declared = append(declared, v.Spine)
+		}
+	}
+	slices.Sort(declared)
+	spines = append(spines, declared...)
+	out := make([]entryForm, len(spines))
+	for i, s := range spines {
+		f := entryForm{Spine: s, Key: "entry", Targets: p.TargetsOn(s)}
+		if s != vocab.Reserved {
+			f.Key = "entry-" + s
+		}
+		for _, v := range p.Vocabularies {
+			if v.Spine == s {
+				f.Vocabularies = append(f.Vocabularies, v)
+			}
+		}
+		if p.From != nil && p.From.Spine == s {
+			f.From = p.From
+		}
+		out[i] = f
+	}
+	return out
+}
+
 // YearIn is the model year the form named shows: the query's, in the
 // form ("vin", "vpic" or "entry") its from came from.
 func (p translatePage) YearIn(form string) string {
