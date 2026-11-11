@@ -58,7 +58,7 @@ nitrovin is not affiliated with or endorsed by NHTSA.
 
 ## Install
 
-Every release embeds one vPIC data month; `nitrovin --version` names it.
+Every release embeds one vPIC data month (throwaway); `nitrovin --version` names it.
 
 | Channel | Command | Platforms |
 | --- | --- | --- |
