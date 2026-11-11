@@ -25,7 +25,7 @@
 # - The Homebrew cask (joshuasprow/homebrew-tap), the Scoop manifest
 #   (joshuasprow/scoop-bucket), both pushed with a deploy key, and the winget
 #   manifest JoshuaSprow.Nitrovin, submitted to microsoft/winget-pkgs only
-#   when WINGET_GITHUB_TOKEN is set.
+#   when WINGET_SUBMIT is "true" and WINGET_GITHUB_TOKEN is set.
 #
 # The version every binary and library reports is Go's VCS stamp of the tagged
 # checkout, not an -X flag: `nitrovin --version` says v0.1.0 at v0.1.0, as
@@ -243,8 +243,11 @@ scoops:
 
 # Generated on every release (dist/winget); committed to the
 # joshuasprow/winget-pkgs fork and proposed to microsoft/winget-pkgs only when
-# WINGET_GITHUB_TOKEN (a classic token with public_repo) is set, since the
-# workflow's own token cannot write to either repository.
+# the repository variable WINGET_SUBMIT is "true" and WINGET_GITHUB_TOKEN (a
+# classic token with public_repo) is set, since the workflow's own token
+# cannot write to either repository. WINGET_SUBMIT stays off until the first
+# New-Package PR merges: before the package exists, every version is a full
+# New-Package review, so one is kept in review at a time (#116).
 winget:
   - name: nitrovin
     ids: [nitrovin]
@@ -271,7 +274,7 @@ winget:
       name: Joshua Sprow
       email: jsprow@gmail.com
     commit_msg_template: "New version: JoshuaSprow.Nitrovin {{ .Version }}"
-    skip_upload: '{{ if index .Env "WINGET_GITHUB_TOKEN" }}false{{ else }}true{{ end }}'
+    skip_upload: '{{ if and (eq (index .Env "WINGET_SUBMIT") "true") (index .Env "WINGET_GITHUB_TOKEN") }}false{{ else }}true{{ end }}'
     repository:
       owner: joshuasprow
       name: winget-pkgs
