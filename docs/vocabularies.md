@@ -324,20 +324,28 @@ one.
 
 **In a browser**: `serve`'s page at `/` decodes a VIN and translates,
 through the server's files, with JavaScript or without. Its controls have
-a tab for each kind of lookup: a VIN, an entry of a vehicle vocabulary (a
-year, make and model), an entry of each declared spine's vocabularies,
-and a vPIC make or model id. Below them the answer is drawn as a map:
-what it is from, the spine entries it crosses and the entries it reaches
-as cards in three columns, each mapping a line, dashed when matched by
-rule; a card is a link to the page from it, with JavaScript the card
-under the pointer lights the routes through it, and a button shows the
-translation's JSON. The page's Vocabularies button opens a dialog that
+a tab for each thing to translate from: a VIN · a vehicle's name (an
+entry of a vehicle vocabulary: a year, make and model) · a part's name
+(an entry of each declared spine's vocabularies) · a vPIC make or model
+id. Older links (`/?vin=…`, `/ui/decode`, `/ui/translate`, `/vocab`,
+`/ui/vocabularies`) redirect to it (`301`). Below the controls the answer
+is drawn as a map: what it is from, the spine entries it crosses and the
+entries it reaches as cards in columns (stacked on a phone), each mapping
+a line. Its key: a mapping; a mapping matched by rule, dashed; a make to
+its model; a VIN to its model; and a card marked when not every qualifier
+or the model year was checked. The map has a text alternative; a card is
+a link to the page from it (the From card to the answer's own URL), with
+JavaScript the card under the pointer or focus lights the routes through
+it, and a button shows the translation's JSON. The page's Vocabularies
+button (in the nav on a phone) opens a dialog that
 lists what is loaded, each file marked by where it is kept, with its
 drift counted by kind as `/v1/info` counts it (the first examples behind
-a disclosure), each linked to its entries (`/ui/vocabularies/{name}`).
+a disclosure), each linked to its entries (`/ui/vocabularies/{name}`, a
+page that carries the same dialog).
 With JavaScript the dialog also loads your own files,
 picked from disk or dropped anywhere on the page, into the browser: a
-Service Worker (`/sw.js`), started when the dialog first opens, keeps
+Service Worker (`/sw.js`), started when the dialog first opens or a file
+is dropped, and at page load when one is already registered, keeps
 each file's text and parsed index in
 IndexedDB and runs the same pages, built from the same Go to WebAssembly,
 over them and the server's files, which it links from the URLs above.
@@ -350,12 +358,16 @@ a stored one replaces it; a file named like one of the server's is
 refused, and so is a file with a fault, naming the file and line. Removing
 a file others link to is refused, naming them, with an offer to remove
 them all. A stored file that this release can no longer read, or that no
-longer links, is listed with its fault and can be removed. Once the
-browser holds a file the worker answers the page itself, and the entry
-lists of the files it holds, and leaves
-every other request to the server (a VIN's decode among them), so a link means the same with
-JavaScript on or off; opened in another browser, a link naming your file
-says where it lives. Answers carry the `decoder_version` and `data_month`
+longer links, is listed with its fault and can be removed. The worker
+answers only a request naming a file the browser holds (what it is from,
+or a target `to=`), and the entry lists of those files, and leaves
+every other request to the server (for a VIN it answers itself, the
+decode is `/v1/decode`'s), so a bare link such as `/?from.vin=…` is the
+server's answer and means the same with JavaScript on or off and in every
+browser; opened in another browser, a link naming your file
+says where it lives. The targets you tick are your selection, kept beside
+your files and ticked into the forms, so what you ask next names them as
+an explicit `to=`. Answers carry the `decoder_version` and `data_month`
 of the decode they used, and the worker refuses a VIN when the server has
 moved to another data month than its own: close every tab of the site and
 open it again, and the new release's worker takes over. A page loaded with

@@ -163,9 +163,11 @@ Routes, bodies and status codes are in [`openapi.yaml`](openapi.yaml):
 below over Streamable HTTP. `GET /` (`HEAD` too) and `/ui/…` are pages for
 browsers (HTML, a fragment for htmx, ADR 0013): `/` the one page, which
 decodes and translates and which old links (`/?vin=…`, `/ui/decode`,
-`/ui/translate`, `/vocab`) redirect to (`301`), and
-their assets under `/ui/r/<release>/`; all are outside the contract, not
-in `openapi.yaml`, and may change.
+`/ui/translate`, `/vocab`, `/ui/vocabularies`) redirect to (`301`); a
+vocabulary's entries (`/ui/vocabularies/{name}`); the Service Worker's
+panel (`/ui/files`) and `/sw.js`; and their assets under
+`/ui/r/<release>/`. All are outside the contract, not in `openapi.yaml`,
+and may change.
 
 **Translate and list** ([Translation](#translation-translate),
 [Listing](#listing-list)) carry the same request objects:

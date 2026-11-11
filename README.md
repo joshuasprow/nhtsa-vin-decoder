@@ -158,15 +158,18 @@ curl 'localhost:8080/v1/vocabularies/vpic/entries?where.make=474&limit=5'
 ```
 
 Open the address in a browser: one page, with a box of controls at its top,
-a tab for each kind of lookup. The first decodes a VIN (an optional model
+a tab for each thing to translate from: a VIN · a vehicle's name · a part's
+name · a vPIC id. The first decodes a VIN (an optional model
 year, the shape and `full` behind Options) and translates it into the
 vocabularies loaded; the others translate a vocabulary's entry or a vPIC
-id ([Vocabularies](#vocabularies)). Before a lookup the page says how to
+id ([Vocabularies](#vocabularies)). Before you ask, the page says how to
 install, configure MCP and verify this version, with links to its release
 and data month. The page is rendered on the server and every answer is a
 shareable URL (`/?from.vin=1HGCM82633A004352`; older `/?vin=`,
-`/ui/decode` and `/ui/translate` links redirect to it). A decode shows
-the translation as a map of the mappings it crossed, with its JSON and
+`/ui/decode`, `/ui/translate`, `/vocab` and `/ui/vocabularies` links
+redirect to it). A decode shows the translation as a map of the mappings
+it crossed (its key: a mapping, one matched by rule, dashed, a make to its
+model, a VIN to its model), with its JSON and
 the decode's behind a button, then its elements in vPIC's groups (empty values hidden
 in the `vpic` shape until asked), its error codes in NHTSA's words, a
 suggested VIN with the differing positions marked, a link to the same VIN

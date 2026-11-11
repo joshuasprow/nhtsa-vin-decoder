@@ -92,3 +92,25 @@ JavaScript-on run asserts `HX-Request`, and an axe audit runs in both.
   need it, and say so.
 - Every release publishes a spine bundle, and the Worker caches `/ui/r/…`
   under the release key.
+
+## Amendment (2026-11-11): one page
+
+**`/` is the one page.** Its controls are tabs, one for each thing a
+translation can be from: a VIN, a vehicle vocabulary's entry, each declared
+spine's entry, a vPIC make or model id. The decode form no longer moves onto
+`/ui/decode`: `/ui/decode`, `/ui/translate`, `/vocab`, `/ui/vocabularies`
+and `/?vin=` answer `301` to `/`, their query along (a VIN becomes
+`from.vin`). Vocabularies is a dialog on the page, and on each entry list
+(`/ui/vocabularies/{name}`). The answer is a map: what it is from, the spine
+entries it crosses and the entries it reaches as cards in columns, each
+mapping a line, dashed when matched by rule. The server draws the map, so
+it needs no script.
+
+**The worker rule is unchanged.** The worker answers only a request that
+names a browser-held file (its `from.vocabulary`, its spine or a `to`);
+everything else goes to the server, so a bare `/?from.vin=…` is the
+server's answer and means the same in every browser. The visitor's
+selection is ticked into the forms and travels as an explicit `to=`, never
+implied. The worker has no decoder and no decode page of its own: it
+renders a VIN's decode from `/v1/decode`, which is still all that travels
+from the browser to the server.
