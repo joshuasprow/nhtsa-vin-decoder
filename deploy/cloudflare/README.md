@@ -58,7 +58,9 @@ flowchart LR
   and a whole page otherwise. The Cache API is each data center's own,
   and two connections from one client can end in two, so `smoke.sh` asks
   for a URL twice over one connection, and reads a second `MISS` as a
-  broken cache only when both answers' `cf-ray` name one data center
+  broken cache only when both answers' `cf-ray` name one data center. When
+  they name two, the pair says nothing of the cache and is asked again;
+  three such pairs in a row fail
   ([#131](https://github.com/joshuasprow/nitrovin/issues/131)).
 - **CORS** is the container's (`serve --cors '*'`): `/v1` and `/mcp` only.
 - **Logs.** Workers Logs without invocation logs, which would record each

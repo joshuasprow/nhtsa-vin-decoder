@@ -75,7 +75,8 @@ cached() {
 	shift 3
 	for attempt in 1 2 3; do
 		statuses=$(curl -sS --max-time 60 -D "$tmp/one.h" -o "$tmp/one.b" -w '%{http_code} ' "$base$path" \
-			--next -sS --max-time 60 -D "$tmp/two.h" -o "$tmp/two.b" -w '%{http_code}' "$base$path")
+			--next -sS --max-time 60 -D "$tmp/two.h" -o "$tmp/two.b" -w '%{http_code}' "$base$path") ||
+			fail "GET $path: curl exited $?"
 		read -r s1 s2 <<<"$statuses"
 		lower one
 		lower two
