@@ -28,14 +28,8 @@ targets=("$@")
 # Go's os package links -lresolv on darwin (internal/syscall/unix), for three
 # DNS functions this library never calls, and zig ships libSystem's stub but
 # not libresolv's. A text stub (.tbd: names only, no Apple code) lets the
-# link record /usr/lib/libresolv.9.dylib, which every macOS has. Its
-# directory is a fixed path under <dir>, not a temporary one: Go hashes
-# CGO_LDFLAGS into the library's build ID, and a release retry
-# (.github/workflows/release.yml) requires a rebuild of the tag to write the
-# same bytes.
-mkdir -p "$dir"
-stubs="$(cd "$dir" && pwd)/.stubs"
-mkdir -p "$stubs"
+# link record /usr/lib/libresolv.9.dylib, which every macOS has.
+stubs="$(mktemp -d)"
 trap 'rm -rf "$stubs"' EXIT
 cat >"$stubs/libresolv.tbd" <<'EOF'
 --- !tapi-tbd
@@ -67,8 +61,15 @@ for target in "${targets[@]}"; do
   out="$dir/$goos-$goarch"
   mkdir -p "$out"
   start=$SECONDS
+  # -buildid= leaves out Go's build ID, a hash of the build's inputs rather
+  # than of the library: it would carry the stub's temporary path (in
+  # CGO_LDFLAGS) and, on windows, runtime/cgo's objects, whose CodeView names
+  # the temporary files zig and Go compiled them through. A release retry
+  # (.github/workflows/release.yml) requires a rebuild of the tag, from any
+  # checkout and a cold build cache, to write the same bytes. Nothing reads a
+  # library's build ID; go version -m reads its build info, which stays.
   CGO_ENABLED=1 GOOS="$goos" GOARCH="$goarch" CC="zig cc -target $triple" CGO_LDFLAGS="$ldflags" \
-    go build -trimpath -ldflags='-s -w' -buildmode=c-shared \
+    go build -trimpath -ldflags='-s -w -buildid=' -buildmode=c-shared \
     -o "$out/libnitrovin.$ext" ./cmd/libnitrovin
   mv "$out/libnitrovin.h" "$out/nitrovin.h"
   echo "$out/libnitrovin.$ext: $(wc -c <"$out/libnitrovin.$ext" | tr -d ' ') bytes, $((SECONDS - start)) s ($triple)"

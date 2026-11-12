@@ -844,10 +844,14 @@ publish to the MCP Registry. A red run is one of three cases.
 1. **Red before anything was published**: the tag has no GitHub release (a
    runner or tool flake, the image push). Re-run the failed jobs from the
    run's page (`gh run rerun <id> --failed`). A tag push refuses a tag that
-   already has a release, so a re-run never publishes twice.
+   already has a release, or a draft of one, so a re-run never publishes
+   twice.
 2. **Red after publishing part of it**: the tag has a release, and a
    publisher or a later step failed (say winget's API answered 502 after
-   the rest went out). Retry the rest, from the tag:
+   the rest went out); or its release is still a draft, because an upload
+   failed (goreleaser makes the release as a draft and publishes it only
+   once every asset is up, after the image). Retry the rest, from the tag
+   (`vX.Y.Z`, or a prerelease's `vX.Y.Z-rc.1`):
    - Find what published in the failed run's goreleaser log: the publishers
      before the failure and, of the last three, those not named in its
      `* winget: …` lines. A failure after the goreleaser step means every
@@ -870,8 +874,16 @@ publish to the MCP Registry. A red run is one of three cases.
      there is left alone); and adds "Publishers retried on <date>: …" to the
      notes. Its signatures are the tag's identity, because it runs from the
      tag. Tick `resign` only to make every bundle again.
+   - A draft is not re-attached to: goreleaser looks a release up by its
+     tag, which never finds a draft, and would make a second release beside
+     it. Once the rebuild matches what the draft holds, the retry deletes the
+     draft (the tag stays) and goreleaser makes the release whole, signing
+     every asset again; its notes are the changelog, without the benchmark
+     table. Nobody outside the maintainers ever saw the draft.
    - The deploy follows a tag push's green run only: once the retry is
-     green, `gh workflow run deploy.yml -f tag=vX.Y.Z`.
+     green, `gh workflow run deploy.yml --ref main -f tag=vX.Y.Z` (a deploy
+     by hand runs from `main` alone, and takes `vX.Y.Z`, never a
+     prerelease's tag).
 
    The refresh does this by itself once: when the tag's run fails after
    publishing, `scripts/release.sh wait` reads its log, dispatches the retry
@@ -880,13 +892,15 @@ publish to the MCP Registry. A red run is one of three cases.
    release or the go.mod bump.
 
    The retry refuses, before publishing anything: a tag that does not exist
-   or has no release (case 1), `skip=publish` or an unknown name, `sign` when
-   some asset has no bundle, a ref other than the tag (its signatures would
-   carry another identity; a dry run may run from a branch), and a rebuild
-   whose bytes differ from the release's. The last means the tree or the
-   toolchain is not the tag's; never work around it. A tag from before
-   retries existed has neither the inputs nor a reproducible build: a dry
-   run from a branch shows its rebuild differing, and it is case 3.
+   or has no release (case 1), a tag with several drafts and no release
+   (delete all but the newest), `skip=publish` or an unknown name, `sign`
+   when some asset has no bundle (always, for a draft), a ref other than
+   the tag (its signatures would carry another identity; a dry run may run
+   from a branch), and a rebuild whose bytes differ from the release's. The
+   last means the tree or the toolchain is not the tag's; never work around
+   it. A tag from before retries existed has neither the inputs nor a
+   reproducible build: a dry run from a branch shows its rebuild differing,
+   and it is case 3.
 3. **A real defect**: the failure is in the code or the configuration
    (v0.1.3's winget template, with everything else live), so a retry from
    the tag fails the same way. Fix it on `main`; the fix ships with the next

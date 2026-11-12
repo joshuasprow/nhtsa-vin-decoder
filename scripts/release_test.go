@@ -8,9 +8,12 @@ package scripts
 import (
 	"bytes"
 	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -23,7 +26,8 @@ import (
 //   - run view <id> --log-failed: log-<id>; run view <id>: jobs-<id>.json;
 //   - workflow run: records the dispatch;
 //   - release view: succeeds;
-//   - api [-X <method>] <path>: api/<method>/<path>, or fails as a 404.
+//   - api [-X <method>] [--paginate] <path>: api/<method>/<path>, or fails
+//     as a 404 (one page holds every answer).
 //
 // --jq filters the answer through jq, as gh does.
 const fakeGH = `#!/usr/bin/env bash
@@ -38,6 +42,7 @@ while [ $# -gt 0 ]; do
     -H) shift 2 ;;
     --event) event=$2; shift 2 ;;
     --log-failed) log=true; shift ;;
+    --paginate) shift ;;
     *) args+=("$1"); shift ;;
   esac
 done
@@ -381,41 +386,309 @@ func TestPublished(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a prerelease tag", func(t *testing.T) {
+		s := newScript(t, map[string]string{
+			cask:   strings.Replace(caskAt, "%s", "1.0.0-rc.1", 1),
+			bucket: `{"version":"1.0.0-rc.1"}`,
+			"api/GET/repos/microsoft/winget-pkgs/pulls?head=joshuasprow:JoshuaSprow.Nitrovin-1.0.0-rc.1&state=all": `[{"number":8,"state":"open"}]`,
+			"api/GET/repos/microsoft/winget-pkgs/pulls?head=joshuasprow:JoshuaSprow.Nitrovin-1.0.0&state=all":      `[]`,
+		})
+		const want = "homebrew\nscoop\nwinget\n"
+		if out, errOut, failed := s.run("published", "v1.0.0-rc.1"); failed || out != want {
+			t.Errorf("published v1.0.0-rc.1 = %q (failed %v), want %q; stderr %q", out, failed, want, errOut)
+		}
+		// The release itself is not its prerelease.
+		if out, errOut, failed := s.run("published", "v1.0.0"); failed || out != "" {
+			t.Errorf("published v1.0.0 = %q (failed %v), want nothing; stderr %q", out, failed, errOut)
+		}
+	})
 	s := newScript(t, nil)
-	if _, errOut, failed := s.run("published", "0.9.1"); !failed || !strings.Contains(errOut, "not a release tag") {
-		t.Errorf("published 0.9.1: failed %v, stderr %q; want a refusal", failed, errOut)
+	for _, tag := range []string{"0.9.1", "v0.9", "v0.9.1-", "v0.9.1+build.5", "v0.9.1-rc_1"} {
+		if _, errOut, failed := s.run("published", tag); !failed || !strings.Contains(errOut, "not a release tag") {
+			t.Errorf("published %s: failed %v, stderr %q; want a refusal", tag, failed, errOut)
+		}
 	}
 }
 
 func TestClearWinget(t *testing.T) {
-	const (
-		branch = "api/GET/repos/joshuasprow/winget-pkgs/branches/JoshuaSprow.Nitrovin-0.9.1"
-		pulls  = "api/GET/repos/microsoft/winget-pkgs/pulls?head=joshuasprow:JoshuaSprow.Nitrovin-0.9.1&state=all"
-		del    = "api -X DELETE repos/joshuasprow/winget-pkgs/git/refs/heads/JoshuaSprow.Nitrovin-0.9.1"
-	)
+	// The winget fork's branch of version, its pull requests, and its deletion.
+	branch := func(v string) string {
+		return "api/GET/repos/joshuasprow/winget-pkgs/branches/JoshuaSprow.Nitrovin-" + v
+	}
+	pulls := func(v string) string {
+		return "api/GET/repos/microsoft/winget-pkgs/pulls?head=joshuasprow:JoshuaSprow.Nitrovin-" + v + "&state=all"
+	}
+	del := func(v string) string {
+		return "repos/joshuasprow/winget-pkgs/git/refs/heads/JoshuaSprow.Nitrovin-" + v
+	}
 	for _, tc := range []struct {
-		name    string
-		files   map[string]string
-		deleted bool
-		fail    bool
+		name, tag string
+		files     map[string]string
+		deleted   bool
+		fail      bool
 	}{
-		{"no branch", map[string]string{pulls: `[]`}, false, false},
-		{"a branch a failed attempt left", map[string]string{
-			branch: `{"name":"JoshuaSprow.Nitrovin-0.9.1"}`, pulls: `[]`,
-			"api/DELETE/repos/joshuasprow/winget-pkgs/git/refs/heads/JoshuaSprow.Nitrovin-0.9.1": "",
+		{"no branch", "v0.9.1", map[string]string{pulls("0.9.1"): `[]`}, false, false},
+		{"a branch a failed attempt left", "v0.9.1", map[string]string{
+			branch("0.9.1"): `{"name":"JoshuaSprow.Nitrovin-0.9.1"}`, pulls("0.9.1"): `[]`, "api/DELETE/" + del("0.9.1"): "",
 		}, true, false},
-		{"a branch in a pull request", map[string]string{
-			branch: `{"name":"JoshuaSprow.Nitrovin-0.9.1"}`, pulls: `[{"number":7,"state":"open"}]`,
+		{"a branch in a pull request", "v0.9.1", map[string]string{
+			branch("0.9.1"): `{"name":"JoshuaSprow.Nitrovin-0.9.1"}`, pulls("0.9.1"): `[{"number":7,"state":"open"}]`,
 		}, false, true},
+		{"a prerelease's branch a failed attempt left", "v0.9.1-rc.1", map[string]string{
+			branch("0.9.1-rc.1"): `{"name":"JoshuaSprow.Nitrovin-0.9.1-rc.1"}`, pulls("0.9.1-rc.1"): `[]`, "api/DELETE/" + del("0.9.1-rc.1"): "",
+		}, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newScript(t, tc.files)
-			out, errOut, failed := s.run("clear-winget", "v0.9.1")
+			out, errOut, failed := s.run("clear-winget", tc.tag)
 			if failed != tc.fail {
 				t.Fatalf("failed = %v, want %v; stdout %q, stderr %q", failed, tc.fail, out, errOut)
 			}
-			if got := len(s.callsWith(del)) == 1; got != tc.deleted {
-				t.Errorf("deleted = %v, want %v; calls %q", got, tc.deleted, s.calls())
+			deletes := s.callsWith("api -X DELETE ")
+			want := []string{"api -X DELETE " + del(strings.TrimPrefix(tc.tag, "v"))}
+			if !tc.deleted {
+				want = nil
+			}
+			if !slices.Equal(deletes, want) {
+				t.Errorf("deletes %q, want %q", deletes, want)
+			}
+		})
+	}
+}
+
+// The fake's answers for the repository's releases, owner/nitrovin.
+const (
+	releasesPath = "api/GET/repos/owner/nitrovin/releases?per_page=100"
+	assetPath    = "api/GET/repos/owner/nitrovin/releases/assets/"
+)
+
+func assetsPath(id string) string {
+	return "api/GET/repos/owner/nitrovin/releases/" + id + "/assets?per_page=100"
+}
+
+// release is a release of the fake: its id, tag, whether it is a draft, and
+// its assets by name, with their content.
+type release struct {
+	id, tag string
+	draft   bool
+	assets  map[string]string
+}
+
+// releaseFiles are the fake's answers for rs, the newest last, and for the
+// channels: none of them has the version. An asset's id is its release's id
+// and its index.
+func releaseFiles(version string, rs ...release) map[string]string {
+	files := map[string]string{
+		"api/GET/repos/microsoft/winget-pkgs/pulls?head=joshuasprow:JoshuaSprow.Nitrovin-" + version + "&state=all": `[]`,
+	}
+	var list []string
+	for _, r := range rs {
+		list = append(list, `{"id":`+r.id+`,"tag_name":"`+r.tag+`","draft":`+strconv.FormatBool(r.draft)+`}`)
+		var assets []string
+		for i, name := range slices.Sorted(maps.Keys(r.assets)) {
+			aid := r.id + strconv.Itoa(i)
+			assets = append(assets, `{"id":`+aid+`,"name":"`+name+`"}`)
+			files[assetPath+aid] = r.assets[name]
+		}
+		files[assetsPath(r.id)] = "[" + strings.Join(assets, ",") + "]"
+	}
+	// The API lists the newest first.
+	slices.Reverse(list)
+	files[releasesPath] = "[" + strings.Join(list, ",") + "]"
+	return files
+}
+
+// signedAssets are a whole release's assets: two archives, checksums.txt
+// naming them, and a bundle for each and for checksums.txt; without names
+// the bundles it leaves out.
+func signedAssets(without ...string) map[string]string {
+	assets := map[string]string{
+		"nitrovin_linux_amd64.tar.gz": "linux",
+		"nitrovin_darwin_arm64.zip":   "darwin",
+		"checksums.txt":               "aaaa  nitrovin_linux_amd64.tar.gz\nbbbb  nitrovin_darwin_arm64.zip\n",
+	}
+	for _, name := range []string{"nitrovin_linux_amd64.tar.gz", "nitrovin_darwin_arm64.zip", "checksums.txt"} {
+		assets[name+".sigstore.json"] = `{"bundle":"` + name + `"}`
+	}
+	for _, name := range without {
+		delete(assets, name)
+	}
+	return assets
+}
+
+func TestPlan(t *testing.T) {
+	const tag, version = "v0.9.1", "0.9.1"
+	for _, tc := range []struct {
+		name     string
+		args     []string // before the tag
+		skip     string
+		releases []release
+		want     []string // stdout's lines, or the error's text when fail
+		fail     bool
+		fetched  []string // the assets downloaded
+	}{
+		{
+			name:     "published, every bundle: signing skipped",
+			skip:     "docker",
+			releases: []release{{id: "11", tag: tag, assets: signedAssets()}},
+			want:     []string{"release=published", "flag=--skip=docker,sign", "ran=release,homebrew,scoop,winget", "skipped=docker,sign", "already="},
+			fetched: []string{"checksums.txt", "checksums.txt.sigstore.json",
+				"nitrovin_darwin_arm64.zip.sigstore.json", "nitrovin_linux_amd64.tar.gz.sigstore.json"},
+		},
+		{
+			name:     "published, a bundle missing: signing runs",
+			skip:     "docker",
+			releases: []release{{id: "11", tag: tag, assets: signedAssets("nitrovin_darwin_arm64.zip.sigstore.json")}},
+			want:     []string{"release=published", "flag=--skip=docker", "ran=release,homebrew,scoop,winget,sign"},
+		},
+		{
+			name:     "published, resign",
+			args:     []string{"--resign"},
+			releases: []release{{id: "11", tag: tag, assets: signedAssets()}},
+			want:     []string{"release=published", "flag=", "ran=release,docker,homebrew,scoop,winget,sign"},
+		},
+		{
+			// An upload that failed: goreleaser's release is still its draft,
+			// with every bundle it got to. The draft is deleted and made again,
+			// so every bundle is made again too.
+			name:     "a draft with every bundle: signing runs",
+			skip:     "docker",
+			releases: []release{{id: "12", tag: tag, draft: true, assets: signedAssets()}},
+			want:     []string{"release=draft", "flag=--skip=docker", "ran=release,homebrew,scoop,winget,sign"},
+			fetched: []string{"checksums.txt", "checksums.txt.sigstore.json",
+				"nitrovin_darwin_arm64.zip.sigstore.json", "nitrovin_linux_amd64.tar.gz.sigstore.json"},
+		},
+		{
+			name:     "a draft cut short before checksums.txt",
+			skip:     "docker",
+			releases: []release{{id: "12", tag: tag, draft: true, assets: map[string]string{"nitrovin_linux_amd64.tar.gz": "linux"}}},
+			want:     []string{"release=draft", "flag=--skip=docker", "ran=release,homebrew,scoop,winget,sign"},
+		},
+		{
+			name:     "a draft refuses skip=sign",
+			skip:     "docker,sign",
+			releases: []release{{id: "12", tag: tag, draft: true, assets: signedAssets()}},
+			want:     []string{"not every asset of the release has its bundle"},
+			fail:     true,
+		},
+		{
+			// A published release is the one goreleaser finds; a draft beside
+			// it is not the release.
+			name: "published beside a draft: the published one",
+			skip: "docker",
+			releases: []release{
+				{id: "11", tag: tag, assets: signedAssets()},
+				{id: "13", tag: tag, draft: true, assets: map[string]string{}},
+			},
+			want: []string{"release=published", "flag=--skip=docker,sign"},
+		},
+		{
+			name: "two drafts refused",
+			releases: []release{
+				{id: "12", tag: tag, draft: true, assets: map[string]string{}},
+				{id: "13", tag: tag, draft: true, assets: map[string]string{}},
+			},
+			want: []string{"2 draft releases (13 12)"},
+			fail: true,
+		},
+		{
+			name:     "another tag's release is not this one's",
+			releases: []release{{id: "10", tag: "v0.9.10", assets: signedAssets()}},
+			want:     []string{"v0.9.1 has no release"},
+			fail:     true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newScript(t, releaseFiles(version, tc.releases...))
+			dir := t.TempDir()
+			out, errOut, failed := s.run(append(append([]string{"plan"}, tc.args...), tag, tc.skip, dir)...)
+			if failed != tc.fail {
+				t.Fatalf("failed = %v, want %v; stdout %q, stderr %q", failed, tc.fail, out, errOut)
+			}
+			if tc.fail {
+				if out != "" || !strings.Contains(errOut, tc.want[0]) {
+					t.Errorf("stdout %q, stderr %q; want nothing and an error naming %q", out, errOut, tc.want[0])
+				}
+				return
+			}
+			lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+			for _, want := range tc.want {
+				if !slices.Contains(lines, want) {
+					t.Errorf("stdout %q has no line %q (stderr %q)", out, want, errOut)
+				}
+			}
+			// assets.txt names every asset of the release planned from, the
+			// first listed, for the comparison; checksums.txt and the bundles
+			// are downloaded.
+			r := tc.releases[0]
+			names := slices.Sorted(maps.Keys(r.assets))
+			if got, err := os.ReadFile(filepath.Join(dir, "assets.txt")); err != nil || !slices.Equal(strings.Fields(string(got)), names) {
+				t.Errorf("assets.txt = %q (%v), want %q", got, err, names)
+			}
+			for _, name := range tc.fetched {
+				if got, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(got) != r.assets[name] {
+					t.Errorf("%s = %q (%v), want the release's %q", name, got, err, r.assets[name])
+				}
+			}
+		})
+	}
+	t.Run("a prerelease tag", func(t *testing.T) {
+		const rc = "v1.0.0-rc.1"
+		s := newScript(t, releaseFiles("1.0.0-rc.1", release{id: "21", tag: rc, assets: signedAssets()}))
+		out, errOut, failed := s.run("plan", rc, "docker", t.TempDir())
+		if failed || !strings.Contains(out, "release=published\nflag=--skip=docker,sign\n") {
+			t.Errorf("plan %s = %q (failed %v); stderr %q", rc, out, failed, errOut)
+		}
+	})
+}
+
+func TestDownload(t *testing.T) {
+	s := newScript(t, releaseFiles("0.9.1", release{id: "12", tag: "v0.9.1", draft: true, assets: signedAssets()}))
+	dir := t.TempDir()
+	if out, errOut, failed := s.run("download", "v0.9.1", dir, "nitrovin_linux_amd64.tar.gz"); failed {
+		t.Fatalf("download failed: stdout %q, stderr %q", out, errOut)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "nitrovin_linux_amd64.tar.gz")); err != nil || string(got) != "linux" {
+		t.Errorf("the draft's asset = %q (%v), want %q", got, err, "linux")
+	}
+	if _, errOut, failed := s.run("download", "v0.9.1", dir, "nitrovin_windows_amd64.zip"); !failed || !strings.Contains(errOut, "no nitrovin_windows_amd64.zip") {
+		t.Errorf("download of an asset the release lacks: failed %v, stderr %q; want a refusal", failed, errOut)
+	}
+}
+
+func TestClearDraft(t *testing.T) {
+	const del = "api -X DELETE repos/owner/nitrovin/releases/"
+	for _, tc := range []struct {
+		name     string
+		releases []release
+		deleted  string // the release id deleted
+		fail     string // the error's text
+	}{
+		{"a draft goes, by id", []release{{id: "12", tag: "v0.9.1", draft: true}}, "12", ""},
+		{"a published release stays", []release{{id: "11", tag: "v0.9.1"}}, "", "is published"},
+		{"a published release stays, beside a draft", []release{
+			{id: "11", tag: "v0.9.1"}, {id: "13", tag: "v0.9.1", draft: true},
+		}, "", "is published"},
+		{"no release", nil, "", "has no release"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files := releaseFiles("0.9.1", tc.releases...)
+			files["api/DELETE/repos/owner/nitrovin/releases/12"] = ""
+			s := newScript(t, files)
+			out, errOut, failed := s.run("clear-draft", "v0.9.1")
+			if failed != (tc.fail != "") || tc.fail != "" && !strings.Contains(errOut, tc.fail) {
+				t.Fatalf("failed %v, stdout %q, stderr %q; want error %q", failed, out, errOut, tc.fail)
+			}
+			deletes := s.callsWith(del)
+			switch {
+			case tc.deleted == "" && len(deletes) > 0:
+				t.Errorf("deleted %q, want nothing deleted", deletes)
+			case tc.deleted != "" && !slices.Equal(deletes, []string{del + tc.deleted}):
+				t.Errorf("deletes %q, want only release %s", deletes, tc.deleted)
+			}
+			// The tag is never touched.
+			if refs := s.callsWith("api -X DELETE repos/owner/nitrovin/git/"); len(refs) > 0 {
+				t.Errorf("deleted a ref: %q", refs)
 			}
 		})
 	}

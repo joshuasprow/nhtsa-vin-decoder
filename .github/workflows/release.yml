@@ -28,11 +28,13 @@
 # release's checksums.txt before anything is published, keeps the bundles
 # when every asset has one (resign makes them again), re-attaches to the
 # release (assets replaced by name, the same bytes), runs the steps after
-# goreleaser, each idempotent, and adds a line to the notes. With dry-run it
-# stops after the rebuild, the comparison and the verification of the
+# goreleaser, each idempotent, and adds a line to the notes. A release still
+# a draft (goreleaser publishes only once every upload is up) is deleted
+# after the comparison, keeping the tag, and made again whole. With dry-run
+# it stops after the rebuild, the comparison and the verification of the
 # release's bundles, publishing nothing; a dry run may run from a branch.
-# The tag push refuses a tag that already has a release, so a re-run cannot
-# publish twice.
+# The tag push refuses a tag that already has a release or a draft, so a
+# re-run cannot publish twice.
 name: Release
 
 on:
@@ -256,18 +258,21 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       # A tag push publishes a release that does not exist yet, so a re-run
-      # after a partial publish cannot publish twice. A retry completes the
-      # release of a tag that has one, from the tag.
+      # after a partial publish cannot publish twice (nor make a second
+      # release beside a failed upload's draft). A retry completes the
+      # release of a tag that has one, published or a draft, from the tag.
       - name: Check the tag
         run: |
           die() { echo "release: $*" >&2; exit 1; }
           if [[ $RETRY != true ]]; then
-            if gh release view "$TAG" --json tagName >/dev/null 2>&1; then
+            # gh finds a draft too: what an upload that failed leaves.
+            if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+              [[ $draft != true ]] || die "$TAG already has a draft release, left by an upload that failed: running again would make a second release beside it. Complete it in parts: dispatch release.yml from $TAG with tag $TAG and skip (CONTRIBUTING.md, \"When a release is red\")"
               die "$TAG already has a release: running again would publish it twice. Complete it in parts: dispatch release.yml from $TAG with tag $TAG and skip (CONTRIBUTING.md, \"When a release is red\")"
             fi
             exit 0
           fi
-          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || die "$TAG is not a release tag (vX.Y.Z)"
+          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || die "$TAG is not a release tag (vX.Y.Z or vX.Y.Z-<prerelease>)"
           gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .ref >/dev/null 2>&1 || die "no tag $TAG: a retry completes a tag's release, it never makes one"
           gh release view "$TAG" --json tagName >/dev/null 2>&1 ||
             die "$TAG has no release, so nothing was published to complete: re-run the tag's failed jobs instead"
@@ -309,9 +314,10 @@ jobs:
           name: bench
           path: ${{ runner.temp }}/bench
 
-      # What the retry publishes: every publisher but those skip names and
-      # those whose channel already has the version. Signing is skipped when
-      # every asset already has its bundle, unless resign.
+      # What the retry publishes (scripts/release.sh plan): every publisher
+      # but those skip names and those whose channel already has the
+      # version. Signing is skipped when every asset already has its bundle,
+      # unless resign; never for a draft, which is deleted and made again.
       - name: Plan the retry
         id: plan
         if: env.RETRY == 'true'
@@ -329,40 +335,21 @@ jobs:
           helper=$RUNNER_TEMP/retry/scripts/release.sh
           echo "HELPER=$helper" >>"$GITHUB_ENV"
 
-          pub=$RUNNER_TEMP/published
-          mkdir -p "$pub"
-          gh release view "$TAG" --json assets --jq '.assets[].name' | sort >"$pub/assets.txt"
-          if grep -qE '^checksums\.txt$|\.sigstore\.json$' "$pub/assets.txt"; then
-            gh release download "$TAG" -p checksums.txt -p '*.sigstore.json' -D "$pub"
-          fi
-          # Those checksums.txt names, and checksums.txt itself.
-          opts=(--bundled)
-          if [[ -f $pub/checksums.txt ]]; then
-            mapfile -t assets < <(awk '{print $2}' "$pub/checksums.txt")
-            assets+=(checksums.txt)
-            for asset in "${assets[@]}"; do
-              [[ -f $pub/$asset.sigstore.json ]] || { echo "$asset has no bundle: signing runs"; opts=(); }
-            done
-          else
-            echo "the release has no checksums.txt: signing runs"
-            opts=()
-          fi
+          opts=()
           [[ $RESIGN != true ]] || opts+=(--resign)
-          already=$("$helper" published "$TAG" | paste -sd, -)
-          flag=$("$helper" skip "${opts[@]}" "$SKIP,$already")
-          skipped=${flag#--skip=}
-          ran=(release)
-          for name in docker homebrew scoop winget sign; do
-            [[ ,$skipped, == *,$name,* ]] || ran+=("$name")
-          done
+          plan=$("$helper" plan "${opts[@]}" "$TAG" "$SKIP" "$RUNNER_TEMP/published")
+          echo "$plan" >>"$GITHUB_OUTPUT"
+          get() { sed -n "s/^$1=//p" <<<"$plan"; }
+          release=$(get release) ran=$(get ran) skipped=$(get skipped) already=$(get already)
           {
             echo "Retry of $TAG$([[ $DRY_RUN == true ]] && echo ', a dry run: publishes nothing')"
-            echo "- runs: ${ran[*]} (release: the assets, replaced by name with the same bytes)"
+            if [[ $release == draft ]]; then
+              echo "- the release is a draft, left by an upload that failed: once the rebuild matches it, it is deleted (the tag stays) and goreleaser makes the release whole"
+            fi
+            echo "- runs: ${ran//,/ } (release: the assets, replaced by name with the same bytes)"
             echo "- skips: ${skipped:-nothing} (asked: ${SKIP:-nothing}; already in their channel: ${already:-none})"
             echo "- then, each idempotent: the server.json bundle, verification, the image's signature, the MCP Registry"
           } | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "flag=$flag" >>"$GITHUB_OUTPUT"
-          (IFS=,; echo "ran=${ran[*]}") >>"$GITHUB_OUTPUT"
 
       # Before anything is published: the tag rebuilt must be the release's
       # bytes (.goreleaser.yaml and scripts/libnitrovin.sh build them
@@ -389,7 +376,7 @@ jobs:
             # must be the rebuilt bytes.
             while read -r sum asset; do
               grep -qxF "$asset" "$pub/assets.txt" || continue
-              gh release download "$TAG" -p "$asset" -D "$pub" --clobber
+              "$HELPER" download "$TAG" "$pub" "$asset"
               echo "$sum  $pub/$asset" | sha256sum --check ||
                 die "the release's $asset differs from the rebuild of $TAG: nothing is published"
             done <dist/checksums.txt
@@ -402,6 +389,15 @@ jobs:
             n=$((n + 1))
           done
           echo "$n of the release's bundles verify against the rebuild"
+
+      # goreleaser finds a release by its tag, which never answers with a
+      # draft, so it would make a second release beside one. The draft an
+      # upload left goes, now that its bytes are known to be the rebuild's;
+      # goreleaser makes the release again and publishes it.
+      - name: Delete the draft release
+        if: env.RETRY == 'true' && env.DRY_RUN != 'true' && steps.plan.outputs.release == 'draft'
+        run: |
+          "$HELPER" clear-draft "$TAG"
 
       # goreleaser reuses a winget branch that exists; one a failed attempt
       # left goes, unless a pull request has it.
@@ -425,7 +421,8 @@ jobs:
         run: |
           if [[ $RETRY == true ]]; then
             # Into the existing release (release.replace_existing_artifacts:
-            # the bytes compared above); its notes stay.
+            # the bytes compared above); its notes stay. A draft's was
+            # deleted: goreleaser makes the release afresh.
             goreleaser release --clean ${SKIP_FLAG:+"$SKIP_FLAG"}
             exit 0
           fi
