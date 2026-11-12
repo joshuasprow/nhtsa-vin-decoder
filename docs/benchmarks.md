@@ -225,7 +225,7 @@ scripts/bench.sh mssql-down; scripts/oracle.sh down
 `scripts/bench.sh`'s header documents each command and its environment
 (`BENCH_MAX_LOAD`, `BENCH_WAIT`, `ORACLE_CONTAINER`, `MSSQL_CONTAINER`);
 `bench/decode`'s, the Go harness. corgi needs Node 22: corgi v2's
-better-sqlite3 9 has no build for the Node 24 `mise.toml` pins. corgi v2
+better-sqlite3 9 has no build for Node 24 and later, which `mise.toml` pins. corgi v2
 unpacks its database into `~/.corgi-cache` on first use. NHTSA's
 downloads page lists only the newest month; once 2026_10 is gone, its
 Postgres dump is an asset of nitrovin-data's release (see
@@ -246,8 +246,8 @@ no copy of its `.bak`.
   slow engines that decode a sample, but v3 decodes about 150,000 VIN/s,
   so it also ran over the corpus, the input nitrovin's and ultravin's
   rows decode, and the README shows that row.
-- **corgi v2 on Node 22**, not the Node 24 `mise.toml` pins: its
-  better-sqlite3 9 does not build on Node 24.
+- **corgi v2 on Node 22**, not the Node `mise.toml` pins: its
+  better-sqlite3 9 does not build on Node 24 and later.
 - **The SQL rates are server time.** Both are summed per-VIN times inside
   the server, one connection, so a client library's overhead is not
   charged to NHTSA's procedure; the wall times are recorded beside them.
