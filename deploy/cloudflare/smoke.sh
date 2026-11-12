@@ -13,14 +13,15 @@
 # the decode's frozen clock, which makes its URL new, so its first GET is a
 # MISS and its second a HIT; FIRST and SECOND name others (HIT: the cache
 # was filled already; BYPASS: the container is not the release the Worker
-# was deployed with, so nothing is stored). The release's Service Worker
-# module under /ui/r/ is held to them too, except that its first GET may
-# be a HIT whenever the second must be: its URL is the release's, not
-# new. TOOLS is the release's docs/api/mcp-tools.json (default this
-# tree's), whose tools /mcp must list. The pages are never cached: the
-# page without JavaScript, its fragment for htmx, and /sw.js, which
-# keeps its own no-cache. Over https it also checks HSTS, always-HTTPS,
-# the www redirect and the TLS floor.
+# was deployed with, so nothing is stored). Both GETs go over one
+# connection, so to one data center, whose cache it is (#131). The
+# release's Service Worker module under /ui/r/ is held to them too, except
+# that its first GET may be a HIT whenever the second must be: its URL is
+# the release's, not new. TOOLS is the release's docs/api/mcp-tools.json
+# (default this tree's), whose tools /mcp must list. The pages are never
+# cached: the page without JavaScript, its fragment for htmx, and /sw.js,
+# which keeps its own no-cache. Over https it also checks HSTS,
+# always-HTTPS, the www redirect and the TLS floor.
 set -euo pipefail
 
 base=${1:?usage: smoke.sh <base-url> <image>}
@@ -44,8 +45,59 @@ req() {
 	local name=$1
 	shift
 	curl -sS --max-time 60 -D "$tmp/$name.h" -o "$tmp/$name.b" -w '%{http_code}' "$@"
-	tr -d '\r' <"$tmp/$name.h" | awk 'BEGIN{FS=OFS=": "} {$1=tolower($1); print}' >"$tmp/$name.h2"
-	mv "$tmp/$name.h2" "$tmp/$name.h"
+	lower "$name"
+}
+
+# lower <name>: a response's header names in lower case, without \r.
+lower() {
+	tr -d '\r' <"$tmp/$1.h" | awk 'BEGIN{FS=OFS=": "} {$1=tolower($1); print}' >"$tmp/$1.h2"
+	mv "$tmp/$1.h2" "$tmp/$1.h"
+}
+
+# colo <name>: the data center that answered a response, its cf-ray's
+# suffix (ATL in …-ATL); empty off Cloudflare (wrangler dev).
+colo() {
+	local ray
+	ray=$(header "$1" cf-ray)
+	[[ $ray == *-* ]] && echo "${ray##*-}" || true
+}
+
+# cached <path> <check> <what> <first…>: two GETs of <path> over one
+# connection, each answer held to <check> <name> <status> (as req leaves
+# it under <name>), the first's cf-cache-status one of <first…>, the
+# second's SECOND (default HIT). The Cache API is each data center's own,
+# and two connections can end in two (#131): one connection ends in one.
+# Should the two answers' cf-ray colos differ anyway, the pair says nothing
+# of the cache and is asked again, at most three times; a first GET then
+# may also be SECOND, the colos before having kept the answer.
+cached() {
+	local path=$1 check=$2 what=$3 attempt statuses s1 s2 one two c1 c2 ok want
+	shift 3
+	for attempt in 1 2 3; do
+		statuses=$(curl -sS --max-time 60 -D "$tmp/one.h" -o "$tmp/one.b" -w '%{http_code} ' "$base$path" \
+			--next -sS --max-time 60 -D "$tmp/two.h" -o "$tmp/two.b" -w '%{http_code}' "$base$path") ||
+			fail "GET $path: curl exited $?"
+		read -r s1 s2 <<<"$statuses"
+		lower one
+		lower two
+		"$check" one "$s1"
+		"$check" two "$s2"
+		one=$(header one cf-cache-status) two=$(header two cf-cache-status)
+		c1=$(colo one) c2=$(colo two)
+		ok=
+		for want in "$@"; do [[ $one == "$want" ]] && ok=1; done
+		((attempt > 1)) && [[ $one == "${SECOND:-HIT}" ]] && ok=1
+		[[ -n $ok ]] || fail "GET $path: cf-cache-status $one; want $*"
+		if [[ $c1 != "$c2" ]]; then
+			printf 'again %s\n' "GET $path: answered in $c1, then $c2, so the cache is untested"
+			continue
+		fi
+		[[ $two == "${SECOND:-HIT}" ]] ||
+			fail "GET $path: cf-cache-status $one, then $two${c1:+, both in $c1}; want ${SECOND:-HIT}"
+		pass "GET $path: 200, $what, cf-cache-status $one, then $two${c1:+, both in $c1}"
+		return
+	done
+	fail "GET $path: each of three pairs over one connection answered in two data centers; the cache is untested"
 }
 
 # header <name> <header>: the header's value in a response, empty if absent.
@@ -76,17 +128,14 @@ pass "GET /v1/info: $got"
 # A decode: the image's bytes, a MISS (or FIRST), then a HIT (or SECOND).
 docker_run decode --now "$now" "$vin" >"$tmp/want-decode.json"
 target="/v1/decode/$vin?now=$now"
-for want_cache in "${FIRST:-MISS}" "${SECOND:-HIT}"; do
-	status=$(req decode "$base$target")
-	cache=$(header decode cf-cache-status)
-	want_control="public, max-age=86400"
-	[[ $want_cache == BYPASS ]] && want_control=no-store
-	[[ $status == 200 ]] || fail "GET $target: $status"
-	cmp -s "$tmp/decode.b" "$tmp/want-decode.json" || fail "GET $target: body differs from \`nitrovin decode --now $now $vin\`"
-	[[ $cache == "$want_cache" ]] || fail "GET $target: cf-cache-status $cache; want $want_cache"
-	[[ $(header decode cache-control) == "$want_control" ]] || fail "GET $target: cache-control $(header decode cache-control); want $want_control"
-	pass "GET $target: 200, the image's bytes, cf-cache-status $cache"
-done
+decode() {
+	local want_control="public, max-age=86400"
+	[[ $(header "$1" cf-cache-status) == BYPASS ]] && want_control=no-store
+	[[ $2 == 200 ]] || fail "GET $target: $2"
+	cmp -s "$tmp/$1.b" "$tmp/want-decode.json" || fail "GET $target: body differs from \`nitrovin decode --now $now $vin\`"
+	[[ $(header "$1" cache-control) == "$want_control" ]] || fail "GET $target: cache-control $(header "$1" cache-control); want $want_control"
+}
+cached "$target" decode "the image's bytes" "${FIRST:-MISS}"
 
 # Never cached: a POST, a refusal.
 for _ in 1 2; do
@@ -167,17 +216,17 @@ pass "GET /sw.js: 200, no-cache, never cached, 'wasm-unsafe-eval', the release's
 # release. Its URL is not new, so a GET finds it cached whenever anyone
 # asked for it before: a HIT passes wherever the second GET must be one.
 module="$(jq -r .assets "$tmp/sw-config.json")/sw.wasm"
-for want_cache in "${FIRST:-MISS}" "${SECOND:-HIT}"; do
-	status=$(req wasm "$base$module")
-	cache=$(header wasm cf-cache-status)
-	[[ $status == 200 && $(header wasm content-type) == application/wasm ]] || fail "GET $module: $status $(header wasm content-type)"
-	[[ $(head -c 4 "$tmp/wasm.b" | od -An -tx1 | tr -d ' \n') == 0061736d ]] || fail "GET $module: not WebAssembly"
-	[[ $cache == "$want_cache" || ($cache == HIT && ${SECOND:-HIT} == HIT) ]] ||
-		fail "GET $module: cf-cache-status $cache; want $want_cache"
-	[[ $(header wasm cache-control) == "public, max-age=31536000, immutable" ]] ||
-		fail "GET $module: cache-control $(header wasm cache-control); want immutable"
-	pass "GET $module: 200, WebAssembly, immutable, cf-cache-status $cache"
-done
+wasm() {
+	[[ $2 == 200 && $(header "$1" content-type) == application/wasm ]] || fail "GET $module: $2 $(header "$1" content-type)"
+	[[ $(head -c 4 "$tmp/$1.b" | od -An -tx1 | tr -d ' \n') == 0061736d ]] || fail "GET $module: not WebAssembly"
+	[[ $(header "$1" cache-control) == "public, max-age=31536000, immutable" ]] ||
+		fail "GET $module: cache-control $(header "$1" cache-control); want immutable"
+}
+if [[ ${SECOND:-HIT} == HIT ]]; then
+	cached "$module" wasm "WebAssembly, immutable" "${FIRST:-MISS}" HIT
+else
+	cached "$module" wasm "WebAssembly, immutable" "${FIRST:-MISS}"
+fi
 
 [[ $base == https://* ]] || exit 0
 host=${base#https://}
