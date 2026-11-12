@@ -36,9 +36,10 @@ decide whether to change the design or the budget.
   browser half), after two decisions on its misses. The design changed: the
   module's collector runs between requests, and the module answers one
   request at a time. And the budget changed for one kind: reverse's p99 in a
-  browser is 3 ms per key, the server's still 1 ms (see Budget). On the 1%
-  wide variant it missed related vehicles with no year (123 ms p99) and
-  retained memory (114 MiB); see The browser half.
+  browser is 3 ms per key, the server's still 1 ms (see Budget). On the wide
+  variants it misses: related vehicles with no year take 59–61 ms at p99 at
+  1% (50 ms), and retained memory is 64.6–67.6 MiB at every share (64 MiB);
+  see On the wide variants. A person decides.
 
 ## Who it is for
 
@@ -449,6 +450,50 @@ collected in the middle of a request and 60.1 MiB retained.
   (19 MB), so its quota is not recorded. WebKit and Safari store no Blob in
   IndexedDB in an ephemeral profile, as Safari's private browsing is: a
   compile there fails in words, storing nothing.
+
+#### On the wide variants
+
+Measured in Chromium 151 (Playwright) on 2026-11-12 at `881d3e8`, after
+related vehicles stopped holding the shared spans (see the format half's
+related vehicles), the same way: 1,024 answers a kind, shuffled, each page
+the server's byte for byte (384 of 384 on every variant). The machine was
+otherwise quiet but for the desktop's own load (1-minute load 2.4–3.8); a
+first wide-1 run, which may have overlapped another agent's browser runs, gave the same
+numbers within 4 ms.
+
+`fit` p99 (p50); **bold** misses:
+
+| Request | wide-0.1 | wide-0.3 | wide-1 | wide-1-varied | Budget |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| candidates | 1.9 ms (0.6) | 2.5 ms (0.6) | 0.9 ms (0.6) | 0.9 ms (0.6) | 5 ms |
+| part types | 2.2 ms (1.0) | 3.2 ms (1.1) | 1.8 ms (1.4) | 1.9 ms (1.5) | 10 ms |
+| part types, no year | 3.5 ms (2.2) | 4.5 ms (2.4) | 3.8 ms (3.1) | 3.7 ms (3.1) | 10 ms |
+| related vehicles | 5.8 ms (4.1) | 9.7 ms (6.4) | 21.3 ms (12.8) | 28.7 ms (18.7) | 50 ms |
+| related vehicles, no year | 11.3 ms (9.8) | 21.7 ms (18.7) | **59.2 ms** (50.2) | **61.0 ms** (49.7) | 50 ms |
+| reverse | 1.5 ms (0.3) | 1.5 ms (0.3) | 0.5 ms (0.3) | 0.6 ms (0.3) | 3 ms |
+| Retained WebAssembly memory | **64.6 MiB** | **67.6 MiB** | **67.6 MiB** | **66.1 MiB** | 64 MiB |
+| Answers spanning a collection | 0 | 0 | 48 | 62 | |
+| Compile, peak | 14.4 s, 171 MiB | 16.6 s, 176 MiB | 25.4 s, 172 MiB | 25.4 s, 170 MiB | 256 MiB |
+
+Before, wide-1's related vehicles with no year took 123 ms at p99 and
+retained 114 MiB, each request allocating about 117 MB.
+
+- **Why related with no year still misses at 1%:** the fit itself. Its p50
+  is 50 ms, and its p99 is the same with or without a collection: the
+  module's work over some 1,480 shared wide fitments, about 407,000 spans,
+  which takes 17–19 ms natively, and 16 reads of 15 MB together, 6 ms of
+  them waiting at p50. Collections, 48 of 1,024 such answers, don't make
+  the p99.
+- **Why retained memory misses:** the fit page, not the fit. Natively, a
+  wide-1 related request allocates 5.8 MiB in `Library.Fit` and 26 MiB for
+  the whole page: the page draws the answer's JSON (444 KB, indented and
+  formatted again) beside 1.5 MB of HTML. The module collects only between
+  requests, so the heap reaches about 50 MiB inside one, and the WebAssembly
+  memory grows past 64 MiB once; at 1% the heap reaches the 56 MiB backstop,
+  and Go collects inside the request.
+- **The catalog-scale fixture is unchanged:** measured again in all four
+  engines at `881d3e8`, every budget is met (worst p99 3.8 ms, reverse
+  1.0–1.7 ms, retained 58.6–61.6 MiB).
 
 ### A Service Worker's lifetime
 
