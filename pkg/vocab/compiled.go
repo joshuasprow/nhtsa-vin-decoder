@@ -435,17 +435,31 @@ func (c *compiled) damaged(format string, a ...any) {
 // allocation per read, not two, which a browser's collector sees on
 // every request (ADR 0023).
 func (c *compiled) read(sec int, off, n int64) string {
+	b := c.readInto(nil, sec, off, n)
+	if len(b) == 0 {
+		return ""
+	}
+	return unsafe.String(&b[0], len(b))
+}
+
+// readInto reads n bytes of section sec from off into buf, grown to hold
+// them, and returns them: a buffer read into again and again, for bytes
+// that become only numbers, so no string of them outlives the next read.
+func (c *compiled) readInto(buf []byte, sec int, off, n int64) []byte {
 	if off < 0 || n < 0 || off > c.sec[sec].n || n > c.sec[sec].n-off {
 		c.damaged("bytes %d to %d of section %d are out of range", off, off+n, sec)
 	}
 	if n == 0 {
-		return ""
+		return buf[:0]
 	}
-	b := make([]byte, n)
-	if got, err := c.r.ReadAt(b, c.sec[sec].off+off); got < len(b) {
+	if int64(cap(buf)) < n {
+		buf = make([]byte, n)
+	}
+	buf = buf[:n]
+	if got, err := c.r.ReadAt(buf, c.sec[sec].off+off); got < len(buf) {
 		c.damaged("%v", err)
 	}
-	return unsafe.String(&b[0], len(b))
+	return buf
 }
 
 // cursor reads records from bytes read: uvarints, varints, bytes and
@@ -664,15 +678,14 @@ type hit struct {
 	keep []int32 // ascending
 	// far: its block holds its line, note and its applications to the
 	// vehicle, those that matched in own; the whole fitment is n bytes at
-	// off in keyed, and its vehicles and years sn bytes at soff in
-	// wide, which years is, once read, after their line.
+	// off in keyed, and its vehicles and years, after their line, sn
+	// bytes at soff in wide.
 	far      bool
 	line     int
 	note     string
 	own      []indexedApp
 	off, n   int64
 	soff, sn int64
-	years    cursor
 }
 
 func compareHits(a, b *hit) int {
@@ -697,66 +710,128 @@ func (c *compiled) byVehicle(cat *Catalog, partType string, vehicles []Vehicle, 
 }
 
 // shared is Catalog.Shared, cat being the compiled catalog's: the
-// vehicles' blocks, one read each, and the vehicles and years in wide of
-// the far fitments among them, nearby ones together.
-func (c *compiled) shared(cat *Catalog, vehicles []Vehicle, year *int, side *Side) []Shared {
+// vehicles' blocks, one read each, and, of each candidate keep keeps,
+// where its applications' vehicles and years lie, for Spans to read: a
+// near record's after its key, line and note, in the block; a far one's
+// in wide.
+func (c *compiled) shared(cat *Catalog, vehicles []Vehicle, year *int, side *Side, keep func(*Candidate) bool) *Shared {
 	hits := c.hits(cat, "", vehicles, year, side)
-	if len(hits) == 0 {
-		return nil
-	}
-	cands := c.matchedCandidates(hits) // in key order, as groups
-	var far []*hit
-	n := 0
+	far := 0
 	for _, h := range hits {
 		if h.far {
-			far = append(far, h)
+			far++
 		}
 	}
-	c.readFar(far, secWide)
-	// Each fitment's applications, at the cursor's count of them: a near
-	// one's record after its key, line and note, a far one's in wide.
-	apps := func(h *hit) cursor {
-		if h.far {
-			return h.years
+	s := &Shared{c: c, near: make([]nearShare, 0, len(hits)-far), far: make([]farShare, 0, far)}
+	var (
+		fit     Fitment
+		cand    Candidate
+		matched []indexedApp
+		apps    []Application
+	)
+	groups(hits, func(run []*hit) {
+		fit, matched = c.matchedFitment(run, matched)
+		apps = slices.Grow(apps[:0], len(matched))[:len(matched)]
+		cand.Applications = slices.Grow(cand.Applications[:0], len(matched))[:len(matched)]
+		for i := range matched {
+			apps[i] = matched[i].app
+			cand.Applications[i] = &apps[i]
 		}
-		r := h.rec
-		r.side()
-		r.str()
-		r.uint()
-		r.str()
-		return r
+		fit.Applications, cand.Fitment = apps, &fit
+		if !keep(&cand) {
+			return
+		}
+		k := int32(s.n)
+		s.n++
+		if h := run[0]; h.far {
+			s.far = append(s.far, farShare{k: k, line: h.line, off: h.soff, n: h.sn})
+		} else {
+			r := h.rec
+			r.side()
+			r.str()
+			r.uint()
+			r.str()
+			s.near = append(s.near, nearShare{k: k, r: r})
+		}
+	})
+	slices.SortFunc(s.far, func(a, b farShare) int { return cmp.Compare(a.off, b.off) })
+	return s
+}
+
+// nearShare is a kept candidate of a near record: k, its index among
+// those kept, and its applications, at their count.
+type nearShare struct {
+	k int32
+	r cursor
+}
+
+// farShare is a kept candidate of a far record: k, its index among those
+// kept, its line, and where its vehicles and years lie in wide.
+type farShare struct {
+	k      int32
+	line   int
+	off, n int64
+}
+
+// compiledSpans is Shared.Spans of a compiled catalog's: the near
+// records' spans from the blocks, then the far ones' from wide, read in
+// runs (farRuns) into one buffer, the longest run's, kept between calls.
+func (s *Shared) compiledSpans(each func(k int, spans []SharedSpan)) {
+	c := s.c
+	for _, n := range s.near {
+		r := n.r
+		each(int(n.k), s.decode(&r, false))
 	}
-	total := 0
-	groups(hits, func(run []*hit) {
-		r := apps(run[0])
-		total += r.count()
-	})
-	spans := make([]SharedSpan, 0, total)
-	out := make([]Shared, 0, len(cands))
-	groups(hits, func(run []*hit) {
-		h := run[0]
-		r := apps(h)
-		at := len(spans)
-		for range r.count() {
-			// The years' flags are a SharedSpan's Bounds: hasFirst is
-			// SpanFirst, hasLast SpanLast.
-			sp := SharedSpan{Vehicle: int32(r.id(len(c.vehicles), "vehicle")), Bounds: r.byte() & (hasFirst | hasLast)}
-			if sp.Bounds&hasFirst != 0 {
-				sp.First = int32(r.int())
-			}
-			if sp.Bounds&hasLast != 0 {
-				sp.Last = int32(r.int())
-			}
-			if !h.far {
-				r.uint()
-				r.str()
-			}
-			spans = append(spans, sp)
+	at := func(i int) (int64, int64) { return s.far[i].off, s.far[i].n }
+	if s.buf == nil {
+		most := int64(0)
+		farRuns(len(s.far), at, func(_, _ int, lo, hi int64) { most = max(most, hi-lo) })
+		s.buf = make([]byte, 0, most)
+	}
+	farRuns(len(s.far), at, func(i, j int, lo, hi int64) {
+		s.buf = c.readInto(s.buf, secWide, lo, hi-lo)
+		for _, f := range s.far[i:j] {
+			s.farSpans(f, s.buf[f.off-lo:f.off-lo+f.n], each)
 		}
-		out = append(out, Shared{Candidate: cands[n], Spans: spans[at:len(spans):len(spans)]})
-		n++
 	})
-	return out
+}
+
+// farSpans calls each with far fitment f's spans, b its bytes in wide:
+// its line, then its vehicles and years. b is a buffer read into again,
+// so nothing of it outlives the call but numbers.
+func (s *Shared) farSpans(f farShare, b []byte, each func(k int, spans []SharedSpan)) {
+	r := cursor{s.c, unsafe.String(&b[0], len(b)), 0}
+	if int(r.uint()) != f.line {
+		s.c.damaged("a far record's years are another fitment's")
+	}
+	each(int(f.k), s.decode(&r, true))
+}
+
+// decode reads a fitment's applications as spans, at their count, into
+// s.spans: a far record's vehicles and years, or a near one's
+// applications, each with its qualifiers and option text too.
+func (s *Shared) decode(r *cursor, far bool) []SharedSpan {
+	c := s.c
+	n := r.count()
+	spans := slices.Grow(s.spans[:0], n)
+	for range n {
+		// The years' flags are a SharedSpan's Bounds: hasFirst is
+		// SpanFirst, hasLast SpanLast.
+		sp := SharedSpan{Vehicle: int32(r.id(len(c.vehicles), "vehicle")), Bounds: r.byte() & (hasFirst | hasLast)}
+		if sp.Bounds&hasFirst != 0 {
+			sp.First = int32(r.int())
+		}
+		if sp.Bounds&hasLast != 0 {
+			sp.Last = int32(r.int())
+		}
+		if !far {
+			r.uint()
+			r.str()
+		}
+		spans = append(spans, sp)
+	}
+	s.spans = spans
+	return spans
 }
 
 // within reports whether n bytes at off lie in section sec.
@@ -895,7 +970,7 @@ func (c *compiled) wholeCandidates(hits []*hit) []Candidate {
 			far = append(far, h)
 		}
 	}
-	c.readFar(far, secKeyed)
+	c.readFar(far)
 	out := make([]Candidate, 0, len(hits))
 	fits := make([]Fitment, 0, len(hits))
 	apps := appSlab(len(hits))
@@ -932,19 +1007,8 @@ func (c *compiled) matchedCandidates(hits []*hit) []Candidate {
 	apps := appSlab(len(hits))
 	var matched []indexedApp
 	groups(hits, func(run []*hit) {
-		fit := Fitment{Key: FitmentKey{Type: c.typeName(run[0].typ), Side: run[0].side, Number: run[0].number}}
-		matched = matched[:0]
-		for _, h := range run {
-			if h.far {
-				fit.Line, fit.Note = h.line, h.note
-				matched = append(matched, h.own...)
-				continue
-			}
-			r := h.rec
-			fit.Line, fit.Note, matched = r.partial(h.keep, matched)
-		}
-		slices.SortStableFunc(matched, func(a, b indexedApp) int { return cmp.Compare(a.i, b.i) })
-		matched = slices.CompactFunc(matched, func(a, b indexedApp) bool { return a.i == b.i })
+		var fit Fitment
+		fit, matched = c.matchedFitment(run, matched)
 		fit.Applications = apps.take(len(matched))
 		cand := Candidate{Applications: make([]*Application, len(matched))}
 		for k := range matched {
@@ -958,6 +1022,25 @@ func (c *compiled) matchedCandidates(hits []*hit) []Candidate {
 	return out
 }
 
+// matchedFitment is the fitment of run, the hits of one, from the blocks
+// alone: its key, line and note, without applications, and the
+// applications any hit of it matched, by index, into matched's storage.
+func (c *compiled) matchedFitment(run []*hit, matched []indexedApp) (Fitment, []indexedApp) {
+	fit := Fitment{Key: FitmentKey{Type: c.typeName(run[0].typ), Side: run[0].side, Number: run[0].number}}
+	matched = matched[:0]
+	for _, h := range run {
+		if h.far {
+			fit.Line, fit.Note = h.line, h.note
+			matched = append(matched, h.own...)
+			continue
+		}
+		r := h.rec
+		fit.Line, fit.Note, matched = r.partial(h.keep, matched)
+	}
+	slices.SortStableFunc(matched, func(a, b indexedApp) int { return cmp.Compare(a.i, b.i) })
+	return fit, slices.CompactFunc(matched, func(a, b indexedApp) bool { return a.i == b.i })
+}
+
 // farGap is the most bytes between two far fitments' records, or their
 // vehicles and years, read together, not apart: about what a browser's
 // store moves in the time one read costs (ADR 0023: 0.2-0.4 ms a read, about 1 GB/s), so reading the
@@ -969,45 +1052,15 @@ const (
 	farSpan = 1 << 20
 )
 
-// readFar reads, of each far hit, its fitment record in keyed, for sec
-// secKeyed, pointing its rec at it; or its vehicles and years in wide,
-// for secWide, pointing its years at them; in runs within farGap of each other and
-// farSpan in all.
-func (c *compiled) readFar(hits []*hit, sec int) {
-	at := func(h *hit) (int64, int64) {
-		if sec == secWide {
-			return h.soff, h.sn
-		}
-		return h.off, h.n
-	}
+// readFar reads, of each far hit, its fitment record in keyed, pointing
+// its rec at it, nearby ones together (farRuns).
+func (c *compiled) readFar(hits []*hit) {
 	hits = slices.Clone(hits)
-	slices.SortFunc(hits, func(a, b *hit) int {
-		ao, _ := at(a)
-		bo, _ := at(b)
-		return cmp.Compare(ao, bo)
-	})
-	for i := 0; i < len(hits); {
-		lo, n := at(hits[i])
-		hi := lo + n
-		j := i + 1
-		for ; j < len(hits); j++ {
-			off, n := at(hits[j])
-			if off > hi+farGap || max(hi, off+n)-lo > farSpan {
-				break
-			}
-			hi = max(hi, off+n)
-		}
-		s := c.read(sec, lo, hi-lo)
+	slices.SortFunc(hits, func(a, b *hit) int { return cmp.Compare(a.off, b.off) })
+	farRuns(len(hits), func(i int) (int64, int64) { return hits[i].off, hits[i].n }, func(i, j int, lo, hi int64) {
+		s := c.read(secKeyed, lo, hi-lo)
 		for _, h := range hits[i:j] {
-			off, n := at(h)
-			r := cursor{c, s[off-lo : off-lo+n], 0}
-			if sec == secWide {
-				if int(r.uint()) != h.line {
-					c.damaged("a far record's years are another fitment's")
-				}
-				h.years = r
-				continue
-			}
+			r := cursor{c, s[h.off-lo : h.off-lo+h.n], 0}
 			rec := c.next(&r)
 			if rec.kind != recFitment || rec.typ != h.typ || rec.side != h.side || rec.number != h.number {
 				c.damaged("a far record names another fitment")
@@ -1015,6 +1068,26 @@ func (c *compiled) readFar(hits []*hit, sec int) {
 			r.at -= rec.back()
 			h.rec = r
 		}
+	})
+}
+
+// farRuns groups n far records, in order of offset, at giving the ith's
+// offset and length, into runs read together, within farGap of each
+// other and farSpan in all, calling run with each: its records, i to j,
+// and the bytes they lie in, lo to hi.
+func farRuns(n int, at func(i int) (int64, int64), run func(i, j int, lo, hi int64)) {
+	for i := 0; i < n; {
+		lo, m := at(i)
+		hi := lo + m
+		j := i + 1
+		for ; j < n; j++ {
+			off, m := at(j)
+			if off > hi+farGap || max(hi, off+m)-lo > farSpan {
+				break
+			}
+			hi = max(hi, off+m)
+		}
+		run(i, j, lo, hi)
 		i = j
 	}
 }

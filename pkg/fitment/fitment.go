@@ -84,15 +84,17 @@ type Reader interface {
 }
 
 // Sharer reads related vehicles' fitments: a Reader may also be one, as
-// an io.Writer may also be an io.WriterTo. Shared answers, of every part
-// type, Matching's candidates (taking Matching's arguments), each with
-// every application of its fitment as a vocab.SharedSpan, its vehicle an
-// index in Vehicles. Related vehicles need no more of a fitment's other
-// applications, and a compiled catalog reads that much of a wide fitment,
-// not all of it (ADR 0023). fit reads related vehicles through Shared
-// when its Reader is a Sharer, and through ByVehicle otherwise.
+// an io.Writer may also be an io.WriterTo. Shared passes keep, of every
+// part type, Matching's candidates (taking Matching's arguments), and
+// streams, through its answer's Spans, every application of each kept
+// one's fitment as a vocab.SharedSpan, its vehicle an index in Vehicles.
+// Related vehicles need no more of a fitment's other applications, and a
+// compiled catalog reads that much of a wide fitment, not all of it, and
+// holds one read's bytes of it at a time (ADR 0023).
+// fit reads related vehicles through Shared when its Reader is a Sharer,
+// and through ByVehicle otherwise.
 type Sharer interface {
-	Shared(vehicles []vocab.Vehicle, year *int, side *vocab.Side) []vocab.Shared
+	Shared(vehicles []vocab.Vehicle, year *int, side *vocab.Side, keep func(*vocab.Candidate) bool) *vocab.Shared
 	// Vehicles are every vehicle the catalog names, once each, in the
 	// order of the first line naming each: a SharedSpan's Vehicle is its
 	// index here.

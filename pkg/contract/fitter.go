@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -11,7 +12,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/joshuasprow/nitrovin/pkg/fitment"
@@ -181,7 +181,6 @@ func (f Fitter) Fit(ctx context.Context, req FitRequest) (Fit, error) {
 		var pageOf []relatedGroup
 		rel := f.related(types, v, side)
 		out.Total, out.Next, pageOf = rel.page(pg)
-		rel.release()
 		for _, g := range pageOf {
 			r := RelatedVehicle{Vehicle: catalogVehicle(g.vehicle), First: year(g.first), Last: year(g.last), Shared: g.shared, PartTypes: g.partTypes}
 			if r.FitNames, err = f.names(info, g.vehicle, g.first, g.last, nil, req.To); err != nil {
@@ -712,99 +711,187 @@ type relatedGroup struct {
 	partTypes   []FitPartType
 }
 
-// sharedSpan is a shared fitment's application to a related vehicle: the
-// fitment's index among those shared, and its years, as a SharedSpan has
-// them.
-type sharedSpan struct {
-	fit    int32
-	lo, hi int32
-	bounds uint8
-}
-
-// first and last are its years, math.MinInt and math.MaxInt for
-// unbounded.
-func (sp sharedSpan) first() int {
-	if sp.bounds&vocab.SpanFirst == 0 {
-		return math.MinInt
-	}
-	return int(sp.lo)
-}
-
-func (sp sharedSpan) last() int {
-	if sp.bounds&vocab.SpanLast == 0 {
-		return math.MaxInt
-	}
-	return int(sp.hi)
-}
-
 // relatedRow is a row of related vehicles, before its page builds it: a
-// vehicle (an index among those found), a year range lo to hi, and the
-// count of fitments shared in every year of it.
+// vehicle (an index among those found), a year range lo to hi
+// (math.MinInt and math.MaxInt for unbounded), and the count of fitments
+// shared in every year of it.
 type relatedRow struct {
 	vehicle, shared int32
 	lo, hi          int
 }
 
-// relatedRows are the related vehicles of a fit: every row, as found, and
-// what orders them and builds a page's rows. Rows that tie on count,
-// name and years are of different vehicles, and come in the order of the
-// vehicles' first spans: by the shared fitments' part types, as types
-// has them, then by key, then by application. Release returns its
-// storage for the next fit's.
+// relatedRows are the related vehicles of a fit, as each vehicle's
+// years, cut where the set of fitments it shares changes, and what
+// orders them and builds a page's rows. Rows that tie on count, name and
+// years are of different vehicles, and come in the order of the
+// vehicles' first spans: by the shared fitments' part types, as types has
+// them, then by key, then by application.
+//
+// A vehicle's years are kept as cells, one a year from its base: 0 where
+// the set of fitments it shares stays as it was the year before, else
+// twice the change in their count, plus one. Each fitment's applications
+// to the vehicle, joined, start or end its share of the set; where one
+// ends as another starts, the count stays but the set changes. below is
+// the count from the earliest year, of fitments shared without a first
+// year. So the rows are the vehicle's cells read in year order, and a
+// request holds a few cells a vehicle and the joined spans, a few bytes
+// each (sharedLog), for the page's part types: never every span, which
+// pass through from Spans.
 type relatedRows struct {
 	types []partType
-	*relatedScratch
-}
-
-// relatedScratch is a related computation's storage, kept between fits
-// (relatedPool): a request sharing hundreds of wide fitments makes
-// hundreds of thousands of spans, and a browser's garbage collection
-// shows in its p99 (ADR 0023).
-type relatedScratch struct {
+	v     *reached
+	// vehicles are the catalog's.
+	vehicles []*vocab.Vehicle
+	// order is, by kept candidate, its fitment's index among those
+	// shared, by part type as types has them, then in key order; fits,
+	// by that index, its part type, an index in types.
+	order, fits []int32
 	// local is, by catalog vehicle, its index among the vehicles found
-	// plus one, 0 for one not found; it is the catalog's size, and
-	// cleared of those found once done.
+	// plus one, 0 for one not found.
 	local []int32
-	// found are the vehicles found, by index, each self when it is one
-	// of the fit's own; rank orders their names, equal names equal; at
-	// holds vehicle i's spans at spans[at[i]:at[i+1]].
-	found   []*vocab.Vehicle
-	ids     []int32 // their catalog indexes
-	pos     []int32 // their places in the order of their first spans
-	self    []bool
-	rank    []int32
-	at      []int32
-	next    []int32
-	names   [][]string
-	byName  []int32
-	spans   []sharedSpan
-	pending []pendingSpan
-	rows    []relatedRow
-	sel     []relatedRow
-	set     []int32
-	// fits are each shared fitment's part type, an index in types;
-	// kept, each one's index among the shares.
-	fits, kept []int32
-	split      splitter
+	found []foundVehicle
+	// cells is the chunk vehicles' cells are cut from.
+	cells []int32
+	// lo and hi bound the years cells have held, a vehicle's first
+	// cells' guess at its years.
+	lo, hi int
+	log    sharedLog
+	// add's: its count of calls; a fitment's spans, those of vehicles
+	// with more than one in it, and those again by vehicle, at each
+	// one's slot.
+	call              int32
+	ys, joins, joined []yearSpan
+	at                []int32
+	// total is the count of rows, most the most fitments a row shares.
+	total int
+	most  int32
 }
 
-// pendingSpan is a span, its vehicle's index among those found.
-type pendingSpan struct {
-	vehicle int32
-	sharedSpan
+// sharedLog is the shared fitments' spans as related joined them, for a
+// page's part types to read again: each fitment's index, then its
+// vehicles' spans, each a vehicle found and years, in uvarints, about
+// four bytes a span, in chunks of at most logChunk bytes, the first
+// smaller, cur the last.
+type sharedLog struct {
+	chunks [][]byte
+	cur    []byte
+	// fi is the fitment whose spans come next, its index not yet
+	// written, or -1.
+	fi int32
+	// base is the year years are written from, once based.
+	base  int
+	based bool
 }
 
-var relatedPool = sync.Pool{New: func() any { return new(relatedScratch) }}
+const logChunk = 64 << 10
 
-// release clears the vehicles found from local and returns the storage.
-func (rr relatedRows) release() {
-	s := rr.relatedScratch
-	for _, id := range s.ids {
-		s.local[id] = 0
+// span writes vehicle l's span lo to hi, of the fitment last begun.
+func (g *sharedLog) span(l int32, lo, hi int) {
+	b := g.cur
+	if cap(b)-len(b) < 4*binary.MaxVarintLen64 {
+		if b != nil {
+			g.chunks = append(g.chunks, b)
+		}
+		b = make([]byte, 0, min(max(2*cap(b), logChunk/16), logChunk))
 	}
-	clear(s.found)
-	clear(s.names)
-	relatedPool.Put(s)
+	if g.fi >= 0 {
+		b = binary.AppendUvarint(b, uint64(g.fi)<<1)
+		g.fi = -1
+	}
+	if !g.based {
+		switch {
+		case lo != math.MinInt:
+			g.base, g.based = lo, true
+		case hi != math.MaxInt:
+			g.base, g.based = hi, true
+		}
+	}
+	switch {
+	case lo != math.MinInt && hi != math.MaxInt:
+		b = binary.AppendUvarint(b, uint64(l)<<3|3<<1|1)
+		b = binary.AppendVarint(b, int64(lo-g.base))
+		b = binary.AppendUvarint(b, uint64(hi-lo))
+	case lo != math.MinInt:
+		b = binary.AppendUvarint(b, uint64(l)<<3|1<<1|1)
+		b = binary.AppendVarint(b, int64(lo-g.base))
+	case hi != math.MaxInt:
+		b = binary.AppendUvarint(b, uint64(l)<<3|2<<1|1)
+		b = binary.AppendVarint(b, int64(hi-g.base))
+	default:
+		b = binary.AppendUvarint(b, uint64(l)<<3|1)
+	}
+	g.cur = b
+}
+
+// each reads it back: each fitment's index, then its spans.
+func (g *sharedLog) each(fitment func(fi int32), span func(l int32, lo, hi int)) {
+	for c := range len(g.chunks) + 1 {
+		b := g.cur
+		if c < len(g.chunks) {
+			b = g.chunks[c]
+		}
+		for len(b) > 0 {
+			v, k := binary.Uvarint(b)
+			b = b[k:]
+			if v&1 == 0 {
+				fitment(int32(v >> 1))
+				continue
+			}
+			l, flags := int32(v>>3), v>>1&3
+			lo, hi := math.MinInt, math.MaxInt
+			if flags&1 != 0 {
+				d, k := binary.Varint(b)
+				lo, b = g.base+int(d), b[k:]
+			}
+			switch {
+			case flags&2 == 0:
+			case flags&1 != 0:
+				d, k := binary.Uvarint(b)
+				hi, b = lo+int(d), b[k:]
+			default:
+				d, k := binary.Varint(b)
+				hi, b = g.base+int(d), b[k:]
+			}
+			span(l, lo, hi)
+		}
+	}
+}
+
+// foundVehicle is a vehicle found among the shared fitments' spans: its
+// catalog index; whether it is one of the fit's own; its first span, as
+// fitment index << 32 | application index, math.MaxUint64 for none; its
+// place in the order of first spans and the rank of its name; its cells,
+// from year base, and below; and the last add that saw it, that saw it
+// again, and that gave it a slot, and the slot.
+type foundVehicle struct {
+	id                   int32
+	self                 bool
+	first                uint64
+	pos, rank            int32
+	base                 int
+	cells                []int32
+	below                int32
+	seen, again, slotted int32
+	slot                 int32
+}
+
+// yearSpan is a span's years, lo to hi, of a vehicle found.
+type yearSpan struct {
+	vehicle int32
+	lo, hi  int
+}
+
+// spanYears are a span's years, math.MinInt and math.MaxInt for
+// unbounded.
+func spanYears(sp *vocab.SharedSpan) (int, int) {
+	lo, hi := math.MinInt, math.MaxInt
+	if sp.Bounds&vocab.SpanFirst != 0 {
+		lo = int(sp.First)
+	}
+	if sp.Bounds&vocab.SpanLast != 0 {
+		hi = int(sp.Last)
+	}
+	return lo, hi
 }
 
 // related are the vehicles that share a fitment with v (of types, side
@@ -816,113 +903,263 @@ func (rr relatedRows) release() {
 // first, then name and years, and then in the order the vehicles were
 // first found (relatedRows).
 //
-// Only a page's rows are built (page): every row is a vehicle, years and
-// count until then, so an answer of tens of thousands of rows costs a
-// pass over the fitments' applications and a sort of the page's counts.
-func (f Fitter) related(types []partType, v *reached, side vocab.Side) relatedRows {
-	shares, vehicles := f.shared(v)
-	s := relatedPool.Get().(*relatedScratch)
-	rr := relatedRows{types: types, relatedScratch: s}
-	if len(s.local) < len(vehicles) {
-		s.local = make([]int32, len(vehicles))
-	}
+// Only a page's rows are built (page): every row is a vehicle's cells
+// until then, so an answer of tens of thousands of rows costs a pass over
+// the fitments' applications, a few cells a vehicle and a sort of the
+// page's counts, however many applications they share.
+func (f Fitter) related(types []partType, v *reached, side vocab.Side) *relatedRows {
 	typeAt := make(map[string]int32, len(types))
 	for ti := range types {
 		typeAt[types[ti].id] = int32(ti)
 	}
-	byType := make([][]int32, len(types))
-	for i := range shares {
-		if ti, ok := typeAt[shares[i].Fitment.Key.Type]; ok {
-			byType[ti] = append(byType[ti], int32(i))
+	// Each kept candidate's part type, in key order.
+	var typeOf []int32
+	keep := func(c *vocab.Candidate) bool {
+		ti, ok := typeAt[c.Fitment.Key.Type]
+		if !ok || !keeps(side, c.Fitment.Key.Side) || !slices.ContainsFunc(c.Applications, func(a *vocab.Application) bool {
+			_, ok := a.Check(v.year, v.decoded)
+			return ok
+		}) {
+			return false
 		}
+		typeOf = append(typeOf, ti)
+		return true
 	}
+	rr := &relatedRows{types: types, v: v}
+	vehicles, spans := f.shared(v, keep)
+	rr.vehicles = vehicles
 	// The shared fitments, by part type as types has them, then in key
 	// order.
-	s.fits, s.kept = s.fits[:0], s.kept[:0]
+	at := make([]int32, len(types)+1)
+	for _, ti := range typeOf {
+		at[ti+1]++
+	}
 	for ti := range types {
-		for _, i := range byType[ti] {
-			c := &shares[i]
-			if !keeps(side, c.Fitment.Key.Side) || !slices.ContainsFunc(c.Applications, func(a *vocab.Application) bool {
-				_, ok := a.Check(v.year, v.decoded)
-				return ok
-			}) {
+		at[ti+1] += at[ti]
+	}
+	rr.order, rr.fits = make([]int32, len(typeOf)), make([]int32, len(typeOf))
+	for k, ti := range typeOf {
+		rr.order[k], rr.fits[at[ti]] = at[ti], ti
+		at[ti]++
+	}
+	rr.local = make([]int32, len(rr.vehicles))
+	rr.lo, rr.hi = math.MaxInt, math.MinInt
+	spans(func(k int, spans []vocab.SharedSpan) { rr.add(rr.order[k], spans) })
+	// The vehicles with spans, in the order of their first, and by name:
+	// equal names, equal ranks.
+	n := len(rr.found)
+	spanned := make([]int32, 0, n)
+	for l := range int32(n) {
+		if rr.found[l].first != math.MaxUint64 {
+			spanned = append(spanned, l)
+		}
+	}
+	slices.SortFunc(spanned, func(a, b int32) int { return cmp.Compare(rr.found[a].first, rr.found[b].first) })
+	names := make([][]string, n)
+	for k, l := range spanned {
+		rr.found[l].pos = int32(k)
+		names[l] = f.vehicleName(rr.vehicles[rr.found[l].id])
+	}
+	slices.SortFunc(spanned, func(a, b int32) int { return slices.Compare(names[a], names[b]) })
+	for k, l := range spanned {
+		if k > 0 && slices.Equal(names[l], names[spanned[k-1]]) {
+			rr.found[l].rank = rr.found[spanned[k-1]].rank
+		} else {
+			rr.found[l].rank = int32(k)
+		}
+	}
+	rr.each(func(r relatedRow) {
+		rr.total++
+		rr.most = max(rr.most, r.shared)
+	})
+	return rr
+}
+
+// vehicle is catalog vehicle id's index among those found, found now if
+// not before.
+func (rr *relatedRows) vehicle(id int32) int32 {
+	if l := rr.local[id] - 1; l >= 0 {
+		return l
+	}
+	l := int32(len(rr.found))
+	rr.local[id] = l + 1
+	rr.found = append(rr.found, foundVehicle{id: id, self: rr.v.modelOf(rr.vehicles[id]) >= 0, first: math.MaxUint64})
+	return l
+}
+
+// own reports whether sp, of one of the fit's own vehicles, is the
+// vehicle itself: in its year.
+func (rr *relatedRows) own(sp *vocab.SharedSpan) bool {
+	y := rr.v.year
+	return y == nil || (sp.Bounds&vocab.SpanFirst == 0 || int32(*y) >= sp.First) && (sp.Bounds&vocab.SpanLast == 0 || int32(*y) <= sp.Last)
+}
+
+// add takes in shared fitment fi's spans: each vehicle's, joined where
+// they overlap or meet, start and end its share in the vehicle's cells.
+func (rr *relatedRows) add(fi int32, spans []vocab.SharedSpan) {
+	rr.call++
+	rr.log.fi = fi
+	// The spans of other vehicles, and of v's own outside its year; a
+	// vehicle's second marks its spans to be joined.
+	ys := rr.ys[:0]
+	for j := range spans {
+		sp := &spans[j]
+		l := rr.vehicle(sp.Vehicle)
+		fv := &rr.found[l]
+		if fv.self && rr.own(sp) {
+			continue
+		}
+		fv.first = min(fv.first, uint64(fi)<<32|uint64(j))
+		if fv.seen == rr.call {
+			fv.again = rr.call
+		}
+		fv.seen = rr.call
+		lo, hi := spanYears(sp)
+		ys = append(ys, yearSpan{l, lo, hi})
+	}
+	rr.ys = ys
+	// The spans of vehicles seen again, together by vehicle, each its
+	// slot among them.
+	js, at := rr.joins[:0], rr.at[:0]
+	for _, y := range ys {
+		fv := &rr.found[y.vehicle]
+		if fv.again != rr.call {
+			rr.share(y.vehicle, y.lo, y.hi)
+			continue
+		}
+		if fv.slotted != rr.call {
+			fv.slotted, fv.slot = rr.call, int32(len(at))
+			at = append(at, 0)
+		}
+		at[fv.slot]++
+		js = append(js, y)
+	}
+	rr.joins, rr.at = js, at
+	if len(js) == 0 {
+		return
+	}
+	next := int32(0)
+	for i, n := range at {
+		at[i], next = next, next+n
+	}
+	byVehicle := slices.Grow(rr.joined[:0], len(js))[:len(js)]
+	for _, y := range js {
+		fv := &rr.found[y.vehicle]
+		byVehicle[at[fv.slot]] = y
+		at[fv.slot]++
+	}
+	rr.joined = byVehicle
+	// Each vehicle's, in order of their first years, joined.
+	for i := 0; i < len(byVehicle); {
+		j := i + 1
+		for ; j < len(byVehicle) && byVehicle[j].vehicle == byVehicle[i].vehicle; j++ {
+			for k := j; k > i && byVehicle[k].lo < byVehicle[k-1].lo; k-- {
+				byVehicle[k], byVehicle[k-1] = byVehicle[k-1], byVehicle[k]
+			}
+		}
+		l, lo, hi := byVehicle[i].vehicle, byVehicle[i].lo, byVehicle[i].hi
+		for _, y := range byVehicle[i+1 : j] {
+			if hi != math.MaxInt && y.lo > hi+1 {
+				rr.share(l, lo, hi)
+				lo, hi = y.lo, y.hi
+			} else {
+				hi = max(hi, y.hi)
+			}
+		}
+		rr.share(l, lo, hi)
+		i = j
+	}
+}
+
+// share takes in a fitment shared by vehicle l from lo to hi, and logs it.
+func (rr *relatedRows) share(l int32, lo, hi int) {
+	fv := &rr.found[l]
+	if lo == math.MinInt {
+		fv.below++
+	} else {
+		rr.cell(fv, lo, 2)
+	}
+	if hi != math.MaxInt {
+		rr.cell(fv, hi+1, -2)
+	}
+	rr.log.span(l, lo, hi)
+}
+
+// cell marks a change of the set a vehicle shares in year y, by d, twice
+// the change in its count.
+func (rr *relatedRows) cell(fv *foundVehicle, y int, d int32) {
+	i := y - fv.base
+	if uint(i) >= uint(len(fv.cells)) {
+		rr.grow(fv, y)
+		i = y - fv.base
+	}
+	p := &fv.cells[i]
+	*p = (*p | 1) + d
+}
+
+// cellChunk is the most cells allocated together, for the windows of
+// many vehicles: a request's first chunks are smaller, doubling.
+const cellChunk = 16 << 10
+
+// grow moves a vehicle's cells to hold year y as well: a vehicle's first
+// to every year cells have held, as a catalog's vehicles share their
+// years; more, at least doubling them, toward y.
+func (rr *relatedRows) grow(fv *foundVehicle, y int) {
+	rr.lo, rr.hi = min(rr.lo, y), max(rr.hi, y+1)
+	lo, hi := rr.lo, rr.hi
+	n, was := hi-lo, len(fv.cells)
+	if was > 0 {
+		lo, hi = min(y, fv.base), max(y+1, fv.base+was)
+		n = max(hi-lo, 2*was)
+	}
+	base := lo
+	if was > 0 && y < fv.base {
+		base = hi - n
+	}
+	var cells []int32
+	if n > cellChunk/4 {
+		cells = make([]int32, n)
+	} else {
+		if cap(rr.cells)-len(rr.cells) < n {
+			rr.cells = make([]int32, 0, max(min(2*cap(rr.cells), cellChunk), cellChunk/16, n))
+		}
+		at := len(rr.cells)
+		rr.cells = rr.cells[:at+n]
+		cells = rr.cells[at : at+n : at+n]
+	}
+	if was > 0 {
+		copy(cells[fv.base-base:], fv.cells)
+	}
+	fv.base, fv.cells = base, cells
+}
+
+// each calls row with every row, by vehicle found, then in year order:
+// a vehicle's cells read in year order, from below.
+func (rr *relatedRows) each(row func(relatedRow)) {
+	for l := range rr.found {
+		fv := &rr.found[l]
+		shared, lo := fv.below, math.MinInt
+		for i, d := range fv.cells {
+			if d == 0 {
 				continue
 			}
-			s.fits = append(s.fits, int32(ti))
-			s.kept = append(s.kept, i)
-		}
-	}
-	// Every span of another vehicle, or of v's own outside its year, in
-	// the order found, its vehicle indexed as first found; a vehicle
-	// whose spans are all its own is found, but has none.
-	s.found, s.ids, s.self, s.at, s.pos = s.found[:0], s.ids[:0], s.self[:0], append(s.at[:0], 0), s.pos[:0]
-	s.pending = s.pending[:0]
-	spanned := 0
-	for fi, i := range s.kept {
-		for k := range shares[i].Spans {
-			sp := &shares[i].Spans[k]
-			l := s.local[sp.Vehicle] - 1
-			if l < 0 {
-				l = int32(len(s.found))
-				s.local[sp.Vehicle] = l + 1
-				s.found, s.ids = append(s.found, vehicles[sp.Vehicle]), append(s.ids, sp.Vehicle)
-				s.self = append(s.self, v.modelOf(vehicles[sp.Vehicle]) >= 0)
-				s.at, s.pos = append(s.at, 0), append(s.pos, 0)
+			y := fv.base + i
+			if shared > 0 {
+				row(relatedRow{vehicle: int32(l), shared: shared, lo: lo, hi: y - 1})
 			}
-			if s.self[l] && (v.year == nil || (sp.Bounds&vocab.SpanFirst == 0 || int32(*v.year) >= sp.First) && (sp.Bounds&vocab.SpanLast == 0 || int32(*v.year) <= sp.Last)) {
-				continue // the vehicle itself
-			}
-			if s.at[l+1] == 0 {
-				s.pos[l] = int32(spanned)
-				spanned++
-			}
-			s.at[l+1]++
-			s.pending = append(s.pending, pendingSpan{l, sharedSpan{fit: int32(fi), lo: sp.First, hi: sp.Last, bounds: sp.Bounds}})
+			shared, lo = shared+d>>1, y
+		}
+		if shared > 0 {
+			row(relatedRow{vehicle: int32(l), shared: shared, lo: lo, hi: math.MaxInt})
 		}
 	}
-	// Each vehicle's spans, together, in the order found.
-	n := len(s.found)
-	for l := range n {
-		s.at[l+1] += s.at[l]
-	}
-	s.spans = slices.Grow(s.spans[:0], len(s.pending))[:len(s.pending)]
-	s.next = append(s.next[:0], s.at[:n]...)
-	for _, p := range s.pending {
-		s.spans[s.next[p.vehicle]] = p.sharedSpan
-		s.next[p.vehicle]++
-	}
-	// Names rank the vehicles: equal names, equal ranks.
-	s.names = slices.Grow(s.names[:0], n)[:n]
-	s.byName = s.byName[:0]
-	for l := range n {
-		if s.at[l] < s.at[l+1] {
-			s.names[l] = f.vehicleName(s.found[l])
-			s.byName = append(s.byName, int32(l))
-		}
-	}
-	slices.SortFunc(s.byName, func(a, b int32) int { return slices.Compare(s.names[a], s.names[b]) })
-	s.rank = slices.Grow(s.rank[:0], n)[:n]
-	for k, l := range s.byName {
-		if k > 0 && slices.Equal(s.names[l], s.names[s.byName[k-1]]) {
-			s.rank[l] = s.rank[s.byName[k-1]]
-		} else {
-			s.rank[l] = int32(k)
-		}
-	}
-	s.split.reset(len(s.fits))
-	s.rows = s.rows[:0]
-	for l := range int32(n) {
-		for _, r := range s.split.ranges(s.spans[s.at[l]:s.at[l+1]]) {
-			s.rows = append(s.rows, relatedRow{vehicle: l, shared: r.shared, lo: r.lo, hi: r.hi})
-		}
-	}
-	return rr
 }
 
 // compare orders rows by shared count, most first, then name and years,
 // and then by their vehicles in the order of their first spans.
-func (rr relatedRows) compare(a, b relatedRow) int {
-	return cmp.Or(cmp.Compare(b.shared, a.shared), cmp.Compare(rr.rank[a.vehicle], rr.rank[b.vehicle]), cmp.Compare(a.lo, b.lo), cmp.Compare(lastKey(a.hi), lastKey(b.hi)), cmp.Compare(rr.pos[a.vehicle], rr.pos[b.vehicle]))
+func (rr *relatedRows) compare(a, b relatedRow) int {
+	va, vb := &rr.found[a.vehicle], &rr.found[b.vehicle]
+	return cmp.Or(cmp.Compare(b.shared, a.shared), cmp.Compare(va.rank, vb.rank), cmp.Compare(a.lo, b.lo), cmp.Compare(lastKey(a.hi), lastKey(b.hi)), cmp.Compare(va.pos, vb.pos))
 }
 
 // lastKey orders a range's last year as compareYear does, unbounded first.
@@ -939,133 +1176,130 @@ func lastKey(hi int) int {
 // Rows are ordered by shared count first, so only the counts the page
 // reaches are sorted: those of the page's rows, and the rows of the same
 // counts before and after it.
-func (rr relatedRows) page(pg pager) (int, string, []relatedGroup) {
-	total := len(rr.rows)
+func (rr *relatedRows) page(pg pager) (int, string, []relatedGroup) {
+	total := rr.total
 	lo := min(pg.after, total)
 	hi := min(lo+pg.limit, total)
 	next := ""
 	if hi < total {
 		next = encodeFitCursor(pg.kind, hi)
 	}
-	rows := rr.sel[:0]
-	if lo < hi {
-		most := int32(0)
-		for _, r := range rr.rows {
-			most = max(most, r.shared)
-		}
-		per := make([]int, most+1)
-		for _, r := range rr.rows {
-			per[r.shared]++
-		}
-		// The counts from top down to bottom are the page's: start is
-		// the place of top's first row.
-		start, top, bottom := 0, most, int32(0)
-		for at, n := 0, most; n >= 0; n-- {
-			if at+per[n] <= lo {
-				start = at + per[n]
-				top = n - 1
-			}
-			if at < hi {
-				bottom = n
-			}
-			at += per[n]
-		}
-		for _, r := range rr.rows {
-			if bottom <= r.shared && r.shared <= top {
-				rows = append(rows, r)
-			}
-		}
-		slices.SortFunc(rows, rr.compare)
-		rr.sel = rows
-		rows = rows[lo-start : hi-start]
-	}
 	out := []relatedGroup{}
-	for _, r := range rows {
-		g := relatedGroup{vehicle: rr.found[r.vehicle], shared: int(r.shared)}
+	if lo >= hi {
+		return total, next, out
+	}
+	per := make([]int, rr.most+1)
+	rr.each(func(r relatedRow) { per[r.shared]++ })
+	// The counts from top down to bottom are the page's: start is the
+	// place of top's first row.
+	start, top, bottom, band := 0, rr.most, int32(0), 0
+	for at, n := 0, rr.most; n >= 0; n-- {
+		if at+per[n] <= lo {
+			start = at + per[n]
+			top = n - 1
+		}
+		if at < hi {
+			bottom = n
+		}
+		at += per[n]
+	}
+	for n := bottom; n <= top; n++ {
+		band += per[n]
+	}
+	rows := make([]relatedRow, 0, band)
+	rr.each(func(r relatedRow) {
+		if bottom <= r.shared && r.shared <= top {
+			rows = append(rows, r)
+		}
+	})
+	slices.SortFunc(rows, rr.compare)
+	rows = rows[lo-start : hi-start]
+	sets := rr.sets(rows)
+	// Each row's part types, from one slab.
+	types := 0
+	for _, s := range sets {
+		for i, fi := range s {
+			if i == 0 || rr.fits[fi] != rr.fits[s[i-1]] {
+				types++
+			}
+		}
+	}
+	slab := make([]FitPartType, 0, types)
+	out = make([]relatedGroup, 0, len(rows))
+	for i, r := range rows {
+		g := relatedGroup{vehicle: rr.vehicles[rr.found[r.vehicle].id], shared: int(r.shared)}
 		if r.lo != math.MinInt {
 			g.first = new(r.lo)
 		}
 		if r.hi != math.MaxInt {
 			g.last = new(r.hi)
 		}
-		// The fitments shared in every year of it: as the set is the same
-		// in each, those of a span holding its first.
-		set := rr.set[:0]
-		for _, sp := range rr.spans[rr.at[r.vehicle]:rr.at[r.vehicle+1]] {
-			if sp.first() <= r.lo && r.lo <= sp.last() {
-				set = append(set, sp.fit)
-			}
-		}
-		slices.Sort(set)
-		for _, fi := range slices.Compact(set) { // ascending, so by part type
+		at := len(slab)
+		for _, fi := range sets[i] { // ascending, so by part type
 			t := &rr.types[rr.fits[fi]]
-			if n := len(g.partTypes); n > 0 && g.partTypes[n-1].Type == t.id {
-				g.partTypes[n-1].Count++
+			if n := len(slab); n > at && slab[n-1].Type == t.id {
+				slab[n-1].Count++
 			} else {
-				g.partTypes = append(g.partTypes, FitPartType{Type: t.id, Name: t.name, Count: 1})
+				slab = append(slab, FitPartType{Type: t.id, Name: t.name, Count: 1})
 			}
 		}
-		rr.set = set
+		g.partTypes = slab[at:len(slab):len(slab)]
 		out = append(out, g)
 	}
 	return total, next, out
 }
 
-// sortYears sorts spans by key, a year: by counting when their years lie
-// close together, as a catalog's do, and by comparing otherwise.
-// math.MinInt, an unbounded first year, comes first either way.
-func (s *splitter) sortYears(spans []sharedSpan, key func(sharedSpan) int) {
-	least, most := math.MaxInt, math.MinInt
-	for i := range spans {
-		if k := key(spans[i]); k != math.MinInt {
-			least, most = min(least, k), max(most, k)
+// sets are the fitments each row shares in every year of it, ascending:
+// as the set is the same in each, those with a span holding its first,
+// read again from the log, of the rows' vehicles alone.
+func (rr *relatedRows) sets(rows []relatedRow) [][]int32 {
+	head := make([]int32, len(rr.found))
+	for l := range head {
+		head[l] = -1
+	}
+	next := make([]int32, len(rows))
+	sets := make([][]int32, len(rows))
+	n := 0
+	for _, r := range rows {
+		n += int(r.shared)
+	}
+	all := make([]int32, n)
+	for i, r := range rows {
+		next[i], head[r.vehicle] = head[r.vehicle], int32(i)
+		sets[i], all = all[:0:r.shared], all[r.shared:]
+	}
+	// A vehicle's spans of a fitment are joined: none overlaps another.
+	fi := int32(0)
+	rr.log.each(func(f int32) { fi = f }, func(l int32, lo, hi int) {
+		for i := head[l]; i >= 0; i = next[i] {
+			if y := rows[i].lo; lo <= y && y <= hi {
+				sets[i] = append(sets[i], fi)
+			}
 		}
+	})
+	for _, s := range sets {
+		slices.Sort(s)
 	}
-	if len(spans) < 16 || most < least || uint(most)-uint(least) > uint(4*len(spans)+64) {
-		slices.SortFunc(spans, func(a, b sharedSpan) int { return cmp.Compare(key(a), key(b)) })
-		return
-	}
-	// Bucket 0 is math.MinInt's; year y's is y-least+1.
-	n := most - least + 2
-	s.buckets = slices.Grow(s.buckets[:0], n)[:n]
-	clear(s.buckets)
-	bucket := func(sp sharedSpan) int {
-		if k := key(sp); k != math.MinInt {
-			return k - least + 1
-		}
-		return 0
-	}
-	for i := range spans {
-		s.buckets[bucket(spans[i])]++
-	}
-	at := int32(0)
-	for b, c := range s.buckets {
-		s.buckets[b] = at
-		at += c
-	}
-	s.sorted = slices.Grow(s.sorted[:0], len(spans))[:len(spans)]
-	for i := range spans {
-		b := bucket(spans[i])
-		s.sorted[s.buckets[b]] = spans[i]
-		s.buckets[b]++
-	}
-	copy(spans, s.sorted)
+	return sets
 }
 
-// shared reads v's vehicles' fitments of every part type, as related
-// vehicles read them, and the catalog's vehicles their spans index:
-// through the Reader's Shared when it is a fitment.Sharer, else from
-// ByVehicle's whole fitments, indexing the vehicles by key as they come.
-func (f Fitter) shared(v *reached) ([]vocab.Shared, []*vocab.Vehicle) {
+// shared reads, of v's vehicles' fitments of every part type, the
+// candidates keep keeps, as related vehicles read them, and the catalog's
+// vehicles their spans index: through the Reader's Shared when it is a
+// fitment.Sharer, else from ByVehicle's whole fitments, indexing the
+// vehicles by key as they come.
+func (f Fitter) shared(v *reached, keep func(*vocab.Candidate) bool) ([]*vocab.Vehicle, func(func(int, []vocab.SharedSpan))) {
 	if s, ok := f.Catalog.(fitment.Sharer); ok {
-		return s.Shared(v.vehicles, v.year, nil), s.Vehicles()
+		return s.Vehicles(), s.Shared(v.vehicles, v.year, nil, keep).Spans
 	}
 	var vehicles []*vocab.Vehicle
 	ids := map[string]int32{}
-	cs := f.Catalog.ByVehicle("", v.vehicles, v.year, nil)
-	out := make([]vocab.Shared, len(cs))
-	for i, c := range cs {
-		out[i].Candidate = c
+	var spans []vocab.SharedSpan
+	at := []int{0}
+	for _, c := range f.Catalog.ByVehicle("", v.vehicles, v.year, nil) {
+		if !keep(&c) {
+			continue
+		}
 		for j := range c.Fitment.Applications {
 			a := &c.Fitment.Applications[j]
 			k := vehicleKey(catalogVehicle(a.Vehicle))
@@ -1082,131 +1316,15 @@ func (f Fitter) shared(v *reached) ([]vocab.Shared, []*vocab.Vehicle) {
 			if a.Last != nil {
 				sp.Last, sp.Bounds = int32(*a.Last), sp.Bounds|vocab.SpanLast
 			}
-			out[i].Spans = append(out[i].Spans, sp)
+			spans = append(spans, sp)
+		}
+		at = append(at, len(spans))
+	}
+	return vehicles, func(each func(int, []vocab.SharedSpan)) {
+		for k := range len(at) - 1 {
+			each(k, spans[at[k]:at[k+1]])
 		}
 	}
-	return out, vehicles
-}
-
-// sharedRange is a year range, lo to hi (math.MinInt and math.MaxInt for
-// unbounded), and how many fitments are shared in every year of it.
-type sharedRange struct {
-	lo, hi int
-	shared int32
-}
-
-// splitter cuts one vehicle's shared spans at a time into ranges, reusing
-// its counts: count is, per fitment, how many of the spans being swept
-// hold the year; was whether it was shared before the cut being swept.
-type splitter struct {
-	count        []int32
-	was          []bool
-	seen         []int32 // the cut a fitment was last touched at
-	cut          int32
-	starts, ends []sharedSpan
-	touched      []int32
-	out          []sharedRange
-	// buckets and sorted are sortYears'.
-	buckets []int32
-	sorted  []sharedSpan
-}
-
-// reset readies it for a fit of n shared fitments.
-func (s *splitter) reset(n int) {
-	s.count = slices.Grow(s.count[:0], n)[:n]
-	s.was = slices.Grow(s.was[:0], n)[:n]
-	s.seen = slices.Grow(s.seen[:0], n)[:n]
-	clear(s.count)
-	clear(s.seen)
-	s.cut = 0
-}
-
-// ranges cuts one vehicle's shared spans into the longest year ranges over
-// which the set of fitments shared stays the same, in year order, leaving
-// out years that share none. A range starts at a span's first year or the
-// year after one's last: within one, each span holds every year or none.
-// The sweep passes the cuts in order, starting and ending spans at each,
-// and the set changes at a cut only where a fitment's count of spans
-// comes to or leaves zero.
-func (s *splitter) ranges(spans []sharedSpan) []sharedRange {
-	s.starts = append(s.starts[:0], spans...)
-	s.sortYears(s.starts, sharedSpan.first)
-	s.ends = s.ends[:0]
-	for _, sp := range spans {
-		if sp.bounds&vocab.SpanLast != 0 {
-			s.ends = append(s.ends, sp)
-		}
-	}
-	s.sortYears(s.ends, sharedSpan.last)
-	s.out = s.out[:0]
-	size := int32(0)
-	open := false // the last range runs to the cut being swept
-	i, j := 0, 0
-	for i < len(s.starts) || j < len(s.ends) {
-		// The next cut: the least first year, or year after a last.
-		var x int
-		switch {
-		case j == len(s.ends):
-			x = s.starts[i].first()
-		case i == len(s.starts):
-			x = s.ends[j].last() + 1
-		default:
-			x = min(s.starts[i].first(), s.ends[j].last()+1)
-		}
-		s.touched = s.touched[:0]
-		s.cut++
-		touch := func(fi int32) {
-			if s.seen[fi] != s.cut {
-				s.seen[fi] = s.cut
-				s.touched = append(s.touched, fi)
-				s.was[fi] = s.count[fi] > 0
-			}
-		}
-		for ; j < len(s.ends) && s.ends[j].last()+1 == x; j++ {
-			fi := s.ends[j].fit
-			touch(fi)
-			s.count[fi]--
-		}
-		for ; i < len(s.starts) && s.starts[i].first() == x; i++ {
-			fi := s.starts[i].fit
-			touch(fi)
-			s.count[fi]++
-		}
-		changed := false
-		for _, fi := range s.touched {
-			if now := s.count[fi] > 0; now != s.was[fi] {
-				changed = true
-				if now {
-					size++
-				} else {
-					size--
-				}
-			}
-		}
-		// The range from x runs to the next cut, or without end.
-		hi := math.MaxInt
-		switch {
-		case j < len(s.ends) && i < len(s.starts):
-			hi = min(s.starts[i].first(), s.ends[j].last()+1) - 1
-		case j < len(s.ends):
-			hi = s.ends[j].last()
-		case i < len(s.starts):
-			hi = s.starts[i].first() - 1
-		}
-		switch {
-		case size == 0:
-			open = false
-		case open && !changed:
-			s.out[len(s.out)-1].hi = hi
-		default:
-			s.out = append(s.out, sharedRange{lo: x, hi: hi, shared: size})
-			open = true
-		}
-	}
-	for _, sp := range spans { // those without end
-		s.count[sp.fit] = 0
-	}
-	return s.out
 }
 
 func holds(first, last *int, y int) bool {
