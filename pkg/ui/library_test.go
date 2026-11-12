@@ -92,6 +92,14 @@ type memDisk struct {
 	// textReads counts Text calls; fail fails Change.
 	textReads int
 	fail      error
+	// catalog is the stored catalog's record, nil for none, and
+	// catalogData its bytes; writing are the catalog writers neither
+	// committed nor aborted; quota, when not 0, refuses a catalog
+	// writer's bytes past it, as a browser refuses storage.
+	catalog     *Record
+	catalogData []byte
+	writing     int
+	quota       int
 }
 
 func newDisk() *memDisk {
@@ -162,6 +170,68 @@ func (d *memDisk) Change(put []Stored, remove []string, selection Selection) err
 		}
 	}
 	return nil
+}
+
+func (d *memDisk) Catalog() (Record, io.ReaderAt, bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.catalog == nil {
+		return Record{}, nil, false, nil
+	}
+	return *d.catalog, bytes.NewReader(d.catalogData), true, nil
+}
+
+func (d *memDisk) NewCatalog() (CatalogWriter, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.writing++
+	return &memCatalog{d: d}, nil
+}
+
+func (d *memDisk) RemoveCatalog() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.catalog, d.catalogData = nil, nil
+	return nil
+}
+
+// memCatalog is a memDisk's catalog being written.
+type memCatalog struct {
+	d    *memDisk
+	data []byte
+	done bool
+}
+
+func (c *memCatalog) Write(b []byte) (int, error) {
+	if q := c.d.quota; q > 0 && len(c.data)+len(b) > q {
+		return 0, errors.New("QuotaExceededError: The quota has been exceeded.")
+	}
+	c.data = append(c.data, b...)
+	return len(b), nil
+}
+
+func (c *memCatalog) Written() (io.ReaderAt, error) { return bytes.NewReader(c.data), nil }
+
+func (c *memCatalog) Commit(rec Record) error {
+	c.d.mu.Lock()
+	defer c.d.mu.Unlock()
+	c.d.catalog, c.d.catalogData = &rec, c.data
+	c.end()
+	return nil
+}
+
+func (c *memCatalog) Abort() error {
+	c.d.mu.Lock()
+	defer c.d.mu.Unlock()
+	c.end()
+	return nil
+}
+
+func (c *memCatalog) end() {
+	if !c.done {
+		c.done = true
+		c.d.writing--
+	}
 }
 
 // cloneSelection is s, its lists the disk's own, as IndexedDB keeps a copy.
@@ -333,14 +403,14 @@ func TestLibraryBatch(t *testing.T) {
 	if _, err := l.Load([]Picked{bad}, quiet); err == nil || !strings.Contains(err.Error(), "bad.jsonl:2:") {
 		t.Errorf("a faulty file: %v", err)
 	}
-	// A catalog loads on a server only, refused by its header before the
-	// rest is read: a line after it that does not read is never reached.
+	// A catalog is compiled, not loaded: refused by its header before the
+	// rest is read, a line after it that does not read never reached.
 	catalog, err := os.ReadFile(filepath.Join("..", "..", "testdata", "vocab", "fitment", "catalog.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, data := range [][]byte{catalog, append([]byte("\n"+strings.SplitAfter(string(catalog), "\n")[0]), "not json\n"...)} {
-		if _, err := l.Load([]Picked{{FileName: "catalog.jsonl", Data: data}}, quiet); err == nil || !strings.Contains(err.Error(), "catalog.jsonl is a catalog: catalogs load on a server") {
+		if _, err := l.Load([]Picked{{FileName: "catalog.jsonl", Data: data}}, quiet); err == nil || !strings.Contains(err.Error(), "catalog.jsonl is a catalog: pick it on its own") {
 			t.Errorf("a catalog: %v", err)
 		}
 	}
@@ -670,19 +740,27 @@ func TestServiceWorker(t *testing.T) {
 	if status != 200 || hdr.Get("Cache-Control") != "no-cache" || hdr.Get("Content-Security-Policy") != workerCSP || !strings.HasPrefix(hdr.Get("Content-Type"), "text/javascript") {
 		t.Errorf("/sw.js: %d %v", status, hdr)
 	}
-	for _, want := range []string{`"release":"` + Release(testInfo) + `"`, `"name":"yard"`, `"blake3":"ab12"`, `importScripts(...["` + testAssets + `/wasm_exec.js","` + testAssets + `/worker.js"]);`} {
+	for _, want := range []string{`"release":"` + Release(testInfo) + `"`, `"name":"yard"`, `"blake3":"ab12"`, `importScripts(...["` + testAssets + `/wasm_exec.js","` + testAssets + `/disk.js","` + testAssets + `/worker.js"]);`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("/sw.js lacks %s:\n%s", want, body)
 		}
 	}
-	// A server's catalog stays on the server: the browser has no fitment,
-	// and a licensed catalog is never published.
+	// A server's catalog stays on the server: a licensed catalog is never
+	// published, and the worker learns only that there is one, so the
+	// browser compiles none (ADR 0023).
 	withCatalog := testInfo
 	catalog := contract.VocabularyFile{Name: "parts-catalog", Kind: "catalog", Version: "1", Blake3: "cd34"}
 	withCatalog.Vocabularies = append(slices.Clone(testInfo.Vocabularies), catalog)
 	hc := New(backend{info: withCatalog}, log.New(io.Discard, "", 0)).WithWorker(Worker{Module: []byte("\x00asm"), Exec: []byte("// go")})
-	if _, _, body := response(t, hc, "GET", "/sw.js", nil); !strings.Contains(body, `"name":"yard"`) || strings.Contains(body, "parts-catalog") {
+	_, _, body = response(t, hc, "GET", "/sw.js", nil)
+	if !strings.Contains(body, `"name":"yard"`) || !strings.Contains(body, `"catalog":{"name":"parts-catalog","kind":"catalog","version":"1","blake3":"cd34"}`) || strings.Contains(body, "parts-catalog.jsonl") {
 		t.Errorf("/sw.js with a server's catalog:\n%s", body)
+	}
+	config, _, _ := strings.Cut(strings.TrimPrefix(body[strings.Index(body, "self.nitrovinConfig = "):], "self.nitrovinConfig = "), ";\n")
+	if c, err := ReadWorkerConfig([]byte(config)); err != nil || !slices.ContainsFunc(c.Info.Vocabularies, func(v contract.VocabularyFile) bool {
+		return v.Name == catalog.Name && v.Kind == catalog.Kind && v.Version == catalog.Version && v.Blake3 == catalog.Blake3
+	}) {
+		t.Errorf("the worker's config with a server's catalog: %v, %+v", err, c.Info.Vocabularies)
 	}
 	if status, _, body := response(t, hc, "GET", FilePath(withCatalog, catalog), nil); status != 404 || !strings.Contains(body, "publishes no catalog") {
 		t.Errorf("the server's catalog's URL: %d\n%s", status, body)

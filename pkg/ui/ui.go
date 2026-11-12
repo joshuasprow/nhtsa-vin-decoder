@@ -112,7 +112,9 @@ var static = func() map[string]asset {
 		return b
 	}
 	return map[string]asset{
+		"compile.js":  {"text/javascript; charset=utf-8", read("compile.js")},
 		"copy.js":     {"text/javascript; charset=utf-8", read("copy.js")},
+		"disk.js":     {"text/javascript; charset=utf-8", read("disk.js")},
 		"htmx.min.js": {"text/javascript; charset=utf-8", read("htmx.min.js")},
 		"map.js":      {"text/javascript; charset=utf-8", read("map.js")},
 		"ui.css":      {"text/css; charset=utf-8", read("ui.css")},
@@ -425,6 +427,11 @@ func (h *Handler) asset(w http.ResponseWriter, r *http.Request, frag bool, info 
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", immutable)
+	if strings.HasSuffix(r.URL.Path, "/"+compilerName) {
+		// The catalog compiler is a dedicated worker, which runs
+		// WebAssembly under its own script's policy (ADR 0023).
+		w.Header().Set("Content-Security-Policy", workerCSP)
+	}
 	_, _ = w.Write(b)
 }
 

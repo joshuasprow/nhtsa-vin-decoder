@@ -1,5 +1,6 @@
 // nitrovin's Service Worker (ADR 0013), imported by /sw.js after the
-// release's config (self.nitrovinConfig) and Go's wasm_exec.js. The
+// release's config (self.nitrovinConfig), Go's wasm_exec.js and disk.js
+// (IndexedDB). The
 // pages run here as WebAssembly (cmd/nitrovin-sw, the same Go as the
 // server's pages) over the files this browser holds in IndexedDB and the
 // server's, which it links from their release URLs.
@@ -8,7 +9,9 @@
 //   browser holds (its from or a target: named), the page without a
 //   lookup once it holds one (its forms over the browser's files too), an
 //   entry list (/ui/vocabularies/<name>) of a file it holds, and
-//   /ui/files; everything else goes to the server unchanged, a lookup
+//   /ui/files, the fit page (/ui/fit) while it holds the catalog
+//   (ADR 0023) and that catalog's download (/ui/files/catalog);
+//   everything else goes to the server unchanged, a lookup
 //   naming no target included, so one URL means one thing with
 //   JavaScript on or off, and in every browser.
 // - A file reaches it by postMessage from the page, never by a request: no
@@ -40,9 +43,8 @@
 
 const config = self.nitrovinConfig;
 const CACHE = 'nitrovin ' + config.release;
-const DB = 'nitrovin';
 // The assets a page or the module needs, kept per release.
-const ASSETS = ['htmx.min.js', 'ui.css', 'copy.js', 'map.js', 'vocab.js', 'worker.js', 'wasm_exec.js', 'sw.wasm', 'spine.json']
+const ASSETS = ['htmx.min.js', 'ui.css', 'copy.js', 'map.js', 'vocab.js', 'disk.js', 'worker.js', 'compile.js', 'wasm_exec.js', 'sw.wasm', 'spine.json']
   .map((name) => config.assets + '/' + name);
 // The header the server names its release in (pkg/ui's ReleaseHeader).
 const RELEASE = 'Nitrovin-Release';
@@ -134,109 +136,7 @@ self.addEventListener('activate', (e) => {
   })());
 });
 
-// ---- IndexedDB "nitrovin": files (records, by name), texts (by blake3)
-// and indexes (by release and blake3); a change is one transaction over
-// the three. Beside it, "nitrovin-state": state, whose "selection" is the
-// vocabularies the visitor selected as targets by spine ({spine:
-// [name]}), a database of its own so that an older release, which opens
-// "nitrovin" at version 1, still can.
-
-// opener opens database name once per worker, upgrade making its stores.
-function opener(name, upgrade) {
-  let opening = null;
-  return () => {
-    if (!opening) {
-      opening = new Promise((resolve, reject) => {
-        const r = indexedDB.open(name, 1);
-        r.onupgradeneeded = () => upgrade(r.result);
-        r.onsuccess = () => resolve(r.result);
-        r.onerror = () => reject(r.error);
-      });
-      opening.catch(() => { opening = null; });
-    }
-    return opening;
-  };
-}
-const filesDB = opener(DB, (d) => {
-  d.createObjectStore('files', { keyPath: 'name' });
-  d.createObjectStore('texts');
-  d.createObjectStore('indexes');
-});
-const stateDB = opener(DB + '-state', (d) => d.createObjectStore('state'));
-
-// tx runs f over the stores of database open in one transaction,
-// resolving with f's result once the transaction completes.
-async function tx(stores, mode, f, open = filesDB) {
-  const d = await open();
-  return new Promise((resolve, reject) => {
-    const t = d.transaction(stores, mode);
-    let out;
-    Promise.resolve(f(t)).then((v) => { out = v; }, (err) => { t.abort(); reject(err); });
-    t.oncomplete = () => resolve(out);
-    t.onerror = () => reject(t.error);
-    t.onabort = () => reject(t.error || new Error('the transaction was aborted'));
-  });
-}
-
-const request = (r) => new Promise((resolve, reject) => {
-  r.onsuccess = () => resolve(r.result);
-  r.onerror = () => reject(r.error);
-});
-
-const indexKey = (blake3) => config.release + '\n' + blake3;
-const bytes = (v) => (v === undefined ? null : new Uint8Array(v));
-
-// names is the stored files' names, read once per worker and kept in step
-// with every change.
-let names = null;
-async function storedNames() {
-  if (!names) names = new Set((await tx(['files'], 'readonly', (t) => request(t.objectStore('files').getAllKeys()))));
-  return names;
-}
-
-// select changes the stored selection on spine to what f makes of it.
-const select = (spine, f) => tx(['state'], 'readwrite', async (t) => {
-  const state = t.objectStore('state');
-  const s = (await request(state.get('selection'))) || {};
-  s[spine] = f(s[spine] || []);
-  await request(state.put(s, 'selection'));
-}, stateDB);
-
-// disk is what the module's Library calls (ui.Disk).
-self.nitrovinDisk = {
-  records: () => tx(['files'], 'readonly', (t) => request(t.objectStore('files').getAll())),
-  index: (blake3) => tx(['indexes'], 'readonly', (t) => request(t.objectStore('indexes').get(indexKey(blake3)))).then(bytes),
-  putIndex: (blake3, index) => tx(['indexes'], 'readwrite', (t) => request(t.objectStore('indexes').put(index.buffer, indexKey(blake3)))),
-  text: (blake3) => tx(['texts'], 'readonly', (t) => request(t.objectStore('texts').get(blake3))).then((v) => {
-    if (v === undefined) throw new Error('its text is not stored');
-    return bytes(v);
-  }),
-  selection: () => tx(['state'], 'readonly', (t) => request(t.objectStore('state').get('selection')), stateDB).then((v) => v || {}),
-  // change puts [{record, text, index}] and deletes the records named
-  // remove, a text or index no record keeps any more going with them;
-  // then it stores selection.
-  change: async (put, remove, selection) => {
-    await tx(['files', 'texts', 'indexes'], 'readwrite', async (t) => {
-      const files = t.objectStore('files'), texts = t.objectStore('texts'), indexes = t.objectStore('indexes');
-      const before = await request(files.getAll());
-      for (const name of remove) await request(files.delete(name));
-      for (const p of put) {
-        await request(files.put(p.record));
-        await request(texts.put(p.text.buffer, p.record.blake3));
-        await request(indexes.put(p.index.buffer, indexKey(p.record.blake3)));
-      }
-      const kept = new Set((await request(files.getAll())).map((r) => r.blake3));
-      for (const r of before) {
-        if (!kept.has(r.blake3)) {
-          await request(texts.delete(r.blake3));
-          await request(indexes.delete(indexKey(r.blake3)));
-        }
-      }
-    });
-    names = null;
-    await tx(['state'], 'readwrite', (t) => request(t.objectStore('state').put(selection, 'selection')), stateDB);
-  },
-};
+// IndexedDB is disk.js's, imported before this script.
 
 // dropStaleIndexes drops the indexes of other releases, and of files
 // neither stored nor the server's.
@@ -286,9 +186,27 @@ function boot() {
 }
 
 // The page, and the page that translated before it, whose old links move
-// to it.
+// to it; the fit page; and the browser's compiled catalog, as a download.
 const PAGE = '/';
 const MOVED = '/ui/translate';
+const FIT = '/ui/fit';
+const DOWNLOAD = '/ui/files/catalog';
+
+// download answers with the compiled catalog this browser holds, read from
+// IndexedDB as it streams to the visitor's disk.
+async function download() {
+  const c = await self.nitrovinDisk.catalog();
+  if (!c) {
+    return new Response('This browser holds no compiled catalog to download.', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+  }
+  return new Response(c.blob, {
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(c.blob.size),
+      'Content-Disposition': 'attachment; filename="' + c.record.name.replace(/[^A-Za-z0-9._-]/g, '_') + '.compiled"',
+    },
+  });
+}
 
 // named is what a lookup on the page names, as the module's pages read
 // it (pkg/ui, named): the from's vocabulary, spine or extension set, and
@@ -315,6 +233,16 @@ self.addEventListener('fetch', (e) => {
   }
   if (url.pathname === '/ui/files' || url.pathname === '/ui/files/remove') {
     e.respondWith(own(e.request, () => serve(e.request)));
+    return;
+  }
+  if (url.pathname === DOWNLOAD) {
+    e.respondWith(own(e.request, download));
+    return;
+  }
+  // The fit page is the module's while this browser holds the catalog,
+  // else the server's (ADR 0023): one catalog per nitrovin.
+  if (url.pathname === FIT) {
+    e.respondWith(heldCatalog().then((name) => (name ? own(e.request, () => serve(e.request)) : network(e.request))));
     return;
   }
   // An old link may name a file of this browser's: it moves here, as the
@@ -362,7 +290,7 @@ async function serve(req) {
     const body = req.method === 'POST' ? await req.text() : '';
     const r = await self.nitrovin.serve(req.method, req.url, req.headers.get('HX-Request') || '',
       req.headers.get('HX-History-Restore-Request') || '', body);
-    if (req.url.endsWith('/ui/files/remove')) names = null;
+    if (req.url.endsWith('/ui/files/remove')) forget();
     if (r.status >= 300 && r.status < 400 && r.headers.Location) {
       return Response.redirect(new URL(r.headers.Location, location.origin).href, r.status);
     }
@@ -384,8 +312,25 @@ async function serve(req) {
 // [name]}), which vocab.js ticks; {op: "release"}, answered with {release,
 // server}, this worker's release and, once it is outdated, the server's.
 // {op: "skipWaiting"} is Update now: a waiting worker takes over at once.
+// A catalog compiles in a dedicated worker the page starts (compile.js),
+// not here: a browser may stop a Service Worker that spends minutes on one
+// event. {op: "compiler"} on a MessageChannel answers with what it needs,
+// {config}, or {refused} in words when this worker is outdated; {op:
+// "catalog"} after it stored one opens the files again, answered on a
+// MessageChannel once done.
 self.addEventListener('message', (e) => {
   const op = e.data && e.data.op;
+  if (op === 'compiler' && e.ports[0]) {
+    const port = e.ports[0];
+    e.waitUntil(current().then((ok) => port.postMessage(ok ? { config } : { refused: stale() })));
+    return;
+  }
+  if (op === 'catalog') {
+    forget();
+    if (self.nitrovin) self.nitrovin.reset();
+    if (e.ports[0]) e.ports[0].postMessage({ done: true });
+    return;
+  }
   if (op === 'skipWaiting') {
     e.waitUntil(self.skipWaiting());
     return;
@@ -416,7 +361,7 @@ self.addEventListener('message', (e) => {
       await boot();
       const files = e.data.files.map((f) => ({ name: f.name, data: new Uint8Array(f.data) }));
       const r = await self.nitrovin.load(files, (text) => port.postMessage({ progress: text }));
-      names = null;
+      forget();
       port.postMessage({ done: true, ok: r.ok, message: !r.ok && outdated ? stale() : r.message });
     } catch (err) {
       port.postMessage({ done: true, ok: false, message: outdated ? stale() : String(err) });

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/url"
@@ -39,12 +40,23 @@ import (
 // refused, naming them, unless all of them go. A change is stored before
 // the Library takes it, so what it answers from is always what IndexedDB
 // holds.
+//
+// The browser may also hold one catalog (ADR 0023), compiled here from
+// its JSON Lines (Compile) and read in place from IndexedDB, linked with
+// the rest and answering fit (Fit). A stored catalog this release cannot
+// open, or whose spine or vehicle vocabulary is no longer the file it was
+// compiled against, is listed with the reason and "pick the source again
+// to recompile"; it is never compiled again behind the visitor's back.
 type Library struct {
 	info   contract.Info
 	month  *vocab.Bundle
 	disk   Disk
 	remote Remote
-	now    func() time.Time
+	// serverCatalog is the name of the server's catalog, "" when it has
+	// none: one catalog per nitrovin (ADR 0023), so the browser then
+	// compiles none.
+	serverCatalog string
+	now           func() time.Time
 	// opened is how long each step of opening took, as Server-Timing
 	// metrics: what a cold start costs.
 	opened string
@@ -78,6 +90,29 @@ type Disk interface {
 	// then it stores selection (in a database of its own, which an older
 	// release does not open).
 	Change(put []Stored, remove []string, selection Selection) error
+
+	// Catalog is the browser's compiled catalog (ADR 0023): its record and
+	// its bytes, read in place; ok is false when it holds none.
+	Catalog() (rec Record, r io.ReaderAt, ok bool, err error)
+	// NewCatalog starts storing a compiled catalog: nothing written to it
+	// is the browser's catalog until it is committed, and a catalog the
+	// browser holds stays until then.
+	NewCatalog() (CatalogWriter, error)
+	// RemoveCatalog drops the browser's catalog.
+	RemoveCatalog() error
+}
+
+// CatalogWriter is a compiled catalog being stored (Disk.NewCatalog):
+// written front to back, never held whole.
+type CatalogWriter interface {
+	io.Writer
+	// Written ends writing: what was written, read in place.
+	Written() (io.ReaderAt, error)
+	// Commit makes what was written the browser's catalog, recorded as
+	// rec.
+	Commit(rec Record) error
+	// Abort drops what was written, when it is not to be committed.
+	Abort() error
 }
 
 // Selection is the vocabularies the visitor selected as targets, by the
@@ -133,6 +168,12 @@ type StoredFile struct {
 	// Drift counts its drift by kind, as /v1/info does; empty for a file
 	// left out.
 	Drift []contract.DriftCount
+	// Catalog marks the browser's compiled catalog, Fitments its count
+	// of fitments, and Skipped the drift kinds its compile could not
+	// measure (ADR 0023: model-years, model-qualifier in a browser).
+	Catalog  bool
+	Fitments int
+	Skipped  []string
 }
 
 // shelf is the files at one moment, and the set the linked ones make.
@@ -146,21 +187,25 @@ type shelf struct {
 }
 
 // held is one file: the server's or the browser's, read (file) or not,
-// and why it is left out (fault).
+// and why it is left out (fault). catalog marks the browser's compiled
+// catalog, which IndexedDB keeps apart from the other files.
 type held struct {
-	name   string
-	server bool
-	rec    Record
-	file   *vocab.File
-	fault  string
+	name    string
+	server  bool
+	catalog bool
+	rec     Record
+	file    *vocab.File
+	fault   string
 }
 
 // OpenLibrary opens the browser's files beside the server whose release
 // info names: the release's spine bundle and the server's files, from
 // remote, and the stored files, from disk. A stored file is read from its
 // index when this release stored one, else parsed again and its index
-// stored. The error is a Library that cannot answer at all: no spine
-// bundle, or a stored list it cannot read.
+// stored; the stored catalog is opened in place (vocab.OpenCompiled). The
+// server's catalog, which info lists too, is not read: it only stops the
+// browser compiling one. The error is a Library that cannot answer at
+// all: no spine bundle, or a stored list it cannot read.
 func OpenLibrary(info contract.Info, remote Remote, disk Disk) (*Library, error) {
 	var timings []string
 	step := time.Now()
@@ -186,6 +231,10 @@ func OpenLibrary(info contract.Info, remote Remote, disk Disk) (*Library, error)
 	l := &Library{info: info, month: month, disk: disk, remote: remote, now: time.Now}
 	s := &shelf{}
 	for _, v := range info.Vocabularies {
+		if v.Kind == string(vocab.KindCatalog) {
+			l.serverCatalog = v.Name
+			continue
+		}
 		h := &held{name: v.Name, server: true}
 		h.file, err = l.read(v.Blake3, serverPath(v.Name), func() ([]byte, error) {
 			status, body, err := remote.Get(FilePath(info, v))
@@ -216,6 +265,15 @@ func OpenLibrary(info contract.Info, remote Remote, disk Disk) (*Library, error)
 	}
 	slices.SortFunc(s.browser, func(a, b *held) int { return strings.Compare(a.name, b.name) })
 	took("stored-files")
+	rec, r, ok, err := disk.Catalog()
+	if err != nil {
+		return nil, fmt.Errorf("reading the stored catalog: %w", err)
+	}
+	if ok {
+		s.browser = append(s.browser, openCatalog(rec, r))
+		slices.SortFunc(s.browser, func(a, b *held) int { return strings.Compare(a.name, b.name) })
+	}
+	took("catalog")
 	timings = append(timings, fmt.Sprintf("index-get;dur=%.1f, index-read;dur=%.1f",
 		float64(l.indexRead.Microseconds())/1000, float64(l.indexParse.Microseconds())/1000))
 	set, dropped, err := l.link(s.all(), nil)
@@ -314,7 +372,9 @@ func (s *shelf) linkedServer() []*held {
 
 // link makes the set of the files of hs that read, leaving out those that
 // do not link (Link's faults), each with its fault, until the rest link.
-// A file of required that does not link refuses: the error says why.
+// A compiled catalog whose spine or vehicle vocabulary is another file
+// than it was compiled against is left out too (changedLinks). A file of
+// required that does not link refuses: the error says why.
 func (l *Library) link(hs, required []*held) (*vocab.Set, map[*held]string, error) {
 	dropped := map[*held]string{}
 	for {
@@ -325,6 +385,21 @@ func (l *Library) link(hs, required []*held) (*vocab.Set, map[*held]string, erro
 				files = append(files, h.file)
 				byPath[h.file.Path] = h
 			}
+		}
+		changed := false
+		for _, f := range files {
+			why := changedLinks(f, files)
+			if why == "" {
+				continue
+			}
+			h := byPath[f.Path]
+			if slices.Contains(required, h) {
+				return nil, dropped, &pageError{Status: http.StatusConflict, Message: f.Path + ": " + why}
+			}
+			dropped[h], changed = why, true
+		}
+		if changed {
+			continue
 		}
 		set, err := vocab.NewSet(l.month, files)
 		if err == nil {
@@ -356,8 +431,30 @@ func (l *Library) link(hs, required []*held) (*vocab.Set, map[*held]string, erro
 // Server-Timing metrics: spine, server-files, stored-files, link.
 func (l *Library) Opened() string { return l.opened }
 
-// Info is the server's /v1/info as the worker was given it: its release.
-func (l *Library) Info() contract.Info { return l.info }
+// Info is the server's /v1/info as the worker was given it, its release
+// and files, but for the catalog: the browser's, when it holds one that
+// links, as /v1/info lists a loaded catalog, and never the server's,
+// which the browser does not read (the worker sends the fit page to the
+// server while it has one).
+func (l *Library) Info() contract.Info {
+	info := l.info
+	info.Vocabularies = slices.DeleteFunc(slices.Clone(info.Vocabularies), func(v contract.VocabularyFile) bool { return v.Kind == string(vocab.KindCatalog) })
+	s := l.state.Load()
+	for _, h := range s.browser {
+		if h.catalog && h.linked() {
+			v := catalogFile(h)
+			v.Drift = contract.DriftCounts(h.file.Path, l.drift(s))
+			if v.Compiled != nil {
+				v.Compiled.DriftMonthDiffers = v.Compiled.DriftMonth != info.DataMonth
+			}
+			info.Vocabularies = append(info.Vocabularies, v)
+		}
+	}
+	return info
+}
+
+// ServerCatalog is the name of the server's catalog, "" when it has none.
+func (l *Library) ServerCatalog() string { return l.serverCatalog }
 
 // Month is the data month of the release's spine bundle.
 func (l *Library) Month() string { return l.month.Name() }
@@ -409,11 +506,22 @@ func (l *Library) Select(spine string, names []string) error {
 func (l *Library) list(s *shelf, hs []*held) []StoredFile {
 	out := make([]StoredFile, len(hs))
 	for i, h := range hs {
-		out[i] = StoredFile{Record: h.rec, Fault: h.fault}
+		out[i] = StoredFile{Record: h.rec, Fault: h.fault, Catalog: h.catalog}
 		out[i].Name = h.name
 		if f := h.file; f != nil {
 			out[i].Kind, out[i].Version = string(f.Kind), f.Version
 			out[i].Lines = len(f.Entries) + len(f.Extensions) + len(f.SpineEntries)
+			if c := f.Catalog(); c != nil {
+				out[i].Fitments = c.Info().Fitments
+			}
+			if cc := f.Compiled(); cc != nil {
+				for _, k := range cc.Skipped {
+					out[i].Skipped = append(out[i].Skipped, string(k))
+				}
+			}
+		}
+		if h.catalog && h.fault != "" {
+			out[i].Fault += " " + recompile
 		}
 		if h.linked() {
 			out[i].Drift = contract.DriftCounts(h.file.Path, l.drift(s))
@@ -470,9 +578,37 @@ func (l *Library) translate(req contract.TranslateRequest, dec *contract.VINDeco
 	return tr, err
 }
 
-// List answers as /v1/vocabularies does.
+// Fit answers as /v1/fit does, from the catalog the browser holds (none
+// answers no-catalog), a VIN decoded by the server's /v1/decode as for
+// Translate.
+func (l *Library) Fit(ctx context.Context, req contract.FitRequest) (contract.Fit, error) {
+	f := l.fitter(l.state.Load())
+	var decodeErr error
+	f.Decode = func(vin string, year contract.Null[int32], now time.Time) (contract.VINDecode, error) {
+		d, _, err := l.decode(vin, year, now)
+		decodeErr = err
+		return d, err
+	}
+	fit, err := f.Fit(ctx, req)
+	if err != nil && decodeErr != nil {
+		return fit, decodeErr
+	}
+	return fit, err
+}
+
+// List answers as /v1/vocabularies does, the catalog's fitments a page
+// at a time among them.
 func (l *Library) List(req contract.ListRequest) (contract.List, error) {
-	return l.translator(l.state.Load()).List(req)
+	return l.fitter(l.state.Load()).List(req)
+}
+
+// fitter is the core over s's set and its catalog, if it has one.
+func (l *Library) fitter(s *shelf) contract.Fitter {
+	f := contract.Fitter{Translator: l.translator(s)}
+	if c := s.set.Catalog(); c != nil {
+		f.Catalog = c
+	}
+	return f
 }
 
 // Fit answers as /v1/fit does: no-catalog, until #263 gives the browser
@@ -593,11 +729,12 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 	var news []*held
 	for _, p := range picked {
 		progress("Reading " + p.FileName + "…")
-		// A catalog is refused by its header, before the whole of it, which
-		// may be hundreds of MB, is parsed in the worker.
+		// A catalog is compiled, not loaded (Compile): it is refused by its
+		// header, before the whole of it, which may be hundreds of MB, is
+		// parsed in the worker. The page sends a catalog picked alone there.
 		if headerKind(p.Data) == vocab.KindCatalog {
 			return nil, &pageError{Status: http.StatusUnprocessableEntity, Message: fmt.Sprintf(
-				"%s is a catalog: catalogs load on a server, with --vocab, not in this browser.", p.FileName)}
+				"%s is a catalog: pick it on its own, and this browser compiles it.", p.FileName)}
 		}
 		if headerKind(p.Data) == vocab.KindStock {
 			return nil, &pageError{Status: http.StatusUnprocessableEntity, Message: fmt.Sprintf(
@@ -610,6 +747,10 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 		if slices.ContainsFunc(cur.server, func(h *held) bool { return h.name == f.Name }) {
 			return nil, &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
 				"%s is named %q, like a file this server loaded: one name is one file (ADR 0011), so rename it in its header to load it here.", p.FileName, f.Name)}
+		}
+		if slices.ContainsFunc(cur.browser, func(h *held) bool { return h.catalog && h.name == f.Name }) {
+			return nil, &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
+				"%s is named %q, like the catalog this browser holds: one name is one file (ADR 0011), so rename it in its header to load it here.", p.FileName, f.Name)}
 		}
 		f.Path = browserPath(p.FileName, f.Name)
 		news = append(news, &held{name: f.Name, file: f, rec: Record{
@@ -681,11 +822,13 @@ func headerKind(data []byte) vocab.Kind {
 }
 
 // breaks says which of kept, linked now, dropped leaves out, and why; ""
-// when none.
+// when none. The catalog is not among them: a batch that changes its
+// spine or vehicle vocabulary leaves it listed with the reason, to be
+// compiled again from its source (ADR 0023).
 func breaks(kept []*held, dropped map[*held]string) string {
 	var out []string
 	for _, h := range kept {
-		if why, ok := dropped[h]; ok && h.linked() {
+		if why, ok := dropped[h]; ok && h.linked() && !h.catalog {
 			out = append(out, why)
 		}
 	}
@@ -764,8 +907,17 @@ func (l *Library) Remove(names []string, all bool) error {
 	for spine, ns := range selection {
 		selection[spine] = slices.DeleteFunc(ns, func(n string) bool { return slices.Contains(names, n) })
 	}
-	if err := l.disk.Change(nil, names, selection); err != nil {
+	catalog := slices.ContainsFunc(cur.browser, func(h *held) bool { return h.catalog && slices.Contains(names, h.name) })
+	files := slices.DeleteFunc(slices.Clone(names), func(n string) bool {
+		return slices.ContainsFunc(cur.browser, func(h *held) bool { return h.catalog && h.name == n })
+	})
+	if err := l.disk.Change(nil, files, selection); err != nil {
 		return fmt.Errorf("removing from this browser: %w", err)
+	}
+	if catalog {
+		if err := l.disk.RemoveCatalog(); err != nil {
+			return fmt.Errorf("removing the catalog from this browser: %w", err)
+		}
 	}
 	next.set = next.relink(set, dropped)
 	l.state.Store(next)

@@ -6,14 +6,22 @@
 // with Go's toolchain for js/wasm by scripts/sw.sh, which `nitrovin serve`
 // embeds and publishes at /ui/r/<release>/sw.wasm; pkg/ui's worker.js
 // loads it. It gives the Library the browser: IndexedDB through
-// self.nitrovinDisk and the server through self.nitrovinGet, both
-// worker.js's, and sets self.nitrovin:
+// self.nitrovinDisk (disk.js) and the server through self.nitrovinGet,
+// and sets self.nitrovin:
 //
 //	serve(method, url, hxRequest, hxHistoryRestore, body) → Promise<{status, headers, body}>
 //	load([{name, data: Uint8Array}], progress(text)) → Promise<{ok, message}>
+//	compile(file: File, progress(text)) → Promise<{ok, message}>
+//	reset() → the Library is opened again on its next request
+//
+// The same module runs in the catalog compiler, compile.js, a dedicated
+// worker the page starts (ADR 0023), which calls compile: it reads the
+// picked File in place, sorts in IndexedDB and streams the compiled file
+// there. The Service Worker reads it back by range (Disk.Catalog).
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -29,6 +37,7 @@ import (
 	"time"
 
 	"github.com/joshuasprow/nitrovin/pkg/ui"
+	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
 var logger = log.New(os.Stderr, "nitrovin-sw: ", 0)
@@ -59,6 +68,20 @@ func main() {
 				}
 				return map[string]any{"ok": true, "message": msg}, nil
 			})
+		}),
+		"compile": js.FuncOf(func(_ js.Value, a []js.Value) any {
+			file, progress := a[0], a[1]
+			return promise(func() (any, error) {
+				msg, err := w.compile(file, func(s string) { progress.Invoke(s) })
+				if err != nil {
+					return map[string]any{"ok": false, "message": err.Error()}, nil
+				}
+				return map[string]any{"ok": true, "message": msg}, nil
+			})
+		}),
+		"reset": js.FuncOf(func(js.Value, []js.Value) any {
+			w.reset()
+			return nil
 		}),
 	}))
 	js.Global().Call("nitrovinReady")
@@ -155,6 +178,172 @@ func (w *worker) load(picked []ui.Picked, progress func(string)) (string, error)
 	return "Loaded " + strings.Join(said, ", ") + ".", nil
 }
 
+// reset drops the Library, which the next request opens again: the
+// browser's catalog changed under it (compiled by compile.js).
+func (w *worker) reset() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.lib, w.h = nil, nil
+}
+
+// compile compiles file, a picked File, as the browser's catalog, and says
+// what it compiled.
+func (w *worker) compile(file js.Value, progress func(string)) (string, error) {
+	if _, err := w.open(); err != nil {
+		return "", err
+	}
+	// A compile that stopped half way (its tab closed) left its parts.
+	if _, err := call("clearParts"); err != nil {
+		return "", fmt.Errorf("clearing what an earlier compile left: %w", err)
+	}
+	start := time.Now()
+	size := int64(file.Get("size").Float())
+	name := file.Get("name").String()
+	f, err := w.lib.Compile(bufio.NewReaderSize(&blob{v: file, size: size}, readBytes), name, size, &scratch{}, progress)
+	if err != nil {
+		return "", err
+	}
+	msg := fmt.Sprintf("Compiled %s in %s.", ui.CatalogText(f), time.Since(start).Round(10*time.Millisecond))
+	if len(f.Skipped) > 0 {
+		msg += " Not checked here: " + f.SkippedText() + " drift; nitrovin vocab check on a server runs every check."
+	}
+	return msg, nil
+}
+
+// readBytes is how much of a picked catalog is read at a time, and
+// partBytes the parts IndexedDB keeps a file being written in.
+const (
+	readBytes = 4 << 20
+	partBytes = 1 << 20
+)
+
+// blob is a Blob of size bytes (a picked File, or a file IndexedDB keeps
+// in parts), read by range: each read awaits a slice().arrayBuffer(). Read
+// reads it front to back.
+type blob struct {
+	v        js.Value
+	size, at int64
+}
+
+func (b *blob) ReadAt(p []byte, off int64) (int, error) {
+	if off >= b.size {
+		return 0, io.EOF
+	}
+	n := min(int64(len(p)), b.size-off)
+	v, err := call("read", b.v, off, off+n)
+	if err != nil {
+		return 0, err
+	}
+	js.CopyBytesToGo(p[:n], v)
+	if n < int64(len(p)) {
+		return int(n), io.EOF
+	}
+	return int(n), nil
+}
+
+func (b *blob) Read(p []byte) (int, error) {
+	n, err := b.ReadAt(p, b.at)
+	b.at += int64(n)
+	return n, err
+}
+
+// parts is a file IndexedDB keeps in parts of partBytes, written front to
+// back (disk.js's putPart), then read in place as one Blob (parts).
+type parts struct {
+	key  string
+	buf  []byte
+	n    int
+	size int64
+	read *blob
+}
+
+func (f *parts) Write(p []byte) (int, error) {
+	if f.read != nil {
+		return 0, errors.New("written after it was read")
+	}
+	f.buf = append(f.buf, p...)
+	for len(f.buf) >= partBytes {
+		if err := f.put(f.buf[:partBytes]); err != nil {
+			return 0, err
+		}
+		f.buf = append(f.buf[:0], f.buf[partBytes:]...)
+	}
+	return len(p), nil
+}
+
+func (f *parts) put(b []byte) error {
+	if _, err := call("putPart", f.key, f.n, jsBytes(b)); err != nil {
+		return err
+	}
+	f.n++
+	f.size += int64(len(b))
+	return nil
+}
+
+// written ends writing, and reads what was written in place.
+func (f *parts) written() (*blob, error) {
+	if f.read == nil {
+		if len(f.buf) > 0 {
+			if err := f.put(f.buf); err != nil {
+				return nil, err
+			}
+		}
+		f.buf = nil
+		v, err := call("parts", f.key)
+		if err != nil {
+			return nil, err
+		}
+		f.read = &blob{v: v, size: f.size}
+	}
+	return f.read, nil
+}
+
+func (f *parts) drop() error {
+	_, err := call("dropParts", f.key)
+	f.buf, f.read = nil, nil
+	return err
+}
+
+// scratch is the compile's vocab.Scratch: each file kept in parts.
+type scratch struct{ n int }
+
+func (s *scratch) Create() (vocab.ScratchFile, error) {
+	s.n++
+	return &scratchFile{parts{key: "scratch " + strconv.Itoa(s.n)}}, nil
+}
+
+type scratchFile struct{ parts }
+
+func (f *scratchFile) ReadAt(p []byte, off int64) (int, error) {
+	b, err := f.written()
+	if err != nil {
+		return 0, err
+	}
+	return b.ReadAt(p, off)
+}
+
+func (f *scratchFile) Close() error { return f.drop() }
+
+// catalogWriter is a compiled catalog being stored (ui.CatalogWriter):
+// its parts, committed as the browser's catalog in one transaction.
+type catalogWriter struct{ parts }
+
+func (w *catalogWriter) Written() (io.ReaderAt, error) { return w.written() }
+
+func (w *catalogWriter) Commit(rec ui.Record) error {
+	if _, err := w.written(); err != nil {
+		return err
+	}
+	r, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+	_, err = call("commitCatalog", w.key, js.Global().Get("JSON").Call("parse", string(r)))
+	return err
+}
+
+func (w *catalogWriter) Abort() error { return w.drop() }
+
 // recorder is the ResponseWriter the pages answer into.
 type recorder struct {
 	h      http.Header
@@ -175,7 +364,7 @@ func (r *recorder) Write(b []byte) (int, error) {
 	return r.body.Write(b)
 }
 
-// disk is IndexedDB, through worker.js's self.nitrovinDisk.
+// disk is IndexedDB, through disk.js's self.nitrovinDisk.
 type disk struct{}
 
 func call(method string, args ...any) (js.Value, error) {
@@ -251,7 +440,30 @@ func (disk) Change(put []ui.Stored, remove []string, selection ui.Selection) err
 	return err
 }
 
-// remote is the server, through worker.js's self.nitrovinGet.
+func (disk) Catalog() (ui.Record, io.ReaderAt, bool, error) {
+	v, err := call("catalog")
+	if err != nil || v.IsNull() || v.IsUndefined() {
+		return ui.Record{}, nil, false, err
+	}
+	var rec ui.Record
+	if err := json.Unmarshal([]byte(js.Global().Get("JSON").Call("stringify", v.Get("record")).String()), &rec); err != nil {
+		return ui.Record{}, nil, false, err
+	}
+	b := v.Get("blob")
+	return rec, &blob{v: b, size: int64(b.Get("size").Float())}, true, nil
+}
+
+func (disk) NewCatalog() (ui.CatalogWriter, error) {
+	return &catalogWriter{parts{key: "catalog " + strconv.FormatInt(time.Now().UnixNano(), 36)}}, nil
+}
+
+func (disk) RemoveCatalog() error {
+	_, err := call("removeCatalog")
+	return err
+}
+
+// remote is the server, through self.nitrovinGet (worker.js's, or
+// compile.js's).
 type remote struct{}
 
 func (remote) Get(path string) (int, []byte, error) {

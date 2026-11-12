@@ -3,7 +3,9 @@
 // swaps the worker's panel (the merged catalog, with the browser's files)
 // over the server's catalog in the dialog, and hands the files the visitor
 // picks or drops, and EPA's vocabulary on a click, to the worker by
-// postMessage, and the targets the visitor ticks too. Without this script
+// postMessage, and the targets the visitor ticks too. A catalog picked on
+// its own is compiled in a dedicated worker it starts (compile.js,
+// ADR 0023), the File handed over and read in place. Without this script
 // the dialog says that loading files needs JavaScript; everything else
 // works.
 //
@@ -305,8 +307,65 @@
     name: f.name,
     read: () => f.arrayBuffer().catch((err) => { throw new Error(f.name + ' could not be read (' + err.message + ').'); }),
   });
+  // kindOf is the kind f's header, its first line that is not blank,
+  // says, read from f's first bytes alone: a catalog may be hundreds of
+  // MB, never read into the page.
+  const kindOf = async (f) => {
+    const line = (await f.slice(0, 1 << 16).text()).split('\n').find((l) => l.trim() !== '');
+    try {
+      return (line && JSON.parse(line).kind) || '';
+    } catch {
+      return '';
+    }
+  };
+
+  // compiling is true while a catalog compiles in this page: leaving it
+  // stops the compile.
+  let compiling = false;
+  window.addEventListener('beforeunload', (e) => {
+    if (compiling) e.preventDefault();
+  });
+
+  // compile compiles file, a catalog's JSON Lines, as this browser's
+  // catalog (ADR 0023), in a dedicated worker this page starts
+  // (compile.js), which reads the File in place: the page says how far it
+  // is and that the tab must stay open. Once it is stored the Service
+  // Worker opens the files again.
+  const compile = async (file) => {
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    const keep = ' Keep this tab open until it is done.';
+    tell('Compiling ' + file.name + '…' + keep);
+    const c = await ask({ op: 'compiler' }, 5000);
+    if (!c || c.refused) {
+      tell('Nothing was compiled: ' + (c ? c.refused : 'the translator in this browser did not answer. Reload the page, then try again.'));
+      return;
+    }
+    compiling = true;
+    const worker = new Worker(c.config.assets + '/compile.js');
+    let done;
+    try {
+      done = await new Promise((resolve) => {
+        worker.onmessage = (e) => {
+          if (e.data.done) resolve(e.data);
+          else tell(e.data.progress + keep);
+        };
+        worker.onerror = (e) => resolve({ ok: false, message: 'the compiler in this browser stopped: ' + (e.message || 'an error') + '.' });
+        worker.postMessage({ op: 'compile', config: c.config, file });
+      });
+    } finally {
+      compiling = false;
+      worker.terminate();
+    }
+    section.dataset.compileMemory = done.memory || '';
+    if (done.ok) await ask({ op: 'catalog' }, 5000);
+    if (ready()) await showFiles();
+    tell(done.ok ? done.message : 'Nothing was compiled: ' + done.message);
+    if (done.ok) await redraw();
+  };
+
   // loadFiles loads the files of list in the dialog, where a load is
-  // told, once the worker is ready.
+  // told, once the worker is ready. A catalog picked on its own is
+  // compiled instead.
   const loadFiles = async (list) => {
     const picked = [...list];
     if (picked.length === 0) return;
@@ -314,6 +373,19 @@
     await start();
     if (!ready()) {
       tell('Nothing was loaded: ' + why());
+      return;
+    }
+    if (compiling) {
+      tell('Nothing was loaded: a catalog is compiling in this tab. Wait until it is done, then load them again.');
+      return;
+    }
+    const kinds = await Promise.all(picked.map(kindOf));
+    if (kinds.includes('catalog')) {
+      if (picked.length > 1) {
+        tell('Nothing was loaded: ' + picked[kinds.indexOf('catalog')].name + ' is a catalog. Pick it on its own: a catalog is compiled, not loaded with other files.');
+        return;
+      }
+      await compile(picked[0]);
       return;
     }
     await load(picked.map((f) => f.name).join(', '), picked.map(fromDisk));
