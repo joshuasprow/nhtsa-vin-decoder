@@ -305,18 +305,13 @@ func measureReads(b *testing.B, f func() error, c *countingReader) {
 	var rs reads
 	b.ReportAllocs()
 	for b.Loop() {
-		var before int64
-		if c != nil {
-			before = c.n.Load()
-		}
+		from := c.mark()
 		t := time.Now()
 		if err := f(); err != nil {
 			b.Fatal(err)
 		}
 		h.record(time.Since(t))
-		if c != nil {
-			rs = append(rs, c.n.Load()-before)
-		}
+		rs.add(c, from)
 	}
 	b.ReportMetric(h.quantile(0.50), "p50-ns")
 	b.ReportMetric(h.quantile(0.99), "p99-ns")

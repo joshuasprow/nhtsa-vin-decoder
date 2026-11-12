@@ -60,7 +60,7 @@ func compileSource(t testing.TB, w io.Writer, m Month, files []*File, path strin
 		t.Fatal(err)
 	}
 	defer src.Close()
-	return Compile(w, m, files, src, path, CompileOptions{Scratch: DirScratch(t.TempDir()), Writer: "v0.0.0-test"})
+	return Compile(w, m, files, src, path, DirScratch(t.TempDir()), CompileOptions{Writer: "v0.0.0-test"})
 }
 
 // swapCatalog is files with the catalog swapped for the compiled one at
@@ -323,6 +323,16 @@ func TestCompiledAnswersAsJSONLines(t *testing.T) {
 							if got != want {
 								t.Fatalf("ByVehicle(%q, %d vehicles, %v, %v):\n%s\nwant\n%s", typ, len(vs), y, s, got, want)
 							}
+							matched := describeCandidates(jl.Matching(typ, vs, y, s))
+							cm := cc.Matching(typ, vs, y, s)
+							if got := describeCandidates(cm); got != matched {
+								t.Fatalf("Matching(%q, %d vehicles, %v, %v):\n%s\nwant\n%s", typ, len(vs), y, s, got, matched)
+							}
+							for _, c := range cm {
+								if len(c.Applications) != len(c.Fitment.Applications) {
+									t.Fatalf("Matching(%q, …): %s holds %d applications, %d matched", typ, c.Fitment.Key, len(c.Fitment.Applications), len(c.Applications))
+								}
+							}
 							asked += strings.Count(want, "matched")
 						}
 						got, want := describeRedirects(cc.Redirect(typ, vs, y)), describeRedirects(jl.Redirect(typ, vs, y))
@@ -475,6 +485,33 @@ func TestCompileAcrossBatches(t *testing.T) {
 	}
 }
 
+// TestCompileAcrossRuns: compiling sorts in runs of runBytes, merged a
+// cursorBytes read at a time, and a catalog sorted in runs of a few
+// records, merged a few bytes at a time (every record longer than a read),
+// compiles to the bytes of one run, so it answers as one does
+// (TestCompiledAnswersAsJSONLines): its fitments, redirects and retired
+// numbers merge from many runs in their one order.
+func TestCompileAcrossRuns(t *testing.T) {
+	for _, vpic := range []bool{false, true} {
+		files := generated(t, vpic, 300)
+		whole, err := os.ReadFile(compile(t, month{}, files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		func() {
+			defer func(r, c int) { runBytes, cursorBytes = r, c }(runBytes, cursorBytes)
+			runBytes, cursorBytes = 256, 16
+			runs, err := os.ReadFile(compile(t, month{}, files))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(runs, whole) {
+				t.Errorf("vpic=%v: sorted in tiny runs, %d bytes, not the %d of one run", vpic, len(runs), len(whole))
+			}
+		}()
+	}
+}
+
 // TestCompiledHeader: a compiled catalog records its source's hash, the
 // files it was linked against, its writer, its drift and the drift kinds
 // its month could not measure, and is identified by its own bytes' hash.
@@ -598,8 +635,20 @@ func TestCompiledRefused(t *testing.T) {
 	if _, err := compileSource(t, &bytes.Buffer{}, fixtureMonth{}, []*File{byName["catalog-models"]}, byName["part-types"].Path); err == nil || !strings.Contains(err.Error(), "is a spine, not a catalog") {
 		t.Errorf("Compile of a spine: %v", err)
 	}
-	if _, err := Compile(&bytes.Buffer{}, fixtureMonth{}, nil, strings.NewReader("\n\n"), "empty.jsonl", CompileOptions{Scratch: DirScratch(t.TempDir())}); err == nil || !strings.Contains(err.Error(), "no header") {
+	if _, err := Compile(&bytes.Buffer{}, fixtureMonth{}, nil, strings.NewReader("\n\n"), "empty.jsonl", DirScratch(t.TempDir()), CompileOptions{}); err == nil || !strings.Contains(err.Error(), "no header") {
 		t.Errorf("Compile of an empty file: %v", err)
+	}
+
+	// OpenCompiled, as a browser opens a picked file: one with no
+	// compiled catalog's magic is no compiled catalog.
+	for _, name := range []string{source, byName["part-types"].Path} {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := OpenCompiled(name, bytes.NewReader(b), int64(len(b))); err == nil || !strings.Contains(err.Error(), "it is not a compiled catalog") {
+			t.Errorf("OpenCompiled of %s: %v; want it is not a compiled catalog", filepath.Base(name), err)
+		}
 	}
 
 	// OpenCompile, as `vocab compile` reads its arguments: the catalog's
@@ -759,6 +808,37 @@ func TestCompiledDamagedCount(t *testing.T) {
 	runtime.ReadMemStats(&after)
 	if n := after.TotalAlloc - before.TotalAlloc; n > 1<<20 {
 		t.Errorf("Fitments of a damaged count allocated %d bytes", n)
+	}
+}
+
+// TestCompiledFarRecordOutOfRange: a far record whose place in wide runs
+// past it, its length wrapping round, ends in the reader's own panic about
+// a damaged file, not a runtime error.
+func TestCompiledFarRecordOutOfRange(t *testing.T) {
+	c := &compiled{path: "damaged.compiled", vehicles: []*Vehicle{{}}}
+	c.sec[secWide].n = 20
+	for _, place := range [][2]uint64{{10, math.MaxInt64 - 5}, {10, 11}, {21, 1}, {0, 0}, {math.MaxUint64, 1}} {
+		b := []byte{recFar, byte(SideNone)}
+		b = appendStr(b, "N-1")
+		b = binary.AppendUvarint(b, 1) // its line
+		b = appendStr(b, "")           // its note
+		b = binary.AppendUvarint(b, 1) // one application of its own
+		b = binary.AppendUvarint(b, 0)
+		b = appendApplication(b, &Application{}, 0)
+		b = binary.AppendUvarint(b, place[0])
+		b = binary.AppendUvarint(b, place[1])
+		func() {
+			defer func() {
+				r := recover()
+				if _, ok := r.(runtime.Error); ok {
+					t.Fatalf("far record at %d, %d bytes: runtime error %v", place[0], place[1], r)
+				}
+				if e, ok := r.(error); !ok || !strings.Contains(e.Error(), "the file is damaged") {
+					t.Errorf("far record at %d, %d bytes: recovered %v; want the file is damaged", place[0], place[1], r)
+				}
+			}()
+			c.blockHit(&cursor{c, string(b), 0}, 0, 0, nil, nil)
+		}()
 	}
 }
 

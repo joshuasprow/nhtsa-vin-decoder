@@ -146,7 +146,7 @@ func (f Fitter) Fit(ctx context.Context, req FitRequest) (Fit, error) {
 	}
 	side := sideOf(req.Side)
 	if kind != fitCandidates {
-		f.readWhole(v)
+		f.readEvery(v, kind == fitRelated)
 	}
 	switch kind {
 	case fitPartTypes:
@@ -269,21 +269,27 @@ type reached struct {
 	dataMonth, decoderVersion string
 	// modelIdx remembers modelOf's answers.
 	modelIdx map[*vocab.Vehicle]int
-	// byType and redirects are, when set (whole), the vehicles'
+	// byType and redirects are, when every is set, the vehicles'
 	// candidates and redirects of every part type, by part type, read once
 	// for a request about every part type: a compiled catalog answers that
 	// from one read of each vehicle's block (ADR 0023), and one lookup per
 	// part type would cost reads for each.
-	whole     bool
+	every     bool
 	byType    map[string][]vocab.Candidate
 	redirects map[string][]*vocab.Redirect
 }
 
-// readWhole reads the vehicles' candidates and redirects of every part
-// type, once, for byVehicle and redirect to answer from.
-func (f Fitter) readWhole(v *reached) {
-	v.whole, v.byType, v.redirects = true, map[string][]vocab.Candidate{}, map[string][]*vocab.Redirect{}
-	for _, c := range f.Catalog.ByVehicle("", v.vehicles, v.year, nil) {
+// readEvery reads the vehicles' candidates and redirects of every part
+// type, once, for byVehicle and redirect to answer from: their fitments
+// whole for related vehicles, which need every application, and only
+// their matching applications otherwise.
+func (f Fitter) readEvery(v *reached, whole bool) {
+	v.every, v.byType, v.redirects = true, map[string][]vocab.Candidate{}, map[string][]*vocab.Redirect{}
+	read := f.Catalog.Matching
+	if whole {
+		read = f.Catalog.ByVehicle
+	}
+	for _, c := range read("", v.vehicles, v.year, nil) {
 		t := c.Fitment.Key.Type
 		v.byType[t] = append(v.byType[t], c)
 	}
@@ -293,14 +299,15 @@ func (f Fitter) readWhole(v *reached) {
 }
 
 // byVehicle is the catalog's candidates of part type t for the vehicle,
-// or, given one (by, of the vehicle's), for that one alone.
+// or, given one (by, of the vehicle's), for that one alone: from what
+// readEvery read, else their matching applications (Matching).
 func (f Fitter) byVehicle(t string, v *reached, by *vocab.Vehicle) []vocab.Candidate {
-	if !v.whole {
+	if !v.every {
 		vehicles := v.vehicles
 		if by != nil {
 			vehicles = []vocab.Vehicle{*by}
 		}
-		return f.Catalog.ByVehicle(t, vehicles, v.year, nil)
+		return f.Catalog.Matching(t, vehicles, v.year, nil)
 	}
 	if by == nil {
 		return v.byType[t]
@@ -323,7 +330,7 @@ func (f Fitter) byVehicle(t string, v *reached, by *vocab.Vehicle) []vocab.Candi
 
 // redirect is the catalog's redirects from part type t for the vehicle.
 func (f Fitter) redirect(t string, v *reached) []*vocab.Redirect {
-	if v.whole {
+	if v.every {
 		return v.redirects[t]
 	}
 	return f.Catalog.Redirect(t, v.vehicles, v.year)

@@ -92,20 +92,27 @@ type sorter struct {
 	buf     []byte   // the run being gathered: records, as written
 	at      []uint32 // where each of buf's records starts
 	runs    []span64 // the runs written, in out
+	run     int      // the most bytes of a run
 	out     *spill
 	err     error
 }
 
 type span64 struct{ off, n int64 }
 
-// runBytes is how much of the records a sorter holds in memory at once.
-const runBytes = 16 << 20
+// runBytes is how much of the records a sorter holds in memory at once,
+// and cursorBytes how much of each run a merge reads at a time, or more
+// for a longer record; variables, for tests to make runs and reads tiny.
+var (
+	runBytes    = 16 << 20
+	cursorBytes = 64 << 10
+)
 
-func newSorter(s Scratch) *sorter { return &sorter{scratch: s} }
+// newSorter is a sorter in s holding a run of at most runBytes/share.
+func newSorter(s Scratch, share int) *sorter { return &sorter{scratch: s, run: runBytes / share} }
 
 // add adds the record of key and payload.
 func (s *sorter) add(key, payload []byte) {
-	if len(s.buf)+len(key)+len(payload)+2*binary.MaxVarintLen32 > runBytes && len(s.at) > 0 {
+	if len(s.buf)+len(key)+len(payload)+2*binary.MaxVarintLen32 > s.run && len(s.at) > 0 {
 		s.spill()
 	}
 	s.at = append(s.at, uint32(len(s.buf)))
@@ -157,51 +164,91 @@ func (s *sorter) spill() {
 // each calls f with every record in key order; key and payload are valid
 // only until f returns. It ends the sorter, whose scratch is closed.
 func (s *sorter) each(f func(key, payload []byte) error) (err error) {
+	m, err := s.sorted()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := m.close(); err == nil {
+			err = cerr
+		}
+	}()
+	for {
+		key, payload, ok, err := m.next()
+		if err != nil || !ok {
+			return err
+		}
+		if err := f(key, payload); err != nil {
+			return err
+		}
+	}
+}
+
+// sorted ends the sorter, returning its records in key order, merged from
+// its runs; close closes its scratch.
+func (s *sorter) sorted() (*merge, error) {
 	if len(s.at) > 0 {
 		s.spill()
 	}
 	s.buf, s.at = nil, nil
-	out := s.out
-	if out != nil {
-		s.out = nil
-		defer func() {
-			if cerr := out.f.Close(); err == nil {
-				err = cerr
-			}
-		}()
-		if s.err == nil {
-			s.err = out.done()
-		}
+	m := &merge{out: s.out}
+	s.out = nil
+	if m.out != nil && s.err == nil {
+		s.err = m.out.done()
 	}
 	if s.err != nil {
-		return s.err
+		m.close()
+		return nil, s.err
 	}
-	h := make(runHeap, 0, len(s.runs))
 	for _, r := range s.runs {
-		c := &runCursor{f: out.f, off: r.off, end: r.off + r.n, buf: make([]byte, 0, 64<<10)}
+		c := &runCursor{f: m.out.f, off: r.off, end: r.off + r.n, buf: make([]byte, 0, cursorBytes)}
 		if ok, err := c.next(); err != nil {
-			return err
+			m.close()
+			return nil, err
 		} else if ok {
-			h = append(h, c)
+			m.h = append(m.h, c)
 		}
 	}
-	heap.Init(&h)
-	for len(h) > 0 {
-		c := h[0]
-		if err := f(c.key, c.payload); err != nil {
-			return err
-		}
-		ok, err := c.next()
+	heap.Init(&m.h)
+	return m, nil
+}
+
+// merge is a sorter's records in key order, a record at a time.
+type merge struct {
+	h       runHeap
+	out     *spill
+	started bool
+}
+
+// next is the next record, ok false after the last; key and payload are
+// valid until the next call.
+func (m *merge) next() (key, payload []byte, ok bool, err error) {
+	if m.started && len(m.h) > 0 {
+		ok, err := m.h[0].next()
 		switch {
 		case err != nil:
-			return err
+			return nil, nil, false, err
 		case ok:
-			heap.Fix(&h, 0)
+			heap.Fix(&m.h, 0)
 		default:
-			heap.Pop(&h)
+			heap.Pop(&m.h)
 		}
 	}
-	return nil
+	m.started = true
+	if len(m.h) == 0 {
+		return nil, nil, false, nil
+	}
+	return m.h[0].key, m.h[0].payload, true, nil
+}
+
+// close closes the merge's scratch, if it has any.
+func (m *merge) close() error {
+	if m.out == nil {
+		return nil
+	}
+	out := m.out
+	m.out = nil
+	return out.f.Close()
 }
 
 // runCursor reads one sorted run, a record at a time.
@@ -233,12 +280,12 @@ func (c *runCursor) next() (bool, error) {
 		// buffer for a record longer than it.
 		keep := copy(c.buf[:cap(c.buf)], rest)
 		if keep == cap(c.buf) {
-			c.buf = append(c.buf[:keep], make([]byte, keep)...)
+			c.buf = append(c.buf[:keep], make([]byte, max(keep, 64))...)
 		}
 		c.buf = c.buf[:cap(c.buf)]
 		n := min(int64(len(c.buf)-keep), c.end-c.off)
-		if _, err := c.f.ReadAt(c.buf[keep:keep+int(n)], c.off); err != nil && err != io.EOF {
-			return false, err
+		if got, err := c.f.ReadAt(c.buf[keep:keep+int(n)], c.off); got < int(n) {
+			return false, fmt.Errorf("a sorted run read %d of %d bytes: %v", got, n, err)
 		}
 		c.off += n
 		c.buf, c.at = c.buf[:keep+int(n)], 0

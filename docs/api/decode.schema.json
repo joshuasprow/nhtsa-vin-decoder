@@ -386,7 +386,7 @@
                   "drift_month": { "type": "string", "pattern": "^[0-9]{4}_(0[1-9]|1[0-2])$", "description": "The data month its drift counts were measured against when it was compiled; its vehicle drift is measured at load, against the vehicle vocabulary loaded." },
                   "drift_month_differs": { "type": "boolean", "description": "True when drift_month is not the loaded data month: the drift counts may be out of date, and nitrovin vocab check measures them again." },
                   "links_differ": { "type": "boolean", "description": "True when its spine or vehicle vocabulary, as loaded, is not the file it was compiled against (another blake3). Its vehicle drift is measured at load against the vehicle vocabulary loaded; nitrovin vocab check checks the rest again." },
-                  "skipped_drift": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true, "description": "The drift kinds its compiling did not measure, because the month it had could not (ADR 0023): empty from nitrovin vocab compile; model-years and model-qualifier from a compile in a browser, whose spine bundle carries no model years or model values. nitrovin vocab check measures them all." }
+                  "skipped_drift": { "type": "array", "items": { "enum": ["model-years", "model-qualifier"] }, "uniqueItems": true, "description": "The drift kinds its compiling did not measure, because the month it had could not (ADR 0023): empty from nitrovin vocab compile; model-years and model-qualifier from a compile in a browser, whose spine bundle carries no model years or model values. nitrovin vocab check measures them all." }
                 },
                 "additionalProperties": false
               },

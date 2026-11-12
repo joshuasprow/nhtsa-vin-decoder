@@ -971,7 +971,7 @@ type Candidate struct {
 // takes a decode.
 func (c *Catalog) ByVehicle(partType string, vehicles []Vehicle, year *int, side *Side) []Candidate {
 	if cc := c.f.compiled; cc != nil {
-		return cc.byVehicle(c, partType, vehicles, year, side)
+		return cc.byVehicle(c, partType, vehicles, year, side, true)
 	}
 	x := c.f.catalog
 	types := []string{partType}
@@ -1009,6 +1009,29 @@ func (c *Catalog) ByVehicle(partType string, vehicles []Vehicle, year *int, side
 		out = append(out, Candidate{Fitment: fit, Applications: []*Application{a}})
 	}
 	return out
+}
+
+// Matching is ByVehicle answering with the applications that matched and
+// nothing more: each candidate's Fitment holds the fitment's key, line and
+// note and only those applications, in file order, which Applications
+// points at. A fitment's other applications are another vehicle's: a
+// part-type summary or a candidate needs none of them, and a compiled
+// catalog answers without reading those of a wide fitment (ADR 0023).
+func (c *Catalog) Matching(partType string, vehicles []Vehicle, year *int, side *Side) []Candidate {
+	if cc := c.f.compiled; cc != nil {
+		return cc.byVehicle(c, partType, vehicles, year, side, false)
+	}
+	cs := c.ByVehicle(partType, vehicles, year, side)
+	for i := range cs {
+		cand := &cs[i]
+		fit := &Fitment{Line: cand.Fitment.Line, Key: cand.Fitment.Key, Note: cand.Fitment.Note, Applications: make([]Application, len(cand.Applications))}
+		for j, a := range cand.Applications {
+			fit.Applications[j] = *a
+			cand.Applications[j] = &fit.Applications[j]
+		}
+		cand.Fitment = fit
+	}
+	return cs
 }
 
 // holds reports whether year falls within first and last, nil being

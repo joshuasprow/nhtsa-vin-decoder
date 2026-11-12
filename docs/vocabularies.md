@@ -293,11 +293,13 @@ as JSON Lines. `nitrovin vocab compile` checks it as `vocab check` does and
 writes it as a compiled catalog (ADR 0021): one indexed file that opens in
 milliseconds with a few MB, read in place, answering exactly as its source.
 It is compiled format 2 ([ADR 0023](adr/0023-fitment-in-the-browser.md)),
-clustered by vehicle: a vehicle's part types, candidates and related
-vehicles are one or two reads of the file, so it answers as quickly read by
-byte range from a browser's store as from a disk. Compiling streams the
-catalog: it reads it once, sorts in a temporary directory, and peaks at
-under 256 MiB whatever its size. Compile at image build, with the binary
+clustered by vehicle: a vehicle's part types and candidates are two or
+three reads of the file, and its related vehicles two plus one for about
+each megabyte of the fitments of many applications (universal parts) it
+shares, so it answers as quickly read by byte range from a browser's store
+as from a disk. Compiling streams the catalog: it reads it once, sorts in a
+temporary directory, and its memory grows with the catalog's vehicles and
+part types, not its lines (about 200 MB at the scale of a parts system). Compile at image build, with the binary
 that will serve it:
 
 ```sh

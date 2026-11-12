@@ -112,7 +112,7 @@ func compile(e *env, d *nitrovin.Decoder, files []*vocab.File, source, path stri
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	drift, err := vocab.Compile(tmp, d.Month(), files, src, source, vocab.CompileOptions{Scratch: vocab.DirScratch(scratch), Writer: nitrovin.Version()})
+	drift, err := vocab.Compile(tmp, d.Month(), files, src, source, vocab.DirScratch(scratch), vocab.CompileOptions{Writer: nitrovin.Version()})
 	if err != nil {
 		tmp.Close()
 		return err

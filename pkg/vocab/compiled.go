@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"slices"
 	"sort"
 	"strings"
@@ -237,6 +238,9 @@ func openCompiled(path string, r io.ReaderAt, size int64) (*File, error) {
 	}
 	if _, err := r.ReadAt(h[:], 0); err != nil {
 		return nil, Faults{fault(path, 0, "%v", errorText(err))}
+	}
+	if !isCompiled(h[:]) {
+		return nil, bad("no compiled catalog's magic: it is not a compiled catalog")
 	}
 	if v := binary.LittleEndian.Uint32(h[8:]); v != CompiledFormat {
 		return nil, Faults{fault(path, 0, "compiled catalog format %d: this nitrovin reads format %d only; compile the catalog again with this release", v, CompiledFormat)}
@@ -557,19 +561,10 @@ func (r *cursor) fitment(typ string, apps *slab[Application]) Fitment {
 	case n > 0:
 		fit.Applications = apps.take(n)
 	}
-	{
-		for i := range fit.Applications {
-			a := &fit.Applications[i]
-			a.Vehicle = r.c.vehicles[r.id(len(r.c.vehicles), "vehicle")]
-			a.First, a.Last = r.years()
-			if q := r.uint(); q > 0 {
-				if q > uint64(len(r.c.qualifiers)) {
-					r.c.damaged("qualifier set %d is out of range", q)
-				}
-				a.Qualifiers = r.c.qualifiers[q-1]
-			}
-			a.Options = r.str()
-		}
+	for i := range fit.Applications {
+		a := &fit.Applications[i]
+		a.Vehicle = r.c.vehicles[r.id(len(r.c.vehicles), "vehicle")]
+		r.application(a)
 	}
 	return fit
 }
@@ -593,6 +588,52 @@ func (r *cursor) matching(vehicle uint32, year *int, into []int32) (Side, string
 	return side, number, into
 }
 
+// partial reads a fitment record's body, after its part type, as matched
+// applications: its line and note, and the applications of keep,
+// ascending, each with its index.
+func (r *cursor) partial(keep []int32, into []indexedApp) (int, string, []indexedApp) {
+	r.side()
+	r.str()
+	line, note := int(r.uint()), r.str()
+	n := r.count()
+	for i := range n {
+		v := r.c.vehicles[r.id(len(r.c.vehicles), "vehicle")]
+		if len(keep) == 0 || keep[0] != int32(i) {
+			r.holds(nil)
+			r.uint()
+			r.str()
+			continue
+		}
+		keep = keep[1:]
+		a := indexedApp{i: int32(i), app: Application{Vehicle: v}}
+		r.application(&a.app)
+		into = append(into, a)
+	}
+	if len(keep) > 0 {
+		r.c.damaged("application %d of a fitment of %d is out of range", keep[0], n)
+	}
+	return line, note, into
+}
+
+// application reads an application's years, qualifiers and option text
+// into a.
+func (r *cursor) application(a *Application) {
+	a.First, a.Last = r.years()
+	if q := r.uint(); q > 0 {
+		if q > uint64(len(r.c.qualifiers)) {
+			r.c.damaged("qualifier set %d is out of range", q)
+		}
+		a.Qualifiers = r.c.qualifiers[q-1]
+	}
+	a.Options = r.str()
+}
+
+// indexedApp is an application and its index in its fitment.
+type indexedApp struct {
+	i   int32
+	app Application
+}
+
 // appSlab is a slab for the applications of about n fitments: a
 // catalog's average is 2.4 (ADR 0017).
 func appSlab(n int) slab[Application] { return make(slab[Application], 3*n) }
@@ -607,11 +648,16 @@ type hit struct {
 	side   Side
 	number string
 	// rec is its fitment record's body, after its part type: in a block,
-	// or, for a fitment of a far record, in wide.
+	// or, for a far record's fitment read whole, in wide.
 	rec  cursor
 	keep []int32 // ascending
-	// far: rec is not read yet, and is n bytes at off in wide.
+	// far: its block holds its line, note and its applications to the
+	// vehicle, those that matched in own; the whole fitment is n bytes at
+	// off in wide.
 	far    bool
+	line   int
+	note   string
+	own    []indexedApp
 	off, n int64
 }
 
@@ -619,10 +665,12 @@ func compareHits(a, b *hit) int {
 	return cmp.Or(cmp.Compare(a.typ, b.typ), cmp.Compare(a.side, b.side), strings.Compare(a.number, b.number))
 }
 
-// byVehicle is Catalog.ByVehicle, cat being the compiled catalog's. Every
-// part type for partType "": a vehicle's whole block, one read; one part
-// type: its head, then that type's records.
-func (c *compiled) byVehicle(cat *Catalog, partType string, vehicles []Vehicle, year *int, side *Side) []Candidate {
+// byVehicle is Catalog.ByVehicle, every application of each fitment, when
+// whole, and Catalog.Matching otherwise; cat is the compiled catalog's.
+// Every part type for partType "": a vehicle's whole block, one read; one
+// part type: its head, then that type's records. Only ByVehicle reads
+// wide, for a far record's fitment.
+func (c *compiled) byVehicle(cat *Catalog, partType string, vehicles []Vehicle, year *int, side *Side, whole bool) []Candidate {
 	t, ok := uint32(0), true
 	if partType != "" {
 		if t, ok = c.typeAt[partType]; !ok {
@@ -652,7 +700,7 @@ func (c *compiled) byVehicle(cat *Catalog, partType string, vehicles []Vehicle, 
 		}
 		for _, r := range types {
 			end := body.at + int(r.bytes)
-			if end > len(body.s) {
+			if r.bytes < 0 || end > len(body.s) {
 				c.damaged("vehicle %d's part type %d runs past its block", id, r.typ)
 			}
 			for range r.n {
@@ -669,7 +717,10 @@ func (c *compiled) byVehicle(cat *Catalog, partType string, vehicles []Vehicle, 
 	if len(hits) == 0 {
 		return nil
 	}
-	return c.candidates(hits)
+	if whole {
+		return c.wholeCandidates(hits)
+	}
+	return c.matchedCandidates(hits)
 }
 
 // typeRun is a part type's run of a vehicle's body.
@@ -701,31 +752,49 @@ func (c *compiled) blockHit(body *cursor, typ, vehicle uint32, year *int, side *
 		}
 		return &hit{typ: typ, side: s, number: number, rec: start, keep: keep}
 	case recFar:
-		s, number := body.side(), body.str()
-		body.uint() // its line
-		var keep []int32
+		h := &hit{typ: typ, far: true}
+		h.side, h.number, h.line, h.note = body.side(), body.str(), int(body.uint()), body.str()
 		for range body.count() {
 			i := body.uint()
-			if body.holds(year) {
-				keep = append(keep, int32(i))
+			if i > math.MaxInt32 {
+				c.damaged("application %d of a far record is out of range", i)
+			}
+			a := indexedApp{i: int32(i), app: Application{Vehicle: c.vehicles[vehicle]}}
+			body.application(&a.app)
+			if holds(a.app.First, a.app.Last, year) {
+				h.keep, h.own = append(h.keep, a.i), append(h.own, a)
 			}
 		}
-		off, n := int64(body.uint()), int64(body.uint())
-		if len(keep) == 0 || side != nil && s != *side {
+		h.off, h.n = int64(body.uint()), int64(body.uint())
+		if h.off < 0 || h.n <= 0 || h.off > c.sec[secWide].n || h.n > c.sec[secWide].n-h.off {
+			c.damaged("vehicle %d's far record is out of range", vehicle)
+		}
+		if len(h.keep) == 0 || side != nil && h.side != *side {
 			return nil
 		}
-		return &hit{typ: typ, side: s, number: number, keep: keep, far: true, off: off, n: n}
+		return h
 	default:
 		c.damaged("a block record of kind %d", kind)
 		return nil
 	}
 }
 
-// candidates reads the fitments of hits, in key order, each once with the
-// applications any hit of it matched.
-func (c *compiled) candidates(hits []*hit) []Candidate {
+// groups calls f with each run of hits of one fitment, in key order.
+func groups(hits []*hit, f func(run []*hit)) {
 	slices.SortStableFunc(hits, compareHits)
-	// Far hits carry where their fitment is in keyed: read those, nearby
+	for i := 0; i < len(hits); {
+		j := i + 1
+		for ; j < len(hits) && compareHits(hits[j], hits[i]) == 0; j++ {
+		}
+		f(hits[i:j])
+		i = j
+	}
+}
+
+// wholeCandidates reads the fitments of hits whole, in key order, each
+// once with the applications any hit of it matched.
+func (c *compiled) wholeCandidates(hits []*hit) []Candidate {
+	// Far hits carry where their fitment is in wide: read those, nearby
 	// ones together.
 	var far []*hit
 	for _, h := range hits {
@@ -737,19 +806,17 @@ func (c *compiled) candidates(hits []*hit) []Candidate {
 	out := make([]Candidate, 0, len(hits))
 	fits := make([]Fitment, 0, len(hits))
 	apps := appSlab(len(hits))
-	for i := 0; i < len(hits); {
-		h := hits[i]
-		keep := h.keep
-		j := i + 1
-		for ; j < len(hits) && compareHits(hits[j], h) == 0; j++ {
-			keep = append(slices.Clone(keep), hits[j].keep...)
-		}
-		if j > i+1 {
+	groups(hits, func(run []*hit) {
+		keep := run[0].keep
+		if len(run) > 1 {
+			keep = nil
+			for _, h := range run {
+				keep = append(keep, h.keep...)
+			}
 			slices.Sort(keep)
 			keep = slices.Compact(keep)
 		}
-		i = j
-		fits = append(fits, h.rec.fitment(c.typeName(h.typ), &apps))
+		fits = append(fits, run[0].rec.fitment(c.typeName(run[0].typ), &apps))
 		fit := &fits[len(fits)-1]
 		cand := Candidate{Fitment: fit, Applications: make([]*Application, len(keep))}
 		for k, a := range keep {
@@ -759,25 +826,65 @@ func (c *compiled) candidates(hits []*hit) []Candidate {
 			cand.Applications[k] = &fit.Applications[a]
 		}
 		out = append(out, cand)
-	}
+	})
+	return out
+}
+
+// matchedCandidates reads of the fitments of hits only what matched, in
+// key order: each fitment's key, line and note and the applications any
+// hit of it matched, from the blocks alone.
+func (c *compiled) matchedCandidates(hits []*hit) []Candidate {
+	out := make([]Candidate, 0, len(hits))
+	fits := make([]Fitment, 0, len(hits))
+	apps := appSlab(len(hits))
+	var matched []indexedApp
+	groups(hits, func(run []*hit) {
+		fit := Fitment{Key: FitmentKey{Type: c.typeName(run[0].typ), Side: run[0].side, Number: run[0].number}}
+		matched = matched[:0]
+		for _, h := range run {
+			if h.far {
+				fit.Line, fit.Note = h.line, h.note
+				matched = append(matched, h.own...)
+				continue
+			}
+			r := h.rec
+			fit.Line, fit.Note, matched = r.partial(h.keep, matched)
+		}
+		slices.SortStableFunc(matched, func(a, b indexedApp) int { return cmp.Compare(a.i, b.i) })
+		matched = slices.CompactFunc(matched, func(a, b indexedApp) bool { return a.i == b.i })
+		fit.Applications = apps.take(len(matched))
+		cand := Candidate{Applications: make([]*Application, len(matched))}
+		for k := range matched {
+			fit.Applications[k] = matched[k].app
+			cand.Applications[k] = &fit.Applications[k]
+		}
+		fits = append(fits, fit)
+		cand.Fitment = &fits[len(fits)-1]
+		out = append(out, cand)
+	})
 	return out
 }
 
 // farGap is the most bytes between two far fitments' records read
 // together, not apart: about what a browser's store moves in the time one
 // read costs (ADR 0023: 0.2-0.4 ms a read, about 1 GB/s), so reading the
-// bytes between them costs no more than a second read would.
-const farGap = 256 << 10
+// bytes between them costs no more than a second read would. farSpan is
+// the most one read of them spans, so a request's bytes stay bounded
+// however many far fitments lie near each other.
+const (
+	farGap  = 256 << 10
+	farSpan = 1 << 20
+)
 
 // readFar points each far hit's rec at its fitment record in wide, read
-// in runs of records within farGap of each other.
+// in runs of records within farGap of each other and farSpan in all.
 func (c *compiled) readFar(hits []*hit) {
 	hits = slices.Clone(hits)
 	slices.SortFunc(hits, func(a, b *hit) int { return cmp.Compare(a.off, b.off) })
 	for i := 0; i < len(hits); {
 		lo, hi := hits[i].off, hits[i].off+hits[i].n
 		j := i + 1
-		for ; j < len(hits) && hits[j].off <= hi+farGap; j++ {
+		for ; j < len(hits) && hits[j].off <= hi+farGap && max(hi, hits[j].off+hits[j].n)-lo <= farSpan; j++ {
 			hi = max(hi, hits[j].off+hits[j].n)
 		}
 		s := c.read(secWide, lo, hi-lo)

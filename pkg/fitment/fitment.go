@@ -46,6 +46,14 @@ type Reader interface {
 	// related vehicles, asks once with "", which a compiled catalog
 	// answers from one read of the vehicle's block (ADR 0023).
 	ByVehicle(partType string, vehicles []vocab.Vehicle, year *int, side *vocab.Side) []vocab.Candidate
+	// Matching is ByVehicle answering with only the applications that
+	// matched: each candidate's Fitment holds the fitment's key, line and
+	// note and only those applications, in file order, which Applications
+	// points at. Part types and candidates need nothing more; related
+	// vehicles need ByVehicle's whole fitments. A compiled catalog answers
+	// Matching from the vehicle's block alone, never reading the rest of a
+	// fitment of many applications (ADR 0023).
+	Matching(partType string, vehicles []vocab.Vehicle, year *int, side *vocab.Side) []vocab.Candidate
 	// ByNumber returns the fitment with that part type, number and side,
 	// directly, or through the retired number it replaced, which retired
 	// then is. fitment is nil when there is neither.

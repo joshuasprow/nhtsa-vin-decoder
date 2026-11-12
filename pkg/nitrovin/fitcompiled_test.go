@@ -33,7 +33,7 @@ func compileCatalog(t *testing.T, w io.Writer, m vocab.Month, files []*vocab.Fil
 		t.Fatal(err)
 	}
 	defer src.Close()
-	return vocab.Compile(w, m, beside, src, source, vocab.CompileOptions{Scratch: vocab.DirScratch(t.TempDir()), Writer: Version()})
+	return vocab.Compile(w, m, beside, src, source, vocab.DirScratch(t.TempDir()), vocab.CompileOptions{Writer: Version()})
 }
 
 // compiledTwin is tr with its catalog compiled (ADR 0021) against tr's

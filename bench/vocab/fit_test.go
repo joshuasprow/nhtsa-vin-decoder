@@ -3,6 +3,7 @@ package vocab
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -29,8 +30,12 @@ import (
 // The requests cycle through fitBenchCases different fitments, each read
 // from the generator writeCatalog uses, so every one is answered found and
 // no one vehicle's or key's path stays cached.
+//
+// The fixture's wide variants (wideVariants), compiled, run every kind
+// too, and candidates-wide: a vehicle's candidates of a part type and year
+// of a wide fitment that applies to it. Each reports its file's size.
 func BenchmarkFit(b *testing.B) {
-	forms := catalogForms(b)
+	forms := append(catalogForms(b), wideForms(b)...)
 	d, err := nitrovin.Embedded()
 	if err != nil {
 		b.Fatal(err)
@@ -58,7 +63,11 @@ func BenchmarkFit(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			for _, k := range []struct {
+			fi, err := os.Stat(form.catalogFile)
+			if err != nil {
+				b.Fatal(err)
+			}
+			kinds := []struct {
 				name string
 				reqs []contract.FitRequest
 			}{
@@ -68,8 +77,28 @@ func BenchmarkFit(b *testing.B) {
 				{"part-types-any-year", partTypesAnyYear},
 				{"related-any-year", relatedAnyYear},
 				{"reverse", reverse},
-			} {
-				b.Run(k.name, func(b *testing.B) { measureFit(b, tr, k.reqs, counter) })
+			}
+			if len(form.wideOf) > 0 {
+				var wide []contract.FitRequest
+				for _, i := range fitBenchFitments() {
+					v := catalogVehicleOf(i, 0)
+					w, ok := form.wideOf[v]
+					if !ok {
+						continue
+					}
+					wide = append(wide, contract.FitRequest{From: contract.FitFrom{Vocabulary: "bench-models", Entry: names[v]},
+						ModelYear: contract.Value(int32(w[1])), Part: &contract.FitPart{Spine: "bench-types", ID: fmt.Sprintf("%03d", w[0])}, Now: now})
+				}
+				kinds = append(kinds, struct {
+					name string
+					reqs []contract.FitRequest
+				}{"candidates-wide", wide})
+			}
+			for _, k := range kinds {
+				b.Run(k.name, func(b *testing.B) {
+					measureFit(b, tr, k.reqs, counter)
+					b.ReportMetric(float64(fi.Size())/1e6, "file-MB")
+				})
 			}
 		})
 	}
@@ -107,16 +136,11 @@ func measureFit(b *testing.B, tr *nitrovin.Translator, reqs []contract.FitReques
 	b.ReportAllocs()
 	for b.Loop() {
 		n := ops % len(reqs)
-		var before int64
-		if c != nil {
-			before = c.n.Load()
-		}
+		from := c.mark()
 		t := time.Now()
 		fit, err := tr.Fit(context.Background(), reqs[n])
 		h.record(time.Since(t))
-		if c != nil {
-			rs = append(rs, c.n.Load()-before)
-		}
+		rs.add(c, from)
 		if err != nil {
 			b.Fatalf("request %d: %v", n, err)
 		}

@@ -208,6 +208,7 @@ func (r *results) table() string {
 	}
 	b.WriteString(r.catalog())
 	b.WriteString(r.fit())
+	b.WriteString(r.wide())
 	return b.String()
 }
 
@@ -252,6 +253,58 @@ func (r *results) fit() string {
 		fmt.Fprintf(&b, "| %s |%s %.0f | %s | %s | %s |\n", q.label, cells, items, q.budget, reads(r.bench[key{"Fit/compiled/" + q.name, 1}]), q.reads)
 	}
 	return b.String()
+}
+
+// wideVariants are BenchmarkFit's wide variants of the fixture, compiled
+// (bench/vocab's wideVariants).
+var wideVariants = []struct{ name, label string }{
+	{"wide-0.1", "0.1% wide"},
+	{"wide-0.3", "0.3% wide"},
+	{"wide-1", "1% wide"},
+}
+
+// wide is the fit requests' table on the fixture's wide variants
+// (ADR 0023), compiled: each kind's p99, reads p99 / most and the most
+// bytes a request read; "" when they did not run.
+func (r *results) wide() string {
+	var b strings.Builder
+	kinds := append(slices.Clone(fitRequests), struct{ name, label, budget, reads string }{"candidates-wide", "candidates of a wide fitment's part type", "p99 ≤ 5 ms", "≤ 10"})
+	for _, q := range kinds {
+		cells, any := "", false
+		for _, v := range wideVariants {
+			m, ok := r.bench[key{"Fit/compiled-" + v.name + "/" + q.name, 1}]
+			if !ok {
+				cells += " — |"
+				continue
+			}
+			any = true
+			cells += fmt.Sprintf(" %s · %s reads · %s |", duration(m["p99-ns"]), reads(m), kilobytes(m["read-KB-max"]))
+		}
+		if !any {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString("\n**Fit, wide variants** (the fixture and a share of fitments of 50–500 applications on vehicles at random, compiled, one core): p99 · reads p99 / most · the most bytes a request read.\n\n| |")
+			for _, v := range wideVariants {
+				file := "—"
+				if m, ok := r.bench[key{"Fit/compiled-" + v.name + "/candidates", 1}]; ok {
+					file = size(m["file-MB"])
+				}
+				b.WriteString(" " + v.label + " (" + file + ") |")
+			}
+			b.WriteString(" budget | read budget |\n|---|---|---|---|---|---|\n")
+		}
+		fmt.Fprintf(&b, "| %s |%s %s | %s |\n", q.label, cells, q.budget, q.reads)
+	}
+	return b.String()
+}
+
+// kilobytes says kb kilobytes in KB, or in MB from 1,000.
+func kilobytes(kb float64) string {
+	if kb < 1000 {
+		return fmt.Sprintf("%.0f KB", kb)
+	}
+	return fmt.Sprintf("%.1f MB", kb/1000)
 }
 
 // reads is a benchmark's reads per operation, "p99 / most", or — when it
@@ -330,7 +383,7 @@ func (r *results) catalog() string {
 			return fmt.Sprintf("%s, %s, %s", duration(m["ns/op"]), size(m["peak-RSS-MB"]), size(m["heap-MB"]))
 		})
 	}
-	row("compile, 1 core: time, peak", "time recorded; ≤ 256 MiB peak", func(form string) string {
+	row("compile, 1 core: time, peak in process", "time recorded; ≤ 256 MiB peak", func(form string) string {
 		if m, ok := r.bench[key{"CompileCatalog", 1}]; ok && form == "compiled" {
 			return fmt.Sprintf("%s, %s", duration(m["ns/op"]), size(m["peak-RSS-MB"]))
 		}

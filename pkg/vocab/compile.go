@@ -14,12 +14,9 @@ import (
 	"github.com/zeebo/blake3"
 )
 
-// CompileOptions are what Compile is given beyond its catalog and the
-// files beside it.
+// CompileOptions are what Compile is given beyond its catalog, the files
+// beside it and its scratch storage.
 type CompileOptions struct {
-	// Scratch holds what compiling sorts and assembles: about twice the
-	// compiled file. It is required.
-	Scratch Scratch
 	// Writer is the nitrovin version compiling, which the file records.
 	Writer string
 }
@@ -34,13 +31,15 @@ type CompileOptions struct {
 // drift, about src. The same source, files, month and writer give the same
 // bytes.
 //
-// It streams: src is read once, front to back, and what memory does not
-// hold is sorted in opt.Scratch, so its memory is bounded whatever the
-// catalog's size. The kinds of drift m cannot measure, model-years without
-// vPIC models' years (YearsMonth) and model-qualifier without their model
+// It streams: src is read once, front to back, and its fitments, redirects
+// and retired numbers are sorted in scratch, about twice the compiled file,
+// in runs of at most runBytes held in memory, two and a half of them at
+// once, so its memory grows with the vehicles, part types and distinct sets
+// of qualifiers the catalog names (thousands), not with its lines. The kinds of drift m cannot measure, model-years without vPIC
+// models' years (YearsMonth) and model-qualifier without their model
 // values (ModelMonth), are recorded as skipped.
-func Compile(w io.Writer, m Month, files []*File, src io.Reader, name string, opt CompileOptions) ([]Finding, error) {
-	if opt.Scratch == nil {
+func Compile(w io.Writer, m Month, files []*File, src io.Reader, name string, scratch Scratch, opt CompileOptions) ([]Finding, error) {
+	if scratch == nil {
 		return nil, errors.New("compile: no scratch storage")
 	}
 	byName := map[string]*File{}
@@ -54,9 +53,11 @@ func Compile(w io.Writer, m Month, files []*File, src io.Reader, name string, op
 		byName[f.Name] = f
 	}
 	c := &compiler{
-		name: name, m: m, files: files, byName: byName, scratch: opt.Scratch, opt: opt,
+		name: name, m: m, files: files, byName: byName, scratch: scratch, opt: opt,
 		vehicleAt: map[string]int32{}, types: map[string]bool{}, qsetOf: map[string]uint32{},
-		byKey: newSorter(opt.Scratch), byVehicle: newSorter(opt.Scratch),
+		// The retired numbers' sorters hold a quarter of a run each: they
+		// are a release's changes, seldom more than a few MiB.
+		byKey: newSorter(scratch, 1), byVehicle: newSorter(scratch, 1), byRetired: newSorter(scratch, 4), bySuccessor: newSorter(scratch, 4),
 	}
 	c.mm, _ = m.(ModelMonth)
 	defer c.close()
@@ -109,19 +110,19 @@ type compiler struct {
 	drift                   []*catalogDrift // Drift's, and ModelDrift's when mm is set
 	readFaults, indexFaults Faults
 
-	vehicles                          []*Vehicle // a vehicle's id is its index
-	vehicleAt                         map[string]int32
-	types                             map[string]bool // every part type a line names: whether a fitment or redirect does
-	typeID                            map[string]uint32
-	typeNames                         []string          // by id
-	qsetOf                            map[string]uint32 // a set of qualifiers' encoding: its id
-	qsets                             []byte            // every set's encoding, in id order
-	retired                           []Retired         // in line order
-	fitments, applications, redirects int
+	vehicles                                   []*Vehicle // a vehicle's id is its index
+	vehicleAt                                  map[string]int32
+	types                                      map[string]bool // every part type a line names: whether a fitment or redirect does
+	typeID                                     map[string]uint32
+	typeNames                                  []string          // by id
+	qsetOf                                     map[string]uint32 // a set of qualifiers' encoding: its id
+	qsets                                      []byte            // every set's encoding, in id order
+	fitments, applications, redirects, retired int
 
 	// byKey has every fitment by key; byVehicle, per vehicle, its
-	// redirects by part type from, then its fitments by key.
-	byKey, byVehicle *sorter
+	// redirects by part type from, then its fitments by key; byRetired
+	// every retired number by its key, and bySuccessor by its successor's.
+	byKey, byVehicle, byRetired, bySuccessor *sorter
 	// keyed is the keyed section as written, and pages its pages; wideSec
 	// the wide section, and wide where in it each wide fitment is, by
 	// line.
@@ -136,16 +137,22 @@ type compiler struct {
 
 	buf, key, val, pay []byte // reused encodings
 	ids                []int32
+	qs                 []uint32
 }
 
 // close releases the scratch files still open.
 func (c *compiler) close() {
-	for _, s := range []*spill{c.keyed, c.wideSec, c.heads, c.bodies, c.byKey.out, c.byVehicle.out} {
+	for _, s := range []*spill{c.keyed, c.wideSec, c.heads, c.bodies} {
 		if s != nil {
 			s.f.Close()
 		}
 	}
-	c.byKey.out, c.byVehicle.out = nil, nil
+	for _, s := range []*sorter{c.byKey, c.byVehicle, c.byRetired, c.bySuccessor} {
+		if s.out != nil {
+			s.out.f.Close()
+			s.out = nil
+		}
+	}
 }
 
 // readSource reads src once: its header, then its lines a batch at a
@@ -345,7 +352,7 @@ func (c *compiler) fitment(fit *Fitment) {
 	b = binary.AppendUvarint(b, uint64(fit.Line))
 	b = appendStr(b, fit.Note)
 	b = binary.AppendUvarint(b, uint64(len(fit.Applications)))
-	ids := c.ids[:0]
+	ids, qs := c.ids[:0], c.qs[:0]
 	for j := range fit.Applications {
 		a := &fit.Applications[j]
 		q := c.qset(a.Qualifiers)
@@ -353,11 +360,10 @@ func (c *compiler) fitment(fit *Fitment) {
 			g.application(fit.Line, j, a, qualifierKey{id: q})
 		}
 		b = binary.AppendUvarint(b, uint64(a.Vehicle.id))
-		b = appendYears(b, a.First, a.Last)
-		b = binary.AppendUvarint(b, uint64(q))
-		b = appendStr(b, a.Options)
-		ids = append(ids, a.Vehicle.id)
+		b = appendApplication(b, a, q)
+		ids, qs = append(ids, a.Vehicle.id), append(qs, q)
 	}
+	c.qs = qs
 	c.val = b
 
 	k := appendOrdered(c.key[:0], fit.Key.Type)
@@ -381,9 +387,12 @@ func (c *compiler) fitment(fit *Fitment) {
 		if !wide {
 			p = append(append(p, recNear), b...)
 		} else {
+			// What answers for this vehicle: the key, line and note, and
+			// its own applications whole; wide holds the rest.
 			p = append(p, recFar, byte(fit.Key.Side))
 			p = appendStr(p, fit.Key.Number)
 			p = binary.AppendUvarint(p, uint64(fit.Line))
+			p = appendStr(p, fit.Note)
 			own := 0
 			for j := range fit.Applications {
 				if fit.Applications[j].Vehicle.id == id {
@@ -394,7 +403,7 @@ func (c *compiler) fitment(fit *Fitment) {
 			for j := range fit.Applications {
 				if a := &fit.Applications[j]; a.Vehicle.id == id {
 					p = binary.AppendUvarint(p, uint64(j))
-					p = appendYears(p, a.First, a.Last)
+					p = appendApplication(p, a, qs[j])
 				}
 			}
 		}
@@ -426,12 +435,79 @@ func (c *compiler) redirect(rd *Redirect) {
 	c.byVehicle.add(k, p)
 }
 
-// retiredLine sees a retired line: held, as a release's few.
+// retiredLine sees a retired line, and adds it to its two sorters: by its
+// key, and by its successor's.
 func (c *compiler) retiredLine(rt *Retired) {
 	for _, t := range []string{rt.Key.Type, rt.To.Type} {
 		c.types[t] = c.types[t] || false
 	}
-	c.retired = append(c.retired, *rt)
+	c.retired++
+	for i, ks := range [2][2]FitmentKey{{rt.Key, rt.To}, {rt.To, rt.Key}} {
+		k := appendFitmentKey(c.key[:0], ks[0])
+		k = binary.BigEndian.AppendUint32(k, uint32(rt.Line))
+		c.key = k
+		p := appendKeyFields(c.val[:0], ks[0])
+		p = binary.AppendUvarint(p, uint64(rt.Line))
+		p = appendKeyFields(p, ks[1])
+		p = appendStr(p, rt.Note)
+		c.val = p
+		[]*sorter{c.byRetired, c.bySuccessor}[i].add(k, p)
+	}
+}
+
+// appendFitmentKey appends fitment key k as a sorter's key: ordered as
+// compareFitmentKeys orders keys.
+func appendFitmentKey(b []byte, k FitmentKey) []byte {
+	b = appendOrdered(b, k.Type)
+	b = append(b, byte(k.Side))
+	return appendOrdered(b, k.Number)
+}
+
+// appendKeyFields appends fitment key k as a payload's fields.
+func appendKeyFields(b []byte, k FitmentKey) []byte {
+	b = appendStr(b, k.Type)
+	b = append(b, byte(k.Side))
+	return appendStr(b, k.Number)
+}
+
+// retiredAt reads a retired number as retiredLine added it to sorter
+// byRetired (succ false) or bySuccessor (succ true).
+func retiredAt(payload []byte, succ bool) Retired {
+	r := &bcursor{b: payload}
+	key := func() FitmentKey {
+		k := FitmentKey{Type: r.str()}
+		k.Side, k.Number = Side(r.byte()), r.str()
+		return k
+	}
+	var rt Retired
+	first := key()
+	rt.Line = int(r.uint())
+	second := key()
+	rt.Note = r.str()
+	if succ {
+		rt.To, rt.Key = first, second
+	} else {
+		rt.Key, rt.To = first, second
+	}
+	return rt
+}
+
+// pull is a merge read a record ahead: a retired number, ok false after
+// the last.
+type pull struct {
+	m    *merge
+	succ bool
+	rt   Retired
+	ok   bool
+}
+
+func (p *pull) next() error {
+	_, payload, ok, err := p.m.next()
+	p.ok = ok
+	if ok {
+		p.rt = retiredAt(payload, p.succ)
+	}
+	return err
 }
 
 // mergeKeys writes keyed from the fitments in key order and the retired
@@ -453,25 +529,6 @@ func (c *compiler) mergeKeys() error {
 		return err
 	}
 	c.wide = map[int]span64{}
-	rts := c.retired
-	byKey, bySucc := make([]int, len(rts)), make([]int, len(rts))
-	for i := range rts {
-		byKey[i], bySucc[i] = i, i
-	}
-	slices.SortStableFunc(byKey, func(a, b int) int { return compareFitmentKeys(rts[a].Key, rts[b].Key) })
-	slices.SortStableFunc(bySucc, func(a, b int) int { return compareFitmentKeys(rts[a].To, rts[b].To) })
-	dupOf := make([]int, len(rts)) // the line a repeated retired number is first on
-	for i := 1; i < len(byKey); i++ {
-		if rts[byKey[i]].Key == rts[byKey[i-1]].Key {
-			dupOf[byKey[i]] = rts[byKey[i-1]].Line
-			if d := dupOf[byKey[i-1]]; d != 0 {
-				dupOf[byKey[i]] = d
-			}
-		}
-	}
-	live := make([]int, len(rts)) // the live fitment's line
-	missing := make([]bool, len(rts))
-
 	pageFits := 0
 	record := func(fitment bool, k FitmentKey) {
 		if len(c.pages) == 0 || fitment && pageFits == pageFitments {
@@ -482,7 +539,43 @@ func (c *compiler) mergeKeys() error {
 			pageFits++
 		}
 	}
-	retired := func(rt *Retired) error {
+	// The retired numbers, by key and by successor, read beside the
+	// fitments by key.
+	pulls := [2]*pull{{succ: false}, {succ: true}}
+	for i, s := range []*sorter{c.byRetired, c.bySuccessor} {
+		if pulls[i].m, err = s.sorted(); err != nil {
+			return err
+		}
+		defer pulls[i].m.close()
+		if err := pulls[i].next(); err != nil {
+			return err
+		}
+	}
+	byKey, bySucc := pulls[0], pulls[1]
+	// The faults about retired numbers, by line: a repeated one's alone,
+	// else a live one's before a missing successor's, as indexLines finds
+	// them.
+	type retiredFault struct {
+		line, order int
+		f           Finding
+	}
+	var faults []retiredFault
+	repeated := map[int]bool{} // the lines of retired numbers retired again
+	var firstKey FitmentKey    // the last retired key seen, and its first line
+	firstLine := 0
+	// retired writes the retired number byKey is at, after finding whether
+	// it repeats an earlier one.
+	retired := func(live int) error {
+		rt := &byKey.rt
+		if firstLine > 0 && rt.Key == firstKey {
+			repeated[rt.Line] = true
+			faults = append(faults, retiredFault{rt.Line, 0, duplicateRetired(c.name, rt, firstLine)})
+		} else {
+			firstKey, firstLine = rt.Key, rt.Line
+			if live > 0 {
+				faults = append(faults, retiredFault{rt.Line, 1, liveRetired(c.name, rt, live)})
+			}
+		}
 		record(false, rt.Key)
 		b := append(c.buf[:0], recRetired)
 		b = binary.AppendUvarint(b, uint64(c.typeID[rt.Key.Type]))
@@ -494,12 +587,19 @@ func (c *compiler) mergeKeys() error {
 		b = append(b, byte(rt.To.Side))
 		b = appendStr(b, rt.To.Number)
 		c.buf = b
-		_, err := c.keyed.Write(b)
-		return err
+		if _, err := c.keyed.Write(b); err != nil {
+			return err
+		}
+		return byKey.next()
 	}
-	ri, si := 0, 0
+	missing := func() error {
+		rt := &bySucc.rt
+		faults = append(faults, retiredFault{rt.Line, 2, noSuccessor(c.name, rt)})
+		return bySucc.next()
+	}
 	var prev FitmentKey
 	prevLine := 0
+	var replaced []Retired
 	err = c.byKey.each(func(_, payload []byte) error {
 		r := &bcursor{b: payload}
 		typ := r.str()
@@ -510,38 +610,38 @@ func (c *compiler) mergeKeys() error {
 		r.str() // note
 		napps := int(r.uint())
 		k := FitmentKey{Type: typ, Number: number, Side: side}
-		for ; ri < len(byKey) && compareFitmentKeys(rts[byKey[ri]].Key, k) <= 0; ri++ {
-			if rts[byKey[ri]].Key == k {
-				live[byKey[ri]] = line
-				continue
+		for byKey.ok && compareFitmentKeys(byKey.rt.Key, k) <= 0 {
+			live := 0
+			if byKey.rt.Key == k {
+				live = line
 			}
-			if err := retired(&rts[byKey[ri]]); err != nil {
+			if err := retired(live); err != nil {
 				return err
 			}
 		}
 		if prevLine > 0 && prev == k {
 			c.indexFaults = append(c.indexFaults, duplicateKey(c.name, line, prevLine))
 		}
+		for bySucc.ok && compareFitmentKeys(bySucc.rt.To, k) < 0 {
+			if err := missing(); err != nil {
+				return err
+			}
+		}
+		replaced = replaced[:0]
+		for bySucc.ok && bySucc.rt.To == k && prev != k {
+			replaced = append(replaced, bySucc.rt)
+			if err := bySucc.next(); err != nil {
+				return err
+			}
+		}
 		prev, prevLine = k, line
-		for ; si < len(bySucc) && compareFitmentKeys(rts[bySucc[si]].To, k) < 0; si++ {
-			missing[bySucc[si]] = true
-		}
-		succ := si
-		for ; si < len(bySucc) && rts[bySucc[si]].To == k; si++ {
-		}
 		record(true, k)
 		b := append(c.buf[:0], recFitment)
 		b = binary.AppendUvarint(b, uint64(c.typeID[typ]))
 		b = append(b, body...)
-		var replaced []int
-		for _, i := range bySucc[succ:si] {
-			if dupOf[i] == 0 {
-				replaced = append(replaced, i)
-			}
-		}
 		b = binary.AppendUvarint(b, uint64(len(replaced)))
-		for _, i := range replaced {
-			rt := &rts[i]
+		for i := range replaced {
+			rt := &replaced[i]
 			b = binary.AppendUvarint(b, uint64(rt.Line))
 			b = binary.AppendUvarint(b, uint64(c.typeID[rt.Key.Type]))
 			b = append(b, byte(rt.Key.Side))
@@ -563,29 +663,23 @@ func (c *compiler) mergeKeys() error {
 	if err != nil {
 		return err
 	}
-	for ; ri < len(byKey); ri++ {
-		if err := retired(&rts[byKey[ri]]); err != nil {
+	for byKey.ok {
+		if err := retired(0); err != nil {
 			return err
 		}
 	}
-	for ; si < len(bySucc); si++ {
-		missing[bySucc[si]] = true
+	for bySucc.ok {
+		if err := missing(); err != nil {
+			return err
+		}
 	}
 	read := len(c.readFaults) == 0
-	for i := range rts {
-		rt := &rts[i]
-		switch {
-		case dupOf[i] != 0:
-			c.indexFaults = append(c.indexFaults, duplicateRetired(c.name, rt, dupOf[i]))
-			continue
-		case !read:
-			continue // a fitment that did not read is not missing
-		}
-		if live[i] != 0 {
-			c.indexFaults = append(c.indexFaults, liveRetired(c.name, rt, live[i]))
-		}
-		if missing[i] {
-			c.indexFaults = append(c.indexFaults, noSuccessor(c.name, rt))
+	slices.SortStableFunc(faults, func(a, b retiredFault) int { return cmp.Or(cmp.Compare(a.line, b.line), cmp.Compare(a.order, b.order)) })
+	for _, f := range faults {
+		// A repeated number's fault is its only one; a fitment that did
+		// not read is not missing.
+		if f.order == 0 || read && !repeated[f.line] {
+			c.indexFaults = append(c.indexFaults, f.f)
 		}
 	}
 	if err := c.wideSec.done(); err != nil {
@@ -726,9 +820,7 @@ func answer(reds []pendingRedirect, typ uint32, rec []byte, id int32) {
 	r.byte()  // side
 	r.bytes() // number
 	r.uint()  // line
-	if kind == recNear {
-		r.bytes() // note
-	}
+	r.bytes() // note
 	for range r.uint() {
 		v := id
 		if kind == recNear {
@@ -737,10 +829,8 @@ func answer(reds []pendingRedirect, typ uint32, rec []byte, id int32) {
 			r.uint() // its index
 		}
 		first, last := r.years()
-		if kind == recNear {
-			r.uint()
-			r.bytes()
-		}
+		r.uint()  // qualifiers
+		r.bytes() // options
 		if v != id {
 			continue
 		}
@@ -852,7 +942,7 @@ func (c *compiler) meta(drift []Finding) []byte {
 	for _, k := range skipped {
 		e.str(string(k))
 	}
-	for _, n := range []int{c.fitments, c.applications, c.redirects, len(c.retired)} {
+	for _, n := range []int{c.fitments, c.applications, c.redirects, c.retired} {
 		e.uint(uint64(n))
 	}
 	return e.b
@@ -941,6 +1031,14 @@ func (e *encoder) str(s string)  { e.b = appendStr(e.b, s) }
 // appendStr appends s, length-prefixed.
 func appendStr(b []byte, s string) []byte {
 	return append(binary.AppendUvarint(b, uint64(len(s))), s...)
+}
+
+// appendApplication appends an application's years, qualifier set q and
+// option text.
+func appendApplication(b []byte, a *Application, q uint32) []byte {
+	b = appendYears(b, a.First, a.Last)
+	b = binary.AppendUvarint(b, uint64(q))
+	return appendStr(b, a.Options)
 }
 
 // appendYears appends years first and last: their flags, then each set.

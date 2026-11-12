@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -48,70 +51,104 @@ var qualifierSets = []string{`{"13":["2.4"]}`, `{"13":["3.5"]}`, `{"13":["5.7"]}
 	`{"15":[2]}`, `{"15":[1,7]}`, `{"15":[3]}`, `{"5":[13]}`, `{"5":[3]}`, `{"5":[9]}`, `{"24":[4]}`, `{"24":[1]}`,
 	`{"13":["2.4"],"15":[2]}`, `{"13":["5.7"],"9":["8"]}`, `{"5":[13],"24":[4]}`}
 
-var catalogOnce struct {
-	sync.Once
-	dir      string
-	vehicles []vocab.Vehicle // the catalog's, by index
-	err      error
+// The fixture's wide variants (ADR 0023): the catalog-scale fixture and
+// a share of fitments like universal parts, each of wideMin to wideMax
+// applications on vehicles and years at random, over wideTypes part
+// types. The fixture itself has none: its fitments have one to five.
+var wideVariants = []struct {
+	name     string
+	fitments int
+}{
+	{"wide-0.1", catalogFitments / 1000},
+	{"wide-0.3", catalogFitments * 3 / 1000},
+	{"wide-1", catalogFitments / 100},
 }
 
-// catalogDir writes the catalog-scale fixture once per run, to the
-// directory it returns: its part spine, types.jsonl, its vehicle
-// vocabulary, models.jsonl, and the catalog, catalog.jsonl.
-func catalogDir(b *testing.B) string {
-	catalogOnce.Do(func() {
+const (
+	wideMin, wideMax = 50, 500
+	wideTypes        = 20
+)
+
+// wideTypeOf is wide fitment w's part type.
+func wideTypeOf(w int) string { return fmt.Sprintf("%03d", w%wideTypes*(catalogTypes/wideTypes)+1) }
+
+var catalogOnce struct {
+	sync.Mutex
+	vehicles []vocab.Vehicle // the catalog's, by index
+	fixtures map[int]*catalogFixture
+}
+
+// catalogFixture is the catalog-scale fixture with wide wide fitments, written
+// and compiled once per run.
+type catalogFixture struct {
+	dir      string // its types.jsonl, models.jsonl and catalog.jsonl
+	compiled string // its catalog, compiled
+	// wideOf is, by vehicle, a part type and year of a wide fitment
+	// applying to it, for a request of a wide type's candidates.
+	wideOf map[int][2]int
+	err    error
+}
+
+// fixtureOf writes the fixture with wide wide fitments once per run, and
+// compiles it, as `nitrovin vocab compile` does. A wide variant keeps only
+// its compiled file.
+func fixtureOf(b *testing.B, wide int) *catalogFixture {
+	catalogOnce.Lock()
+	defer catalogOnce.Unlock()
+	if f := catalogOnce.fixtures[wide]; f != nil {
+		if f.err != nil {
+			b.Fatal(f.err)
+		}
+		return f
+	}
+	f := &catalogFixture{}
+	if catalogOnce.fixtures == nil {
+		catalogOnce.fixtures = map[int]*catalogFixture{}
+	}
+	catalogOnce.fixtures[wide] = f
+	f.err = func() error {
 		d, err := nitrovin.Embedded()
 		if err != nil {
-			catalogOnce.err = err
-			return
+			return err
 		}
 		dir, err := benchTemp()
 		if err != nil {
-			catalogOnce.err = err
-			return
+			return err
 		}
-		dir = filepath.Join(dir, "catalog")
-		if err := os.Mkdir(dir, 0o755); err != nil {
-			catalogOnce.err = err
-			return
+		f.dir = filepath.Join(dir, fmt.Sprintf("catalog-%d", wide))
+		if err := os.Mkdir(f.dir, 0o755); err != nil {
+			return err
 		}
-		catalogOnce.err = writeCatalog(dir, d.Month())
-		catalogOnce.dir = dir
-	})
-	if catalogOnce.err != nil {
-		b.Fatal(catalogOnce.err)
-	}
-	return catalogOnce.dir
-}
-
-var compiledOnce struct {
-	sync.Once
-	path string
-	err  error
-}
-
-// compiledPath compiles the fixture's catalog once per run, as `nitrovin
-// vocab compile` does, and returns the compiled file's path.
-func compiledPath(b *testing.B) string {
-	dir := catalogDir(b)
-	compiledOnce.Do(func() {
-		compiledOnce.path = filepath.Join(filepath.Dir(dir), "catalog.compiled")
-		f, err := os.Create(compiledOnce.path)
+		if f.wideOf, err = writeCatalog(f.dir, d.Month(), wide); err != nil {
+			return err
+		}
+		f.compiled = filepath.Join(dir, fmt.Sprintf("catalog-%d.compiled", wide))
+		out, err := os.Create(f.compiled)
 		if err != nil {
-			compiledOnce.err = err
-			return
+			return err
 		}
-		if compiledOnce.err = compileCatalog(f, dir); compiledOnce.err == nil {
-			compiledOnce.err = f.Close()
-		} else {
-			f.Close()
+		if err := compileCatalog(out, f.dir); err != nil {
+			out.Close()
+			return err
 		}
-	})
-	if compiledOnce.err != nil {
-		b.Fatal(compiledOnce.err)
+		if err := out.Close(); err != nil {
+			return err
+		}
+		if wide > 0 {
+			return os.Remove(filepath.Join(f.dir, "catalog.jsonl"))
+		}
+		return nil
+	}()
+	if f.err != nil {
+		b.Fatal(f.err)
 	}
-	return compiledOnce.path
+	return f
 }
+
+// catalogDir is the catalog-scale fixture's directory: its part spine,
+// types.jsonl, its vehicle vocabulary, models.jsonl, and the catalog,
+// catalog.jsonl.
+func catalogDir(b *testing.B) string { return fixtureOf(b, 0).dir }
 
 // compileCatalog compiles the fixture in dir to w as `nitrovin vocab
 // compile` does: the embedded Decoder's month, vocab.OpenCompile, and
@@ -135,27 +172,37 @@ func compileCatalog(w io.Writer, dir string) error {
 		return err
 	}
 	defer os.RemoveAll(scratch)
-	_, err = vocab.Compile(w, d.Month(), files, src, source, vocab.CompileOptions{Scratch: vocab.DirScratch(scratch), Writer: nitrovin.Version()})
+	_, err = vocab.Compile(w, d.Month(), files, src, source, vocab.DirScratch(scratch), vocab.CompileOptions{Writer: nitrovin.Version()})
 	return err
 }
 
-// countingReader counts the reads through it: what a compiled catalog
-// costs per request where a read is dear, as in a browser (ADR 0023).
+// countingReader counts the reads through it, and their bytes: what a
+// compiled catalog costs per request where a read is dear, as in a
+// browser (ADR 0023).
 type countingReader struct {
-	r io.ReaderAt
-	n atomic.Int64
+	r            io.ReaderAt
+	n, bytesRead atomic.Int64
 }
 
 func (c *countingReader) ReadAt(p []byte, off int64) (int, error) {
 	c.n.Add(1)
+	c.bytesRead.Add(int64(len(p)))
 	return c.r.ReadAt(p, off)
+}
+
+// mark is what has been read through c so far; nil reads nothing.
+func (c *countingReader) mark() [2]int64 {
+	if c == nil {
+		return [2]int64{}
+	}
+	return [2]int64{c.n.Load(), c.bytesRead.Load()}
 }
 
 // counted loads form as loadTranslator does, its compiled catalog, if it
 // is one, opened through a countingReader, which it returns; nil for JSON
 // Lines.
 func counted(form catalogForm) (*nitrovin.Translator, *countingReader, error) {
-	if form.name != "compiled" {
+	if strings.HasPrefix(form.name, "jsonl") {
 		tr, err := loadTranslator(form.paths)
 		return tr, nil, err
 	}
@@ -184,18 +231,33 @@ func counted(form catalogForm) (*nitrovin.Translator, *countingReader, error) {
 	return tr, c, err
 }
 
-// reads are the reads of each request a benchmark made.
-type reads []int64
+// reads are the reads of each request a benchmark made, and their bytes.
+type reads struct{ n, bytes []int64 }
 
-// report reports reads-p50, reads-p99 and reads-max.
-func (r reads) report(b *testing.B) {
-	if len(r) == 0 {
+// add records one request's reads, since mark from, through c; none when
+// c is nil.
+func (r *reads) add(c *countingReader, from [2]int64) {
+	if c == nil {
 		return
 	}
-	slices.Sort(r)
-	b.ReportMetric(float64(r[(len(r)-1)/2]), "reads-p50")
-	b.ReportMetric(float64(r[(len(r)-1)*99/100]), "reads-p99")
-	b.ReportMetric(float64(r[len(r)-1]), "reads-max")
+	to := c.mark()
+	r.n, r.bytes = append(r.n, to[0]-from[0]), append(r.bytes, to[1]-from[1])
+}
+
+// report reports reads-p50, reads-p99 and reads-max, and the bytes read,
+// read-KB-p99 and read-KB-max.
+func (r *reads) report(b *testing.B) {
+	if len(r.n) == 0 {
+		return
+	}
+	at := func(v []int64, q int) float64 { return float64(v[(len(v)-1)*q/100]) }
+	slices.Sort(r.n)
+	slices.Sort(r.bytes)
+	b.ReportMetric(at(r.n, 50), "reads-p50")
+	b.ReportMetric(at(r.n, 99), "reads-p99")
+	b.ReportMetric(at(r.n, 100), "reads-max")
+	b.ReportMetric(at(r.bytes, 99)/1e3, "read-KB-p99")
+	b.ReportMetric(at(r.bytes, 100)/1e3, "read-KB-max")
 }
 
 // catalogForm is one form of the fixture's catalog: the paths --vocab
@@ -204,23 +266,35 @@ type catalogForm struct {
 	name        string
 	paths       []string
 	catalogFile string
+	*catalogFixture
 }
 
 // catalogForms are the fixture's catalog as JSON Lines and compiled, each
 // beside its spine and vehicle vocabulary.
 func catalogForms(b *testing.B) []catalogForm {
-	dir := catalogDir(b)
-	compiled := compiledPath(b)
+	f := fixtureOf(b, 0)
 	return []catalogForm{
-		{"jsonl", []string{dir}, filepath.Join(dir, "catalog.jsonl")},
-		{"compiled", []string{filepath.Join(dir, "types.jsonl"), filepath.Join(dir, "models.jsonl"), compiled}, compiled},
+		{"jsonl", []string{f.dir}, filepath.Join(f.dir, "catalog.jsonl"), f},
+		{"compiled", []string{filepath.Join(f.dir, "types.jsonl"), filepath.Join(f.dir, "models.jsonl"), f.compiled}, f.compiled, f},
 	}
+}
+
+// wideForms are the fixture's wide variants, compiled.
+func wideForms(b *testing.B) []catalogForm {
+	var out []catalogForm
+	for _, v := range wideVariants {
+		f := fixtureOf(b, v.fitments)
+		out = append(out, catalogForm{"compiled-" + v.name, []string{filepath.Join(f.dir, "types.jsonl"), filepath.Join(f.dir, "models.jsonl"), f.compiled}, f.compiled, f})
+	}
+	return out
 }
 
 // writeCatalog writes the catalog-scale fixture to dir: the month's first
 // catalogModels models as the catalog's vehicles, the first
-// catalogUnmapped of them unmapped.
-func writeCatalog(dir string, m vocab.Month) error {
+// catalogUnmapped of them unmapped; and after its fitments, wide wide
+// fitments. It returns, by vehicle, a part type and year of a wide fitment
+// applying to it.
+func writeCatalog(dir string, m vocab.Month, wide int) (map[int][2]int, error) {
 	var models [][2]string // make, model
 	var ids []int32
 	for mk, mkName := range m.Makes() {
@@ -229,7 +303,7 @@ func writeCatalog(dir string, m vocab.Month) error {
 		}
 	}
 	if len(models) < catalogModels {
-		return fmt.Errorf("data month %s has %d models; the catalog needs %d", m.Name(), len(models), catalogModels)
+		return nil, fmt.Errorf("data month %s has %d models; the catalog needs %d", m.Name(), len(models), catalogModels)
 	}
 	models, ids = models[:catalogModels], ids[:catalogModels]
 	vehicles := make([]string, len(models))
@@ -238,7 +312,7 @@ func writeCatalog(dir string, m vocab.Month) error {
 		entry := map[string]string{"make": mm[0], "model": mm[1] + fmt.Sprintf(" #%d", i)}
 		v, err := json.Marshal(entry)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		vehicles[i] = string(v)
 		catalogOnce.vehicles[i] = vocab.Vehicle{Entry: entry}
@@ -262,7 +336,7 @@ func writeCatalog(dir string, m vocab.Month) error {
 			fmt.Fprintf(w, `{"id":"%03d","name":"Part type %d"}`+"\n", t+1, t+1)
 		}
 	}); err != nil {
-		return err
+		return nil, err
 	}
 	if err := write("models.jsonl", func(w *bufio.Writer) {
 		fmt.Fprintf(w, `{"format":1,"kind":"vocabulary","name":"bench-models","version":"synthetic","data_month":%q,"subject":"vehicle","fields":["make","model"]}`+"\n", m.Name())
@@ -274,9 +348,10 @@ func writeCatalog(dir string, m vocab.Month) error {
 			}
 		}
 	}); err != nil {
-		return err
+		return nil, err
 	}
-	return write("catalog.jsonl", func(w *bufio.Writer) {
+	wideOf := map[int][2]int{}
+	return wideOf, write("catalog.jsonl", func(w *bufio.Writer) {
 		fmt.Fprintf(w, `{"format":1,"kind":"catalog","name":"bench-catalog","version":"synthetic","release":"1.0","data_month":%q,"spine":"bench-types","vehicles":"bench-models"}`+"\n", m.Name())
 		for i := range catalogFitments {
 			fmt.Fprintf(w, `{"fitment":{"type":"%s","number":"%s"%s}`, catalogTypeOf(i), catalogNumberOf(i), catalogSide(i))
@@ -312,6 +387,29 @@ func writeCatalog(dir string, m vocab.Month) error {
 			i := r * 461 % catalogFitments
 			fmt.Fprintf(w, `{"retired":{"type":"%s","number":"R%07d"%s},"to":{"type":"%s","number":"%s"%s},"note":"0.9 → 1.0"}`+"\n",
 				catalogTypeOf(i), r, catalogSide(i), catalogTypeOf(i), catalogNumberOf(i), catalogSide(i))
+		}
+		// Wide fitments, like universal parts: each of wideMin to wideMax
+		// applications on vehicles and years at random.
+		rng := rand.New(rand.NewPCG(uint64(wide), 262))
+		for k := range wide {
+			typ := wideTypeOf(k)
+			fmt.Fprintf(w, `{"fitment":{"type":"%s","number":"W%07d"},"applications":[`, typ, k)
+			for j := range wideMin + rng.IntN(wideMax-wideMin+1) {
+				if j > 0 {
+					w.WriteByte(',')
+				}
+				v, first := rng.IntN(catalogModels), 1981+rng.IntN(40)
+				fmt.Fprintf(w, `{"vehicle":%s,"first":%d,"last":%d,"options":"universal, fits %d-%d"`, vehicles[v], first, first+rng.IntN(6), k, j)
+				if j%2 == 0 {
+					fmt.Fprintf(w, `,"qualifiers":%s`, qualifierSets[(k+j)%len(qualifierSets)])
+				}
+				w.WriteByte('}')
+				if _, ok := wideOf[v]; !ok {
+					t, _ := strconv.Atoi(typ)
+					wideOf[v] = [2]int{t, first}
+				}
+			}
+			w.WriteString("]}\n")
 		}
 	})
 }

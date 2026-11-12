@@ -189,14 +189,14 @@ measured as above (`bench/vocab`, one core, Apple M5 Pro) and
 | --- | ---: | ---: | ---: |
 | Retained heap | 2.1 MB | 2.7 MB | 256 MiB |
 | Peak while opening | 16 MB | 19 MB | 512 MiB |
-| Open and ready | 3.1 ms | 5.1 ms | 1 s |
+| Open and ready | 3.1 ms | 4.5 ms | 1 s |
 | File | 184 MB | 342 MB | 500 MB |
-| Compile | 3.9 s | 3.9 s | recorded |
-| Compile peak | about 900 MB | 169 MB | 256 MiB (ADR 0023) |
+| Compile | 3.9 s | 3.7 s | recorded |
+| Compile peak, `nitrovin vocab compile` | about 900 MB | 202 MB | 256 MiB (ADR 0023) |
 
-Whole `fit` requests, p99, against ADR 0018's budgets: candidates 117 µs (5 ms),
-part types 557 µs and 1.7 ms with no year (10 ms), related vehicles 647 µs and
-2.2 ms with no year (50 ms), and reverse 90 µs (1 ms). Each is one to three reads
+Whole `fit` requests, p99, against ADR 0018's budgets: candidates 147 µs (5 ms),
+part types 614 µs and 1.9 ms with no year (10 ms), related vehicles 729 µs and
+2.8 ms with no year (50 ms), and reverse 95 µs (1 ms). Each is one to three reads
 of the file; ADR 0023's Measured has them. The file is larger because each
 vehicle's block holds a copy of its fitments; it stays inside the budget. The
 compiler streams, so it no longer loads the catalog as JSON Lines first.
