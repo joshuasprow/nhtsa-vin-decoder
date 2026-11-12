@@ -474,9 +474,10 @@ type release struct {
 	assets  map[string]string
 }
 
-// releaseFiles are the fake's answers for rs, the newest last, and for the
-// channels: none of them has the version. An asset's id is its release's id
-// and its index.
+// releaseFiles are the fake's answers for rs, listed in that order, and for
+// the channels: none of them has the version. An asset's id is its release's
+// id and its index. The helper relies on no order: the API listed two drafts
+// of one tag oldest first.
 func releaseFiles(version string, rs ...release) map[string]string {
 	files := map[string]string{
 		"api/GET/repos/microsoft/winget-pkgs/pulls?head=joshuasprow:JoshuaSprow.Nitrovin-" + version + "&state=all": `[]`,
@@ -492,8 +493,6 @@ func releaseFiles(version string, rs ...release) map[string]string {
 		}
 		files[assetsPath(r.id)] = "[" + strings.Join(assets, ",") + "]"
 	}
-	// The API lists the newest first.
-	slices.Reverse(list)
 	files[releasesPath] = "[" + strings.Join(list, ",") + "]"
 	return files
 }
@@ -588,7 +587,7 @@ func TestPlan(t *testing.T) {
 				{id: "12", tag: tag, draft: true, assets: map[string]string{}},
 				{id: "13", tag: tag, draft: true, assets: map[string]string{}},
 			},
-			want: []string{"2 draft releases (13 12)"},
+			want: []string{"2 draft releases (12 13)"},
 			fail: true,
 		},
 		{
