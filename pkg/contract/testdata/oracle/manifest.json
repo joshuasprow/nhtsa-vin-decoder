@@ -3,7 +3,7 @@
   "dump_bytes": 71394797,
   "dump_sha256": "373e6a8701f60a38e9fab9079d83c8947a75753e76720c116d8ba329ee03d2c1",
   "oracle": "freshened",
-  "now": "2026-11-10T19:57:48Z",
+  "now": "2026-11-12T09:30:57Z",
   "vins": "testdata/oracle/sample-vins.tsv",
   "vins_sha256": "e0fc857f61099c117c905a750cb4958559194e7948a341748380bb5fc461799d",
   "vin_count": 28,
