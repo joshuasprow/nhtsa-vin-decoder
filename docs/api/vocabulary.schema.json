@@ -237,8 +237,10 @@
         "first": { "type": "integer", "description": "First model year, inclusive." },
         "last": { "type": "integer", "description": "Last model year, inclusive; not before first." },
         "options": { "type": "string", "description": "The catalog's option text, verbatim and never interpreted; \"\" for none." },
-        "qualifiers": { "$ref": "#/$defs/Qualifiers", "description": "Checked only from a VIN; an unknown value keeps the application." }
-      }
+        "qualifiers": { "$ref": "#/$defs/Qualifiers", "description": "Checked only from a VIN; an unknown value keeps the application. Refused when the vehicle is an extension: no decode lands on one." }
+      },
+      "if": { "required": ["vehicle"], "properties": { "vehicle": { "required": ["ext"], "properties": { "ext": { "$ref": "#/$defs/ExtensionRef" } } } } },
+      "then": { "not": { "required": ["qualifiers"] } }
     },
     "FitmentLine": {
       "type": "object",

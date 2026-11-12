@@ -398,7 +398,8 @@ specifies.
   field; a missing or ill-typed field; entry fields other than the header's;
   two entries equal after normalization, or two extensions or spine entries
   with one id; a mapping naming no spine entry, or two; a first year after
-  the last; qualifiers on an extension mapping; a reference to an extension
+  the last; qualifiers on an extension mapping, or on a catalog application
+  whose vehicle is an extension; a reference to an extension
   or spine id no loaded file defines; a part vocabulary whose spine is not
   loaded; two files with one name, or one named `vpic`. A catalog adds: a
   second catalog; its spine or vehicle vocabulary not loaded (or not a

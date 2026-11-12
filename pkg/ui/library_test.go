@@ -333,13 +333,16 @@ func TestLibraryBatch(t *testing.T) {
 	if _, err := l.Load([]Picked{bad}, quiet); err == nil || !strings.Contains(err.Error(), "bad.jsonl:2:") {
 		t.Errorf("a faulty file: %v", err)
 	}
-	// A catalog loads on a server only.
+	// A catalog loads on a server only, refused by its header before the
+	// rest is read: a line after it that does not read is never reached.
 	catalog, err := os.ReadFile(filepath.Join("..", "..", "testdata", "vocab", "fitment", "catalog.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.Load([]Picked{{FileName: "catalog.jsonl", Data: catalog}}, quiet); err == nil || !strings.Contains(err.Error(), "catalog.jsonl is a catalog: catalogs load on a server") {
-		t.Errorf("a catalog: %v", err)
+	for _, data := range [][]byte{catalog, append([]byte("\n"+strings.SplitAfter(string(catalog), "\n")[0]), "not json\n"...)} {
+		if _, err := l.Load([]Picked{{FileName: "catalog.jsonl", Data: data}}, quiet); err == nil || !strings.Contains(err.Error(), "catalog.jsonl is a catalog: catalogs load on a server") {
+			t.Errorf("a catalog: %v", err)
+		}
 	}
 	// Storage failing stores nothing and changes nothing.
 	d.fail = errors.New("QuotaExceededError")

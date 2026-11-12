@@ -31,8 +31,9 @@ const (
 // 2.4 on average, so 1,896,000 in all.
 var applicationsPer = []int{1, 1, 2, 2, 2, 3, 3, 4, 1, 5}
 
-// Option text, as a catalog's builder leaves it: mostly a few phrases, some
-// a fitment's own.
+// Option text, as a catalog's builder leaves it: the leaf path of a tree,
+// so six applications in ten have text of their own, about 40 bytes, on
+// one of these phrases; the rest share a phrase.
 var options = []string{"", "", "", "w/o sunroof", "w/ sunroof", "4WD", "2WD", "w/ towing package", "w/o towing package",
 	"heated", "power", "manual", "from 3/15", "to 3/15", "w/ heavy duty brakes", "VIN T, 8th digit", "rear disc", "front disc",
 	"sedan", "coupe", "wagon", "LH", "RH", "w/ HID", "w/ halogen", "2.4L", "3.5L", "5.7L", "6 cyl", "8 cyl"}
@@ -170,8 +171,8 @@ func writeCatalog(dir string, m vocab.Month) error {
 					w.WriteByte(',')
 				}
 				opt := options[(i+j*3)%len(options)]
-				if (i+j)%10 == 9 {
-					opt = fmt.Sprintf("w/ part %d", i) // a fitment's own words
+				if (i+j)%10 < 6 {
+					opt = fmt.Sprintf("%s, w/ part %d-%d, from the parts tree", opt, i, j) // an application's own words
 				}
 				fmt.Fprintf(w, `{"vehicle":%s,"first":%d,"last":%d,"options":%q`, vehicles[vehicleOf(i, j)], firstOf(i, j), lastOf(i, j), opt)
 				if (i+j)%2 == 0 {

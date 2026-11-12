@@ -94,6 +94,7 @@ func TestSchema(t *testing.T) {
 		`{"fitment":{"type":"pads","number":"P1"},"applications":[],"to":{"type":"pads","number":"P2"}}`,
 		`{"redirect":{"vehicle":{"model":1938},"from":"pads"}}`,
 		`{"retired":{"type":"pads","number":"P0"}}`,
+		`{"fitment":{"type":"pads","number":"P1"},"applications":[{"vehicle":{"ext":"ext:classics/corvair"},"options":"","qualifiers":{"34":["Monza"]}}]}`,
 	} {
 		if validLine(s, line) == nil {
 			t.Errorf("%s validates; the schema should refuse it as Read does", line)

@@ -710,10 +710,13 @@ vocabulary at the scale of eBay's Master Vehicle List, which the run writes
 to a temporary directory; and decode alone. Requests report p50 and p99
 beside ns/op. `BenchmarkLoadCatalog` loads a catalog at the scale of ADR
 0017's budget (790,000 fitments, 1,896,000 applications, half with
-qualifiers, 100,000 redirects, 1,326 vehicles, 448 of them unmapped),
-written to the same temporary directory, and reports its file's size, the
-heap the load retains and a loading process's peak RSS, against the
-budget of 15 s on one core, 1.5 GiB peak and a 500 MB file. `release.yml`'s bench job runs them on its runner, and
+qualifiers and six in ten with option text of their own, 100,000
+redirects, 1,326 vehicles, 448 of them unmapped), written to the same
+temporary directory, and reports its file's size, the heap the load
+retains and a loading process's peak RSS, against the budget of 15 s on
+one core, 1.5 GiB peak and a 500 MB file. On the reference machine it
+measured 2.7 s on one core, 900 MB peak, 322 MB retained and a 330 MB
+file. `release.yml`'s bench job runs them on its runner, and
 `bench/vocab/notes` turns the output into the table the release notes end
 with, beside the budgets, which are stated for the reference machine (an
 Apple M5 Pro). Nothing gates on it: runner timings are too noisy, and a

@@ -222,17 +222,21 @@ knows vPIC ids declares `vpic` and skips the translation.
 Beyond the faults every file has, a catalog is refused for: a second
 catalog; its spine or vehicle vocabulary not loaded; a part type the spine
 lacks, in a fitment or a redirect; a vehicle whose fields are not exactly
-the vocabulary's, or an extension no loaded set defines; a side other
-than `left`, `right` or `both`; a fitment key, an application within a
-fitment, or a retired number given twice; a retired number that is live
-or points at no fitment. Its drift, which is served: a vehicle the
+the vocabulary's, or an extension no loaded set defines; qualifiers on an
+application whose vehicle is an extension, which no decode lands on; a
+side other than `left`, `right` or `both`; a fitment key, an application
+within a fitment, or a retired number given twice; a retired number that
+is live or points at no fitment. Its drift, which is served: a vehicle the
 vocabulary lacks or lists without a mapping (kind `vehicle`); a vPIC id
-the month lacks (`make`, `model`); a qualifier the month's decode cannot
-satisfy (`qualifier`); a redirect whose `to` part type has no application
-for its vehicle in overlapping years (`redirect`). A catalog names each
-vehicle on many lines, so its drift is one finding per vehicle, vPIC id
-or qualifier value, at the first line naming it, with `(and N more)` for
-the rest; and one per redirect.
+the month lacks (`make`, `model`); for a `vpic` catalog, an application
+to a vPIC model in years outside the model's (`model-years`, ADR 0022); a
+qualifier the month's decode cannot satisfy (`qualifier`); a redirect
+whose `to` part type has no application for its vehicle in overlapping
+years (`redirect`). A catalog names each vehicle on many lines, so its
+drift is one finding per vehicle, vPIC id, qualifier value or model and
+year range, at the first application or redirect naming it, with
+`(and N more)` counting the other applications or redirects that do; and
+one per redirect.
 
 `/v1/info` lists a catalog with its `release` and its counts:
 
@@ -245,14 +249,14 @@ nitrovin --vocab testdata/vocab/fitment info | jq -c '.vocabularies[] | select(.
 ```
 
 Translate and list read only vocabularies, extension sets and spines: a
-catalog is not in `list`'s catalog, and naming it as `of` or a `to` is
-refused. The browser neither loads a catalog nor is offered the
-server's, and `serve` never publishes one. In Go, a loaded catalog is a
-`fitment.Reader` ([`pkg/fitment`](../pkg/fitment)), the one interface
-every consumer reads it through (ADR 0017): `ByVehicle`, `ByNumber`,
-`Redirect` and `Info`. Its vehicles are the catalog's own;
-`fitment.Vehicles` turns a translation to the catalog's vehicle
-vocabulary into them:
+catalog is not in `list`'s catalog of what is loaded, and naming it as
+`of` or a `to` is refused. The browser neither loads a catalog nor is
+offered the server's, and `serve` never publishes one. In Go, a loaded
+catalog is a `fitment.Reader` ([`pkg/fitment`](../pkg/fitment)), the one
+interface every consumer reads it through (ADR 0017): `ByVehicle`,
+`ByNumber`, `Redirect`, `Fitments` (a page of fitments in key order) and
+`Info`. Its vehicles are the catalog's own; `fitment.Vehicles` turns a
+translation to the catalog's vehicle vocabulary into them:
 
 ```go
 t, _ := nitrovin.NewTranslator(d, files...) // files from vocab.Open("testdata/vocab/fitment")

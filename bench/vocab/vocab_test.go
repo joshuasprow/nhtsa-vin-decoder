@@ -17,7 +17,7 @@
 // not with -cpu, which sub-benchmarks do not all follow. Without
 // NITROVIN_EPA_VOCAB the EPA set is skipped. The 1M-entry file is written
 // to a temporary directory on first use, about 160 MB, and the catalog
-// beside it, about 290 MB.
+// beside it, about 330 MB.
 //
 // Each request benchmark reports p50-ns and p99-ns beside ns/op, timed per
 // iteration (the clock reads included). Each load (the embedded Decoder,

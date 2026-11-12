@@ -62,7 +62,9 @@ type ModelValue struct {
 	Name string
 }
 
-// CatalogEntry is one thing a translation can name: vPIC or a loaded file.
+// CatalogEntry is one thing a translation can name: vPIC or a loaded
+// vocabulary, extension set or spine, a line of list's catalog of what is
+// loaded (ADR 0012). It is not a fitment catalog (Catalog, ADR 0016).
 type CatalogEntry struct {
 	Name    string
 	Kind    Kind
@@ -80,8 +82,10 @@ type CatalogEntry struct {
 
 // Listing is one page of a list.
 type Listing struct {
-	// Catalog is the catalog, without Of: vPIC, then every file in load
-	// order.
+	// Catalog is list's catalog of what is loaded, without Of: vPIC, then
+	// every vocabulary, extension set and spine in load order (ADR 0012).
+	// It is not a fitment catalog (Catalog, ADR 0016), which it
+	// never lists.
 	Catalog []CatalogEntry
 	// File is the file listed, nil for the catalog and vPIC.
 	File *File
@@ -157,7 +161,8 @@ func (s *Set) List(q ListQuery) (*Listing, error) {
 	return l, nil
 }
 
-// catalog is vPIC, then every loaded file in load order.
+// catalog is list's catalog of what is loaded: vPIC, then every loaded
+// vocabulary, extension set and spine in load order.
 func (s *Set) catalog() []CatalogEntry {
 	out := []CatalogEntry{{Name: Reserved, Kind: KindSpine, Version: s.month.Name(), Subject: SubjectVehicle}}
 	for _, f := range s.files {

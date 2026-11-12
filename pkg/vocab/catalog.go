@@ -6,6 +6,7 @@ import (
 	"hash/maphash"
 	"math"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -407,6 +408,9 @@ func (r *reader) application(raw []byte, a *Application) error {
 	var err error
 	if a.Vehicle, err = r.vehicle(v[0]); err != nil {
 		return under("/vehicle", err)
+	}
+	if v[4] != nil && a.Vehicle.Ext != "" {
+		return errAt("/qualifiers", "an extension vehicle takes no qualifiers: no decode lands on an extension")
 	}
 	if a.First, a.Last, err = r.catalogYears(v[1], v[2]); err != nil {
 		return err
@@ -884,9 +888,11 @@ func (f *File) fitment(k FitmentKey) *Fitment {
 	return &f.Fitments[x.order[i]]
 }
 
-// Catalog is a loaded catalog file as package fitment's Reader reads it:
-// by vehicle, by number and by redirect, through indexes made once when
-// the file was read. It never changes and is safe for concurrent use.
+// Catalog is a loaded catalog file (ADR 0016) as package fitment's Reader
+// reads it: by vehicle, number, redirect and page, through indexes made
+// once when the file was read. It never changes and is safe for
+// concurrent use. It is a fitment catalog, not list's catalog of what is
+// loaded (CatalogEntry).
 type Catalog struct{ f *File }
 
 // Catalog is f as a Catalog, nil unless f is a catalog.
@@ -979,19 +985,51 @@ func (c *Catalog) ByNumber(partType, number string, side Side) (fitment *Fitment
 	return c.f.fitment(rt.To), rt
 }
 
-// Redirect returns the redirects from part type partType for vehicle (one
-// of the catalog's own) whose years hold year (nil: any year), in file
-// order: each names the part type the catalog lists partType under.
-func (c *Catalog) Redirect(partType string, vehicle Vehicle, year *int) []*Redirect {
-	id, ok := c.vehicleID(&vehicle)
-	if !ok {
-		return nil
+// Redirect returns the redirects from part type partType for one of
+// vehicles (the catalog's own, as ByVehicle takes them) whose years hold
+// year (nil: any year), in file order, each once: each names the part
+// type the catalog lists partType under for its vehicle.
+func (c *Catalog) Redirect(partType string, vehicles []Vehicle, year *int) []*Redirect {
+	var idx []int32
+	for i := range vehicles {
+		if id, ok := c.vehicleID(&vehicles[i]); ok {
+			idx = append(idx, c.f.catalog.redirects[typeVehicle{partType, id}]...)
+		}
+	}
+	if len(vehicles) > 1 {
+		slices.Sort(idx)
+		idx = slices.Compact(idx)
 	}
 	var out []*Redirect
-	for _, i := range c.f.catalog.redirects[typeVehicle{partType, id}] {
+	for _, i := range idx {
 		if rd := &c.f.Redirects[i]; holds(rd.First, rd.Last, year) {
 			out = append(out, rd)
 		}
+	}
+	return out
+}
+
+// Fitments pages through the catalog's fitments in key order (part type,
+// side, number): those of part type partType ("" for every type) whose
+// keys come after *after (nil: from the first), at most limit of them
+// (limit < 1: every one). The last one's key is the next page's after.
+func (c *Catalog) Fitments(partType string, after *FitmentKey, limit int) []*Fitment {
+	f, order := c.f, c.f.catalog.order
+	key := func(i int) FitmentKey { return f.Fitments[order[i]].Key }
+	lo, hi := 0, len(order)
+	if partType != "" {
+		lo = sort.Search(len(order), func(i int) bool { return key(i).Type >= partType })
+		hi = lo + sort.Search(len(order)-lo, func(i int) bool { return key(lo+i).Type > partType })
+	}
+	if after != nil {
+		lo += sort.Search(hi-lo, func(i int) bool { return compareFitmentKeys(key(lo+i), *after) > 0 })
+	}
+	if limit > 0 && hi-lo > limit {
+		hi = lo + limit
+	}
+	out := make([]*Fitment, 0, hi-lo)
+	for i := lo; i < hi; i++ {
+		out = append(out, &f.Fitments[order[i]])
 	}
 	return out
 }

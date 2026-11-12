@@ -7,15 +7,16 @@ import (
 	"slices"
 )
 
-// A catalog's drift is reported once per vehicle, per qualifier value and
-// per redirect, not once per line: a catalog names each vehicle on
-// thousands of lines, and one unmapped vehicle is one thing to curate. A
-// finding is about the first line that has it, and counts the others as
-// "(and N more)".
+// A catalog's drift is reported once per vehicle, per qualifier value, per
+// model and year range and per redirect, not once per line: a catalog
+// names each vehicle on thousands of lines, and one unmapped vehicle is
+// one thing to curate. A finding is about the first application or
+// redirect that has it, and counts the others as "(and N more)".
 
 // catalog measures d.f, a catalog whose vehicles are entries of vehicles,
 // nil when they are vpic: vehicles the vocabulary lacks or lists without
-// a mapping, vPIC ids the month lacks, qualifiers its decode cannot
+// a mapping, vPIC ids the month lacks, applications to a vPIC model in
+// years outside the model's (ADR 0022), qualifiers its decode cannot
 // satisfy, and redirects whose target part type has no application for
 // the redirect's vehicle and years.
 func (d *drifts) catalog(vehicles *File) {
@@ -33,6 +34,7 @@ func (d *drifts) catalog(vehicles *File) {
 	for i := range f.Redirects {
 		firsts[f.Redirects[i].Vehicle.id].see(f.Redirects[i].Line, -1)
 	}
+	known := make([]bool, len(x.vehicleList)) // a vPIC model the month has
 	for _, v := range x.vehicleList {
 		u := firsts[v.id]
 		switch {
@@ -49,10 +51,56 @@ func (d *drifts) catalog(vehicles *File) {
 				d.add(u.line, DriftMake, "%s/vehicle/make: vPIC make %d is not in data month %s%s", u.ptr(), v.Make, d.month, u.more())
 			}
 		case v.Model != 0:
-			if _, _, ok := d.m.Model(v.Model); !ok {
+			_, _, known[v.id] = d.m.Model(v.Model)
+			if !known[v.id] {
 				d.add(u.line, DriftModel, "%s/vehicle/model: vPIC model %d is not in data month %s%s", u.ptr(), v.Model, d.month, u.more())
 			}
 		}
+	}
+
+	// Model years (ADR 0022), where the vehicle is a vPIC model the month
+	// has: each model and year range once, at the first application with
+	// it.
+	type modelRange struct {
+		model             int32
+		first, last       int
+		hasFirst, hasLast bool
+	}
+	ranges := map[modelRange]*use{}
+	var order []modelRange
+	for i := range f.Fitments {
+		fit := &f.Fitments[i]
+		for j := range fit.Applications {
+			a := &fit.Applications[j]
+			if !known[a.Vehicle.id] || a.First == nil && a.Last == nil {
+				continue
+			}
+			k := modelRange{model: a.Vehicle.Model}
+			if a.First != nil {
+				k.first, k.hasFirst = *a.First, true
+			}
+			if a.Last != nil {
+				k.last, k.hasLast = *a.Last, true
+			}
+			u := ranges[k]
+			if u == nil {
+				u = &use{}
+				ranges[k] = u
+				order = append(order, k)
+			}
+			u.see(fit.Line, j)
+		}
+	}
+	for _, k := range order {
+		var first, last *int
+		if k.hasFirst {
+			first = new(k.first)
+		}
+		if k.hasLast {
+			last = new(k.last)
+		}
+		u := ranges[k]
+		d.modelYears(u.line, k.model, first, last, u.ptr, u.more())
 	}
 
 	// Each qualifier drift once, at the first application with it. A

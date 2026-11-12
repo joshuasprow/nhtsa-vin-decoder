@@ -1287,7 +1287,7 @@
           },
           "vocabularies": {
             "type": "array",
-            "description": "The vocabularies, extension sets and declared spines loaded beside the data (--vocab, NITROVIN_VOCAB), in load order; empty when none are. Decisions: ADR 0011, ADR 0012.",
+            "description": "The vocabularies, extension sets, declared spines and catalog loaded beside the data (--vocab, NITROVIN_VOCAB), in load order; empty when none are. Decisions: ADR 0011, ADR 0012, ADR 0017.",
             "items": {
               "type": "object",
               "required": [
@@ -1307,12 +1307,18 @@
                   "enum": [
                     "vocabulary",
                     "extension-set",
-                    "spine"
+                    "spine",
+                    "catalog"
                   ]
                 },
                 "version": {
                   "type": "string",
                   "minLength": 1
+                },
+                "release": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "A catalog's publisher's release, when its header gives one; absent for every other kind."
                 },
                 "blake3": {
                   "type": "string",
@@ -1324,9 +1330,29 @@
                   "minLength": 1,
                   "description": "The absolute path the file was loaded from."
                 },
+                "fitments": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "A catalog's fitments; absent for every other kind."
+                },
+                "applications": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "A catalog's applications, over all its fitments; absent for every other kind."
+                },
+                "redirects": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "A catalog's redirects; absent for every other kind."
+                },
+                "retired": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "A catalog's retired numbers; absent for every other kind."
+                },
                 "drift": {
                   "type": "array",
-                  "description": "The file's drift against the data month, by kind, only the kinds it has, in the order make, model, qualifier, extension, model-years; empty when it agrees with the month. Drift is served, never refused.",
+                  "description": "The file's drift against the data month and the files loaded with it, by kind, only the kinds it has, in the order make, model, qualifier, extension, model-years, vehicle, redirect; empty when it agrees. Drift is served, never refused. A catalog's drift is one finding per vehicle, vPIC id, qualifier value or model-year range, at the first line naming it, and one per redirect.",
                   "items": {
                     "type": "object",
                     "required": [
@@ -1341,9 +1367,11 @@
                           "model",
                           "qualifier",
                           "extension",
-                          "model-years"
+                          "model-years",
+                          "vehicle",
+                          "redirect"
                         ],
-                        "description": "make, model: a vPIC id the month lacks. qualifier: an element the month lacks, a value of the wrong type for it, or a value its decode never produces. extension: an extension named like a vPIC make, or a vPIC model under the same make. model-years: a mapping's first–last partly or wholly outside its vPIC model's model years."
+                        "description": "make, model: a vPIC id the month lacks. qualifier: an element the month lacks, a value of the wrong type for it, or a value its decode never produces. extension: an extension named like a vPIC make, or a vPIC model under the same make. model-years: a mapping's, or a vpic catalog application's, first–last partly or wholly outside its vPIC model's model years. vehicle: a catalog's vehicle its vehicle vocabulary lacks, or lists without a mapping. redirect: a catalog's redirect whose target part type has no application for its vehicle and years."
                       },
                       "count": {
                         "type": "integer",
@@ -1377,7 +1405,53 @@
                   }
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "catalog"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "fitments",
+                  "applications",
+                  "redirects",
+                  "retired"
+                ]
+              },
+              "else": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "release"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "fitments"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "applications"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "redirects"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "retired"
+                      ]
+                    }
+                  ]
+                }
+              }
             }
           }
         },
@@ -2020,7 +2094,7 @@
             "items": {
               "$ref": "#/components/schemas/FileVersion"
             },
-            "description": "The files listed: every loaded file for the catalog, the one of names, none for vpic."
+            "description": "The files listed: every loaded vocabulary, extension set and spine for the catalog, the one of names, none for vpic."
           },
           "data_month": {
             "type": "string",

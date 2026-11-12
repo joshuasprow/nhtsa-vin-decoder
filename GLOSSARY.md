@@ -287,7 +287,9 @@ _Avoid_: error (a decode's error codes are about the VIN), invalid
 One author's statement of which parts fit which vehicles, loaded as data. It
 names the declared part spine its part types come from and the vehicle
 vocabulary its applications use; a deployment loads one.
-_Avoid_: interchange (a catalog vendor's term), parts database
+_Avoid_: interchange (a catalog vendor's term), parts database; "catalog" for
+`list`'s list of what is loaded (`CatalogEntry`, ADR 0012), which names
+files, not fitments: say "what is loaded" or "the list of loaded files"
 
 **Fitment**:
 One part in a catalog: a part type, the catalog's number for it and its side,

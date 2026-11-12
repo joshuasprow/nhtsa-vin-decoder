@@ -2,6 +2,7 @@ package vocab
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -83,6 +84,7 @@ func TestCatalogFaults(t *testing.T) {
 		{"vehicle with another field", []file{partSpine, yardFile, catalogFile(app(`{"make":"Dodge","model":"Ram","trim":"SLT"}`, ``))}, "c.jsonl", 2, `/applications/0/vehicle: fields "make", "model", "trim" are not`},
 		{"redirect vehicle's fields", []file{partSpine, yardFile, catalogFile(padsFitment, `{"redirect":{"vehicle":{"model":"Ram"},"from":"rotor","to":"pads"}}`)}, "c.jsonl", 3, `/redirect/vehicle: fields "model" are not`},
 		{"vpic extension not loaded", []file{partSpine, {"c.jsonl", lines(vpicCatalog, app(`{"ext":"ext:classics/corvair"}`, ``))}}, "c.jsonl", 2, `/applications/0/vehicle/ext: extension set "classics" is not loaded`},
+		{"qualifiers on an extension vehicle", []file{partSpine, {"b.jsonl", lines(setHeader, `{"id":"corvair","make":467,"name":"Corvair"}`)}, {"c.jsonl", lines(vpicCatalog, app(`{"ext":"ext:classics/corvair"}`, `,"qualifiers":{"34":["Monza"]}`))}}, "c.jsonl", 2, "/applications/0/qualifiers: an extension vehicle takes no qualifiers"},
 
 		// Lines.
 		{"line of no kind", []file{partSpine, yardFile, catalogFile(`{"note":"x"}`)}, "c.jsonl", 2, "holds none of fitment, redirect or retired"},
@@ -236,16 +238,61 @@ func TestCatalogReader(t *testing.T) {
 		t.Errorf("ByNumber of another part type: %+v, %+v", fit, rt)
 	}
 
-	if rds := c.Redirect("brake-rotor-rear", silverado, new(2008)); len(rds) != 1 || rds[0].To != "brake-rotor-front" || rds[0].Options == "" {
+	if rds := c.Redirect("brake-rotor-rear", []Vehicle{silverado}, new(2008)); len(rds) != 1 || rds[0].To != "brake-rotor-front" || rds[0].Options == "" {
 		t.Errorf("Redirect rear rotor, Silverado 2008: %+v", rds)
 	}
 	for _, y := range []*int{new(2014), nil} {
-		if rds := c.Redirect("brake-rotor-rear", silverado, y); (y == nil) != (len(rds) == 1) {
+		if rds := c.Redirect("brake-rotor-rear", []Vehicle{silverado}, y); (y == nil) != (len(rds) == 1) {
 			t.Errorf("Redirect rear rotor, Silverado %v: %+v", y, rds)
 		}
 	}
-	if rds := c.Redirect("brake-rotor-rear", ram, nil); rds != nil {
+	if rds := c.Redirect("brake-rotor-rear", []Vehicle{ram}, nil); rds != nil {
 		t.Errorf("Redirect for a vehicle with none: %+v", rds)
+	}
+	if rds := c.Redirect("brake-rotor-rear", []Vehicle{silverado, ram, silverado}, nil); len(rds) != 1 {
+		t.Errorf("Redirect for several vehicles: %+v; want the Silverado's, once", rds)
+	}
+
+	// Paging in key order: part type, side, number.
+	page := func(partType string, after *FitmentKey, limit int) []string {
+		var out []string
+		for _, f := range c.Fitments(partType, after, limit) {
+			out = append(out, numbers([]Candidate{{Fitment: f}})[0])
+		}
+		return out
+	}
+	all := []string{"BR-2001:", "BR-2002:", "EN-57:", "MR-1001/left:", "MR-1001/right:"}
+	if got := page("", nil, 0); !slices.Equal(got, all) {
+		t.Errorf("Fitments, every one: %v; want %v", got, all)
+	}
+	var paged []string
+	var after *FitmentKey
+	for range 4 {
+		fs := c.Fitments("", after, 2)
+		for _, f := range fs {
+			paged = append(paged, numbers([]Candidate{{Fitment: f}})[0])
+		}
+		if len(fs) == 0 {
+			break
+		}
+		after = &fs[len(fs)-1].Key
+	}
+	if !slices.Equal(paged, all) {
+		t.Errorf("Fitments two at a time: %v; want %v", paged, all)
+	}
+	for _, tc := range []struct {
+		partType string
+		after    *FitmentKey
+		want     []string
+	}{
+		{"mirror", nil, []string{"MR-1001/left:", "MR-1001/right:"}},
+		{"brake-rotor-front", &FitmentKey{Type: "brake-rotor-front", Number: "BR-2001"}, []string{"BR-2002:"}},
+		{"engine", &FitmentKey{Type: "mirror", Number: "MR-1001", Side: SideRight}, nil},
+		{"wipers", nil, nil},
+	} {
+		if got := page(tc.partType, tc.after, 0); !slices.Equal(got, tc.want) {
+			t.Errorf("Fitments %q after %v: %v; want %v", tc.partType, tc.after, got, tc.want)
+		}
 	}
 
 	want := CatalogInfo{Name: "parts-catalog", Version: "2026.11", Release: "7.02", DataMonth: "2026_10", Spine: "part-types", Vehicles: "catalog-models",
@@ -296,11 +343,22 @@ func TestCatalogInSet(t *testing.T) {
 	}
 }
 
+// yearsMonth is month, knowing model 1938's years: 2002-2010.
+type yearsMonth struct{ month }
+
+func (yearsMonth) ModelYears(id int32) []YearRange {
+	if id == 1938 {
+		return []YearRange{{2002, 2010}}
+	}
+	return nil
+}
+
 // TestCatalogDrift: one finding per vehicle the vocabulary lacks or leaves
-// unmapped, per vPIC id the month lacks and per qualifier value it never
-// decodes, at the first line naming each; and one per redirect no
-// application answers. Only the month's own drift says what month the
-// file was built against.
+// unmapped, per vPIC id the month lacks, per qualifier value it never
+// decodes and per vPIC model and year range outside the model's years, at
+// the first application naming each; and one per redirect no application
+// answers. Only the month's own drift says what month the file was built
+// against.
 func TestCatalogDrift(t *testing.T) {
 	yard := file{"b.jsonl", lines(vehicleHeader, ram, `{"entry":{"make":"Dodge","model":"Lark"},"mappings":[]}`)}
 	cat := file{"c.jsonl", lines(
@@ -317,6 +375,8 @@ func TestCatalogDrift(t *testing.T) {
 	vpic := file{"c.jsonl", lines(vpicCatalog,
 		`{"fitment":{"type":"pads","number":"P1"},"applications":[{"vehicle":{"make":99999},"options":""},{"vehicle":{"model":88888},"options":""},{"vehicle":{"model":1938},"options":""},{"vehicle":{"make":476},"options":""}]}`,
 		`{"fitment":{"type":"pads","number":"P2"},"applications":[{"vehicle":{"model":88888},"options":""}]}`,
+		`{"fitment":{"type":"pads","number":"P3"},"applications":[{"vehicle":{"model":1938},"first":2009,"last":2012,"options":""},{"vehicle":{"model":1938},"first":2015,"last":2016,"options":""},{"vehicle":{"model":1938},"first":2003,"options":""}]}`,
+		`{"fitment":{"type":"pads","number":"P4"},"applications":[{"vehicle":{"model":1938},"first":2009,"last":2012,"options":"other"},{"vehicle":{"make":476},"first":1900,"options":""}]}`,
 	)}
 	_, vpicFiles, err := openFiles(t, []file{partSpine, vpic})
 	if err != nil {
@@ -337,11 +397,13 @@ func TestCatalogDrift(t *testing.T) {
 		{"a vpic catalog", vpicFiles, []string{
 			`2 make /applications/0/vehicle/make: vPIC make 99999 is not in data month 2026_10`,
 			`2 model /applications/1/vehicle/model: vPIC model 88888 is not in data month 2026_10 (and 1 more)`,
+			`4 model-years /applications/0: model years 2009-2012 fall partly outside vPIC model 1938's years in data month 2026_10: 2002-2010 (and 1 more)`,
+			`4 model-years /applications/1: model years 2015-2016 fall wholly outside vPIC model 1938's years in data month 2026_10: 2002-2010`,
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var got []string
-			for _, d := range Drift(month{}, tc.files) {
+			for _, d := range Drift(yearsMonth{}, tc.files) {
 				if d.Severity != SeverityDrift || !strings.HasSuffix(d.File, "c.jsonl") {
 					t.Errorf("finding %+v", d)
 				}
@@ -351,5 +413,71 @@ func TestCatalogDrift(t *testing.T) {
 				t.Errorf("drift\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(tc.want, "\n"))
 			}
 		})
+	}
+}
+
+// TestCatalogAcrossChunks reads a catalog of several read chunks: the
+// vehicles each chunk's reader interned, in spellings that differ only
+// after Normalize, are one vehicle each; redirect and retired lines from
+// the last chunk join the fitments of the first; and a fitment key given
+// in the first chunk and again in the last is a fault.
+func TestCatalogAcrossChunks(t *testing.T) {
+	const n, models = 6000, 10
+	spellings := []string{"Model %d", "MODEL  %d", " model %d"}
+	typeOf := func(i int) string { return []string{"pads", "rotor"}[i/models%2] }
+	yard := []string{vehicleHeader}
+	for m := range models {
+		yard = append(yard, fmt.Sprintf(`{"entry":{"make":"Dodge","model":"Model %d"},"mappings":[{"model":1938}]}`, m))
+	}
+	rows := []string{catalogHeader}
+	for i := range n {
+		model := fmt.Sprintf(spellings[i%len(spellings)], i%models)
+		rows = append(rows, fmt.Sprintf(`{"fitment":{"type":%q,"number":"N%05d"},"applications":[{"vehicle":{"make":"dodge","model":%q},"options":"w/ the option text a catalog builder leaves on this one application, row %d"}]}`,
+			typeOf(i), i, model, i))
+	}
+	rows = append(rows,
+		`{"redirect":{"vehicle":{"make":"DODGE","model":"model 7"},"from":"rotor","to":"pads"}}`,
+		fmt.Sprintf(`{"retired":{"type":%q,"number":"R0"},"to":{"type":%q,"number":"N%05d"}}`, typeOf(n-1), typeOf(n-1), n-1))
+	if size := len(strings.Join(rows, "\n")); size < 4*chunkSize {
+		t.Fatalf("the catalog is %d bytes, under four read chunks", size)
+	}
+	_, files, err := openFiles(t, []file{partSpine, {"b.jsonl", yard}, {"c.jsonl", rows}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := files[2].Catalog()
+	if got := len(c.Vehicles()); got != models {
+		t.Errorf("%d vehicles; want %d, each spelling of one model one vehicle", got, models)
+	}
+	total := 0
+	for m := range models {
+		v := []Vehicle{{Entry: map[string]string{"make": "Dodge", "model": fmt.Sprintf("Model %d", m)}}}
+		want := 0
+		for i := m; i < n; i += models {
+			if typeOf(i) == "pads" {
+				want++
+			}
+		}
+		pads, rotors := c.ByVehicle("pads", v, nil, nil), c.ByVehicle("rotor", v, nil, nil)
+		if len(pads) != want {
+			t.Errorf("model %d: %d pads; want %d", m, len(pads), want)
+		}
+		total += len(pads) + len(rotors)
+	}
+	if total != n {
+		t.Errorf("%d candidates over every vehicle; want all %d fitments", total, n)
+	}
+	seven := []Vehicle{{Entry: map[string]string{"make": "Dodge", "model": "Model 7"}}}
+	if rds := c.Redirect("rotor", seven, nil); len(rds) != 1 || rds[0].Line != n+2 {
+		t.Errorf("the last chunk's redirect: %+v", rds)
+	}
+	if fit, rt := c.ByNumber(typeOf(n-1), "R0", SideNone); fit == nil || fit.Line != n+1 || rt == nil || rt.Line != n+3 {
+		t.Errorf("ByNumber R0: %+v, %+v; want line %d through line %d", fit, rt, n+1, n+3)
+	}
+
+	dup := append(slices.Clone(rows), fmt.Sprintf(`{"fitment":{"type":%q,"number":"N00000"},"applications":[]}`, typeOf(0)))
+	_, _, err = openFiles(t, []file{partSpine, {"b.jsonl", yard}, {"c.jsonl", dup}})
+	if faults, ok := errors.AsType[Faults](err); !ok || len(faults) != 1 || faults[0].Line != n+4 || !strings.Contains(faults[0].Detail, "duplicate fitment key: line 2 has it too") {
+		t.Errorf("a key repeated across chunks: %v", err)
 	}
 }

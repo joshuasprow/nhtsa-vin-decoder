@@ -9,6 +9,14 @@
 // *vocab.Catalog (vocab.Set's Catalog) is a Reader. The catalog's lines
 // are vocab's types, as a vocabulary's are.
 //
+// vocab.Set.Catalog returns the concrete *vocab.Catalog, not a Reader:
+// this package imports vocab for those types, so vocab cannot name
+// Reader. That type stays. The compiled form (ADR 0021), which `--vocab`
+// recognises by its magic, becomes a second backing of *vocab.Catalog
+// inside package vocab, so Set.Catalog's type never changes; a reader
+// that is not loaded through `--vocab`, such as a connector, implements
+// Reader on its own.
+//
 // A Reader answers in the catalog's own terms: its part types (entries of
 // its declared spine) and its vehicles (entries of its vehicle vocabulary,
 // or vPIC makes and models and extensions when its vehicles are vpic).
@@ -39,11 +47,20 @@ type Reader interface {
 	// directly, or through the retired number it replaced, which retired
 	// then is. fitment is nil when there is neither.
 	ByNumber(partType, number string, side vocab.Side) (fitment *vocab.Fitment, retired *vocab.Retired)
-	// Redirect returns the redirects from part type partType for vehicle
-	// whose years hold year (nil: any), in file order: each names the part
-	// type the catalog lists partType under for it. A request follows one
-	// hop at most (ADR 0016).
-	Redirect(partType string, vehicle vocab.Vehicle, year *int) []*vocab.Redirect
+	// Redirect returns the redirects from part type partType for one of
+	// vehicles (as ByVehicle takes them) whose years hold year (nil: any),
+	// in file order, each once: each names the part type the catalog lists
+	// partType under for its vehicle. A request follows one hop at most
+	// (ADR 0016).
+	Redirect(partType string, vehicles []vocab.Vehicle, year *int) []*vocab.Redirect
+	// Fitments pages through the catalog's fitments in key order (part
+	// type, side, number): those of part type partType, "" for every type,
+	// whose keys come after *after, nil from the first, at most limit of
+	// them, limit < 1 for every one. The last one's key is the next page's
+	// after. It serves `list` of a catalog (ADR 0018) and any pass over
+	// every application, such as a compiled catalog's drift check
+	// (ADR 0021).
+	Fitments(partType string, after *vocab.FitmentKey, limit int) []*vocab.Fitment
 	// Info is the catalog's header and counts.
 	Info() vocab.CatalogInfo
 }
