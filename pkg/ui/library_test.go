@@ -333,6 +333,17 @@ func TestLibraryBatch(t *testing.T) {
 	if _, err := l.Load([]Picked{bad}, quiet); err == nil || !strings.Contains(err.Error(), "bad.jsonl:2:") {
 		t.Errorf("a faulty file: %v", err)
 	}
+	// A catalog loads on a server only, refused by its header before the
+	// rest is read: a line after it that does not read is never reached.
+	catalog, err := os.ReadFile(filepath.Join("..", "..", "testdata", "vocab", "fitment", "catalog.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, data := range [][]byte{catalog, append([]byte("\n"+strings.SplitAfter(string(catalog), "\n")[0]), "not json\n"...)} {
+		if _, err := l.Load([]Picked{{FileName: "catalog.jsonl", Data: data}}, quiet); err == nil || !strings.Contains(err.Error(), "catalog.jsonl is a catalog: catalogs load on a server") {
+			t.Errorf("a catalog: %v", err)
+		}
+	}
 	// Storage failing stores nothing and changes nothing.
 	d.fail = errors.New("QuotaExceededError")
 	if _, err := l.Load(pick(t, "listing"), quiet); err == nil {
@@ -660,6 +671,18 @@ func TestServiceWorker(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("/sw.js lacks %s:\n%s", want, body)
 		}
+	}
+	// A server's catalog stays on the server: the browser has no fitment,
+	// and a licensed catalog is never published.
+	withCatalog := testInfo
+	catalog := contract.VocabularyFile{Name: "parts-catalog", Kind: "catalog", Version: "1", Blake3: "cd34"}
+	withCatalog.Vocabularies = append(slices.Clone(testInfo.Vocabularies), catalog)
+	hc := New(backend{info: withCatalog}, log.New(io.Discard, "", 0)).WithWorker(Worker{Module: []byte("\x00asm"), Exec: []byte("// go")})
+	if _, _, body := response(t, hc, "GET", "/sw.js", nil); !strings.Contains(body, `"name":"yard"`) || strings.Contains(body, "parts-catalog") {
+		t.Errorf("/sw.js with a server's catalog:\n%s", body)
+	}
+	if status, _, body := response(t, hc, "GET", FilePath(withCatalog, catalog), nil); status != 404 || !strings.Contains(body, "publishes no catalog") {
+		t.Errorf("the server's catalog's URL: %d\n%s", status, body)
 	}
 	if strings.Contains(CSP, "wasm-unsafe-eval") {
 		t.Error("the pages' CSP allows WebAssembly")

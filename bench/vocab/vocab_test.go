@@ -1,8 +1,9 @@
 // Package vocab benchmarks vocabularies against the performance budget
 // (https://github.com/joshuasprow/nitrovin/issues/142): load, translate and
-// list on the fixture, the EPA vocabulary and a generated 1M-entry one, and
-// decode alone. release.yml runs them and puts the table bench/vocab/notes
-// makes in the release notes; nothing here is a gate.
+// list on the fixture, the EPA vocabulary and a generated 1M-entry one,
+// the load of a generated catalog at ADR 0017's scale, and decode alone.
+// release.yml runs them and puts the table bench/vocab/notes makes in the
+// release notes; nothing here is a gate.
 //
 //	gh release download "$(go list -m -f '{{.Version}}' github.com/joshuasprow/nitrovin-data)" \
 //	  -R joshuasprow/nitrovin-data -p epa-vehicles.jsonl -D /tmp
@@ -15,13 +16,15 @@
 // load is read at every GOMAXPROCS run. Set GOMAXPROCS in the environment,
 // not with -cpu, which sub-benchmarks do not all follow. Without
 // NITROVIN_EPA_VOCAB the EPA set is skipped. The 1M-entry file is written
-// to a temporary directory on first use, about 160 MB.
+// to a temporary directory on first use, about 160 MB, and the catalog
+// beside it, about 330 MB.
 //
 // Each request benchmark reports p50-ns and p99-ns beside ns/op, timed per
 // iteration (the clock reads included). Each load (the embedded Decoder,
 // vocab.Open and NewTranslator, what a process loading --vocab does)
 // reports entries and peak-RSS-MB, the maximum resident set of a child
-// process that loads the set once.
+// process that loads the set once; the catalog's reports its counts,
+// file-MB and heap-MB, the heap a load retains, instead of entries.
 package vocab
 
 import (
@@ -119,17 +122,30 @@ func mvl(b *testing.B) []string {
 			mvlOnce.err = err
 			return
 		}
-		if tmp, err = os.MkdirTemp("", "nitrovin-bench-"); err != nil {
+		dir, err := benchTemp()
+		if err != nil {
 			mvlOnce.err = err
 			return
 		}
-		mvlOnce.path = filepath.Join(tmp, "mvl.jsonl")
+		mvlOnce.path = filepath.Join(dir, "mvl.jsonl")
 		mvlOnce.err = writeMVL(mvlOnce.path, d.Month(), 1_000_000)
 	})
 	if mvlOnce.err != nil {
 		b.Fatal(mvlOnce.err)
 	}
 	return []string{mvlOnce.path}
+}
+
+var tmpOnce sync.Once
+
+// benchTemp is the run's temporary directory, tmp, made on first use.
+func benchTemp() (string, error) {
+	var err error
+	tmpOnce.Do(func() { tmp, err = os.MkdirTemp("", "nitrovin-bench-") })
+	if err == nil && tmp == "" {
+		err = fmt.Errorf("no temporary directory")
+	}
+	return tmp, err
 }
 
 // writeMVL writes n entries at the scale of eBay's Master Vehicle List:

@@ -1,9 +1,10 @@
 # The decode contract layer without a dump: pkg/contract's request parsing
 # and both layouts, every decode of the committed oracle answer key checked
 # against docs/api/decode.schema.json; pkg/vocab's faults, the synthetic
-# vocabulary fixture against docs/api/vocabulary.schema.json and its drift
-# against the embedded data; pkg/nitrovin vetted; the CLI's usage, refusal,
-# unloadable-data and vocabulary cases, and a decode on its embedded data;
+# vocabulary and catalog fixtures against docs/api/vocabulary.schema.json
+# and their drift against the embedded data; pkg/nitrovin vetted; the
+# CLI's usage, refusal, unloadable-data and vocabulary cases, and a decode
+# on its embedded data;
 # the EPA vocabulary builder on a sample of vehicles.csv, against the same;
 # the pages (pkg/ui), the decode form among them in the runner's headless
 # Chrome, with JavaScript and without, audited by axe (TestForm, which CI
@@ -23,6 +24,7 @@ on:
       - pkg/nitrovin/**
       - pkg/decoder/**
       - pkg/vocab/**
+      - pkg/fitment/**
       - pkg/ui/**
       - cmd/nitrovin/**
       - cmd/nitrovin-epa/**
@@ -75,7 +77,7 @@ jobs:
             go-contract-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
             go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
             go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
-      - run: go vet ./pkg/contract/ ./pkg/nitrovin/ ./pkg/vocab/ ./pkg/ui/ ./cmd/nitrovin/ ./cmd/nitrovin-epa/
+      - run: go vet ./pkg/contract/ ./pkg/nitrovin/ ./pkg/vocab/ ./pkg/fitment/ ./pkg/ui/ ./cmd/nitrovin/ ./cmd/nitrovin-epa/
       # Every test that runs the vocabulary fixture (testdata/vocab) or the
       # EPA sample against the embedded month must pass, never skip. They
       # assert against whatever month go.mod pins, so on the refresh's bump
@@ -83,14 +85,15 @@ jobs:
       - name: Test
         shell: bash
         run: |
-          go test -count=1 -json ./pkg/contract/ ./pkg/nitrovin/ ./pkg/vocab/ ./pkg/ui/ ./cmd/nitrovin/ ./cmd/nitrovin-epa/ |
+          go test -count=1 -json ./pkg/contract/ ./pkg/nitrovin/ ./pkg/vocab/ ./pkg/fitment/ ./pkg/ui/ ./cmd/nitrovin/ ./cmd/nitrovin-epa/ |
             tee "$RUNNER_TEMP/test.json" | jq -rj 'select(.Action == "output") | .Output'
           month=$(jq -r .data_month "$(go list -m -f '{{.Dir}}' github.com/joshuasprow/nitrovin-data)/pkg/embedded/manifest.json")
           passed=$(jq -r 'select(.Action == "pass" and .Test != null) | "\(.Package | ltrimstr("github.com/joshuasprow/nitrovin/")) \(.Test)"' "$RUNNER_TEMP/test.json")
           required=(
             "pkg/nitrovin "{TestFixtureLoadsClean,TestFixtureDrift,TestTranslatorRefusesUnlinked,TestTranslate,TestTranslateAnswer}
             "pkg/nitrovin "{TestTranslateBatch,TestTranslateDrift,TestTranslateWithoutFiles,TestList,TestListPaging,TestSpineBundleTranslates}
-            "cmd/nitrovin "{TestVocabCheck,TestVocabLoad,TestServeVocabularies,TestTranslate,TestTranslateRefused,TestList,TestListRefused}
+            "pkg/nitrovin "{TestCatalogLoads,TestCatalogDrift}
+            "cmd/nitrovin "{TestVocabCheck,TestVocabLoad,TestServeVocabularies,TestVocabCheckCatalog,TestTranslate,TestTranslateRefused,TestList,TestListRefused}
             "cmd/nitrovin "{TestStdioOps,TestMCPVocabSession,TestWorker,TestVocabPage,TestVocabTranslate,TestVocabPartTargets}
             "cmd/nitrovin-epa "{TestBuild,TestEntry,TestCuratedLoadsClean}
           )
@@ -103,4 +106,4 @@ jobs:
       # decoder or pkg/nitrovin, so they build for the browser; the module
       # itself (cmd/nitrovin-sw) is js/wasm alone.
       - run: GOOS=js GOARCH=wasm go vet ./cmd/nitrovin-sw/
-      - run: GOOS=js GOARCH=wasm go build ./pkg/vocab/ ./pkg/contract/ ./pkg/ui/ ./cmd/nitrovin-sw/
+      - run: GOOS=js GOARCH=wasm go build ./pkg/vocab/ ./pkg/fitment/ ./pkg/contract/ ./pkg/ui/ ./cmd/nitrovin-sw/

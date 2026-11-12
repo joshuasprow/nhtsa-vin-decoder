@@ -319,9 +319,16 @@ Type qualifiers, extension mappings, make mappings and an unmapped entry),
 an extension set (`classics`), a declared spine (`parts`) and a part
 vocabulary on it (`listing`, with Vehicle Type qualifiers and an unmapped
 entry). It loads with no drift; `testdata/vocab/drift/` has one drift of
-each kind. `go test ./pkg/vocab` refuses one file per fault class and
-validates the fixture against the schema; `go test ./pkg/nitrovin` loads
-the fixture and its drift variant against the embedded data.
+each kind. `testdata/vocab/fitment/` is the synthetic catalog
+(`parts-catalog`) with its declared spine (`part-types`) and vehicle
+vocabulary (`catalog-models`), using every line kind: fitments, one number
+on a left and a right fitment, a qualifier, a redirect and a retired
+number; it loads clean beside `testdata/vocab`, or alone. `go test
+./pkg/vocab` refuses one file per fault class, catalogs' included,
+measures every catalog drift class, reads the catalog through its reader,
+and validates the fixtures against the schema; `go test ./pkg/nitrovin`
+loads the fixture, its drift variant and the catalog against the embedded
+data.
 
 Its headers say 2026_10, but the ids, values and VINs it relies on are
 long-lived ones (2026_06 loads it the same), so its tests never skip on
@@ -701,7 +708,15 @@ and list (first page, next page, where on the first field, `vpic` where
 make), on the fixture, the EPA vocabulary and a synthetic 1,000,000-entry
 vocabulary at the scale of eBay's Master Vehicle List, which the run writes
 to a temporary directory; and decode alone. Requests report p50 and p99
-beside ns/op. `release.yml`'s bench job runs them on its runner, and
+beside ns/op. `BenchmarkLoadCatalog` loads a catalog at the scale of ADR
+0017's budget (790,000 fitments, 1,896,000 applications, half with
+qualifiers and six in ten with option text of their own, 100,000
+redirects, 1,326 vehicles, 448 of them unmapped), written to the same
+temporary directory, and reports its file's size, the heap the load
+retains and a loading process's peak RSS, against the budget of 15 s on
+one core, 1.5 GiB peak and a 500 MB file. On the reference machine it
+measured 2.7 s on one core, 900 MB peak, 322 MB retained and a 330 MB
+file. `release.yml`'s bench job runs them on its runner, and
 `bench/vocab/notes` turns the output into the table the release notes end
 with, beside the budgets, which are stated for the reference machine (an
 Apple M5 Pro). Nothing gates on it: runner timings are too noisy, and a

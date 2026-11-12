@@ -32,22 +32,38 @@ type Info struct {
 	Vocabularies []VocabularyFile `json:"vocabularies"`
 }
 
-// VocabularyFile is one loaded vocabulary, extension set or declared spine
-// in Info, with its drift against the data month (ADR 0011).
+// VocabularyFile is one loaded vocabulary, extension set, declared spine
+// or catalog in Info, with its drift against the data month (ADR 0011,
+// ADR 0017).
 type VocabularyFile struct {
 	Name string `json:"name"`
-	// Kind is "vocabulary", "extension-set" or "spine".
+	// Kind is "vocabulary", "extension-set", "spine" or "catalog".
 	Kind    string `json:"kind"`
 	Version string `json:"version"`
+	// Release is a catalog's publisher's release, "" (absent) when it
+	// gives none and for every other kind.
+	Release string `json:"release,omitempty"`
 	// Blake3 is the hex blake3 hash of the file's bytes.
 	Blake3 string `json:"blake3"`
 	// Path is where the file was loaded from: an absolute path for --vocab
 	// and NITROVIN_VOCAB, the name given to vocab.Read otherwise.
 	Path string `json:"path"`
 	// Drift counts the file's drift findings by kind ("make", "model",
-	// "qualifier", "extension", "model-years"), only the kinds it has, in that order;
-	// empty when the file agrees with the data month.
+	// "qualifier", "extension", "model-years", "vehicle", "redirect"), only
+	// the kinds it has, in that order; empty when the file agrees with the
+	// data month.
 	Drift []DriftCount `json:"drift"`
+	// CatalogCounts are a catalog's, nil (absent) for every other kind.
+	*CatalogCounts
+}
+
+// CatalogCounts are how many fitments, applications, redirects and
+// retired numbers a catalog holds (ADR 0017).
+type CatalogCounts struct {
+	Fitments     int `json:"fitments"`
+	Applications int `json:"applications"`
+	Redirects    int `json:"redirects"`
+	Retired      int `json:"retired"`
 }
 
 // DriftCount is how many drift findings of one kind a file has, with the
@@ -68,7 +84,7 @@ type DriftExample struct {
 }
 
 // driftKinds orders a file's DriftCounts.
-var driftKinds = []vocab.DriftKind{vocab.DriftMake, vocab.DriftModel, vocab.DriftQualifier, vocab.DriftExtension, vocab.DriftModelYears}
+var driftKinds = []vocab.DriftKind{vocab.DriftMake, vocab.DriftModel, vocab.DriftQualifier, vocab.DriftExtension, vocab.DriftModelYears, vocab.DriftVehicle, vocab.DriftRedirect}
 
 // DriftCounts counts the findings of drift about the file loaded from
 // path by kind, keeping the first MaxDriftExamples of each: what Info

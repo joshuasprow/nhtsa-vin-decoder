@@ -23,10 +23,12 @@ import (
 
 // The synthetic fixture: testdata/vocab loads clean against the embedded
 // month (its headers say 2026_10; its ids and values are long-lived), its
-// drift/ variant with one drift of each kind.
+// drift/ variant with one drift of each kind, and fitment/ a catalog with
+// its spine and vehicle vocabulary.
 var (
-	fixture      = abs("../../testdata/vocab")
-	driftFixture = abs("../../testdata/vocab/drift")
+	fixture        = abs("../../testdata/vocab")
+	driftFixture   = abs("../../testdata/vocab/drift")
+	fitmentFixture = abs("../../testdata/vocab/fitment")
 )
 
 func abs(path string) string {
@@ -262,5 +264,81 @@ func TestServeVocabularies(t *testing.T) {
 	}
 	if resp.StatusCode != 200 || !reflect.DeepEqual(info.Vocabularies, tr.Info().Vocabularies) {
 		t.Errorf("GET /v1/info: status %d, vocabularies %+v; want %+v", resp.StatusCode, info.Vocabularies, tr.Info().Vocabularies)
+	}
+}
+
+// TestVocabCheckCatalog: `vocab check` checks a catalog with the files it
+// names: clean, refused without its spine and vehicle vocabulary, and
+// drifting; `info` and GET /v1/info list it with its release and counts.
+func TestVocabCheckCatalog(t *testing.T) {
+	fixtureData(t)
+	if r := cli(t, nil, "", "vocab", "check", fixture, fitmentFixture); r.exit != 0 || r.stdout != "" || r.stderr != "" {
+		t.Errorf("vocab check on the catalog fixture: exit %d, stdout %q, stderr %q; want exit 0 and nothing", r.exit, r.stdout, r.stderr)
+	}
+
+	catalog := filepath.Join(fitmentFixture, "catalog.jsonl")
+	r := cli(t, nil, "", "vocab", "check", catalog)
+	var got []string
+	for _, f := range findings(t, r.stdout) {
+		got = append(got, string(f.Severity)+" "+strconv.Itoa(f.Line)+": "+f.Detail)
+	}
+	if want := []string{`fault 1: /spine: spine "part-types" is not loaded`, `fault 1: /vehicles: vocabulary "catalog-models" is not loaded`}; r.exit != 1 || !slices.Equal(got, want) {
+		t.Errorf("vocab check on the catalog alone: exit %d, findings %v; want exit 1 and %v", r.exit, got, want)
+	}
+
+	dir := t.TempDir()
+	data, err := os.ReadFile(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, `{"redirect":{"vehicle":{"make":"Dodge","model":"Ram 1500"},"from":"engine","to":"mirror","first":2015}}`+"\n"...)
+	if err := os.WriteFile(filepath.Join(dir, "catalog.jsonl"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r = cli(t, nil, "", "vocab", "check", filepath.Join(fitmentFixture, "part-types.jsonl"), filepath.Join(fitmentFixture, "catalog-models.jsonl"), dir)
+	fs := findings(t, r.stdout)
+	if r.exit != 1 || len(fs) != 1 || fs[0].Severity != vocab.SeverityDrift || fs[0].Line != 9 || fs[0].Detail != `/redirect/to: part type "mirror" has no application for this vehicle in 2015 on` {
+		t.Errorf("vocab check on a drifting catalog: exit %d, findings %+v", r.exit, fs)
+	}
+
+	r = cli(t, nil, "", "--vocab", fitmentFixture, "info")
+	var info contract.Info
+	if err := json.Unmarshal([]byte(r.stdout), &info); err != nil || r.exit != 0 {
+		t.Fatalf("info with the catalog: exit %d, %v, %q", r.exit, err, r.stdout)
+	}
+	i := slices.IndexFunc(info.Vocabularies, func(v contract.VocabularyFile) bool { return v.Kind == "catalog" })
+	if i < 0 || info.Vocabularies[i].Release != "7.02" || info.Vocabularies[i].CatalogCounts == nil || info.Vocabularies[i].Fitments != 5 {
+		t.Errorf("info's catalog: %+v", info.Vocabularies)
+	}
+
+	d, err := nitrovin.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := vocab.Open(fitmentFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := nitrovin.NewTranslator(d, files...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := newAPI(loaded{tr.Decoder(), tr}, log.New(io.Discard, "", 0), io.Discard, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(a)
+	t.Cleanup(srv.Close)
+	resp, err := client.Get(srv.URL + "/v1/info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var served contract.Info
+	if err := json.NewDecoder(resp.Body).Decode(&served); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 || !reflect.DeepEqual(served.Vocabularies, tr.Info().Vocabularies) {
+		t.Errorf("GET /v1/info: status %d, vocabularies %+v; want %+v", resp.StatusCode, served.Vocabularies, tr.Info().Vocabularies)
 	}
 }

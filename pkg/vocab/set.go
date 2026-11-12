@@ -8,12 +8,15 @@ import (
 )
 
 // Set is files loaded together beside a data month, indexed to translate
-// and list (ADR 0012). It never changes once made and is safe for
-// concurrent use.
+// and list (ADR 0012), and the catalog loaded with them, if any, to fit
+// (ADR 0017). It never changes once made and is safe for concurrent use.
 type Set struct {
-	month  Month
-	files  []*File
-	byName map[string]*File
+	month Month
+	// files are the vocabularies, extension sets and spines; fitments is
+	// the catalog, nil when none is loaded.
+	files    []*File
+	fitments *Catalog
+	byName   map[string]*File
 	// lists holds, per declared spine and extension set, its entries in
 	// list order, built on first use.
 	lists map[*File]func() []row
@@ -62,9 +65,14 @@ func NewSet(m Month, files []*File) (*Set, error) {
 	if err := Link(files); err != nil {
 		return nil, err
 	}
-	s := &Set{month: m, files: files, byName: map[string]*File{}, lists: map[*File]func() []row{}}
+	s := &Set{month: m, byName: map[string]*File{}, lists: map[*File]func() []row{}}
 	for _, f := range files {
 		s.byName[f.Name] = f
+		if f.Kind == KindCatalog {
+			s.fitments = f.Catalog()
+			continue
+		}
+		s.files = append(s.files, f)
 		switch f.Kind {
 		case KindVocabulary:
 			f.listOrder()
@@ -124,8 +132,14 @@ func (s *Set) models(mk int32) []row {
 // Month is the data month the files are indexed beside.
 func (s *Set) Month() Month { return s.month }
 
-// Files are the files, in load order.
+// Files are the vocabularies, extension sets and spines, in load order:
+// what translate and list read. The catalog is Catalog's.
 func (s *Set) Files() []*File { return s.files }
+
+// Catalog is the catalog loaded with the files, nil when there is none.
+// A fit (ADR 0018) translates a request's vehicle to the catalog's
+// vehicle vocabulary through the Set, then asks the Catalog.
+func (s *Set) Catalog() *Catalog { return s.fitments }
 
 // normalized is values, each normalized.
 func normalized(values []string) []string {

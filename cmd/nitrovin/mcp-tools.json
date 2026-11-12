@@ -1219,7 +1219,7 @@
                 "items": {
                   "$ref": "#/$defs/FileVersion"
                 },
-                "description": "The files listed: every loaded file for the catalog, the one of names, none for vpic."
+                "description": "The files listed: every loaded vocabulary, extension set and spine for the catalog, the one of names, none for vpic."
               },
               "data_month": {
                 "type": "string",

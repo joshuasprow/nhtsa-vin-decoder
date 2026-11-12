@@ -5,15 +5,19 @@ yard's inventory, a parts catalog's codes, a marketplace's categories.
 nitrovin loads vocabularies as data, beside the vPIC data month, and
 **translates** between them through a **spine**: vPIC's own makes and
 models for vehicles, a spine you declare for part types. A VIN translates
-too, through its decode. This page is how to write the files, load and
-check them, and translate and list on every surface. The rules are the
+too, through its decode. A **catalog** is a fourth kind of file, loaded
+the same way: which parts fit which vehicles. This page is how to write
+the files, load and check them, and translate and list on every surface.
+The rules are the
 [API contract](api/README.md#vocabularies---vocab); the file format is
 [`vocabulary.schema.json`](api/vocabulary.schema.json); the words are
 [GLOSSARY.md](../GLOSSARY.md#translation)'s; the reasons are ADRs
 [0009](adr/0009-what-a-vocabulary-mapping-says.md),
 [0010](adr/0010-part-types-translate-through-a-declared-spine.md),
-[0011](adr/0011-vocabularies-are-json-lines-loaded-once.md) and
-[0012](adr/0012-translation-and-listing-are-requests-beside-decode.md).
+[0011](adr/0011-vocabularies-are-json-lines-loaded-once.md),
+[0012](adr/0012-translation-and-listing-are-requests-beside-decode.md),
+and for catalogs [0016](adr/0016-what-a-fitment-says.md) and
+[0017](adr/0017-the-catalog-file.md).
 
 Matching is exact. nitrovin compares names after trimming them, collapsing
 white space and lower-casing, and nothing else: no fuzzy matching, no
@@ -23,24 +27,27 @@ is the vocabulary author's work, done before the file is written.
 The examples run from a checkout of this repository, with `nitrovin` built
 from it on `PATH`, against the synthetic vocabularies in
 [`testdata/vocab/`](../testdata/vocab) (a yard, a parts listing, its part
-spine, an extension set of classics) and EPA's published vocabulary:
+spine, an extension set of classics), the synthetic catalog in
+[`testdata/vocab/fitment/`](../testdata/vocab/fitment) and EPA's
+published vocabulary:
 
 ```sh
 go build -o nitrovin ./cmd/nitrovin && export PATH="$PWD:$PATH"
 ```
 
-## The three kinds
+## The four kinds
 
 Every file is JSON Lines: a header line naming its `kind`, then one line
-per entry. A file is one of three kinds:
+per entry. A file is one of four kinds:
 
 | Kind | What it holds | Lines after the header | Fixture |
 | --- | --- | --- | --- |
 | `vocabulary` | A system's names (`entry`), each mapped to spine entries (`mappings`). `subject` `vehicle` maps onto vPIC; `subject` `part` onto the declared spine its header names | `{"entry": {…}, "mappings": […]}` | `yard.jsonl` (vehicle), `listing.jsonl` (part) |
 | `extension-set` | Vehicles vPIC lacks, minted so vocabularies can map to them: a make, or a model under a vPIC make or an extension make | `{"id", "make_name"}` or `{"id", "make", "name"}` | `classics.jsonl` |
 | `spine` | A declared part-type spine: every id, flat, names optional | `{"id", "name"}` | `parts.jsonl` |
+| `catalog` | Which parts fit which vehicles: fitments with their applications, redirects and retired numbers ([below](#a-catalog)) | `{"fitment", "applications"}`, `{"redirect"}` or `{"retired", "to"}` | `fitment/catalog.jsonl` |
 
-Names (`name` in the header) share one namespace across all three, and
+Names (`name` in the header) share one namespace across all four, and
 `vpic` is reserved for the vehicle spine. Every object is closed: a field
 the schema does not name refuses the file, so a typo never passes
 silently.
@@ -165,6 +172,102 @@ them. A spine's named entries are also a vocabulary of their names, under
 the spine's name. Add an id to the spine rather than minting an
 extension.
 
+## A catalog
+
+A catalog is one author's statement of which parts fit which vehicles. It
+names the declared spine its part types come from and the vehicle
+vocabulary its vehicles are entries of, and both must be loaded beside
+it. A deployment loads at most one catalog.
+[`testdata/vocab/fitment/`](../testdata/vocab/fitment) holds one, with
+its spine (`part-types`) and its vehicle vocabulary (`catalog-models`).
+`catalog.jsonl`:
+
+```json
+{"format":1,"kind":"catalog","name":"parts-catalog","version":"2026.11","release":"7.02","data_month":"2026_10","spine":"part-types","vehicles":"catalog-models"}
+{"fitment":{"type":"mirror","number":"MR-1001","side":"left"},"note":"power, heated","applications":[{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2009,"last":2012,"options":"w/o towing package"},{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2009,"last":2012,"options":"4WD, w/ towing package","qualifiers":{"15":[2]}}]}
+{"fitment":{"type":"mirror","number":"MR-1001","side":"right"},"note":"power, heated","applications":[{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2009,"last":2012,"options":"w/o towing package"}]}
+{"redirect":{"vehicle":{"make":"Chevrolet","model":"Silverado 1500"},"first":2007,"last":2013,"from":"brake-rotor-rear","to":"brake-rotor-front","options":"rear rotors are listed with the front"}}
+{"retired":{"type":"brake-rotor-front","number":"BR-1999"},"to":{"type":"brake-rotor-front","number":"BR-2001"},"note":"7.01 → 7.02"}
+```
+
+- **The header.** `spine` names the declared spine. `vehicles` names a
+  vehicle vocabulary, or is `vpic` when the catalog's vehicles are vPIC
+  makes and models and extensions. `release` is the publisher's own
+  release, separate from your `version`; it is optional, as is
+  `data_month`.
+- **A fitment** is one part: its key is the part type (an id of the
+  spine), the catalog's `number` and an optional `side` (`left`, `right`
+  or `both`). One number on two sides is two fitments, as `MR-1001` is
+  above. A `note` is passed through.
+- **An application** is one vehicle and year range the fitment fits.
+  `vehicle` is an entry of the vehicle vocabulary by exactly its fields,
+  matched after the same normalization as entries, or for `vpic` one of
+  `{"make"}`, `{"model"}` or `{"ext"}` as a mapping names one. `first` and
+  `last` are optional and inclusive. `options` is the catalog's own option
+  text, verbatim, and required (`""` for none). `qualifiers` are as on a
+  mapping, and checked only from a VIN. One vehicle in several year
+  ranges, or with other option text, is several applications; two that
+  are the same in every field refuse the file.
+- **A redirect** says that for a vehicle and years the `from` part type
+  is listed under the `to` part type. A request follows it one hop.
+- **A retired number** points at the fitment that replaced it. It must
+  not be a live fitment, and its `to` must be a fitment in the file: the
+  author resolves chains.
+
+The catalog's vehicles are its own names, translated at request time, so
+a model your vocabulary has not mapped yet stays listed by name, and
+curating the vocabulary never forces a catalog rebuild. A catalog that
+knows vPIC ids declares `vpic` and skips the translation.
+
+Beyond the faults every file has, a catalog is refused for: a second
+catalog; its spine or vehicle vocabulary not loaded; a part type the spine
+lacks, in a fitment or a redirect; a vehicle whose fields are not exactly
+the vocabulary's, or an extension no loaded set defines; qualifiers on an
+application whose vehicle is an extension, which no decode lands on; a
+side other than `left`, `right` or `both`; a fitment key, an application
+within a fitment, or a retired number given twice; a retired number that
+is live or points at no fitment. Its drift, which is served: a vehicle the
+vocabulary lacks or lists without a mapping (kind `vehicle`); a vPIC id
+the month lacks (`make`, `model`); for a `vpic` catalog, an application
+to a vPIC model in years outside the model's (`model-years`, ADR 0022); a
+qualifier the month's decode cannot satisfy (`qualifier`); a redirect
+whose `to` part type has no application for its vehicle in overlapping
+years (`redirect`). A catalog names each vehicle on many lines, so its
+drift is one finding per vehicle, vPIC id, qualifier value or model and
+year range, at the first application or redirect naming it, with
+`(and N more)` counting the other applications or redirects that do; and
+one per redirect.
+
+`/v1/info` lists a catalog with its `release` and its counts:
+
+```sh
+nitrovin --vocab testdata/vocab/fitment info | jq -c '.vocabularies[] | select(.kind == "catalog") | del(.path, .blake3)'
+```
+
+```json
+{"name":"parts-catalog","kind":"catalog","version":"2026.11","release":"7.02","drift":[],"fitments":5,"applications":7,"redirects":1,"retired":1}
+```
+
+Translate and list read only vocabularies, extension sets and spines: a
+catalog is not in `list`'s catalog of what is loaded, and naming it as
+`of` or a `to` is refused. The browser neither loads a catalog nor is
+offered the server's, and `serve` never publishes one. In Go, a loaded
+catalog is a `fitment.Reader` ([`pkg/fitment`](../pkg/fitment)), the one
+interface every consumer reads it through (ADR 0017): `ByVehicle`,
+`ByNumber`, `Redirect`, `Fitments` (a page of fitments in key order) and
+`Info`. Its vehicles are the catalog's own; `fitment.Vehicles` turns a
+translation to the catalog's vehicle vocabulary into them:
+
+```go
+t, _ := nitrovin.NewTranslator(d, files...) // files from vocab.Open("testdata/vocab/fitment")
+cat := t.Catalog()                           // nil when no catalog is loaded
+ram := vocab.Vehicle{Entry: map[string]string{"make": "Dodge", "model": "Ram 1500"}}
+for _, c := range cat.ByVehicle("mirror", []vocab.Vehicle{ram}, new(2010), nil) {
+	fmt.Println(c.Fitment.Key.Number, c.Fitment.Key.Side, len(c.Applications)) // MR-1001 left 2, MR-1001 right 1
+}
+fit, retired := cat.ByNumber("brake-rotor-front", "BR-1999", vocab.SideNone) // BR-2001, through the retired number
+```
+
 ## Loading
 
 `--vocab <file|dir>`, before or after any command and repeatable, loads
@@ -179,7 +282,8 @@ NITROVIN_VOCAB=testdata/vocab nitrovin list | jq -c '.entries[] | {name, kind, s
 ```
 
 `/v1/info` (and `nitrovin info`) lists every loaded file with its version,
-blake3 hash, absolute path and drift.
+blake3 hash, absolute path and drift, and a catalog with its release and
+counts.
 
 ## Checking
 
@@ -202,6 +306,8 @@ vocabulary on the month it will run against:
 ```sh
 nitrovin vocab check testdata/vocab            # nothing printed, exit 0
 nitrovin vocab check testdata/vocab/drift      # six drift lines, exit 1
+nitrovin vocab check testdata/vocab/fitment    # a catalog with its spine and vehicles: nothing, exit 0
+nitrovin vocab check testdata/vocab/fitment/catalog.jsonl   # alone: two faults, exit 1
 ```
 
 ```json
@@ -325,7 +431,7 @@ curl localhost:8080/v1/vocabularies
 curl 'localhost:8080/v1/vocabularies/yard/entries?where.make=dodge&limit=2'
 ```
 
-`serve` also publishes each loaded file, byte for byte, for a browser that
+`serve` also publishes each loaded file but a catalog, byte for byte, for a browser that
 translates locally
 ([ADR 0013](adr/0013-browser-vocabularies-in-a-service-worker.md)), at
 `/ui/r/<release>/vocab/<blake3>/<name>.jsonl`, where the release is
@@ -547,4 +653,5 @@ loads none: there, the API's translate and list answer for vPIC alone, and
 the page offers EPA's to load into your browser. A vocabulary
 built from licensed names (a parts catalog, a marketplace's compatibility
 data) is yours to build and load under your own licence, and stays on the
-machines you load it on.
+machines you load it on. A catalog stays on its server: `serve` neither
+publishes it nor offers it to the browser.

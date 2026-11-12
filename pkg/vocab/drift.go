@@ -32,13 +32,19 @@ type Month interface {
 	Text(element int32, text string) bool
 }
 
-// Drift measures linked files against month m (ADR 0011): vPIC make and
-// model ids it lacks, qualifiers its decode cannot satisfy, and extensions
-// named, after Normalize, like a vPIC make or like a vPIC model under the
-// same make. Findings come in file and line order. Drift never refuses:
-// the files are served as they are.
+// Drift measures linked files against month m (ADR 0011, ADR 0017): vPIC
+// make and model ids it lacks, qualifiers its decode cannot satisfy,
+// extensions named, after Normalize, like a vPIC make or like a vPIC
+// model under the same make, and of a catalog, vehicles its vehicle
+// vocabulary lacks or lists unmapped and redirects no application
+// answers. Findings come in file and line order. Drift never refuses: the
+// files are served as they are.
 func Drift(m Month, files []*File) []Finding {
 	d := &drifts{m: m, month: m.Name(), models: map[int32]map[string]int32{}}
+	byName := map[string]*File{}
+	for _, f := range files {
+		byName[f.Name] = f
+	}
 	for _, f := range files {
 		d.f = f
 		switch f.Kind {
@@ -53,6 +59,8 @@ func Drift(m Month, files []*File) []Finding {
 			for _, x := range f.Extensions {
 				d.extension(x)
 			}
+		case KindCatalog:
+			d.catalog(byName[f.Vehicles])
 		}
 	}
 	return d.out
@@ -69,6 +77,8 @@ type drifts struct {
 	models map[int32]map[string]int32
 }
 
+// add adds a finding about the data month, saying what month the file was
+// built against when that is another.
 func (d *drifts) add(line int, kind DriftKind, format string, a ...any) {
 	detail := fmt.Sprintf(format, a...)
 	if d.f.DataMonth != "" && d.f.DataMonth != d.month {
@@ -90,26 +100,39 @@ func (d *drifts) mapping(line, i int, mp *Mapping) {
 		if _, _, ok := d.m.Model(mp.Model); !ok {
 			d.add(line, DriftModel, "/mappings/%d/model: vPIC model %d is not in data month %s", i, mp.Model, month)
 		} else {
-			d.modelYears(line, mp.Model, mp.First, mp.Last, func() string { return fmt.Sprintf("/mappings/%d", i) })
+			d.modelYears(line, mp.Model, mp.First, mp.Last, func() string { return fmt.Sprintf("/mappings/%d", i) }, "")
 		}
 	}
-	for _, q := range mp.Qualifiers {
+	d.qualifiers(mp.Qualifiers, func(ptr, detail string) {
+		d.add(line, DriftQualifier, "/mappings/%d/qualifiers%s: %s", i, ptr, detail)
+	})
+}
+
+// qualifiers calls drift with each way qs drift: the pointer into the
+// qualifiers, and what drifted.
+func (d *drifts) qualifiers(qs []Qualifier, drift func(ptr, detail string)) {
+	month := d.month
+	for _, q := range qs {
 		lookup, ok := d.m.Element(q.Element)
 		if !ok {
-			d.add(line, DriftQualifier, "/mappings/%d/qualifiers/%d: element %d is not a public element of data month %s", i, q.Element, q.Element, month)
+			drift(fmt.Sprintf("/%d", q.Element), fmt.Sprintf("element %d is not a public element of data month %s", q.Element, month))
 			continue
 		}
 		for j, v := range q.Values {
+			var detail string
 			switch {
 			case lookup && v.IsText:
-				d.add(line, DriftQualifier, "/mappings/%d/qualifiers/%d/%d: element %d is a lookup element in data month %s: its values are attribute ids, not %q", i, q.Element, j, q.Element, month, v.Text)
+				detail = fmt.Sprintf("element %d is a lookup element in data month %s: its values are attribute ids, not %q", q.Element, month, v.Text)
 			case !lookup && !v.IsText:
-				d.add(line, DriftQualifier, "/mappings/%d/qualifiers/%d/%d: element %d is a text element in data month %s: its values are strings, not %d", i, q.Element, j, q.Element, month, v.Attribute)
+				detail = fmt.Sprintf("element %d is a text element in data month %s: its values are strings, not %d", q.Element, month, v.Attribute)
 			case lookup && !d.m.Attribute(q.Element, v.Attribute):
-				d.add(line, DriftQualifier, "/mappings/%d/qualifiers/%d/%d: data month %s never decodes element %d to attribute id %d", i, q.Element, j, month, q.Element, v.Attribute)
+				detail = fmt.Sprintf("data month %s never decodes element %d to attribute id %d", month, q.Element, v.Attribute)
 			case !lookup && !d.m.Text(q.Element, v.Text):
-				d.add(line, DriftQualifier, "/mappings/%d/qualifiers/%d/%d: data month %s never decodes element %d to %q", i, q.Element, j, month, q.Element, v.Text)
+				detail = fmt.Sprintf("data month %s never decodes element %d to %q", month, q.Element, v.Text)
+			default:
+				continue
 			}
+			drift(fmt.Sprintf("/%d/%d", q.Element, j), detail)
 		}
 	}
 }
@@ -117,9 +140,10 @@ func (d *drifts) mapping(line, i int, mp *Mapping) {
 // modelYears reports DriftModelYears when model years [first, last] (nil:
 // unbounded) fall outside vPIC model's years, about the thing on line at
 // the pointer ptr gives, built only for a finding: a mapping, or a catalog
-// application whose vehicle is the model. A model with unknown years, and
-// years unbounded both ways, are never flagged.
-func (d *drifts) modelYears(line int, model int32, first, last *int, ptr func() string) {
+// application whose vehicle is the model. more ends the detail: a
+// catalog's "(and N more)", or "". A model with unknown years, and years
+// unbounded both ways, are never flagged.
+func (d *drifts) modelYears(line int, model int32, first, last *int, ptr func() string, more string) {
 	if first == nil && last == nil {
 		return
 	}
@@ -128,7 +152,7 @@ func (d *drifts) modelYears(line int, model int32, first, last *int, ptr func() 
 	if how == "" {
 		return
 	}
-	d.add(line, DriftModelYears, "%s: model years %s fall %s outside vPIC model %d's years in data month %s: %s", ptr(), mappingYears(first, last), how, model, d.month, yearsText(years))
+	d.add(line, DriftModelYears, "%s: model years %s fall %s outside vPIC model %d's years in data month %s: %s%s", ptr(), mappingYears(first, last), how, model, d.month, yearsText(years), more)
 }
 
 // mappingYears is [first, last] as "2001-2004", "2001-" or "-2004".

@@ -374,9 +374,11 @@ exit 2. A malformed flag (`--where` without `=`, a field given twice, a
 
 ## Vocabularies (`--vocab`)
 
-Vocabularies, extension sets and declared spines (ADR 0009, 0010, 0011) are
-JSON Lines files: a header, then one line per entry, extension or spine
-entry, each as [`vocabulary.schema.json`](vocabulary.schema.json) specifies.
+Vocabularies, extension sets, declared spines and catalogs (ADR 0009,
+0010, 0011, 0016, 0017) are JSON Lines files: a header, then one line per
+entry, extension, spine entry, or a catalog's fitment, redirect or retired
+number, each as [`vocabulary.schema.json`](vocabulary.schema.json)
+specifies.
 
 - **Loading.** `--vocab <file|dir>` names them, on the root or any command,
   repeatable; a directory loads every `*.jsonl` directly in it, in name
@@ -396,9 +398,19 @@ entry, each as [`vocabulary.schema.json`](vocabulary.schema.json) specifies.
   field; a missing or ill-typed field; entry fields other than the header's;
   two entries equal after normalization, or two extensions or spine entries
   with one id; a mapping naming no spine entry, or two; a first year after
-  the last; qualifiers on an extension mapping; a reference to an extension
+  the last; qualifiers on an extension mapping, or on a catalog application
+  whose vehicle is an extension; a reference to an extension
   or spine id no loaded file defines; a part vocabulary whose spine is not
-  loaded; two files with one name, or one named `vpic`.
+  loaded; two files with one name, or one named `vpic`. A catalog adds: a
+  second catalog; its spine or vehicle vocabulary not loaded (or not a
+  spine, or not a vehicle vocabulary); a part type its spine lacks, in a
+  fitment or a redirect; a vehicle whose fields are not exactly the
+  vehicle vocabulary's, or, for `vehicles: "vpic"`, not exactly one of
+  `make`, `model` or `ext`; a side other than `left`, `right` or `both`;
+  a missing `options`; a fitment key, an application within one fitment
+  (same vehicle, years, options and qualifiers) or a retired number given
+  twice; a retired number that is a live fitment or whose `to` is no
+  fitment in the file.
 - **Drift warns and serves.** Measured against the loaded data month: a
   vPIC make or model id it lacks; a qualifier its decode cannot satisfy (an
   element that is not one of its public elements, a value of the wrong type
@@ -411,21 +423,35 @@ entry, each as [`vocabulary.schema.json`](vocabulary.schema.json) specifies.
   wholly outside the model's years (`model-years`, ADR 0022: the finding
   says which and gives the model's ranges; a model with unknown years, and
   a mapping with neither bound, is never flagged, and an absent bound is
-  the model's own). Each finding is one line on stderr at load,
+  the model's own). A catalog adds, against the files loaded with it: a
+  vehicle its vehicle vocabulary lacks or lists without a mapping
+  (`vehicle`), and a redirect whose `to` part type has no application for
+  its vehicle in overlapping years (`redirect`); its vPIC id, qualifier and
+  `model-years` drift is measured as a mapping's, the last on applications
+  whose vehicle is a vPIC model (`vehicles: "vpic"`). A catalog's drift is
+  one finding per vehicle, vPIC id, qualifier value or model-year range, at
+  the first line naming it, its detail ending `(and N more)` when other
+  applications or redirects name it too, and one per redirect. Each
+  finding is one line on stderr at load,
   `{"file", "line", "severity": "drift", "detail"}`, and the files are
   served as written.
 - **`/v1/info`** (and `nitrovin info`, `nitrovin_info`) lists every loaded
   file in `vocabularies`, in load order: `name`, `kind`, `version`, `blake3`
   (hex, of the file's bytes), `path` (absolute) and `drift`, a count per
   kind of drift the file has (`make`, `model`, `qualifier`, `extension`,
-  `model-years`, in that order) with its first three findings as `{"line", "detail"}`. It
-  is `[]` when nothing is loaded, as for every `nitrovin_open` handle.
+  `model-years`, `vehicle`, `redirect`, in that order) with its first three
+  findings as `{"line", "detail"}`. A catalog adds its `release`, when its
+  header gives one, and its counts of `fitments`, `applications`,
+  `redirects` and `retired` numbers; no other kind has them. It is `[]`
+  when nothing is loaded, as for every `nitrovin_open` handle.
 - **`nitrovin vocab check <file|dir>…`** loads its arguments, and only
   them, beside the data (`--data` as for any command) and prints every
   finding on stdout as a JSON line,
   `{"file", "line", "severity": "fault"|"drift", "detail"}`: the faults
   when there are any, otherwise the drift. Exit 0 with no output when there
-  is none, 1 when there is any. Line 0 is a file that cannot be read.
+  is none, 1 when there is any. Line 0 is a file that cannot be read. A
+  catalog is checked like any file, so its spine and vehicle vocabulary
+  must be among the arguments.
 
 ## Translation (`translate`)
 
@@ -502,10 +528,12 @@ MCP and C surfaces carry the same object.
 | `after` | string | none | The previous page's `next` |
 
 - **The catalog** (no `of`, and then no `where`, `limit` or `after`) is
-  vPIC, then every loaded file in load order, each a `CatalogEntry`:
-  `name`, `kind` (vPIC is a `spine`), `version` (vPIC's is the data
-  month), `subject` (`vehicle` or `part`), a vocabulary's `fields`, and the
-  `spine` a vocabulary or extension set routes through.
+  vPIC, then every loaded vocabulary, extension set and spine in load
+  order, each a `CatalogEntry`: `name`, `kind` (vPIC is a `spine`),
+  `version` (vPIC's is the data month), `subject` (`vehicle` or `part`), a
+  vocabulary's `fields`, and the `spine` a vocabulary or extension set
+  routes through. A loaded catalog (ADR 0017) is in `/v1/info`, not here,
+  and an `of` naming it is `#invalid-request`.
 - **Entries.** A vocabulary's are `VocabularyEntry` values, its entries
   with their mappings as the file has them, ordered by normalized fields.
   vPIC's makes, or one make's models, are `SpineEntry` values ordered by

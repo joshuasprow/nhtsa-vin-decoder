@@ -586,6 +586,12 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 	var news []*held
 	for _, p := range picked {
 		progress("Reading " + p.FileName + "…")
+		// A catalog is refused by its header, before the whole of it, which
+		// may be hundreds of MB, is parsed in the worker.
+		if headerKind(p.Data) == vocab.KindCatalog {
+			return nil, &pageError{Status: http.StatusUnprocessableEntity, Message: fmt.Sprintf(
+				"%s is a catalog: catalogs load on a server, with --vocab, not in this browser.", p.FileName)}
+		}
 		f, err := vocab.Read(p.FileName, bytes.NewReader(p.Data))
 		if err != nil {
 			return nil, &pageError{Status: http.StatusUnprocessableEntity, Message: faultText(err)}
@@ -643,6 +649,24 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 	next.set = next.relink(set, dropped)
 	l.state.Store(next)
 	return l.Files(), nil
+}
+
+// headerKind is the kind a file's header, its first line that is not
+// blank, says; "" when it says none that reads.
+func headerKind(data []byte) vocab.Kind {
+	for line := range bytes.Lines(data) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var head struct {
+			Kind vocab.Kind `json:"kind"`
+		}
+		if json.Unmarshal(line, &head) != nil {
+			return ""
+		}
+		return head.Kind
+	}
+	return ""
 }
 
 // breaks says which of kept, linked now, dropped leaves out, and why; ""

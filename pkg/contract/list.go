@@ -169,7 +169,8 @@ func (ModelValueEntry) listEntry() {}
 func (SpineEntry) listEntry()      {}
 
 // CatalogEntry is one thing a request can name: vPIC, or a loaded
-// vocabulary, extension set or declared spine.
+// vocabulary, extension set or declared spine, a line of list's catalog of
+// what is loaded (ADR 0012). It is not a fitment catalog (ADR 0016).
 type CatalogEntry struct {
 	Name string `json:"name"`
 	// Kind is "vocabulary", "extension-set" or "spine"; vPIC is a spine.

@@ -2,14 +2,18 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/joshuasprow/nitrovin/blob/main/docs/api/vocabulary.schema.json",
   "title": "Vocabulary file line",
-  "description": "One line of a vocabulary file (JSON Lines, loaded with --vocab or $NITROVIN_VOCAB). Line 1 is a header; every later line is the line type its header's kind names: Entry for a vocabulary, Extension for an extension set, SpineEntry for a spine. Rules a single line cannot state (one kind per file, vehicle mappings only in vehicle vocabularies, part mappings only in part vocabularies, entry fields exactly the header's fields, unique entries and ids) are checked at load. Every object is closed: a field this schema does not name refuses the file. Decisions: ADR 0009, ADR 0010, ADR 0011.",
+  "description": "One line of a vocabulary, extension set, declared spine or catalog file (JSON Lines, loaded with --vocab or $NITROVIN_VOCAB). Line 1 is a header; every later line is a line type its header's kind names: Entry for a vocabulary, Extension for an extension set, SpineEntry for a spine, and FitmentLine, RedirectLine or RetiredLine, in any order, for a catalog. Rules a single line cannot state (one kind per file, vehicle mappings only in vehicle vocabularies, part mappings only in part vocabularies, entry fields exactly the header's fields, unique entries, ids, fitment keys and retired numbers, a fitment's applications unique, at most one catalog, a catalog's part types in its spine, its vehicles named by exactly its vehicle vocabulary's fields, a retired number never a live fitment and pointing at one) are checked at load. Every object is closed: a field this schema does not name refuses the file. Decisions: ADR 0009, ADR 0010, ADR 0011, ADR 0016, ADR 0017.",
   "oneOf": [
     { "$ref": "#/$defs/VocabularyHeader" },
     { "$ref": "#/$defs/ExtensionSetHeader" },
     { "$ref": "#/$defs/SpineHeader" },
+    { "$ref": "#/$defs/CatalogHeader" },
     { "$ref": "#/$defs/Entry" },
     { "$ref": "#/$defs/Extension" },
-    { "$ref": "#/$defs/SpineEntry" }
+    { "$ref": "#/$defs/SpineEntry" },
+    { "$ref": "#/$defs/FitmentLine" },
+    { "$ref": "#/$defs/RedirectLine" },
+    { "$ref": "#/$defs/RetiredLine" }
   ],
   "$defs": {
     "Format": {
@@ -20,7 +24,7 @@
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9._-]*$",
       "not": { "const": "vpic" },
-      "description": "The file's name. One namespace across vocabularies, extension sets and spines: two loaded files with one name refuse to load. A spine's name is also the name of the vocabulary of its entries' names. 'vpic' is reserved for the vehicle spine (ADR 0012)."
+      "description": "The file's name. One namespace across vocabularies, extension sets, spines and catalogs: two loaded files with one name refuse to load. A spine's name is also the name of the vocabulary of its entries' names. 'vpic' is reserved for the vehicle spine (ADR 0012)."
     },
     "Version": {
       "type": "string",
@@ -121,16 +125,8 @@
         "first": { "type": "integer", "description": "First model year the mapping holds for, inclusive." },
         "last": { "type": "integer", "description": "Last model year the mapping holds for, inclusive; not before first." },
         "qualifiers": {
-          "type": "object",
-          "minProperties": 1,
-          "propertyNames": { "pattern": "^[1-9][0-9]*$" },
-          "additionalProperties": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": true,
-            "items": { "type": ["integer", "string"] }
-          },
-          "description": "vPIC element id → the values the mapping holds for: attribute ids (integers) for lookup elements, exact strings for text elements. Any listed value satisfies its element; every element must be satisfied. Refused on ext mappings."
+          "$ref": "#/$defs/Qualifiers",
+          "description": "vPIC element id → the values the mapping holds for. Refused on ext mappings."
         },
         "origin": { "enum": ["derived", "curated", "seed"], "description": "Passed through, never interpreted." },
         "note": { "type": "string", "description": "Passed through, never interpreted." }
@@ -170,6 +166,123 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "name": { "type": "string", "minLength": 1, "description": "Optional; named entries also make up the vocabulary of the spine's names." }
+      }
+    },
+    "Qualifiers": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[1-9][0-9]*$" },
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": { "type": ["integer", "string"] }
+      },
+      "description": "vPIC element id → the values that hold: attribute ids (integers) for lookup elements, exact strings for text elements. Any listed value satisfies its element; every element must be satisfied (ADR 0009)."
+    },
+    "CatalogHeader": {
+      "type": "object",
+      "description": "A catalog's header (ADR 0016, ADR 0017): which parts fit which vehicles. A deployment loads at most one catalog.",
+      "required": ["format", "kind", "name", "version", "spine", "vehicles"],
+      "additionalProperties": false,
+      "properties": {
+        "format": { "$ref": "#/$defs/Format" },
+        "kind": { "const": "catalog" },
+        "name": { "$ref": "#/$defs/Name" },
+        "version": { "$ref": "#/$defs/Version" },
+        "data_month": { "$ref": "#/$defs/DataMonth" },
+        "spine": { "$ref": "#/$defs/Name", "description": "The declared spine the catalog's part types come from. It must be loaded." },
+        "vehicles": {
+          "anyOf": [{ "$ref": "#/$defs/Name" }, { "const": "vpic" }],
+          "description": "The vehicle vocabulary whose entries the catalog's vehicles are, which must be loaded; or vpic, when its vehicles are vPIC makes and models and extensions."
+        },
+        "release": { "type": "string", "minLength": 1, "description": "The catalog publisher's own release identifier, separate from version. A stock source numbered under a release compares its release with this one." }
+      }
+    },
+    "FitmentKey": {
+      "type": "object",
+      "description": "A fitment's identity within its catalog. One number on two sides is two fitments.",
+      "required": ["type", "number"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "minLength": 1, "description": "An entry id of the catalog's spine." },
+        "number": { "type": "string", "minLength": 1, "description": "The catalog's own number for the part." },
+        "side": { "enum": ["left", "right", "both"], "description": "Absent when the fitment states no side." }
+      }
+    },
+    "CatalogVehicle": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "A vehicle a catalog's line names: an entry of its vehicle vocabulary, by exactly that vocabulary's fields, matched after the same normalization as entries; or, when its vehicles are vpic, exactly one of make, model or ext, as a mapping names one.",
+      "anyOf": [
+        { "additionalProperties": { "type": "string" } },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "make": { "type": "integer", "minimum": 1 },
+            "model": { "type": "integer", "minimum": 1 },
+            "ext": { "$ref": "#/$defs/ExtensionRef" }
+          },
+          "oneOf": [{ "required": ["make"] }, { "required": ["model"] }, { "required": ["ext"] }]
+        }
+      ]
+    },
+    "Application": {
+      "type": "object",
+      "description": "One vehicle and model-year range a fitment fits (ADR 0016). Two applications of one fitment with the same vehicle, years, options and qualifiers refuse the file.",
+      "required": ["vehicle", "options"],
+      "additionalProperties": false,
+      "properties": {
+        "vehicle": { "$ref": "#/$defs/CatalogVehicle" },
+        "first": { "type": "integer", "description": "First model year, inclusive." },
+        "last": { "type": "integer", "description": "Last model year, inclusive; not before first." },
+        "options": { "type": "string", "description": "The catalog's option text, verbatim and never interpreted; \"\" for none." },
+        "qualifiers": { "$ref": "#/$defs/Qualifiers", "description": "Checked only from a VIN; an unknown value keeps the application. Refused when the vehicle is an extension: no decode lands on one." }
+      },
+      "if": { "required": ["vehicle"], "properties": { "vehicle": { "required": ["ext"], "properties": { "ext": { "$ref": "#/$defs/ExtensionRef" } } } } },
+      "then": { "not": { "required": ["qualifiers"] } }
+    },
+    "FitmentLine": {
+      "type": "object",
+      "description": "One fitment of a catalog: one part, with every application of it.",
+      "required": ["fitment", "applications"],
+      "additionalProperties": false,
+      "properties": {
+        "fitment": { "$ref": "#/$defs/FitmentKey" },
+        "note": { "type": "string", "description": "Passed through, never interpreted." },
+        "applications": { "type": "array", "items": { "$ref": "#/$defs/Application" } }
+      }
+    },
+    "RedirectLine": {
+      "type": "object",
+      "description": "For a vehicle and years, part type from is listed under part type to (ADR 0016). A request follows one hop.",
+      "required": ["redirect"],
+      "additionalProperties": false,
+      "properties": {
+        "redirect": {
+          "type": "object",
+          "required": ["vehicle", "from", "to"],
+          "additionalProperties": false,
+          "properties": {
+            "vehicle": { "$ref": "#/$defs/CatalogVehicle" },
+            "first": { "type": "integer" },
+            "last": { "type": "integer" },
+            "from": { "type": "string", "minLength": 1, "description": "The part type asked for: an entry id of the catalog's spine." },
+            "to": { "type": "string", "minLength": 1, "description": "The part type it is listed under: an entry id of the catalog's spine." },
+            "options": { "type": "string", "description": "The catalog's option text, verbatim." }
+          }
+        }
+      }
+    },
+    "RetiredLine": {
+      "type": "object",
+      "description": "A number the catalog no longer uses, and the fitment that replaced it: no live fitment has the retired key, and to is a fitment in the file.",
+      "required": ["retired", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "retired": { "$ref": "#/$defs/FitmentKey" },
+        "to": { "$ref": "#/$defs/FitmentKey" },
+        "note": { "type": "string", "description": "Passed through, never interpreted (the release step, say)." }
       }
     }
   }

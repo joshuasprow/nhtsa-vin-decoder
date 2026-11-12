@@ -1,0 +1,8 @@
+{"format":1,"kind":"catalog","name":"parts-catalog","version":"2026.11","release":"7.02","data_month":"2026_10","spine":"part-types","vehicles":"catalog-models"}
+{"fitment":{"type":"mirror","number":"MR-1001","side":"left"},"note":"power, heated","applications":[{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2009,"last":2012,"options":"w/o towing package"},{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2009,"last":2012,"options":"4WD, w/ towing package","qualifiers":{"15":[2]}}]}
+{"fitment":{"type":"mirror","number":"MR-1001","side":"right"},"note":"power, heated","applications":[{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2009,"last":2012,"options":"w/o towing package"}]}
+{"fitment":{"type":"brake-rotor-front","number":"BR-2001"},"applications":[{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2009,"last":2012,"options":""},{"vehicle":{"make":"Chevrolet","model":"Silverado 1500"},"first":2007,"last":2013,"options":"w/ heavy duty brakes","qualifiers":{"34":["1500"]}}]}
+{"fitment":{"type":"brake-rotor-front","number":"BR-2002"},"applications":[{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2013,"options":"VIN T, 8th digit"}]}
+{"fitment":{"type":"engine","number":"EN-57"},"note":"5.7L","applications":[{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2009,"last":2012,"options":"5.7L"}]}
+{"redirect":{"vehicle":{"make":"Chevrolet","model":"Silverado 1500"},"first":2007,"last":2013,"from":"brake-rotor-rear","to":"brake-rotor-front","options":"rear rotors are listed with the front"}}
+{"retired":{"type":"brake-rotor-front","number":"BR-1999"},"to":{"type":"brake-rotor-front","number":"BR-2001"},"note":"7.01 → 7.02"}
