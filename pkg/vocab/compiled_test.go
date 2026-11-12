@@ -842,6 +842,44 @@ func TestCompiledFarRecordOutOfRange(t *testing.T) {
 	}
 }
 
+// TestReadFarSpan: far fitments read together are read in runs of at most
+// 1 MiB, however close each lies to the next, so a related vehicles
+// request's bytes stay within its reads × 1 MiB (ADR 0023).
+func TestReadFarSpan(t *testing.T) {
+	const step, n = 200 << 10, 7 // records 200 KiB apart: within farGap, 1.2 MiB in all
+	wide := make([]byte, step*(n-1)+64)
+	var hits []*hit
+	for i := range n {
+		rec := append([]byte{recFitment}, 0, byte(SideNone))
+		rec = appendStr(rec, fmt.Sprintf("N-%d", i))
+		copy(wide[i*step:], rec)
+		hits = append(hits, &hit{typ: 0, side: SideNone, number: fmt.Sprintf("N-%d", i), far: true, off: int64(i * step), n: int64(len(rec))})
+	}
+	r := &spanReader{r: bytes.NewReader(wide)}
+	c := &compiled{r: r, path: "far.compiled", types: []compiledType{{name: "pads"}}}
+	c.sec[secWide].n = int64(len(wide))
+	c.readFar(hits)
+	if r.reads != 2 || r.most > 1<<20 {
+		t.Errorf("%d far fitments %d KiB apart: %d reads, the longest %d bytes; want 2, none over 1 MiB", n, step>>10, r.reads, r.most)
+	}
+	for i, h := range hits {
+		if r := h.rec; r.s == "" || r.side() != h.side || r.str() != h.number {
+			t.Errorf("far fitment %d read wrongly", i)
+		}
+	}
+}
+
+// spanReader counts its reads and their longest.
+type spanReader struct {
+	r           io.ReaderAt
+	reads, most int
+}
+
+func (s *spanReader) ReadAt(p []byte, off int64) (int, error) {
+	s.reads, s.most = s.reads+1, max(s.most, len(p))
+	return s.r.ReadAt(p, off)
+}
+
 // FuzzOpenCompiled: whatever bytes begin like a compiled catalog, opening
 // them refuses them with Faults or opens them, and every lookup on what
 // opens answers or panics with the reader's own error about a damaged

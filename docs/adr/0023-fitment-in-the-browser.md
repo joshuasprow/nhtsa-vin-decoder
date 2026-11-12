@@ -192,8 +192,12 @@ core): p99, reads p99 / most, and the most bytes a request read.
 | File | 367 MB | 418 MB | 595 MB | 500 MB at the fixture's scale |
 | Bytes per application | about 174 | about 164 | about 146 | about 180 at the fixture |
 
-Every read budget holds. Part types, candidates and reverse do not move: they
-read the vehicle's block, which holds what answers for it of every fitment.
+Every read budget holds here. Part types, candidates and reverse do not move:
+they read the vehicle's block, which holds what answers for it of every fitment.
+Related vehicles read the wide fitments whole, and their reads grow with them:
+93 / 94 of 100 at 1%, and 109 / 116 on another 1% catalog of the same shape with
+other year spans and qualifiers (the review's). Related vehicles' read budget,
+with their p99, is [#267](https://github.com/joshuasprow/nitrovin/issues/267)'s.
 
 **A known miss, in `fit`'s related computation, not the format.** Related
 vehicles miss ADR 0018's p99 as JSON Lines does on the same catalogs (18 ms and
@@ -230,9 +234,10 @@ What was built, where the text above leaves room:
   needs. `fit` asks it for part types and candidates, and `ByVehicle`, every
   application of each fitment, only for related vehicles (ADR 0017's
   amendment).
-- **Related vehicles are read, not stored.** Each copy in a block carries every
-  application of its fitment, so related vehicles come from the block alone; no
-  table per vehicle was needed.
+- **Related vehicles are read, not stored.** Each whole copy in a block carries
+  every application of its fitment, so related vehicles come from the block,
+  and from the wide section for the wide fitments it shares (below); no table
+  per vehicle was needed.
 - **Wide fitments are not copied whole.** A fitment of more than 16
   applications would cost the file the square of its applications if every
   vehicle's block held it. Its blocks hold what answers for their vehicle, its
