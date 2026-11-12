@@ -292,11 +292,11 @@ A catalog at a parts system's scale takes seconds and hundreds of MB to load
 as JSON Lines. `nitrovin vocab compile` checks it as `vocab check` does and
 writes it as a compiled catalog (ADR 0021): one indexed file that opens in
 milliseconds with a few MB, read in place, answering exactly as its source.
-It is compiled format 2 ([ADR 0023](adr/0023-fitment-in-the-browser.md)),
+It is compiled format 3 ([ADR 0023](adr/0023-fitment-in-the-browser.md)),
 clustered by vehicle: a vehicle's part types and candidates are two or
-three reads of the file, and its related vehicles two plus one for about
-each megabyte of the fitments of many applications (universal parts) it
-shares, so it answers as quickly read by byte range from a browser's store
+three reads of the file, and its related vehicles one plus one for about
+each megabyte of the vehicles and years of the fitments of many
+applications (universal parts) it shares, so it answers as quickly read by byte range from a browser's store
 as from a disk. Compiling streams the catalog: it reads it once, sorts in a
 temporary directory, and its memory grows with the catalog's vehicles and
 part types, not its lines (about 200 MB at the scale of a parts system). Compile at image build, with the binary
@@ -309,7 +309,7 @@ nitrovin --vocab testdata/vocab/fitment/part-types.jsonl --vocab testdata/vocab/
 ```
 
 ```json
-{"format":2,"source_blake3":"…","writer":"v…","drift_month":"2026_10","drift_month_differs":false,"links_differ":false,"skipped_drift":[]}
+{"format":3,"source_blake3":"…","writer":"v…","drift_month":"2026_10","drift_month_differs":false,"links_differ":false,"skipped_drift":[]}
 ```
 
 A fault refuses the compile, and nothing is written; drift is written to

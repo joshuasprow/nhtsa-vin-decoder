@@ -844,8 +844,9 @@ every kind of the fixture's wide variants, in both forms: the fixture with
 0.1%, 0.3% and 1% of fitments of 50 to 500 applications, like universal
 parts, and 1% again with longer year ranges and more qualifiers; and
 candidates of such a fitment's part type (ADR 0023's Measured has them).
-Related vehicles are their costliest request: at 1%, 32 ms compiled and
-47 ms as JSON Lines with no year, in at most 26 reads. `TestRelatedReadsSpread`
+Related vehicles are their costliest request: at 1%, 25 ms compiled and
+36 ms as JSON Lines with no year (`-benchtime 10s`; at the default 1 s a p99
+is about the slowest of 85 requests), in at most 26 reads. `TestRelatedReadsSpread`
 holds their reads in CI, on a small catalog laid out as the full-scale one
 reads. `release.yml`'s bench job runs them on its runner, and
 `bench/vocab/notes` turns the output into the table the release notes end

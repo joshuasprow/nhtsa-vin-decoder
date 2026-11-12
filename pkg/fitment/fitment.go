@@ -2,7 +2,9 @@
 // ADR 0017): one interface, Reader, whatever form the catalog was loaded
 // in. Requests (fit, ADR 0018) are written against Reader alone, so a
 // compiled catalog (ADR 0021), or a connector, can stand behind them
-// without a request changing.
+// without a request changing. A Reader may also be a Sharer, which reads
+// what related vehicles need of a fitment, and no more, itself; fit uses
+// it when it is one.
 //
 // Both of a catalog's forms are package vocab's: `--vocab` loads a JSON
 // Lines catalog with the other files, or a compiled catalog (ADR 0021),
@@ -81,17 +83,19 @@ type Reader interface {
 	Info() vocab.CatalogInfo
 }
 
-// Sharer is a Reader that reads related vehicles' fitments itself: of
-// every part type, Matching's candidates, each with every application of
-// its fitment as its vocab.VehicleYears, its vehicle an index in Vehicles. Related
-// vehicles need no more of a fitment's other applications, and a compiled
-// catalog reads that much of a wide fitment, not all of it (ADR 0023).
-// fit reads related vehicles through Shared when its Reader is a Sharer,
-// and through ByVehicle otherwise.
+// Sharer reads related vehicles' fitments: a Reader may also be one, as
+// an io.Writer may also be an io.WriterTo. Shared answers, of every part
+// type, Matching's candidates (taking Matching's arguments), each with
+// every application of its fitment as a vocab.SharedSpan, its vehicle an
+// index in Vehicles. Related vehicles need no more of a fitment's other
+// applications, and a compiled catalog reads that much of a wide fitment,
+// not all of it (ADR 0023). fit reads related vehicles through Shared
+// when its Reader is a Sharer, and through ByVehicle otherwise.
 type Sharer interface {
 	Shared(vehicles []vocab.Vehicle, year *int, side *vocab.Side) []vocab.Shared
-	// Vehicles are every vehicle the catalog names, once each: a VehicleYears'
-	// Vehicle is its index here.
+	// Vehicles are every vehicle the catalog names, once each, in the
+	// order of the first line naming each: a SharedSpan's Vehicle is its
+	// index here.
 	Vehicles() []*vocab.Vehicle
 }
 

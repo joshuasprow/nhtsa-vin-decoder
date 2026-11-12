@@ -23,7 +23,8 @@ import (
 // and the first key of every page of fitments; each lookup then reads one
 // or two runs of bytes. Its answers are its JSON Lines source's.
 //
-// Format 2 is clustered by vehicle. A vehicle's block holds its part types
+// Format 3 is clustered by vehicle (format 2, with wide holding only
+// related vehicles' part of each fitment). A vehicle's block holds its part types
 // with their counts, its redirects, and a copy of every fitment with an
 // application to it, so a vehicle's candidates, part types and related
 // vehicles are one or two reads. Every fitment is also stored once in key
@@ -82,7 +83,7 @@ import (
 
 // CompiledFormat is the compiled catalog format this package writes, and
 // the only one it reads.
-const CompiledFormat = 2
+const CompiledFormat = 3
 
 // compiledMagic begins a compiled catalog. No JSON Lines file begins so.
 const compiledMagic = "nvcatalg"
@@ -117,10 +118,11 @@ const (
 	recFar     = 1
 )
 
-// The bits of an application's or redirect's years flags.
+// The bits of an application's or redirect's years flags, a
+// SharedSpan's Bounds' too.
 const (
-	hasFirst = 1 << iota
-	hasLast
+	hasFirst = SpanFirst
+	hasLast  = SpanLast
 )
 
 // Compiled is what a compiled catalog records beyond its catalog's header
@@ -673,8 +675,9 @@ func compareHits(a, b *hit) int {
 // byVehicle is Catalog.ByVehicle, every application of each fitment, when
 // whole, and Catalog.Matching otherwise; cat is the compiled catalog's.
 // Every part type for partType "": a vehicle's whole block, one read; one
-// part type: its head, then that type's records. Only ByVehicle reads
-// wide, for a far record's fitment.
+// part type: its head, then that type's records. Of a far record,
+// Matching reads nothing more, and ByVehicle its fitment whole, in keyed;
+// only Shared reads wide.
 func (c *compiled) byVehicle(cat *Catalog, partType string, vehicles []Vehicle, year *int, side *Side, whole bool) []Candidate {
 	hits := c.hits(cat, partType, vehicles, year, side)
 	if len(hits) == 0 {
@@ -703,40 +706,47 @@ func (c *compiled) shared(cat *Catalog, vehicles []Vehicle, year *int, side *Sid
 		}
 	}
 	c.readFar(far, secWide)
+	// Each fitment's applications, at the cursor's count of them: a near
+	// one's record after its key, line and note, a far one's in wide.
+	apps := func(h *hit) cursor {
+		if h.far {
+			return h.years
+		}
+		r := h.rec
+		r.side()
+		r.str()
+		r.uint()
+		r.str()
+		return r
+	}
+	total := 0
+	groups(hits, func(run []*hit) {
+		r := apps(run[0])
+		total += r.count()
+	})
+	spans := make([]SharedSpan, 0, total)
 	out := make([]Shared, 0, len(cands))
-	var years []VehicleYears
 	groups(hits, func(run []*hit) {
 		h := run[0]
-		r := h.rec
-		if h.far {
-			r = h.years
-		} else {
-			r.side()
-			r.str()
-			r.uint()
-			r.str()
-		}
-		k := r.count()
-		if cap(years)-len(years) < k {
-			years = make([]VehicleYears, 0, max(k, 2*cap(years), 1024))
-		}
-		at := len(years)
-		for range k {
-			vy := VehicleYears{Vehicle: int32(r.id(len(c.vehicles), "vehicle")), First: math.MinInt, Last: math.MaxInt}
-			flags := r.byte()
-			if flags&hasFirst != 0 {
-				vy.First = int(r.int())
+		r := apps(h)
+		at := len(spans)
+		for range r.count() {
+			// The years' flags are a SharedSpan's Bounds: hasFirst is
+			// SpanFirst, hasLast SpanLast.
+			sp := SharedSpan{Vehicle: int32(r.id(len(c.vehicles), "vehicle")), Bounds: r.byte() & (hasFirst | hasLast)}
+			if sp.Bounds&hasFirst != 0 {
+				sp.First = int32(r.int())
 			}
-			if flags&hasLast != 0 {
-				vy.Last = int(r.int())
+			if sp.Bounds&hasLast != 0 {
+				sp.Last = int32(r.int())
 			}
 			if !h.far {
 				r.uint()
 				r.str()
 			}
-			years = append(years, vy)
+			spans = append(spans, sp)
 		}
-		out = append(out, Shared{Candidate: cands[n], Years: years[at:len(years):len(years)]})
+		out = append(out, Shared{Candidate: cands[n], Spans: spans[at:len(spans):len(spans)]})
 		n++
 	})
 	return out

@@ -124,8 +124,13 @@ func TestReadBudget(t *testing.T) {
 // between it and the next, every one's applications carrying long option
 // text, so that whole they lie farther apart than a read joins. A reader
 // that read them whole again, or anything else of them that grows with
-// their bytes, would make a read for each, over the budget; their spans
-// lie together and take one or two.
+// their bytes, would make a read for each, over the budget; their
+// vehicles and years lie together and take one read besides the
+// vehicle's block. So it holds the reads to the block and spreadWide
+// more, and the bytes beyond the block's, which part types read alone,
+// to spreadWideBytes: whole, the shared fitments are about 120 × 70 KB,
+// where their vehicles and years are about 120 × 100 bytes, so reading
+// them whole fails it whatever reads join them.
 func TestRelatedReadsSpread(t *testing.T) {
 	d := embeddedDecoder(t)
 	dir := t.TempDir()
@@ -180,19 +185,31 @@ func TestRelatedReadsSpread(t *testing.T) {
 		{"related-any-year", contract.FitRequest{From: from, Related: true}},
 	} {
 		req.req.Now = time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
-		n := c.n.Load()
+		// The block: what part types read.
+		blockReq := req.req
+		blockReq.Related = false
+		n, b := c.n.Load(), c.bytes.Load()
+		if _, err := tr.Fit(context.Background(), blockReq); err != nil {
+			t.Fatal(err)
+		}
+		blockReads, block := c.n.Load()-n, c.bytes.Load()-b
+		n, b = c.n.Load(), c.bytes.Load()
 		fit, err := tr.Fit(context.Background(), req.req)
 		if err != nil {
 			t.Fatal(err)
 		}
-		reads := c.n.Load() - n
+		reads, bytes := c.n.Load()-n, c.bytes.Load()-b
 		if fit.Status != contract.FitFound || fit.Total != spreadModels-1 {
 			t.Fatalf("%s: status %s, %d related; want found, %d", req.kind, fit.Status, fit.Total, spreadModels-1)
 		}
 		if budget := readBudgets[req.kind]; reads > budget {
 			t.Errorf("%s of a vehicle sharing %d wide fitments, spread: %d reads; ADR 0023's budget is %d", req.kind, spreadHits, reads, budget)
 		}
-		t.Logf("%s: %d reads", req.kind, reads)
+		if reads > blockReads+spreadWide || bytes-block > spreadWideBytes {
+			t.Errorf("%s of a vehicle sharing %d wide fitments, spread: %d reads and %d bytes besides the block's %d and %d; want at most %d and %d",
+				req.kind, spreadHits, reads-blockReads, bytes-block, blockReads, block, spreadWide, spreadWideBytes)
+		}
+		t.Logf("%s: %d reads, %d bytes; the block %d and %d", req.kind, reads, bytes, blockReads, block)
 	}
 }
 
@@ -207,6 +224,10 @@ const (
 	spreadApps    = 17
 	spreadOptions = 4 << 10
 	spreadModels  = 40
+	// spreadWide and spreadWideBytes are the most reads and bytes of
+	// wide a related request of the spread catalog may make.
+	spreadWide      = 2
+	spreadWideBytes = 128 << 10
 )
 
 // writeSpreadCatalog writes the spread catalog's spine, vehicle

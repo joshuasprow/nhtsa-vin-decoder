@@ -795,8 +795,10 @@ object. Its inputs shape the answer:
   year of that range, and `part_types`, those per part type. A vehicle
   whose shared applications all span the same years is one row; years in
   which it shares nothing are in none. Rows are ordered by `shared`, most
-  first, then by name and years, and named as a fitment's vehicles are,
-  within the row's years.
+  first, then by name and years, and then, among different vehicles of
+  equal names, as the catalog first lists them among the shared
+  fitments: by part type, fitment and application. They are named as a
+  fitment's vehicles are, within the row's years.
 - **The answer** (`Fit`): `status`; `catalog` (`name`, `version`,
   `release`, `spine`, the part spine a `part` names, and `vehicles`, its
   vehicle vocabulary or `vpic`: `list` with no `of` leaves the catalog

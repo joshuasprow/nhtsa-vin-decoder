@@ -103,6 +103,23 @@ func compiledFixture(t *testing.T) *Catalog {
 	return catalogOf(t, fixtureMonth{}, swapCatalog(t, files, compile(t, fixtureMonth{}, files)))
 }
 
+// describeShared is what Shared answers: each candidate, as Matching's,
+// and its spans.
+func describeShared(ss []Shared) string {
+	var b strings.Builder
+	for i := range ss {
+		b.WriteString(describeCandidates([]Candidate{ss[i].Candidate}))
+		for _, sp := range ss[i].Spans {
+			b.WriteString(describeSpan(sp))
+		}
+	}
+	return b.String()
+}
+
+func describeSpan(sp SharedSpan) string {
+	return fmt.Sprintf("\n\tspan %d %d-%d %b", sp.Vehicle, sp.First, sp.Last, sp.Bounds)
+}
+
 // describe is everything a fitment says, for comparing two catalogs'.
 func describe(f *Fitment) string {
 	if f == nil {
@@ -334,6 +351,24 @@ func TestCompiledAnswersAsJSONLines(t *testing.T) {
 								}
 							}
 							asked += strings.Count(want, "matched")
+							if typ == "" {
+								shared := describeShared(jl.Shared(vs, y, s))
+								if got := describeShared(cc.Shared(vs, y, s)); got != shared {
+									t.Fatalf("Shared(%d vehicles, %v, %v):\n%s\nwant\n%s", len(vs), y, s, got, shared)
+								}
+								// Of every fitment ByVehicle has, Matching's
+								// candidate and every application's span.
+								var b strings.Builder
+								for i, c := range jl.ByVehicle("", vs, y, s) {
+									b.WriteString(describeCandidates(jl.Matching("", vs, y, s)[i : i+1]))
+									for j := range c.Fitment.Applications {
+										b.WriteString(describeSpan(sharedSpan(&c.Fitment.Applications[j])))
+									}
+								}
+								if shared != b.String() {
+									t.Fatalf("Shared(%d vehicles, %v, %v):\n%s\nwant\n%s", len(vs), y, s, shared, b.String())
+								}
+							}
 						}
 						got, want := describeRedirects(cc.Redirect(typ, vs, y)), describeRedirects(jl.Redirect(typ, vs, y))
 						if got != want {
@@ -592,8 +627,8 @@ func TestCompiledRefused(t *testing.T) {
 		paths  []string
 		detail string
 	}{
-		{"a format it cannot read", []string{write(version)}, "compiled catalog format 3: this nitrovin reads format 2 only; compile the catalog again with this release"},
-		{"format 1", []string{write(format1)}, "compiled catalog format 1: this nitrovin reads format 2 only; compile the catalog again with this release"},
+		{"a format it cannot read", []string{write(version)}, "compiled catalog format 4: this nitrovin reads format 3 only; compile the catalog again with this release"},
+		{"format 1", []string{write(format1)}, "compiled catalog format 1: this nitrovin reads format 3 only; compile the catalog again with this release"},
 		{"cut short", []string{write(good[:len(good)-1])}, "it was cut short or added to"},
 		{"shorter than a header", []string{write(good[:20])}, "shorter than its header"},
 		{"no spine", []string{byName["catalog-models"].Path, path}, `/spine: spine "part-types" is not loaded`},
@@ -926,6 +961,9 @@ func FuzzOpenCompiled(f *testing.F) {
 		}
 		c.ByVehicle("", vehicles, nil, nil)
 		c.ByVehicle("", vehicles[:min(1, len(vehicles))], new(2005), new(SideLeft))
+		c.Matching("", vehicles, nil, nil)
+		c.Shared(vehicles, nil, nil)
+		c.Shared(vehicles[:min(1, len(vehicles))], new(2005), new(SideLeft))
 		c.Redirect("", vehicles, nil)
 		for _, typ := range file.compiled.types {
 			c.ByVehicle(typ.name, vehicles, nil, nil)

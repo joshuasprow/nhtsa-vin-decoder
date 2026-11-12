@@ -320,10 +320,10 @@ for it and, optionally, qualifiers.
 _Avoid_: fit, usage, vehicle row
 
 **Wide fitment**:
-A fitment of more than 16 applications, as a universal part has. A compiled
-catalog stores it whole once, and in each of its vehicles' blocks only what
-answers for that vehicle, so the file grows with its applications, not their
-square; related vehicles read its vehicles and years apart (ADR 0023).
+A fitment of more applications than a compiled catalog copies into each of its
+vehicles' blocks (16), as a universal part has. The compiled catalog stores it
+whole once, and in each vehicle's block only what answers for that vehicle, so
+the file grows with its applications, not their square (ADR 0023).
 _Avoid_: universal fitment (not every wide one is universal), big fitment
 
 **Option text**:

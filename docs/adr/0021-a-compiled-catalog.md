@@ -178,6 +178,9 @@ clustered by vehicle, because format 1 costs thousands of reads per part-type
 summary when read by byte range in a browser. One streaming compiler, peaking at
 256 MiB, serves the CLI and the browser. Format 1 files are refused with "recompile".
 This ADR's budgets and Measured section remain the bar format 2 must meet.
+Format 3 ([#267](https://github.com/joshuasprow/nitrovin/issues/267)) is format 2
+with its wide section holding only what related vehicles read of each fitment;
+format 2 files, never released, are refused with "recompile" as format 1's are.
 
 ## Measured: format 2 (2026-11-12)
 
@@ -202,6 +205,6 @@ vehicle's block holds a copy of its fitments; it stays inside the budget, at
 about 180 bytes an application. The budget's 500 MB is set at ADR 0017's
 catalog scale, 1.9 million applications, so bytes per application is the
 figure to watch: a catalog of more applications may pass 500 MB at the same
-rate, as ADR 0023's wide variants do (595 MB for 4.1 million, about 146 bytes
-each). The compiler streams, so it no longer loads the catalog as JSON Lines
+rate, as ADR 0023's wide variants do (551 MB for 4.1 million, about 135 bytes
+each, in format 3). The compiler streams, so it no longer loads the catalog as JSON Lines
 first.

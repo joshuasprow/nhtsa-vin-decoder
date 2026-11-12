@@ -1039,26 +1039,47 @@ func matching(cs []Candidate) []Candidate {
 	return cs
 }
 
-// VehicleYears is an application as related vehicles read it: its
-// vehicle, by its index in Catalog.Vehicles, and its years, First
-// math.MinInt and Last math.MaxInt where unbounded.
-type VehicleYears struct {
+// SharedSpan is an application as related vehicles read it: its vehicle,
+// by its index in Catalog.Vehicles, and its years. A catalog's years are
+// int32s; First is a year only where Bounds has SpanFirst, and Last only
+// where it has SpanLast, the span being unbounded that way otherwise, as
+// an Application's nil First or Last is.
+type SharedSpan struct {
 	Vehicle     int32
-	First, Last int
+	First, Last int32
+	Bounds      uint8
+}
+
+// The bits of a SharedSpan's Bounds.
+const (
+	SpanFirst = 1 << iota
+	SpanLast
+)
+
+// sharedSpan is application a's SharedSpan.
+func sharedSpan(a *Application) SharedSpan {
+	sp := SharedSpan{Vehicle: a.Vehicle.id}
+	if a.First != nil {
+		sp.First, sp.Bounds = int32(*a.First), sp.Bounds|SpanFirst
+	}
+	if a.Last != nil {
+		sp.Last, sp.Bounds = int32(*a.Last), sp.Bounds|SpanLast
+	}
+	return sp
 }
 
 // Shared is a candidate as related vehicles read it: Matching's, and
-// every application of its fitment as its VehicleYears, in file order.
+// every application of its fitment as a SharedSpan, in file order.
 type Shared struct {
 	Candidate
-	Years []VehicleYears
+	Spans []SharedSpan
 }
 
 // Shared is Matching of every part type, each candidate with every
-// application of its fitment as its VehicleYears: what related vehicles
-// read of a vehicle's fitments, their other applications' vehicles and
-// years, and nothing more. A compiled catalog reads that much of a wide
-// fitment, not the fitment whole (ADR 0023).
+// application of its fitment as a SharedSpan: what related vehicles read
+// of a vehicle's fitments, their other applications' vehicles and years,
+// and nothing more. A compiled catalog reads that much of a wide fitment,
+// not the fitment whole (ADR 0023).
 func (c *Catalog) Shared(vehicles []Vehicle, year *int, side *Side) []Shared {
 	if cc := c.f.compiled; cc != nil {
 		return cc.shared(c, vehicles, year, side)
@@ -1068,22 +1089,14 @@ func (c *Catalog) Shared(vehicles []Vehicle, year *int, side *Side) []Shared {
 	for i := range cs {
 		n += len(cs[i].Fitment.Applications)
 	}
-	years := make([]VehicleYears, 0, n)
+	spans := make([]SharedSpan, 0, n)
 	out := make([]Shared, len(cs))
 	for i := range cs {
-		at := len(years)
+		at := len(spans)
 		for j := range cs[i].Fitment.Applications {
-			a := &cs[i].Fitment.Applications[j]
-			vy := VehicleYears{Vehicle: a.Vehicle.id, First: math.MinInt, Last: math.MaxInt}
-			if a.First != nil {
-				vy.First = *a.First
-			}
-			if a.Last != nil {
-				vy.Last = *a.Last
-			}
-			years = append(years, vy)
+			spans = append(spans, sharedSpan(&cs[i].Fitment.Applications[j]))
 		}
-		out[i].Years = years[at:len(years):len(years)]
+		out[i].Spans = spans[at:len(spans):len(spans)]
 	}
 	matching(cs)
 	for i := range cs {
