@@ -322,7 +322,7 @@ func TestInfoStock(t *testing.T) {
 		if v.Kind != string(vocab.KindStock) {
 			continue
 		}
-		s := fmt.Sprintf("%s %s %s %q %d rows", v.Name, v.Source, v.Catalog, v.Release, v.Rows)
+		s := fmt.Sprintf("%s %s %s %q %d rows", v.Name, v.Source, v.Catalog, v.Release, *v.Rows)
 		for _, d := range v.Drift {
 			s += fmt.Sprintf(", %d %s at line %d", d.Count, d.Kind, d.Examples[0].Line)
 		}
@@ -337,6 +337,128 @@ func TestInfoStock(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("stock in Info\n%q\nwant\n%q", got, want)
 	}
+}
+
+// liveFiles are testdata/vocab and the synthetic catalog with the
+// connector files of testdata/vocab/stock/live.
+func liveFiles(t *testing.T) []*vocab.File {
+	t.Helper()
+	files, err := vocab.Open("../../testdata/vocab", "../../testdata/vocab/fitment", "../../testdata/vocab/stock/live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+// stockStatus writes Info's stock entries as "name connector relation
+// status (reason)".
+func stockStatus(info contract.Info) []string {
+	var out []string
+	for _, v := range info.Vocabularies {
+		if v.StockCounts != nil {
+			s := strings.Join([]string{v.Name, v.Connector, v.Relation, v.Status}, " ")
+			if v.Reason != "" {
+				s += " (" + v.Reason + ")"
+			}
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// TestConnectorWithoutDriver: NewTranslator, as the C library calls it,
+// loads a connector's file as a live source that is always unavailable,
+// saying why, in fit's blocks and in Info.
+func TestConnectorWithoutDriver(t *testing.T) {
+	tr, err := NewTranslator(embeddedDecoder(t), liveFiles(t)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const why = "this build reads stock files only: a connector needs the nitrovin binary"
+	f, err := fit(t, tr, `{"from":{"fitment":{"type":"brake-rotor-front","number":"BR-2001"}},"stock":["shelf","yard"]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "shelf-annex live unavailable (" + why + "), shelf-stock live unavailable (" + why + ")"
+	if got := sourcesText(f.Shelf); got != want {
+		t.Errorf("shelf sources %s\nwant %s", got, want)
+	}
+	if s := f.Yard.Sources[0]; s.Connector != "postgres" || s.Relation != "stock.yard_stock" {
+		t.Errorf("the yard's block %+v", s)
+	}
+	info := tr.Info()
+	conforms(t, "Info", info)
+	wantInfo := []string{
+		"shelf-annex postgres stock.shelf_annex unavailable (" + why + ")",
+		"shelf-stock postgres stock.shelf_stock unavailable (" + why + ")",
+		"yard-stock postgres stock.yard_stock unavailable (" + why + ")",
+	}
+	if got := stockStatus(info); !slices.Equal(got, wantInfo) {
+		t.Errorf("Info's stock\n%q\nwant\n%q", got, wantInfo)
+	}
+}
+
+// liveFake is a live source whose health is set by the test, counting its
+// Close calls.
+type liveFake struct {
+	blocking
+	health stock.Health
+	closed int
+}
+
+func (l *liveFake) Health() stock.Health { return l.health }
+func (l *liveFake) Close()               { l.closed++ }
+
+// TestConnectorStatus: NewTranslatorWith hands each connector's file to
+// its Connect with the catalog its vehicles are of and that catalog's
+// vehicle vocabulary; Info reads each source's health on every call:
+// unchecked, available, then unavailable with its reason; and Close
+// closes every connector's source, as often as it is called.
+func TestConnectorStatus(t *testing.T) {
+	var fakes []*liveFake
+	var got []string
+	connect := func(d stock.Declared) stock.Live {
+		got = append(got, d.File.Name+" "+d.Catalog.Name+" "+d.Vehicles.Name)
+		l := &liveFake{blocking: blocking{name: d.File.Name, holds: d.File.Holds}}
+		fakes = append(fakes, l)
+		return l
+	}
+	tr, err := NewTranslatorWith(embeddedDecoder(t), TranslatorConfig{Connect: connect}, liveFiles(t)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"shelf-annex parts-catalog catalog-models", "shelf-stock parts-catalog catalog-models", "yard-stock parts-catalog catalog-models"}; !slices.Equal(got, want) {
+		t.Errorf("connect got %q, want %q", got, want)
+	}
+	yard := fakes[2]
+	for _, tc := range []struct {
+		health stock.Health
+		want   string
+	}{
+		{stock.Health{}, "yard-stock postgres stock.yard_stock unchecked"},
+		{stock.Health{Checked: true}, "yard-stock postgres stock.yard_stock available"},
+		{stock.Health{Checked: true, Down: &stock.Unavailable{Reason: "the database is unreachable"}}, "yard-stock postgres stock.yard_stock unavailable (the database is unreachable)"},
+	} {
+		yard.health = tc.health
+		for _, info := range []contract.Info{tr.Info(), tr.LoadInfo()} {
+			conforms(t, "Info", info)
+			if s := stockStatus(info); s[2] != tc.want {
+				t.Errorf("Info's yard %q, want %q", s[2], tc.want)
+			}
+		}
+	}
+	tr.Close()
+	tr.Close()
+	for _, l := range fakes {
+		if l.closed != 2 {
+			t.Errorf("%s closed %d times by two Closes; want 2, each passed on", l.name, l.closed)
+		}
+	}
+	files, err := NewTranslator(embeddedDecoder(t), liveFiles(t)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files.Close() // stock.Down sources: nothing to release
 }
 
 // blocking is a stock source that never answers by itself: it waits for

@@ -1,0 +1,1 @@
+{"format":1,"kind":"stock","name":"yard-stock","version":"2026.11.01","source":"yard","connector":{"postgres":{"relation":"stock.yard_stock","dsn_env":"NITROVIN_STOCK_DSN","statement_timeout_ms":1500,"connect_timeout_ms":500,"max_connections":2}}}

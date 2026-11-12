@@ -1,8 +1,9 @@
 // Package stock is how a fit reads stock (ADR 0019): one interface,
 // Source, whatever stands behind it. A stock file loaded with --vocab is a
 // Source (FileSource, over package vocab's stock file); a request-time
-// connector (ADR 0020) implements the same interface, so a fit never
-// changes with where its stock lives.
+// connector (ADR 0020, package pg below this one) implements the same
+// interface as a Live source, so a fit never changes with where its stock
+// lives.
 //
 // A source is named, in the one namespace of loaded files, and holds one
 // kind of stock: shelf parts, which name a catalog's fitments, or yard
@@ -54,12 +55,18 @@ type Info struct {
 	Kind  Kind
 	// Catalog is a shelf's: the catalog its numbers belong to.
 	Catalog string
+	// Connector and Relation are a live source's: how it is read
+	// (vocab.ConnectorPostgres) and the relation its rows are in. Never a
+	// connection detail.
+	Connector, Relation string
 }
 
 // Meta is what one lookup read beside its rows: the catalog release a
-// shelf's numbers are under, and the time the rows are as of, each ""
-// when the source has none. A live source reads both with its rows, so
-// they describe exactly the rows returned.
+// shelf's numbers are under, and the time every list's rows are as of
+// (a file's own), each "" when the source has none. A live source reads
+// both with its rows, so they describe exactly the rows returned. A
+// source that keeps a time per row (Row.AsOf) leaves AsOf "": each list's
+// block then says the oldest of its own rows' times.
 type Meta struct {
 	Release, AsOf string
 }
@@ -162,6 +169,64 @@ type Unavailable struct {
 }
 
 func (u *Unavailable) Error() string { return "stock source unavailable: " + u.Reason }
+
+// Health is what a live source's latest connection found.
+type Health struct {
+	// Checked is false until the source first connects: it connects on
+	// its first lookup, never at load.
+	Checked bool
+	// Down says why the source is unavailable; nil when it answered.
+	Down *Unavailable
+}
+
+// Live is a Source read at request time, whose availability changes while
+// nitrovin runs. Health reads what it last found, with no I/O. Close
+// releases what it holds open (connections, background work); a lookup
+// after it is unavailable, and calling it again does nothing.
+type Live interface {
+	Source
+	Health() Health
+	Close()
+}
+
+// Declared is what a connector's stock file declares (ADR 0020), as
+// Connect receives it: File, linked, with its Connector; Catalog, the
+// catalog its rows' vehicles are the vehicles of (a shelf's own, a yard's
+// the one loaded; nil when none is); and Vehicles, that catalog's vehicle
+// vocabulary (nil when its vehicles are vpic, or none is loaded).
+type Declared struct {
+	File, Catalog, Vehicles *vocab.File
+}
+
+// Connect opens the live source d declares. It does no I/O: a source
+// connects on its first lookup, and one that cannot is unavailable, never
+// a fault.
+type Connect func(d Declared) Live
+
+// Down is a live source that is always unavailable for reason: a
+// connector's file loaded where no Connect is, such as the C library.
+func Down(info Info, reason string) Live { return down{info, &Unavailable{Reason: reason}} }
+
+type down struct {
+	info Info
+	err  *Unavailable
+}
+
+func (d down) Info() Info     { return d.info }
+func (d down) Health() Health { return Health{Checked: true, Down: d.err} }
+func (d down) Close()         {}
+
+func (d down) ShelfByFitment(context.Context, [][]vocab.FitmentKey, Page) ([]Result, Meta, error) {
+	return nil, Meta{}, d.err
+}
+
+func (d down) ShelfByVehicle(context.Context, []ShelfVehicle, Page) ([]Result, Meta, error) {
+	return nil, Meta{}, d.err
+}
+
+func (d down) Yard(context.Context, []YardQuery, Page) ([]Result, Meta, error) {
+	return nil, Meta{}, d.err
+}
 
 // Source is one stock source. Each lookup answers several lists at once,
 // one Result per list in order, each list's rows once each in the

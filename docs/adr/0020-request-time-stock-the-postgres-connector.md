@@ -124,3 +124,8 @@ connector does.
   interface. A connector ticket adds `pkg/stock/pg` behind it.
 - The documentation lists the columns and indexes, and gives a worked view over a
   synthetic schema.
+- Measured when [#245](https://github.com/joshuasprow/nitrovin/issues/245) built
+  it: `pgxpool` adds 4.3 MB to the 75.4 MB release binary (`-trimpath
+  -ldflags='-s -w'`), not 0.5 MB, most of it pgx's type codecs and the
+  `golang.org/x/text` tables its SCRAM password normalisation links. The C
+  library and the WebAssembly build are unchanged.

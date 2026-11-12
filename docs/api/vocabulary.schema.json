@@ -204,8 +204,8 @@
     },
     "StockHeader": {
       "type": "object",
-      "description": "A stock file's header (ADR 0019): one stock source, shelf parts or yard vehicles, for callers with no database. A deployment loads any number; a new file means a restart.",
-      "required": ["format", "kind", "name", "version", "source", "as_of"],
+      "description": "A stock file's header (ADR 0019): one stock source, shelf parts or yard vehicles. Without connector, its rows are the file's lines, for callers with no database; a new file means a restart. With connector, the file is this header alone, and its rows are read from a database relation at request time (ADR 0020). A deployment loads any number.",
+      "required": ["format", "kind", "name", "version", "source"],
       "additionalProperties": false,
       "properties": {
         "format": { "$ref": "#/$defs/Format" },
@@ -213,13 +213,52 @@
         "name": { "$ref": "#/$defs/Name" },
         "version": { "$ref": "#/$defs/Version" },
         "source": { "enum": ["shelf", "yard"], "description": "shelf: parts, each under its catalog's number or its part type and vehicle. yard: whole vehicles." },
-        "as_of": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?([Zz]|[+-][0-9]{2}:[0-9]{2}))?$", "description": "The time the rows are as of: RFC 3339, or YYYY-MM-DD." },
+        "as_of": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?([Zz]|[+-][0-9]{2}:[0-9]{2}))?$", "description": "The time the rows are as of: RFC 3339, or YYYY-MM-DD. Required without connector; a connector's rows carry their own." },
         "catalog": { "$ref": "#/$defs/Name", "description": "A shelf's catalog, the one its numbers belong to. It must be loaded. A yard names none." },
-        "release": { "type": "string", "minLength": 1, "description": "The catalog release a shelf's numbers are under; an answer marks catalog_mismatch when it is not the loaded catalog's." }
+        "release": { "type": "string", "minLength": 1, "description": "The catalog release a shelf's numbers are under; an answer marks catalog_mismatch when it is not the loaded catalog's. A connector reads it from release_relation instead." },
+        "connector": { "$ref": "#/$defs/StockConnector" }
       },
-      "if": { "properties": { "source": { "const": "shelf" } } },
-      "then": { "required": ["catalog"] },
-      "else": { "not": { "anyOf": [{ "required": ["catalog"] }, { "required": ["release"] }] } }
+      "allOf": [
+        {
+          "if": { "properties": { "source": { "const": "shelf" } } },
+          "then": { "required": ["catalog"] },
+          "else": {
+            "not": { "anyOf": [{ "required": ["catalog"] }, { "required": ["release"] }] },
+            "properties": { "connector": { "properties": { "postgres": { "not": { "required": ["release_relation"] } } } } }
+          }
+        },
+        {
+          "if": { "required": ["connector"] },
+          "then": { "not": { "anyOf": [{ "required": ["as_of"] }, { "required": ["release"] }] } },
+          "else": { "required": ["as_of"] }
+        }
+      ]
+    },
+    "StockConnector": {
+      "type": "object",
+      "description": "Where a stock source's rows are read at request time (ADR 0020): postgres, the one connector there is. nitrovin dictates the relation's columns (docs/vocabularies.md, Connectors), never its SQL. A file with a connector has no lines.",
+      "required": ["postgres"],
+      "additionalProperties": false,
+      "properties": {
+        "postgres": {
+          "type": "object",
+          "required": ["relation", "dsn_env"],
+          "additionalProperties": false,
+          "properties": {
+            "relation": { "$ref": "#/$defs/Relation", "description": "The table or view holding the rows." },
+            "release_relation": { "$ref": "#/$defs/Relation", "description": "A shelf's only: the one-row relation whose release column is the catalog release its numbers are under." },
+            "dsn_env": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "The environment variable holding the database's DSN: the file carries no secret, and no answer shows it." },
+            "statement_timeout_ms": { "type": "integer", "minimum": 1, "maximum": 2147483647, "default": 1000, "description": "Bounds each query." },
+            "connect_timeout_ms": { "type": "integer", "minimum": 1, "maximum": 2147483647, "default": 2000, "description": "Bounds each new connection." },
+            "max_connections": { "type": "integer", "minimum": 1, "maximum": 2147483647, "default": 4, "description": "The most connections held open at once." }
+          }
+        }
+      }
+    },
+    "Relation": {
+      "type": "string",
+      "pattern": "^[a-z_][a-z0-9_]{0,62}(\\.[a-z_][a-z0-9_]{0,62})?$",
+      "description": "A relation: name or schema.name, each an unquoted lower-case identifier."
     },
     "StockFields": {
       "type": "object",

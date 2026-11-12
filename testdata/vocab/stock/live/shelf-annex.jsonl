@@ -1,0 +1,1 @@
+{"format":1,"kind":"stock","name":"shelf-annex","version":"2026.11.01","source":"shelf","catalog":"parts-catalog","connector":{"postgres":{"relation":"stock.shelf_annex","dsn_env":"NITROVIN_STOCK_DSN"}}}

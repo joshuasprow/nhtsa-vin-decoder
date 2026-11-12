@@ -1718,12 +1718,34 @@
                 "as_of": {
                   "type": "string",
                   "minLength": 1,
-                  "description": "A stock source's time, as its header gives it; absent for every other kind."
+                  "description": "A stock file's time, as its header gives it; absent for a connector, whose rows carry their own, and for every other kind."
                 },
                 "rows": {
                   "type": "integer",
                   "minimum": 0,
-                  "description": "A stock source's rows; absent for every other kind."
+                  "description": "A stock file's rows; absent for a connector and for every other kind."
+                },
+                "connector": {
+                  "const": "postgres",
+                  "description": "How a connector's stock source is read (ADR 0020); absent for a stock file and every other kind."
+                },
+                "relation": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The relation a connector's rows are read from, as its header names it; absent otherwise. Never a DSN, host or user."
+                },
+                "status": {
+                  "enum": [
+                    "unchecked",
+                    "available",
+                    "unavailable"
+                  ],
+                  "description": "A connector's status as its latest connection found it: unchecked until its first lookup connects (nothing connects at load), then available, or unavailable with a reason; absent otherwise."
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Why an unavailable connector is, naming no connection detail; absent otherwise."
                 },
                 "drift": {
                   "type": "array",
@@ -1843,10 +1865,58 @@
                   },
                   "then": {
                     "required": [
-                      "source",
-                      "as_of",
-                      "rows"
-                    ]
+                      "source"
+                    ],
+                    "if": {
+                      "required": [
+                        "connector"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "relation",
+                        "status"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "as_of"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "rows"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "else": {
+                      "required": [
+                        "as_of",
+                        "rows"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "relation"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "status"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "reason"
+                            ]
+                          }
+                        ]
+                      }
+                    }
                   },
                   "else": {
                     "not": {
@@ -1869,6 +1939,26 @@
                         {
                           "required": [
                             "rows"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "connector"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "relation"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "status"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "reason"
                           ]
                         }
                       ]
@@ -3623,10 +3713,19 @@
             ],
             "description": "file: a stock file loaded with --vocab. live: a request-time source."
           },
+          "connector": {
+            "const": "postgres",
+            "description": "How a live source is read (ADR 0020); absent for a file."
+          },
+          "relation": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The relation a live source's rows are read from; absent for a file. Never a DSN, host or user."
+          },
           "as_of": {
             "type": "string",
             "minLength": 1,
-            "description": "The time the list's rows from it are as of: a file's own, or what a live source read with them. Absent when it has none, and when unavailable."
+            "description": "The time the list's rows from it are as of: a file's own, or for a live source the oldest as_of of the list's own rows from it, when its relation has that column. Absent when it has none, when the list has none of its rows, and when unavailable."
           },
           "catalog": {
             "type": "string",

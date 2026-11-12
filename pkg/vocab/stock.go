@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,7 +19,9 @@ import (
 // line. Read refuses a malformed row; Link a shelf whose catalog is not
 // loaded, and resolves each row's part and vehicle against the files
 // loaded with it; Drift reports orphan rows and field names that look
-// personal. Package stock answers from it.
+// personal. Package stock answers from it. A connector's file (ADR 0020)
+// is a header alone, naming the database relation its rows are read from
+// at request time.
 
 // StockHolds is what a stock source holds: shelf parts or yard vehicles.
 type StockHolds string
@@ -77,8 +81,47 @@ type StockDecoded struct {
 	Year        int
 }
 
+// StockConnector is a connector (ADR 0020): where a stock source's rows
+// are read from at request time, with the limits of reading them. Postgres
+// is the one connector there is. Its relations are a table or view of the
+// source's choosing, each "name" or "schema.name" in unquoted lower case;
+// DSNEnv names the environment variable that holds the database's DSN, so
+// the file carries no secret.
+type StockConnector struct {
+	// Relation holds the rows; ReleaseRelation, a shelf's only, the one
+	// row whose release column is the catalog release its numbers are
+	// under ("" for none).
+	Relation, ReleaseRelation string
+	DSNEnv                    string
+	// StatementTimeout bounds each query, ConnectTimeout each connection;
+	// MaxConnections is how many it holds open at once. Each is the
+	// header's, else its default.
+	StatementTimeout, ConnectTimeout time.Duration
+	MaxConnections                   int
+}
+
+// A connector's defaults (ADR 0020).
+const (
+	DefaultStatementTimeout = time.Second
+	DefaultConnectTimeout   = 2 * time.Second
+	DefaultMaxConnections   = 4
+)
+
+// ConnectorPostgres is the one connector there is, as a header names it
+// and an answer's source block says.
+const ConnectorPostgres = "postgres"
+
+var (
+	connectorNames = []string{ConnectorPostgres}
+	postgresNames  = []string{"relation", "release_relation", "dsn_env", "statement_timeout_ms", "connect_timeout_ms", "max_connections"}
+	// relationPattern is a relation as a connector names one: unquoted
+	// lower-case identifiers, so it reads the same quoted or not.
+	relationPattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}(\.[a-z_][a-z0-9_]{0,62})?$`)
+	envPattern      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
+
 // stockHeader reads a stock header's own fields.
-func (f *File) stockHeader(source, asOf, catalog, release []byte) error {
+func (f *File) stockHeader(source, asOf, catalog, release, connector []byte) error {
 	s, err := stringAt(source, "/source")
 	if err != nil {
 		return err
@@ -87,12 +130,24 @@ func (f *File) stockHeader(source, asOf, catalog, release []byte) error {
 	if f.Holds != StockShelf && f.Holds != StockYard {
 		return errAt("/source", "unknown source %q: shelf or yard", s)
 	}
-	if f.AsOf, err = nonEmptyAt(asOf, "/as_of"); err != nil {
-		return err
-	}
-	if _, err := time.Parse(time.RFC3339, f.AsOf); err != nil {
-		if _, err := time.Parse(time.DateOnly, f.AsOf); err != nil {
-			return errAt("/as_of", "%q is not a time: RFC 3339 or YYYY-MM-DD", f.AsOf)
+	if connector != nil {
+		switch {
+		case asOf != nil:
+			return errAt("/as_of", "a connector's rows carry their own time: it is read with them")
+		case release != nil:
+			return errAt("/release", "a connector reads its release from connector.postgres.release_relation")
+		}
+		if f.Connector, err = stockConnector(connector, f.Holds); err != nil {
+			return err
+		}
+	} else {
+		if f.AsOf, err = nonEmptyAt(asOf, "/as_of"); err != nil {
+			return err
+		}
+		if _, err := time.Parse(time.RFC3339, f.AsOf); err != nil {
+			if _, err := time.Parse(time.DateOnly, f.AsOf); err != nil {
+				return errAt("/as_of", "%q is not a time: RFC 3339 or YYYY-MM-DD", f.AsOf)
+			}
 		}
 	}
 	switch f.Holds {
@@ -119,6 +174,87 @@ func (f *File) stockHeader(source, asOf, catalog, release []byte) error {
 	return nil
 }
 
+// stockConnector reads a header's connector, of a source holding holds.
+func stockConnector(raw []byte, holds StockHolds) (*StockConnector, error) {
+	var kinds [1][]byte
+	unknown, has, ok := members(raw, connectorNames, kinds[:])
+	switch {
+	case !ok:
+		return nil, errAt("/connector", `must be an object: {"postgres": {…}}`)
+	case has:
+		return nil, errAt("/connector", "unknown connector %q: postgres", unknown)
+	case kinds[0] == nil:
+		return nil, errAt("/connector", `missing field "postgres"`)
+	}
+	const at = "/connector/postgres"
+	var v [6][]byte
+	unknown, has, ok = members(kinds[0], postgresNames, v[:])
+	switch {
+	case !ok:
+		return nil, errAt(at, "must be an object")
+	case has:
+		return nil, errAt(at, "unknown field %q", unknown)
+	case v[0] == nil:
+		return nil, errAt(at, `missing field "relation"`)
+	case v[2] == nil:
+		return nil, errAt(at, `missing field "dsn_env"`)
+	}
+	c := &StockConnector{StatementTimeout: DefaultStatementTimeout, ConnectTimeout: DefaultConnectTimeout, MaxConnections: DefaultMaxConnections}
+	var err error
+	if c.Relation, err = relationAt(v[0], at+"/relation"); err != nil {
+		return nil, err
+	}
+	if v[1] != nil {
+		if holds == StockYard {
+			return nil, errAt(at+"/release_relation", "a yard source names no catalog release")
+		}
+		if c.ReleaseRelation, err = relationAt(v[1], at+"/release_relation"); err != nil {
+			return nil, err
+		}
+	}
+	if c.DSNEnv, err = stringAt(v[2], at+"/dsn_env"); err != nil {
+		return nil, err
+	}
+	if !envPattern.MatchString(c.DSNEnv) {
+		return nil, errAt(at+"/dsn_env", "%q is not an environment variable's name: letters, digits and '_', not starting with a digit", c.DSNEnv)
+	}
+	for i, d := range []*time.Duration{&c.StatementTimeout, &c.ConnectTimeout} {
+		if raw := v[3+i]; raw != nil {
+			n, err := positiveAt(raw, at+"/"+postgresNames[3+i])
+			if err != nil {
+				return nil, err
+			}
+			*d = time.Duration(n) * time.Millisecond
+		}
+	}
+	if v[5] != nil {
+		n, err := positiveAt(v[5], at+"/max_connections")
+		if err != nil {
+			return nil, err
+		}
+		c.MaxConnections = int(n)
+	}
+	return c, nil
+}
+
+// relationAt reads raw, at ptr, as a connector's relation.
+func relationAt(raw []byte, ptr string) (string, error) {
+	s, err := stringAt(raw, ptr)
+	if err == nil && !relationPattern.MatchString(s) {
+		err = errAt(ptr, "%q is not a relation: name or schema.name, each lower-case letters, digits and '_', not starting with a digit", s)
+	}
+	return s, err
+}
+
+// positiveAt reads raw, at ptr, as an integer from 1 to MaxInt32.
+func positiveAt(raw []byte, ptr string) (int64, error) {
+	n, ok := integer(raw)
+	if !ok || n < 1 || n > math.MaxInt32 {
+		return 0, errAt(ptr, "must be an integer from 1 to %d", math.MaxInt32)
+	}
+	return n, nil
+}
+
 // stockRowNames are a stock row's fields; shelfFields and yardFields pick
 // each source's.
 var stockRowNames = []string{"id", "location", "type", "number", "side", "part", "vehicle", "year", "decoded", "vin", "fields"}
@@ -130,6 +266,9 @@ var (
 
 // stockRow reads a stock file's line n.
 func (f *File) stockRow(n int, line []byte) (StockRow, error) {
+	if f.Connector != nil {
+		return StockRow{}, errAt("", "a connector's file has a header and no lines: its rows are read from %s", f.Connector.Relation)
+	}
 	raw, err := lineValue(line)
 	if err != nil {
 		return StockRow{}, err

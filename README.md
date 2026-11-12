@@ -76,7 +76,7 @@ $ nitrovin --version
 nitrovin v0.1.2 (data 2026_10)
 ```
 
-The binary is about 70 MB, most of it the data; an archive is about 21 MB.
+The binary is about 80 MB, most of it the data; an archive is about 21 MB.
 The Docker image runs `nitrovin serve --addr :8080` by default, as a
 non-root user, and takes any other command in its place
 (`docker run --rm ghcr.io/joshuasprow/nitrovin decode 1HGCM82633A004352`).
@@ -457,7 +457,12 @@ and fuzzy matching belong to whoever builds the file.
 it, and translate, list and fit on every surface. A **catalog** (which
 parts fit which vehicles) loads the same way, and `nitrovin fit` reads it,
 and so do **stock files**: shelf parts and yard vehicles a fit answers
-beside its candidates.
+beside its candidates. A stock source can instead be a Postgres table or
+view read at request time, a **connector**: a stock file of one header
+line naming the relation and the environment variable holding its DSN
+([Connectors](docs/vocabularies.md#connectors)). It is the one thing
+nitrovin reads over a network, and only the `nitrovin` binary links its
+driver.
 
 Name files or directories with `--vocab` (repeatable, any command) or
 `NITROVIN_VOCAB`. A file with a fault stops nitrovin from starting; where a

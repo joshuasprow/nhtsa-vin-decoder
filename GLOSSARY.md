@@ -375,9 +375,22 @@ _Avoid_: feed, connector (that is how a live source is read)
 
 **Connector**:
 How a stock source is read from a database at request time: a stock file with a
-header and no lines, naming a relation and the environment variable that holds
-its credentials.
+header and no lines (`connector.postgres`), naming a relation and the environment
+variable that holds its credentials. In Go, `pkg/stock/pg`; only the `nitrovin`
+binary links it.
 _Avoid_: plugin, adapter, live source (as the term)
+
+**Relation**:
+The table or view a connector reads its rows from, whose column names nitrovin
+dictates (`id`, `location`, `vehicle_<field>`, `fields`, …) and whose SQL the
+source writes; a shelf's **release relation** is one row holding its catalog
+release.
+_Avoid_: feed table, query
+
+**Unchecked**:
+A connector's status before its first lookup: nothing connects at load, so it
+is neither available nor unavailable until a fit asks for its stock.
+_Avoid_: pending, unknown
 
 **Shelf part**:
 One part a source has on a shelf, tied to a fitment by its catalog number, or to

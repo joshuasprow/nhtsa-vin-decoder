@@ -1,4 +1,4 @@
-# The tests that need data, in two jobs, so a change runs what it can affect.
+# The tests that need data, in three jobs, so a change runs what it can affect.
 #
 # artifact: every test that wants only an artifact, on the one go.mod pins
 # (nitrovin-data's pkg/embedded, read from the module cache): pkg/decoder's
@@ -32,6 +32,14 @@
 # which a required check counts as passed. go.mod and testdata/parity are not
 # among them: the refresh's bump PR changes only those, after the refresh ran
 # the live gate on that very artifact. Dispatch with full to run it anyway.
+#
+# stock: pkg/stock/pg's Postgres tests, against an empty Postgres 17 the
+# job starts (no dump): the stock connector (ADR 0020) reads views over the
+# synthetic shelf and yard (testdata/vocab/stock/live/views.sql) and must
+# answer every fit as the same rows loaded as files do, and degrade to
+# unavailable on a missing column, a slow query, a full pool, a dead
+# database. It takes about a minute, so it runs for every path this
+# workflow watches.
 name: Tests
 
 on:
@@ -254,3 +262,51 @@ jobs:
           if [ "${{ steps.fetch.outputs.month }}" = "$(jq -r .month testdata/parity/*/manifest.json)" ]; then
             grep -q -- '--- PASS: TestParity ' "$RUNNER_TEMP/engine.log"
           fi
+
+  stock:
+    name: Stock connector
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        # The oracle's image, by the same digest: scripts/tools.sh holds
+        # every workflow to one.
+        image: postgres:17@sha256:ff87138949ad9a46f32ff23bd6852b52ce024a13dffe9b4087be98292cdd3b4f
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: stock
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/mise
+        id: go
+        with:
+          tools: go
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-stock-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            go-stock-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
+
+      # pkg/stock/pg's Postgres tests skip without NITROVIN_STOCK_PG_DSN, so
+      # a skip would pass silently: require that each one ran.
+      - name: Test the connector against Postgres
+        env:
+          NITROVIN_STOCK_PG_DSN: postgres://postgres:postgres@localhost:5432/stock?sslmode=disable
+        run: |
+          go test -count=1 -race -v ./pkg/stock/pg/ | tee "$RUNNER_TEMP/stock.log"
+          for t in TestParityPostgres TestUnavailablePostgres TestRowsPostgres TestSlowPostgres \
+                   TestChangedPostgres TestVPICPostgres TestLostPostgres TestNoCatalogPostgres; do
+            grep -q -- "--- PASS: $t " "$RUNNER_TEMP/stock.log" || { echo "stock: $t did not pass" >&2; exit 1; }
+          done

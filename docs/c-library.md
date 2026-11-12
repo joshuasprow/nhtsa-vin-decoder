@@ -113,8 +113,10 @@ answers `{"fit": {"status": "found", "candidates": […], …}}`; on a handle
 without a catalog, `{"fit": {"status": "no-catalog", …}}`. Stock files load
 the same way (the synthetic shelf and yard are `testdata/vocab/stock`): a
 fit with `"stock": ["shelf", "yard"]` gives each candidate its `shelf` and
-`yard` lists. The library reads stock files only, never a database
-connector.
+`yard` lists. The library reads stock files only, never a database: a
+connector's file ([Connectors](vocabularies.md#connectors)) loads, and
+answers each of its lists `unavailable`, `this build reads stock files
+only: a connector needs the nitrovin binary`.
 
 ## The rules
 

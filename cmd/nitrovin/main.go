@@ -36,6 +36,7 @@ import (
 	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
+	"github.com/joshuasprow/nitrovin/pkg/stock/pg"
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
@@ -83,6 +84,10 @@ type env struct {
 	// vocab is every --vocab, the root's then the command's; none means
 	// $NITROVIN_VOCAB.
 	vocab []string
+	// loaded are the Translators load made, closed when the command ends:
+	// a connector's pool (ADR 0020) is released however the command
+	// stops, serve's shutdown and stdio's and MCP's end of input included.
+	loaded []*nitrovin.Translator
 }
 
 // paths is a repeatable flag, each use appending its value.
@@ -169,6 +174,9 @@ func run(args []string, e *env) int {
 		return usageExit(e, err.Error(), commandUsage(c, fs))
 	}
 	err = body(e, pos)
+	for _, t := range e.loaded {
+		t.Close()
+	}
 	if u, ok := errors.AsType[usageError](err); ok {
 		return usageExit(e, string(u), commandUsage(c, fs))
 	}
@@ -262,7 +270,9 @@ func (e *env) decoder() (*nitrovin.Decoder, error) {
 // translator loads the data, then the vocabularies beside it: every
 // --vocab, or else $NITROVIN_VOCAB. A fault in a file is an internal
 // problem naming the flag or variable, the file and the line; drift is
-// written to stderr, one vocab.Finding per line, and served.
+// written to stderr, one vocab.Finding per line, and served. A
+// connector's stock file (ADR 0020) reads its DSN from the environment
+// variable it names, and connects on its first lookup.
 func (e *env) translator() (*nitrovin.Translator, error) {
 	t, _, err := e.load()
 	return t, err
@@ -288,11 +298,12 @@ func (e *env) load() (*nitrovin.Translator, []byte, error) {
 	files, err := vocab.Open(paths...)
 	var t *nitrovin.Translator
 	if err == nil {
-		t, err = nitrovin.NewTranslator(d, files...)
+		t, err = nitrovin.NewTranslatorWith(d, nitrovin.TranslatorConfig{Connect: pg.Connect(e.getenv)}, files...)
 	}
 	if err != nil {
 		return nil, nil, contract.NewProblem(contract.Internal, "", fmt.Sprintf("%s: %v", from, err))
 	}
+	e.loaded = append(e.loaded, t)
 	for _, f := range t.Drift() {
 		writeFinding(e.stderr, f)
 	}
