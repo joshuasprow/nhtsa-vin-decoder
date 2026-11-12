@@ -21,71 +21,178 @@ import (
 // the redirect's vehicle and years.
 func (d *drifts) catalog(vehicles *File) {
 	f, x := d.f, d.f.catalog
-	start := len(d.out)
-
-	// The first line naming each vehicle, and how many do.
-	firsts := make([]use, len(x.vehicleList))
-	for i := range f.Fitments {
-		fit := &f.Fitments[i]
-		for j := range fit.Applications {
-			firsts[fit.Applications[j].Vehicle.id].see(fit.Line, j)
-		}
-	}
-	for i := range f.Redirects {
-		firsts[f.Redirects[i].Vehicle.id].see(f.Redirects[i].Line, -1)
-	}
-	known := make([]bool, len(x.vehicleList)) // a vPIC model the month has
+	g := d.catalogDrift(vehicles)
 	for _, v := range x.vehicleList {
-		u := firsts[v.id]
-		switch {
-		case vehicles != nil:
-			d.vehicleEntry(v, &u, vehicles)
-		case v.Make != 0:
-			if _, ok := d.m.Make(v.Make); !ok {
-				d.add(u.line, DriftMake, "%s/vehicle/make: vPIC make %d is not in data month %s%s", u.ptr(), v.Make, d.month, u.more())
-			}
-		case v.Model != 0:
-			_, _, known[v.id] = d.m.Model(v.Model)
-			if !known[v.id] {
-				d.add(u.line, DriftModel, "%s/vehicle/model: vPIC model %d is not in data month %s%s", u.ptr(), v.Model, d.month, u.more())
-			}
-		}
+		g.vehicle(v)
 	}
-
-	// Model years (ADR 0022), where the vehicle is a vPIC model the month
-	// has: each model and year range once, at the first application with
-	// it.
-	type modelRange struct {
-		model             int32
-		first, last       int
-		hasFirst, hasLast bool
-	}
-	ranges := map[modelRange]*use{}
-	var order []modelRange
 	for i := range f.Fitments {
 		fit := &f.Fitments[i]
 		for j := range fit.Applications {
 			a := &fit.Applications[j]
-			if !known[a.Vehicle.id] || a.First == nil && a.Last == nil {
-				continue
+			var qs qualifierKey
+			if len(a.Qualifiers) > 0 {
+				qs.p = &a.Qualifiers[0]
 			}
-			k := modelRange{model: a.Vehicle.Model}
-			if a.First != nil {
-				k.first, k.hasFirst = *a.First, true
-			}
-			if a.Last != nil {
-				k.last, k.hasLast = *a.Last, true
-			}
-			u := ranges[k]
-			if u == nil {
-				u = &use{}
-				ranges[k] = u
-				order = append(order, k)
-			}
-			u.see(fit.Line, j)
+			g.application(fit.Line, j, a, qs)
 		}
 	}
-	for _, k := range order {
+	for i := range f.Redirects {
+		rd := &f.Redirects[i]
+		g.redirect(rd)
+		if !x.answers(f, rd) {
+			g.unanswered(rd)
+		}
+	}
+	g.report()
+}
+
+// catalogDrift gathers a catalog's drift as its vehicles, applications and
+// redirects are seen, in line order, for one Drift or ModelDrift call: a
+// JSON Lines catalog's from its lines in memory, a compile's from its
+// source as it streams by. report adds the findings.
+type catalogDrift struct {
+	d        *drifts
+	vehicles *File // its vehicle vocabulary; nil when vpic
+	list     []*Vehicle
+	// firsts are, by vehicle id, the first naming and how many name it;
+	// known, whether it is a vPIC model the month has.
+	firsts []use
+	known  []bool
+	// Model years (ADR 0022), where the vehicle is a vPIC model the month
+	// has: each model and year range once, at the first application with
+	// it.
+	ranges map[modelRange]*use
+	order  []modelRange
+	// Each qualifier drift once, at the first application with it. Most
+	// applications share their qualifiers with others, and are measured
+	// once per set and vehicle model: an application whose vehicle is a
+	// vPIC model the month has is also tested against the model's values
+	// (ModelDrift only, ADR 0015).
+	measured   map[qualifiersOf][]drifted
+	qualifiers []*qualifierUse
+	byDetail   map[string]*qualifierUse
+	redirects  []*Redirect // those no application answers
+}
+
+type modelRange struct {
+	model             int32
+	first, last       int
+	hasFirst, hasLast bool
+}
+
+// qualifierKey is one set of qualifiers: the first of a slice that
+// applications share, or a compile's id for it.
+type qualifierKey struct {
+	p  *Qualifier
+	id uint32
+}
+
+type qualifiersOf struct {
+	qs    qualifierKey
+	model int32
+}
+
+type drifted struct {
+	kind       DriftKind
+	at, detail string // at: the pointer into the qualifiers
+}
+
+type qualifierUse struct {
+	use
+	drifted
+}
+
+func (d *drifts) catalogDrift(vehicles *File) *catalogDrift {
+	return &catalogDrift{d: d, vehicles: vehicles, ranges: map[modelRange]*use{}, measured: map[qualifiersOf][]drifted{}, byDetail: map[string]*qualifierUse{}}
+}
+
+// vehicle sees vehicle v, numbered next, before any line naming it.
+func (g *catalogDrift) vehicle(v *Vehicle) {
+	known := false
+	if g.vehicles == nil && v.Model != 0 {
+		_, _, known = g.d.m.Model(v.Model)
+	}
+	g.list, g.firsts, g.known = append(g.list, v), append(g.firsts, use{}), append(g.known, known)
+}
+
+// application sees application j on line, whose qualifiers are qs.
+func (g *catalogDrift) application(line, j int, a *Application, qs qualifierKey) {
+	id := a.Vehicle.id
+	g.firsts[id].see(line, j)
+	if !g.known[id] {
+		if len(a.Qualifiers) > 0 {
+			g.qualifier(line, j, a, qualifiersOf{qs: qs})
+		}
+		return
+	}
+	if a.First != nil || a.Last != nil {
+		k := modelRange{model: a.Vehicle.Model}
+		if a.First != nil {
+			k.first, k.hasFirst = *a.First, true
+		}
+		if a.Last != nil {
+			k.last, k.hasLast = *a.Last, true
+		}
+		u := g.ranges[k]
+		if u == nil {
+			u = &use{}
+			g.ranges[k] = u
+			g.order = append(g.order, k)
+		}
+		u.see(line, j)
+	}
+	if len(a.Qualifiers) > 0 {
+		k := qualifiersOf{qs: qs}
+		if g.d.mm != nil {
+			k.model = a.Vehicle.Model
+		}
+		g.qualifier(line, j, a, k)
+	}
+}
+
+func (g *catalogDrift) qualifier(line, j int, a *Application, k qualifiersOf) {
+	ds, ok := g.measured[k]
+	if !ok {
+		g.d.qualifiers(a.Qualifiers, k.model, func(kind DriftKind, ptr, detail string) { ds = append(ds, drifted{kind, ptr, detail}) })
+		g.measured[k] = ds
+	}
+	for _, dr := range ds {
+		q := g.byDetail[dr.detail]
+		if q == nil {
+			q = &qualifierUse{drifted: dr}
+			g.byDetail[dr.detail] = q
+			g.qualifiers = append(g.qualifiers, q)
+		}
+		q.see(line, j)
+	}
+}
+
+// redirect sees redirect rd.
+func (g *catalogDrift) redirect(rd *Redirect) { g.firsts[rd.Vehicle.id].see(rd.Line, -1) }
+
+// unanswered sees that no application of rd's target part type is for
+// its vehicle in its years.
+func (g *catalogDrift) unanswered(rd *Redirect) { g.redirects = append(g.redirects, rd) }
+
+// report adds the findings, in line order: on one line, a vehicle's
+// first, then model years', qualifiers' and the redirect's.
+func (g *catalogDrift) report() {
+	d := g.d
+	start := len(d.out)
+	for _, v := range g.list {
+		u := g.firsts[v.id]
+		switch {
+		case g.vehicles != nil:
+			d.vehicleEntry(v, &u, g.vehicles)
+		case v.Make != 0:
+			if _, ok := d.m.Make(v.Make); !ok {
+				d.add(u.line, DriftMake, "%s/vehicle/make: vPIC make %d is not in data month %s%s", u.ptr(), v.Make, d.month, u.more())
+			}
+		case v.Model != 0 && !g.known[v.id]:
+			d.add(u.line, DriftModel, "%s/vehicle/model: vPIC model %d is not in data month %s%s", u.ptr(), v.Model, d.month, u.more())
+		}
+	}
+	for _, k := range g.order {
 		var first, last *int
 		if k.hasFirst {
 			first = new(k.first)
@@ -93,66 +200,15 @@ func (d *drifts) catalog(vehicles *File) {
 		if k.hasLast {
 			last = new(k.last)
 		}
-		u := ranges[k]
+		u := g.ranges[k]
 		d.modelYears(u.line, k.model, first, last, u.ptr, u.more())
 	}
-
-	// Each qualifier drift once, at the first application with it. A
-	// reader shares one slice among the applications that write the same
-	// qualifiers, so most are measured once per vehicle model: an
-	// application whose vehicle is a vPIC model the month has is also
-	// tested against the model's values (ModelDrift only, ADR 0015).
-	type drifted struct {
-		kind       DriftKind
-		at, detail string // at: the pointer into the qualifiers
-	}
-	type qualifiersOf struct {
-		qs    *Qualifier
-		model int32
-	}
-	measured := map[qualifiersOf][]drifted{}
-	type qualifierUse struct {
-		use
-		drifted
-	}
-	var uses []*qualifierUse
-	byDetail := map[string]*qualifierUse{}
-	for i := range f.Fitments {
-		fit := &f.Fitments[i]
-		for j := range fit.Applications {
-			a := &fit.Applications[j]
-			qs := a.Qualifiers
-			if len(qs) == 0 {
-				continue
-			}
-			k := qualifiersOf{qs: &qs[0]}
-			if d.mm != nil && known[a.Vehicle.id] {
-				k.model = a.Vehicle.Model
-			}
-			ds, ok := measured[k]
-			if !ok {
-				d.qualifiers(qs, k.model, func(kind DriftKind, ptr, detail string) { ds = append(ds, drifted{kind, ptr, detail}) })
-				measured[k] = ds
-			}
-			for _, dr := range ds {
-				q := byDetail[dr.detail]
-				if q == nil {
-					q = &qualifierUse{drifted: dr}
-					byDetail[dr.detail] = q
-					uses = append(uses, q)
-				}
-				q.see(fit.Line, j)
-			}
-		}
-	}
-	for _, q := range uses {
+	for _, q := range g.qualifiers {
 		d.add(q.line, q.kind, "%s/qualifiers%s: %s%s", q.ptr(), q.at, q.detail, q.more())
 	}
-
-	for i := range f.Redirects {
-		if rd := &f.Redirects[i]; !x.answers(f, rd) {
-			d.addFile(rd.Line, DriftRedirect, "/redirect/to: part type %q has no application for this vehicle in %s", rd.To, rangeText(rd.First, rd.Last))
-		}
+	slices.SortStableFunc(g.redirects, func(a, b *Redirect) int { return cmp.Compare(a.Line, b.Line) })
+	for _, rd := range g.redirects {
+		d.addFile(rd.Line, DriftRedirect, "/redirect/to: part type %q has no application for this vehicle in %s", rd.To, rangeText(rd.First, rd.Last))
 	}
 	slices.SortStableFunc(d.out[start:], func(a, b Finding) int { return cmp.Compare(a.Line, b.Line) })
 }

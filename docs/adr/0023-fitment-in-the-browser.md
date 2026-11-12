@@ -23,6 +23,13 @@ It amends four ADRs:
 format half is measured in Go on the catalog-scale fixture. The browser half is
 measured in current stable Chrome, Safari and Firefox. If either half misses, the
 work stops and a person decides whether to change the design or the budget.
+The format half is met on the catalog-scale fixture (2026-11-12,
+[#262](https://github.com/joshuasprow/nitrovin/issues/262); see Measured). One
+known miss is not the format's: with a share of fitments of hundreds of
+applications, `fit`'s related vehicles miss ADR 0018's p99 in both forms. This
+ADR stays proposed until [#267](https://github.com/joshuasprow/nitrovin/issues/267),
+which takes up that computation, and the browser half's ticket,
+[#263](https://github.com/joshuasprow/nitrovin/issues/263), land.
 
 ## Who it is for
 
@@ -135,6 +142,136 @@ The reads come from the layout:
 The read budgets are set so reads at 0.25 ms take at most half of each request's
 budget, leaving the rest for wasm compute. Browsers can't run in CI, so CI holds
 the read counts and the release notes record the browser numbers.
+
+## Measured
+
+### The format half
+
+Compiled format 2 and the streaming compiler, measured by `bench/vocab` on the
+catalog-scale fixture on one core (`GOMAXPROCS=1`, Apple M5 Pro, page cache warm),
+reads counted through a wrapped `io.ReaderAt`, and
+[recorded on #260](https://github.com/joshuasprow/nitrovin/issues/260):
+
+| Request | Reads, p99 / most | Read budget | Server p99 | ADR 0018 budget |
+| --- | ---: | ---: | ---: | ---: |
+| candidates | 3 / 3 | 10 | 147 µs | 5 ms |
+| part types | 2 / 2 | 20 | 614 µs | 10 ms |
+| part types, no year | 2 / 2 | 20 | 1.9 ms | 10 ms |
+| related vehicles | 2 / 2 | 100 | 729 µs | 50 ms |
+| related vehicles, no year | 2 / 2 | 100 | 2.8 ms | 50 ms |
+| reverse, one key | 1 / 1 | 2 | 95 µs | 1 ms |
+| a 1,000-fitment page | 1 / 1 | 8 | 418 µs | |
+
+| | Format 2 | Budget |
+| --- | ---: | ---: |
+| Open and ready | 4.5 ms | 1 s (ADR 0021) |
+| Retained heap | 2.7 MB | 256 MiB (ADR 0021) |
+| Peak while opening | 19 MB | 512 MiB (ADR 0021) |
+| File | 342 MB | 500 MB |
+| Compile | 3.7 s | recorded |
+| Compile peak, `nitrovin vocab compile` (`/usr/bin/time -l`) | 202 MB on 18 cores, 172 MB on one | 256 MiB |
+
+At 0.25 ms a read, the worst request spends under 1 ms reading.
+
+### With wide fitments
+
+The fixture's fitments have one to five applications. Its wide variants add a
+share of fitments like universal parts, each of 50 to 500 applications on
+vehicles and years at random, over 20 part types (`BenchmarkFit`, compiled, one
+core): p99, reads p99 / most, and the most bytes a request read.
+
+| Request | 0.1% (790) | 0.3% (2,370) | 1% (7,900) | ADR 0018 |
+| --- | ---: | ---: | ---: | ---: |
+| candidates | 135 µs · 3 / 3 · 8 KB | 126 µs · 3 / 3 · 8 KB | 133 µs · 3 / 3 · 8 KB | 5 ms |
+| candidates of a wide fitment's type | 133 µs · 3 / 3 · 7 KB | 162 µs · 3 / 3 · 8 KB | 213 µs · 3 / 3 · 11 KB | 5 ms |
+| part types | 664 µs · 2 / 2 · 220 KB | 754 µs · 2 / 2 · 238 KB | 1.1 ms · 2 / 2 · 299 KB | 10 ms |
+| part types, no year | 2.0 ms · 2 / 2 · 220 KB | 2.5 ms · 2 / 2 · 238 KB | 3.5 ms · 2 / 2 · 299 KB | 10 ms |
+| related vehicles | 8.9 ms · 14 / 14 · 2.0 MB | 20 ms · 33 / 33 · 4.4 MB | **56 ms** · 93 / 94 · 10.6 MB | 50 ms |
+| related vehicles, no year | **56 ms** · 9 / 10 · 6.9 MB | **100 ms** · 22 / 23 · 20 MB | **208 ms** · 69 / 70 · 66 MB | 50 ms |
+| reverse | 90 µs · 1 / 1 · 15 KB | 88 µs · 1 / 1 · 15 KB | 84 µs · 1 / 1 · 15 KB | 1 ms |
+| File | 367 MB | 418 MB | 595 MB | 500 MB at the fixture's scale |
+| Bytes per application | about 174 | about 164 | about 146 | about 180 at the fixture |
+
+Every read budget holds here. Part types, candidates and reverse do not move:
+they read the vehicle's block, which holds what answers for it of every fitment.
+Related vehicles read the wide fitments whole, and their reads grow with them:
+93 / 94 of 100 at 1%, and 109 / 116 on another 1% catalog of the same shape with
+other year spans and qualifiers (the review's). Related vehicles' read budget,
+with their p99, is [#267](https://github.com/joshuasprow/nitrovin/issues/267)'s.
+
+**A known miss, in `fit`'s related computation, not the format.** Related
+vehicles miss ADR 0018's p99 as JSON Lines does on the same catalogs (18 ms and
+90 ms with no year at 0.1%, 36 and 168 ms at 0.3%, 85 and 220 ms at 1%), and the
+compiled form is the faster of the two at p99 every time. The answer runs to
+43,000–59,000 vehicles and year ranges, and building it is `fit`'s cost, not
+the format's reads (at most 94 of 100). It is taken up by
+[#267](https://github.com/joshuasprow/nitrovin/issues/267); this ADR stays
+proposed until that and #263 land.
+
+**The file budget is per application.** ADR 0021's 500 MB is set at the
+catalog scale ADR 0017 defines, the fixture's 1.9 million applications: about
+180 bytes an application, and the figure to watch as catalogs grow. The 1%
+variant's 595 MB holds 4.1 million applications, twice the fixture's, at about
+146 bytes each, so it is within that rule.
+
+Format 1 on the same fixture: 33 reads for candidates, 5,625 for part types and
+11,620 with no year, 3,366 and 7,650 for related vehicles, and 29 for reverse.
+
+What was built, where the text above leaves room:
+
+- **A vehicle's block is its head and its body.** The head lists its part
+  types, each with its count and its bytes in the body, and its redirects; the
+  body holds a copy of every fitment with an application to the vehicle, whole,
+  by part type, side and number. One part type is two reads, the head and that
+  type's run; every part type is one read of the whole block.
+- **`fitment.Reader` asks for every part type at once.** `ByVehicle` and
+  `Redirect` take part type `""` for all of them, and `fit` asks that way, once,
+  for part types and related vehicles, rather than once per part type of the
+  spine. A JSON Lines catalog answers `""` too.
+- **Part types and candidates read only what matched.** `fitment.Reader`'s
+  `Matching` is `ByVehicle` answering with the applications that matched and
+  the fitment's key, line and note: all a part-type summary or a candidate
+  needs. `fit` asks it for part types and candidates, and `ByVehicle`, every
+  application of each fitment, only for related vehicles (ADR 0017's
+  amendment).
+- **Related vehicles are read, not stored.** Each whole copy in a block carries
+  every application of its fitment, so related vehicles come from the block,
+  and from the wide section for the wide fitments it shares (below); no table
+  per vehicle was needed.
+- **Wide fitments are not copied whole.** A fitment of more than 16
+  applications would cost the file the square of its applications if every
+  vehicle's block held it. Its blocks hold what answers for their vehicle, its
+  key, line and note and its applications to that vehicle, whole, and where the
+  fitment lies in a section of only such fitments. `Matching` answers from the
+  block; only `ByVehicle`, for related vehicles, reads the fitment whole, nearby
+  ones together, within 256 KiB of each other and 1 MiB in all. The threshold
+  was measured on the fixture with 1% of fitments of 6 to 50 applications
+  (related vehicles, one core):
+
+  | Threshold | File | Related: reads, most · p99 | No year: reads, most · p99 |
+  | ---: | ---: | ---: | ---: |
+  | 4 | 318 MB | 55 · 3.7 ms | 28 · 15 ms |
+  | 8 | 369 MB | 14 · 2.9 ms | 9 · 12 ms |
+  | 16 | 374 MB | 14 · 2.9 ms | 9 · 11 ms |
+  | 32 | 425 MB | 11 · 2.6 ms | 7 · 11 ms |
+
+  Below 8 the fixture's own fitments go far and reads climb; above 16 the file
+  grows a seventh for three reads. 16 it is. Above 50 applications no threshold
+  helps: copying a 275-application fitment into each of its vehicles' blocks
+  costs about 3.8 MB.
+- **Sparse indexes in memory.** Every fitment is also stored once in key order,
+  in pages of 64: the dictionary holds each page's first key, so a number is one
+  read (two through a retired number), and a 1,000-fitment page is one.
+- **The compiler holds no line.** It streams fitments and redirects through
+  two external sorts, by key and by vehicle, in runs of 16 MiB, and retired
+  numbers through two more, by key and by successor, in runs of 4 MiB, merged
+  beside the fitments by key. What it holds grows with the catalog's
+  vehicles, part types and distinct sets of qualifiers. With 500,000 retired
+  numbers more than the fixture's, `vocab compile` peaked as without them.
+- **Skipped drift follows the month.** A compile records `model-years` as skipped
+  when its month knows no model years, and `model-qualifier` when it knows no
+  model values, so the browser's compile records both without being told.
+  `/v1/info`'s `compiled` says so as `skipped_drift`.
 
 ## Considered options
 

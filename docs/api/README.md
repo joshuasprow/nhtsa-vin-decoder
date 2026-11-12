@@ -552,7 +552,11 @@ specifies.
   compiled it), the `drift_month` its drift counts were measured against,
   `drift_month_differs`, true when that is not the loaded data month, and
   `links_differ`, true when its spine or vehicle vocabulary as loaded is
-  not the file it was compiled against (another blake3). It is `[]` when
+  not the file it was compiled against (another blake3), and
+  `skipped_drift`, the drift kinds its compiling could not measure: `[]`
+  from `nitrovin vocab compile`, `model-years` and `model-qualifier` from a
+  compile in a browser ([ADR 0023](../adr/0023-fitment-in-the-browser.md)),
+  which `nitrovin vocab check` measures. It is `[]` when
   nothing is loaded, as for every `nitrovin_open` handle.
 - **`nitrovin vocab check <file|dir>…`** loads its arguments, and only
   them, beside the data (`--data` as for any command) and prints every

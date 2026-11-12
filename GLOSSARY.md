@@ -302,6 +302,13 @@ published form; its drift is the drift measured when it was compiled, and a
 browser's compile measures every kind but those its spine bundle cannot.
 _Avoid_: binary catalog, catalog database, index (an index is one of its tables)
 
+**Scratch storage**:
+Where compiling a catalog sorts what memory does not hold, and assembles the
+compiled file before writing it (ADR 0023): a temporary directory for
+`nitrovin vocab compile`, IndexedDB in a browser. Written once and read back,
+then deleted.
+_Avoid_: cache, temp files (a browser has none)
+
 **Fitment**:
 One part in a catalog: a part type, the catalog's number for it and its side,
 with every vehicle and model-year range it fits.

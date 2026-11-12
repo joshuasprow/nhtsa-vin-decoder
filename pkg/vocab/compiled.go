@@ -6,24 +6,38 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"slices"
+	"sort"
 	"strings"
-	"sync"
 
 	"github.com/zeebo/blake3"
 )
 
-// A compiled catalog (ADR 0021) is a catalog Compile checked and wrote into
-// one indexed file, in the artifact's family (ADR 0003): fixed-width rows
-// sorted by key, one string pool, and one sorted index per lookup of
-// package fitment's Reader. It is read in place through an io.ReaderAt,
-// never a memory map: opening it reads its header and its dictionary (part
-// types, vehicles and qualifier sets), and each lookup reads the rows and
-// strings it answers from. Its answers are its JSON Lines source's.
+// A compiled catalog (ADR 0021, ADR 0023) is a catalog Compile checked and
+// wrote into one indexed file, in the artifact's family (ADR 0003). It is
+// read in place through an io.ReaderAt, never a memory map, so it reads by
+// byte range wherever a read is dear, as in a browser's store: opening it
+// reads its header and its dictionary, which holds every part type and
+// vehicle, the distinct sets of qualifiers, where each vehicle's block is
+// and the first key of every page of fitments; each lookup then reads one
+// or two runs of bytes. Its answers are its JSON Lines source's.
+//
+// Format 2 is clustered by vehicle. A vehicle's block holds its part types
+// with their counts, its redirects, and a copy of every fitment with an
+// application to it, so a vehicle's candidates, part types and related
+// vehicles are one or two reads. Every fitment is also stored once in key
+// order, in pages, for a number's lookup and for paging. A fitment with
+// more than wideApplications applications is not copied whole into each
+// of its vehicles' blocks, so the file grows with the applications, never
+// with their square: each block holds its key, its applications to that
+// vehicle and where it is in wide, a section of only such fitments, whole,
+// so a vehicle's few are read together.
 //
 // # Layout
 //
-// All integers are little-endian; offsets are from the start of the file.
+// All fixed-width integers are little-endian; offsets are from the start
+// of the file.
 //
 //	header, 64 bytes
 //	   0  [8]byte  magic "nvcatalg"
@@ -33,37 +47,40 @@ import (
 //	  24  [8]byte  zero
 //	  32  [32]byte blake3 of the file with these 32 bytes zero
 //	directory, at 64: per section, uint64 offset and uint64 length
-//	meta         the catalog's header, the source's blake3, the files it
-//	             was linked against, the writer, the data month its drift
-//	             was measured against and those findings, and its counts
-//	dict         per part type, in byte order: its name, whether a fitment
-//	             or redirect names it, and its rows of fitments, spans,
-//	             redirectsBy and retired; every vehicle, in the order of the
-//	             first line naming it, with that line, the application on
-//	             it (0 for a redirect, else its index plus one) and how many
-//	             applications and redirects name it; every distinct set of
-//	             qualifiers
-//	fitments     36 bytes per fitment, in key order: its rank is its row
-//	apps         28 bytes per application, the fitments' in rank order,
-//	             each fitment's in file order
-//	postings     20 bytes per application, by part type, vehicle, rank
-//	             and application, with its side and years
-//	spans        16 bytes per part type and vehicle, in that order: its
-//	             rows of postings
-//	redirects    36 bytes per redirect, in file order
-//	redirectsBy  12 bytes per redirect, by part type from, vehicle and row
-//	retired      40 bytes per retired number, in key order
-//	strings      the string pool: a string is a uint32 offset into it and a
-//	             uint32 length, each once
+//	meta    the catalog's header, the source's blake3, the files it was
+//	        linked against, the writer, the data month its drift was
+//	        measured against and those findings, the drift kinds it did
+//	        not measure, and its counts
+//	dict    the part types, in byte order (a type's id is its index):
+//	        each one's name and whether a fitment or redirect names it;
+//	        the vehicles, in the order of the first line naming each (a
+//	        vehicle's id is its index): each one's first naming and count,
+//	        its fields or target, and its block's head and body lengths;
+//	        the distinct sets of qualifiers (an application's set n is the
+//	        nth, 0 for none); and the pages of keyed, each its first
+//	        record's key and its length
+//	keyed   every fitment and retired number in key order (part type,
+//	        side, number), in pages of pageFitments fitments: a fitment
+//	        whole, with the retired numbers it replaced; a retired number
+//	        with its successor's key
+//	wide    every fitment of more than wideApplications applications, in
+//	        key order, whole, as keyed has it
+//	blocks  per vehicle, in id order: its head, its part types (each its
+//	        id, count of fitments and bytes of them in the body) and its
+//	        redirects by part type from; then its body, a record per
+//	        fitment, by part type, side and number
 //
-// Meta and dict are uvarints, varints and length-prefixed strings. Every
-// section starts on an 8-byte boundary, padded with zeros. The bytes are a
-// pure function of the source, the files it was linked against, the data
-// month and the writer: rebuilding gives the same bytes.
+// Meta, dict and records are uvarints, varints, bytes and length-prefixed
+// strings. A fitment record is its side, number, line, note and
+// applications; an application its vehicle id, years (a flags byte,
+// hasFirst and hasLast, then each as a varint), qualifier set and option
+// text. Every section starts on an 8-byte boundary, padded with zeros. The
+// bytes are a pure function of the source, the files it was linked
+// against, the data month and the writer: rebuilding gives the same bytes.
 
 // CompiledFormat is the compiled catalog format this package writes, and
 // the only one it reads.
-const CompiledFormat = 1
+const CompiledFormat = 2
 
 // compiledMagic begins a compiled catalog. No JSON Lines file begins so.
 const compiledMagic = "nvcatalg"
@@ -72,24 +89,33 @@ const compiledMagic = "nvcatalg"
 const (
 	secMeta = iota
 	secDict
-	secFitments
-	secApps
-	secPostings
-	secSpans
-	secRedirects
-	secRedirectsBy
-	secRetired
-	secStrings
+	secKeyed
+	secWide
+	secBlocks
 	numSections
 )
 
 // headerSize is the header's bytes; the directory follows.
 const headerSize = 64
 
-// The rows' widths, by section; 0 for a section of no rows.
-var rowWidth = [numSections]int{secFitments: 36, secApps: 28, secPostings: 20, secSpans: 16, secRedirects: 36, secRedirectsBy: 12, secRetired: 40}
+// pageFitments is how many fitments a page of keyed holds.
+const pageFitments = 64
 
-// The bits of a row's years byte.
+// wideApplications is the most applications of a fitment copied whole
+// into each of its vehicles' blocks.
+const wideApplications = 16
+
+// The kinds of record: in keyed, a fitment or a retired number; in a
+// block, a fitment whole (near) or only its applications to the vehicle
+// and where it is in keyed (far).
+const (
+	recFitment = 0
+	recRetired = 1
+	recNear    = 0
+	recFar     = 1
+)
+
+// The bits of an application's or redirect's years flags.
 const (
 	hasFirst = 1 << iota
 	hasLast
@@ -114,6 +140,11 @@ type Compiled struct {
 	// vocabulary loaded (Drift); Expand measures all of it.
 	DriftMonth string
 	Drift      []Finding
+	// Skipped are the drift kinds its compiling did not measure, because
+	// the month it was given could not (ADR 0023): model-years without
+	// vPIC models' years, model-qualifier without their model values. A
+	// compile on a server skips none.
+	Skipped []DriftKind
 }
 
 // LinkedFile is a file a compiled catalog was linked against.
@@ -149,30 +180,51 @@ type compiled struct {
 	// uses are, by vehicle id, the line and application first naming it
 	// and how many do: its drift's pointer and count.
 	uses []use
+	// blocks are, by vehicle id, where its block is in blocks.
+	blocks []block
 	// qualifiers are the distinct sets of qualifiers: an application's
 	// are qualifiers[q-1], none for q 0.
 	qualifiers [][]Qualifier
+	// pages are keyed's pages, each its first record's key and offset in
+	// keyed; a page ends where the next begins, the last at keyed's end.
+	pages []keyPage
 	// years are the model years from yearBase that applications share.
 	years [yearSpan]int
-	// successors finds, per fitment key, the retired rows naming it as
-	// their successor, in line order: built on the first RetiredTo, since
-	// the file keeps retired numbers in their own key order only.
-	successorsOnce sync.Once
-	successors     map[FitmentKey][]int32
 }
 
-// compiledType is one part type: its name, and its rows in each section
-// keyed by part type.
+// compiledType is one part type.
 type compiledType struct {
 	name string
 	// named: a fitment or redirect names it, not only a retired number.
-	named                            bool
-	ranks, spans, redirects, retired span
+	named bool
+}
+
+// block is where a vehicle's block is in blocks: its head, then its body.
+type block struct {
+	off        int64
+	head, body int64
+}
+
+// keyPage is one page of keyed.
+type keyPage struct {
+	typ    uint32
+	side   Side
+	number string
+	off    int64
 }
 
 // isCompiled reports whether a file's first bytes are a compiled
 // catalog's.
 func isCompiled(prefix []byte) bool { return bytes.HasPrefix(prefix, []byte(compiledMagic)) }
+
+// OpenCompiled opens the compiled catalog of size bytes r reads, named
+// name, as Open opens one from a path: read in place through r, which
+// stays in use for the File's life. It checks the file alone; Link checks
+// it against the files loaded with it. A file in another compiled format,
+// format 1 included, is refused with a fault saying to compile it again.
+func OpenCompiled(name string, r io.ReaderAt, size int64) (*File, error) {
+	return openCompiled(name, r, size)
+}
 
 // openCompiled opens the compiled catalog of size bytes r reads, loaded
 // under path. Its faults are about the file as a whole, line 0.
@@ -186,6 +238,9 @@ func openCompiled(path string, r io.ReaderAt, size int64) (*File, error) {
 	}
 	if _, err := r.ReadAt(h[:], 0); err != nil {
 		return nil, Faults{fault(path, 0, "%v", errorText(err))}
+	}
+	if !isCompiled(h[:]) {
+		return nil, bad("no compiled catalog's magic: it is not a compiled catalog")
 	}
 	if v := binary.LittleEndian.Uint32(h[8:]); v != CompiledFormat {
 		return nil, Faults{fault(path, 0, "compiled catalog format %d: this nitrovin reads format %d only; compile the catalog again with this release", v, CompiledFormat)}
@@ -204,29 +259,25 @@ func openCompiled(path string, r io.ReaderAt, size int64) (*File, error) {
 	at := int64(headerSize + len(dir))
 	for i := range c.sec {
 		off, n := binary.LittleEndian.Uint64(dir[i*16:]), binary.LittleEndian.Uint64(dir[i*16+8:])
-		if off%8 != 0 || off < uint64(at) || off > uint64(size) || n > uint64(size)-off || rowWidth[i] > 0 && n%uint64(rowWidth[i]) != 0 {
+		if off%8 != 0 || off < uint64(at) || off > uint64(size) || n > uint64(size)-off {
 			return nil, bad("section %d is out of place", i)
 		}
 		c.sec[i].off, c.sec[i].n, at = int64(off), int64(n), int64(off+n)
-	}
-	if c.sec[secStrings].n > 1<<32 {
-		return nil, bad("its strings are more than 4 GiB")
 	}
 	for i := range c.years {
 		c.years[i] = yearBase + i
 	}
 	f := &File{Path: path, Kind: KindCatalog, compiled: c}
 	copy(f.Hash[:], h[32:])
-	meta, dict := make([]byte, c.sec[secMeta].n), make([]byte, c.sec[secDict].n)
-	for i, b := range [][]byte{meta, dict} {
-		if _, err := r.ReadAt(b, c.sec[secMeta+i].off); err != nil {
-			return nil, bad("%v", err)
-		}
-	}
-	if err := c.readMeta(f, meta); err != nil {
+	// Meta and dict lie side by side: one read.
+	head := make([]byte, c.sec[secDict].off+c.sec[secDict].n-c.sec[secMeta].off)
+	if _, err := r.ReadAt(head, c.sec[secMeta].off); err != nil {
 		return nil, bad("%v", err)
 	}
-	if err := c.readDict(dict); err != nil {
+	if err := c.readMeta(f, head[:c.sec[secMeta].n]); err != nil {
+		return nil, bad("%v", err)
+	}
+	if err := c.readDict(head[c.sec[secDict].off-c.sec[secMeta].off:]); err != nil {
 		return nil, bad("%v", err)
 	}
 	return f, nil
@@ -246,37 +297,27 @@ func (c *compiled) readMeta(f *File, b []byte) error {
 	for range d.count() {
 		m.Drift = append(m.Drift, Finding{File: c.path, Line: int(d.uint()), Severity: SeverityDrift, Drift: DriftKind(d.str()), Detail: d.str()})
 	}
+	for range d.count() {
+		m.Skipped = append(m.Skipped, DriftKind(d.str()))
+	}
 	c.info = CatalogInfo{
 		Name: f.Name, Version: f.Version, Release: f.Release, DataMonth: f.DataMonth, Spine: f.Spine, Vehicles: f.Vehicles, Hash: m.SourceHash,
 		Fitments: int(d.uint()), Applications: int(d.uint()), Redirects: int(d.uint()), Retired: int(d.uint()),
 	}
-	switch {
-	case d.err != nil:
-		return d.err
-	case c.info.Fitments != c.rows(secFitments) || c.info.Applications != c.rows(secApps) || c.info.Applications != c.rows(secPostings) ||
-		c.info.Redirects != c.rows(secRedirects) || c.info.Redirects != c.rows(secRedirectsBy) || c.info.Retired != c.rows(secRetired):
-		return fmt.Errorf("its counts are not its rows'")
+	if d.err == nil && len(d.b) > 0 {
+		d.fail("%d bytes after the meta", len(d.b))
 	}
-	return nil
+	return d.err
 }
 
-// readDict reads the dict section: part types, vehicles and qualifier
-// sets.
+// readDict reads the dict section: part types, vehicles, qualifier sets
+// and pages.
 func (c *compiled) readDict(b []byte) error {
 	d := &decoder{b: b}
-	rows := func(sec int) span {
-		lo, hi := d.uint(), d.uint()
-		if lo > hi || hi > uint64(c.rows(sec)) {
-			d.fail("part type rows out of range")
-			return span{}
-		}
-		return span{int32(lo), int32(hi)}
-	}
 	n := d.count()
 	c.types = make([]compiledType, 0, n)
 	for i := range n {
 		t := compiledType{name: d.str(), named: d.uint() == 1}
-		t.ranks, t.spans, t.redirects, t.retired = rows(secFitments), rows(secSpans), rows(secRedirectsBy), rows(secRetired)
 		if i > 0 && t.name <= c.types[i-1].name {
 			d.fail("part types out of order")
 		}
@@ -284,8 +325,9 @@ func (c *compiled) readDict(b []byte) error {
 		c.types = append(c.types, t)
 	}
 	n = d.count()
-	c.vehicles, c.uses = make([]*Vehicle, 0, n), make([]use, 0, n)
+	c.vehicles, c.uses, c.blocks = make([]*Vehicle, 0, n), make([]use, 0, n), make([]block, 0, n)
 	var key []byte
+	at := int64(0)
 	for i := range n {
 		v := &Vehicle{id: int32(i)}
 		c.uses = append(c.uses, use{line: int(d.uint()), app: int(d.uint()) - 1, n: int(d.uint())})
@@ -306,10 +348,20 @@ func (c *compiled) readDict(b []byte) error {
 		default:
 			d.fail("a vehicle of no kind")
 		}
+		bl := block{off: at, head: int64(d.uint()), body: int64(d.uint())}
+		if bl.head > c.sec[secBlocks].n-at || bl.body > c.sec[secBlocks].n-at-bl.head {
+			d.fail("vehicle %d's block is out of range", i)
+			break
+		}
+		at += bl.head + bl.body
+		c.blocks = append(c.blocks, bl)
 		key = appendVehicleKey(key[:0], v)
 		v.key = string(key)
 		c.vehicleAt[v.key] = v.id
 		c.vehicles = append(c.vehicles, v)
+	}
+	if d.err == nil && at != c.sec[secBlocks].n {
+		d.fail("the vehicles' blocks are %d bytes of %d", at, c.sec[secBlocks].n)
 	}
 	n = d.count()
 	c.qualifiers = make([][]Qualifier, 0, n)
@@ -328,419 +380,789 @@ func (c *compiled) readDict(b []byte) error {
 		}
 		c.qualifiers = append(c.qualifiers, qs)
 	}
-	if d.err == nil && len(d.b) > 0 {
+	n = d.count()
+	c.pages = make([]keyPage, 0, n)
+	at = 0
+	for i := range n {
+		p := keyPage{typ: uint32(d.uint()), off: at}
+		if len(d.b) > 0 {
+			p.side, d.b = Side(d.b[0]), d.b[1:]
+		}
+		p.number = d.str()
+		size := int64(d.uint())
+		switch {
+		case int(p.typ) >= len(c.types):
+			d.fail("page %d's part type is out of range", i)
+		case size == 0 || size > c.sec[secKeyed].n-at:
+			d.fail("page %d is out of range", i)
+		case i > 0 && comparePages(c.pages[i-1], p) >= 0:
+			d.fail("pages out of order")
+		}
+		if d.err != nil {
+			break
+		}
+		at += size
+		c.pages = append(c.pages, p)
+	}
+	switch {
+	case d.err != nil:
+	case at != c.sec[secKeyed].n:
+		d.fail("the pages are %d bytes of %d", at, c.sec[secKeyed].n)
+	case len(d.b) > 0:
 		d.fail("%d bytes after the dictionary", len(d.b))
 	}
 	return d.err
 }
 
-// rows is how many rows section sec holds.
-func (c *compiled) rows(sec int) int { return int(c.sec[sec].n) / rowWidth[sec] }
+func comparePages(a, b keyPage) int {
+	return cmp.Or(cmp.Compare(a.typ, b.typ), cmp.Compare(a.side, b.side), strings.Compare(a.number, b.number))
+}
 
-// read fills b from the file at off. A Reader has no error to return, so a
-// read that fails, the file cut short or replaced under a running process,
-// panics.
-func (c *compiled) read(b []byte, off int64) {
-	if n, err := c.r.ReadAt(b, off); n < len(b) {
-		panic(fmt.Errorf("compiled catalog %s: %v", c.path, err))
+// damaged panics: a Reader has no error to return, so a file whose bytes
+// contradict themselves, cut short or replaced under a running process,
+// ends a lookup in this panic.
+func (c *compiled) damaged(format string, a ...any) {
+	panic(fmt.Errorf("compiled catalog %s: %s: the file is damaged", c.path, fmt.Sprintf(format, a...)))
+}
+
+// read reads n bytes of section sec from off, as one string.
+func (c *compiled) read(sec int, off, n int64) string {
+	if off < 0 || n < 0 || off > c.sec[sec].n || n > c.sec[sec].n-off {
+		c.damaged("bytes %d to %d of section %d are out of range", off, off+n, sec)
+	}
+	b := make([]byte, n)
+	if got, err := c.r.ReadAt(b, c.sec[sec].off+off); got < len(b) {
+		c.damaged("%v", err)
+	}
+	return string(b)
+}
+
+// cursor reads records from bytes read: uvarints, varints, bytes and
+// length-prefixed strings, each string a slice of what was read. Its
+// first failure panics, about a damaged file.
+type cursor struct {
+	c  *compiled
+	s  string
+	at int
+}
+
+func (r *cursor) more() bool { return r.at < len(r.s) }
+
+func (r *cursor) uint() uint64 {
+	var v uint64
+	for shift := uint(0); ; shift += 7 {
+		if r.at >= len(r.s) || shift > 63 {
+			r.c.damaged("a number cut short")
+		}
+		b := r.s[r.at]
+		r.at++
+		v |= uint64(b&0x7f) << shift
+		if b < 0x80 {
+			return v
+		}
 	}
 }
 
-// rowsAt reads n rows of section sec from row i.
-func (c *compiled) rowsAt(sec, i, n int) []byte {
-	w := rowWidth[sec]
-	if i < 0 || n < 0 || i+n > c.rows(sec) {
-		panic(fmt.Errorf("compiled catalog %s: row %d of section %d is out of range: the file is damaged", c.path, i+n, sec))
+func (r *cursor) int() int64 {
+	u := r.uint()
+	return int64(u>>1) ^ -int64(u&1)
+}
+
+func (r *cursor) byte() byte {
+	if r.at >= len(r.s) {
+		r.c.damaged("a record cut short")
 	}
-	b := make([]byte, n*w)
-	c.read(b, c.sec[sec].off+int64(i*w))
+	b := r.s[r.at]
+	r.at++
 	return b
 }
 
-// u32 and i32 read a row's field at off.
-func u32(b []byte, off int) uint32 { return binary.LittleEndian.Uint32(b[off:]) }
-func i32(b []byte, off int) int32  { return int32(binary.LittleEndian.Uint32(b[off:])) }
-
-// strRef is a string in the pool.
-type strRef struct{ off, n uint32 }
-
-func refAt(b []byte, off int) strRef { return strRef{u32(b, off), u32(b, off+4)} }
-
-// want is a string to read into dst.
-type want struct {
-	ref strRef
-	dst *string
+// count is how many of something follow, each at least one byte.
+func (r *cursor) count() int {
+	n := r.uint()
+	if n > uint64(len(r.s)-r.at) {
+		r.c.damaged("a count of %d with %d bytes left", n, len(r.s)-r.at)
+	}
+	return int(n)
 }
 
-// fill reads every string wants names, one read for strings that lie
-// within a few KiB of each other: those of fitments of neighbouring ranks
-// do.
-func (c *compiled) fill(wants []want) {
-	const gap = 4 << 10
-	slices.SortFunc(wants, func(a, b want) int { return cmp.Compare(a.ref.off, b.ref.off) })
-	for i := 0; i < len(wants); {
-		if wants[i].ref.n == 0 {
-			*wants[i].dst = ""
-			i++
-			continue
-		}
-		lo, hi := int64(wants[i].ref.off), int64(wants[i].ref.off)+int64(wants[i].ref.n)
-		j := i + 1
-		for ; j < len(wants) && int64(wants[j].ref.off) <= hi+gap; j++ {
-			hi = max(hi, int64(wants[j].ref.off)+int64(wants[j].ref.n))
-		}
-		if hi > c.sec[secStrings].n {
-			panic(fmt.Errorf("compiled catalog %s: a string out of range: the file is damaged", c.path))
-		}
-		b := make([]byte, hi-lo)
-		c.read(b, c.sec[secStrings].off+lo)
-		s := string(b)
-		for _, w := range wants[i:j] {
-			at := int64(w.ref.off) - lo
-			*w.dst = s[at : at+int64(w.ref.n)]
-		}
-		i = j
+func (r *cursor) str() string {
+	n := r.count()
+	s := r.s[r.at : r.at+n]
+	r.at += n
+	return s
+}
+
+// id reads a part type's or vehicle's id, below n.
+func (r *cursor) id(n int, what string) uint32 {
+	v := r.uint()
+	if v >= uint64(n) {
+		r.c.damaged("%s %d is out of range", what, v)
 	}
+	return uint32(v)
+}
+
+// years reads an application's or redirect's years.
+func (r *cursor) years() (first, last *int) {
+	flags := r.byte()
+	if flags&hasFirst != 0 {
+		first = r.c.year(r.int())
+	}
+	if flags&hasLast != 0 {
+		last = r.c.year(r.int())
+	}
+	return first, last
+}
+
+// holds reads past years, reporting whether they hold year (nil: any).
+func (r *cursor) holds(year *int) bool {
+	flags := r.byte()
+	ok := true
+	if flags&hasFirst != 0 {
+		if y := r.int(); year != nil && int64(*year) < y {
+			ok = false
+		}
+	}
+	if flags&hasLast != 0 {
+		if y := r.int(); year != nil && int64(*year) > y {
+			ok = false
+		}
+	}
+	return ok
 }
 
 // year is y as an application's First or Last: shared within the years
 // from yearBase.
-func (c *compiled) year(y int32) *int {
-	if i := int(y) - yearBase; i >= 0 && i < yearSpan {
+func (c *compiled) year(y int64) *int {
+	if i := y - yearBase; i >= 0 && i < yearSpan {
 		return &c.years[i]
 	}
 	return new(int(y))
 }
 
-// years reads a row's first and last years at off, their flags at flags.
-func (c *compiled) yearsAt(b []byte, off, flags int) (first, last *int) {
-	if b[flags]&hasFirst != 0 {
-		first = c.year(i32(b, off))
+// side reads a side.
+func (r *cursor) side() Side {
+	s := Side(r.byte())
+	if s > SideBoth {
+		r.c.damaged("side %d", s)
 	}
-	if b[flags]&hasLast != 0 {
-		last = c.year(i32(b, off+4))
-	}
-	return first, last
+	return s
 }
 
-// rowHolds reports whether year falls within a row's years at off, their
-// flags at flags.
-func rowHolds(b []byte, off, flags int, year *int) bool {
-	return year == nil || (b[flags]&hasFirst == 0 || *year >= int(i32(b, off))) && (b[flags]&hasLast == 0 || *year <= int(i32(b, off+4)))
+// fitment reads a fitment record's body, after its part type: its side,
+// number, line, note and applications, taking the applications from apps,
+// or allocating them for nil.
+func (r *cursor) fitment(typ string, apps *slab[Application]) Fitment {
+	fit := Fitment{Key: FitmentKey{Type: typ}}
+	fit.Key.Side, fit.Key.Number, fit.Line, fit.Note = r.side(), r.str(), int(r.uint()), r.str()
+	switch n := r.count(); {
+	case n > 0 && apps == nil:
+		fit.Applications = make([]Application, n)
+	case n > 0:
+		fit.Applications = apps.take(n)
+	}
+	for i := range fit.Applications {
+		a := &fit.Applications[i]
+		a.Vehicle = r.c.vehicles[r.id(len(r.c.vehicles), "vehicle")]
+		r.application(a)
+	}
+	return fit
 }
+
+// matching reads past a fitment record's body, after its part type,
+// returning its side and number and the applications to vehicle whose
+// years hold year.
+func (r *cursor) matching(vehicle uint32, year *int, into []int32) (Side, string, []int32) {
+	side, number := r.side(), r.str()
+	r.uint()
+	r.str()
+	n := r.count()
+	for i := range n {
+		v := r.id(len(r.c.vehicles), "vehicle")
+		if r.holds(year) && v == vehicle {
+			into = append(into, int32(i))
+		}
+		r.uint()
+		r.str()
+	}
+	return side, number, into
+}
+
+// partial reads a fitment record's body, after its part type, as matched
+// applications: its line and note, and the applications of keep,
+// ascending, each with its index.
+func (r *cursor) partial(keep []int32, into []indexedApp) (int, string, []indexedApp) {
+	r.side()
+	r.str()
+	line, note := int(r.uint()), r.str()
+	n := r.count()
+	for i := range n {
+		v := r.c.vehicles[r.id(len(r.c.vehicles), "vehicle")]
+		if len(keep) == 0 || keep[0] != int32(i) {
+			r.holds(nil)
+			r.uint()
+			r.str()
+			continue
+		}
+		keep = keep[1:]
+		a := indexedApp{i: int32(i), app: Application{Vehicle: v}}
+		r.application(&a.app)
+		into = append(into, a)
+	}
+	if len(keep) > 0 {
+		r.c.damaged("application %d of a fitment of %d is out of range", keep[0], n)
+	}
+	return line, note, into
+}
+
+// application reads an application's years, qualifiers and option text
+// into a.
+func (r *cursor) application(a *Application) {
+	a.First, a.Last = r.years()
+	if q := r.uint(); q > 0 {
+		if q > uint64(len(r.c.qualifiers)) {
+			r.c.damaged("qualifier set %d is out of range", q)
+		}
+		a.Qualifiers = r.c.qualifiers[q-1]
+	}
+	a.Options = r.str()
+}
+
+// indexedApp is an application and its index in its fitment.
+type indexedApp struct {
+	i   int32
+	app Application
+}
+
+// appSlab is a slab for the applications of about n fitments: a
+// catalog's average is 2.4 (ADR 0017).
+func appSlab(n int) slab[Application] { return make(slab[Application], 3*n) }
 
 // typeName is part type t's name.
-func (c *compiled) typeName(t uint32) string {
-	if int(t) >= len(c.types) {
-		panic(fmt.Errorf("compiled catalog %s: part type %d is out of range: the file is damaged", c.path, t))
-	}
-	return c.types[t].name
+func (c *compiled) typeName(t uint32) string { return c.types[t].name }
+
+// hit is a fitment one of a request's vehicles reached: where its record
+// is, and the applications of it that matched.
+type hit struct {
+	typ    uint32
+	side   Side
+	number string
+	// rec is its fitment record's body, after its part type: in a block,
+	// or, for a far record's fitment read whole, in wide.
+	rec  cursor
+	keep []int32 // ascending
+	// far: its block holds its line, note and its applications to the
+	// vehicle, those that matched in own; the whole fitment is n bytes at
+	// off in wide.
+	far    bool
+	line   int
+	note   string
+	own    []indexedApp
+	off, n int64
 }
 
-// vehicle is vehicle id's Vehicle.
-func (c *compiled) vehicle(id uint32) *Vehicle {
-	if int(id) >= len(c.vehicles) {
-		panic(fmt.Errorf("compiled catalog %s: vehicle %d is out of range: the file is damaged", c.path, id))
-	}
-	return c.vehicles[id]
+func compareHits(a, b *hit) int {
+	return cmp.Or(cmp.Compare(a.typ, b.typ), cmp.Compare(a.side, b.side), strings.Compare(a.number, b.number))
 }
 
-// fitments reads the fitments of ranks, ascending, each run of
-// neighbouring ranks in one read, and their applications likewise.
-func (c *compiled) fitments(ranks []int32) []Fitment {
-	out := make([]Fitment, len(ranks))
-	if len(ranks) == 0 {
-		return out
-	}
-	rows := make([][]byte, len(ranks)) // each fitment's row
-	for i := 0; i < len(ranks); {
-		j := i + 1
-		for j < len(ranks) && ranks[j] == ranks[j-1]+1 {
-			j++
+// byVehicle is Catalog.ByVehicle, every application of each fitment, when
+// whole, and Catalog.Matching otherwise; cat is the compiled catalog's.
+// Every part type for partType "": a vehicle's whole block, one read; one
+// part type: its head, then that type's records. Only ByVehicle reads
+// wide, for a far record's fitment.
+func (c *compiled) byVehicle(cat *Catalog, partType string, vehicles []Vehicle, year *int, side *Side, whole bool) []Candidate {
+	t, ok := uint32(0), true
+	if partType != "" {
+		if t, ok = c.typeAt[partType]; !ok {
+			return nil
 		}
-		b := c.rowsAt(secFitments, int(ranks[i]), j-i)
-		for k := i; k < j; k++ {
-			rows[k] = b[(k-i)*rowWidth[secFitments]:][:rowWidth[secFitments]]
-		}
-		i = j
 	}
-	total := 0
-	for _, r := range rows {
-		total += int(u32(r, 28))
-	}
-	// Before allocating by it: a damaged count must end in this panic,
-	// never in an allocation no memory holds.
-	if total > c.rows(secApps) {
-		panic(fmt.Errorf("compiled catalog %s: %d applications for %d fitments, more than it holds: the file is damaged", c.path, total, len(ranks)))
-	}
-	apps := make([]Application, total)
-	wants := make([]want, 0, 2*len(ranks)+total)
-	at := 0 // the next of apps
-	for i := 0; i < len(rows); {
-		// A run of fitments whose applications neighbour each other.
-		first, n := int(u32(rows[i], 24)), int(u32(rows[i], 28))
-		j := i + 1
-		for j < len(rows) && int(u32(rows[j], 24)) == first+n {
-			n += int(u32(rows[j], 28))
-			j++
-		}
-		b := c.rowsAt(secApps, first, n)
-		for k := i; k < j; k++ {
-			r, fit := rows[k], &out[k]
-			fit.Line = int(u32(r, 20))
-			fit.Key = FitmentKey{Type: c.typeName(u32(r, 0)), Side: Side(r[32])}
-			wants = append(wants, want{refAt(r, 4), &fit.Key.Number}, want{refAt(r, 12), &fit.Note})
-			if m := int(u32(r, 28)); m > 0 {
-				fit.Applications = apps[at : at+m : at+m]
-				at += m
-			}
-			for a := range fit.Applications {
-				ar := b[:rowWidth[secApps]]
-				b = b[rowWidth[secApps]:]
-				app := &fit.Applications[a]
-				app.Vehicle = c.vehicle(u32(ar, 0))
-				app.First, app.Last = c.yearsAt(ar, 4, 24)
-				if q := u32(ar, 20); q > 0 {
-					if int(q) > len(c.qualifiers) {
-						panic(fmt.Errorf("compiled catalog %s: qualifier set %d is out of range: the file is damaged", c.path, q))
-					}
-					app.Qualifiers = c.qualifiers[q-1]
+	var hits []*hit
+	for _, id := range c.ids(cat, vehicles) {
+		bl := c.blocks[id]
+		var head, body cursor
+		types := []typeRun{}
+		if partType == "" {
+			s := c.read(secBlocks, bl.off, bl.head+bl.body)
+			head, body = cursor{c, s[:bl.head], 0}, cursor{c, s, int(bl.head)}
+			types = c.typeRuns(&head)
+		} else {
+			head = cursor{c, c.read(secBlocks, bl.off, bl.head), 0}
+			var at int64
+			for _, r := range c.typeRuns(&head) {
+				if r.typ == t {
+					body = cursor{c, c.read(secBlocks, bl.off+bl.head+at, r.bytes), 0}
+					types = append(types, typeRun{typ: t, n: r.n, bytes: r.bytes})
+					break
 				}
-				wants = append(wants, want{refAt(ar, 12), &app.Options})
+				at += r.bytes
 			}
 		}
-		i = j
+		for _, r := range types {
+			end := body.at + int(r.bytes)
+			if r.bytes < 0 || end > len(body.s) {
+				c.damaged("vehicle %d's part type %d runs past its block", id, r.typ)
+			}
+			for range r.n {
+				h := c.blockHit(&body, r.typ, uint32(id), year, side)
+				if h != nil {
+					hits = append(hits, h)
+				}
+			}
+			if body.at != end {
+				c.damaged("vehicle %d's part type %d is not its bytes", id, r.typ)
+			}
+		}
 	}
-	c.fill(wants)
+	if len(hits) == 0 {
+		return nil
+	}
+	if whole {
+		return c.wholeCandidates(hits)
+	}
+	return c.matchedCandidates(hits)
+}
+
+// typeRun is a part type's run of a vehicle's body.
+type typeRun struct {
+	typ   uint32
+	n     int
+	bytes int64
+}
+
+// typeRuns reads a head's part types, leaving it at its redirects.
+func (c *compiled) typeRuns(head *cursor) []typeRun {
+	out := make([]typeRun, head.count())
+	for i := range out {
+		out[i] = typeRun{typ: head.id(len(c.types), "part type"), n: int(head.uint()), bytes: int64(head.uint())}
+	}
 	return out
 }
 
-// search finds, within rows [lo, hi) of section sec, the first row that
-// cmp, given the row, does not order before what is sought: as
-// slices.BinarySearchFunc, reading one row a probe.
-func (c *compiled) search(sec int, lo, hi int, cmp func(row []byte) int) (int, bool) {
-	found := false
-	for lo < hi {
-		m := int(uint(lo+hi) >> 1)
-		switch r := cmp(c.rowsAt(sec, m, 1)); {
-		case r < 0:
-			lo = m + 1
-		default:
-			hi, found = m, r == 0
+// blockHit reads one record of a vehicle's body, of part type typ: a hit
+// when it has an application to vehicle whose years hold year, and its
+// side is *side.
+func (c *compiled) blockHit(body *cursor, typ, vehicle uint32, year *int, side *Side) *hit {
+	switch kind := body.byte(); kind {
+	case recNear:
+		start := *body
+		s, number, keep := body.matching(vehicle, year, nil)
+		if len(keep) == 0 || side != nil && s != *side {
+			return nil
+		}
+		return &hit{typ: typ, side: s, number: number, rec: start, keep: keep}
+	case recFar:
+		h := &hit{typ: typ, far: true}
+		h.side, h.number, h.line, h.note = body.side(), body.str(), int(body.uint()), body.str()
+		for range body.count() {
+			i := body.uint()
+			if i > math.MaxInt32 {
+				c.damaged("application %d of a far record is out of range", i)
+			}
+			a := indexedApp{i: int32(i), app: Application{Vehicle: c.vehicles[vehicle]}}
+			body.application(&a.app)
+			if holds(a.app.First, a.app.Last, year) {
+				h.keep, h.own = append(h.keep, a.i), append(h.own, a)
+			}
+		}
+		h.off, h.n = int64(body.uint()), int64(body.uint())
+		if h.off < 0 || h.n <= 0 || h.off > c.sec[secWide].n || h.n > c.sec[secWide].n-h.off {
+			c.damaged("vehicle %d's far record is out of range", vehicle)
+		}
+		if len(h.keep) == 0 || side != nil && h.side != *side {
+			return nil
+		}
+		return h
+	default:
+		c.damaged("a block record of kind %d", kind)
+		return nil
+	}
+}
+
+// groups calls f with each run of hits of one fitment, in key order.
+func groups(hits []*hit, f func(run []*hit)) {
+	slices.SortStableFunc(hits, compareHits)
+	for i := 0; i < len(hits); {
+		j := i + 1
+		for ; j < len(hits) && compareHits(hits[j], hits[i]) == 0; j++ {
+		}
+		f(hits[i:j])
+		i = j
+	}
+}
+
+// wholeCandidates reads the fitments of hits whole, in key order, each
+// once with the applications any hit of it matched.
+func (c *compiled) wholeCandidates(hits []*hit) []Candidate {
+	// Far hits carry where their fitment is in wide: read those, nearby
+	// ones together.
+	var far []*hit
+	for _, h := range hits {
+		if h.far {
+			far = append(far, h)
 		}
 	}
-	return lo, found
+	c.readFar(far)
+	out := make([]Candidate, 0, len(hits))
+	fits := make([]Fitment, 0, len(hits))
+	apps := appSlab(len(hits))
+	groups(hits, func(run []*hit) {
+		keep := run[0].keep
+		if len(run) > 1 {
+			keep = nil
+			for _, h := range run {
+				keep = append(keep, h.keep...)
+			}
+			slices.Sort(keep)
+			keep = slices.Compact(keep)
+		}
+		fits = append(fits, run[0].rec.fitment(c.typeName(run[0].typ), &apps))
+		fit := &fits[len(fits)-1]
+		cand := Candidate{Fitment: fit, Applications: make([]*Application, len(keep))}
+		for k, a := range keep {
+			if uint(a) >= uint(len(fit.Applications)) {
+				c.damaged("application %d of %s is out of range", a, fit.Key)
+			}
+			cand.Applications[k] = &fit.Applications[a]
+		}
+		out = append(out, cand)
+	})
+	return out
 }
 
-// compareKeyAt orders the key in a row of fitments or retired numbers (its
-// side at side, its number at number) against side and number, of the
-// row's part type: by side, then number, read only when the sides are one.
-func (c *compiled) compareKeyAt(row []byte, side, number int, s Side, n string) int {
-	if r := cmp.Compare(Side(row[side]), s); r != 0 {
-		return r
+// matchedCandidates reads of the fitments of hits only what matched, in
+// key order: each fitment's key, line and note and the applications any
+// hit of it matched, from the blocks alone.
+func (c *compiled) matchedCandidates(hits []*hit) []Candidate {
+	out := make([]Candidate, 0, len(hits))
+	fits := make([]Fitment, 0, len(hits))
+	apps := appSlab(len(hits))
+	var matched []indexedApp
+	groups(hits, func(run []*hit) {
+		fit := Fitment{Key: FitmentKey{Type: c.typeName(run[0].typ), Side: run[0].side, Number: run[0].number}}
+		matched = matched[:0]
+		for _, h := range run {
+			if h.far {
+				fit.Line, fit.Note = h.line, h.note
+				matched = append(matched, h.own...)
+				continue
+			}
+			r := h.rec
+			fit.Line, fit.Note, matched = r.partial(h.keep, matched)
+		}
+		slices.SortStableFunc(matched, func(a, b indexedApp) int { return cmp.Compare(a.i, b.i) })
+		matched = slices.CompactFunc(matched, func(a, b indexedApp) bool { return a.i == b.i })
+		fit.Applications = apps.take(len(matched))
+		cand := Candidate{Applications: make([]*Application, len(matched))}
+		for k := range matched {
+			fit.Applications[k] = matched[k].app
+			cand.Applications[k] = &fit.Applications[k]
+		}
+		fits = append(fits, fit)
+		cand.Fitment = &fits[len(fits)-1]
+		out = append(out, cand)
+	})
+	return out
+}
+
+// farGap is the most bytes between two far fitments' records read
+// together, not apart: about what a browser's store moves in the time one
+// read costs (ADR 0023: 0.2-0.4 ms a read, about 1 GB/s), so reading the
+// bytes between them costs no more than a second read would. farSpan is
+// the most one read of them spans, so a request's bytes stay bounded
+// however many far fitments lie near each other.
+const (
+	farGap  = 256 << 10
+	farSpan = 1 << 20
+)
+
+// readFar points each far hit's rec at its fitment record in wide, read
+// in runs of records within farGap of each other and farSpan in all.
+func (c *compiled) readFar(hits []*hit) {
+	hits = slices.Clone(hits)
+	slices.SortFunc(hits, func(a, b *hit) int { return cmp.Compare(a.off, b.off) })
+	for i := 0; i < len(hits); {
+		lo, hi := hits[i].off, hits[i].off+hits[i].n
+		j := i + 1
+		for ; j < len(hits) && hits[j].off <= hi+farGap && max(hi, hits[j].off+hits[j].n)-lo <= farSpan; j++ {
+			hi = max(hi, hits[j].off+hits[j].n)
+		}
+		s := c.read(secWide, lo, hi-lo)
+		for _, h := range hits[i:j] {
+			r := cursor{c, s[h.off-lo : h.off-lo+h.n], 0}
+			rec := c.next(&r)
+			if rec.kind != recFitment || rec.typ != h.typ || rec.side != h.side || rec.number != h.number {
+				c.damaged("a far record names another fitment")
+			}
+			r.at -= rec.back()
+			h.rec = r
+		}
+		i = j
 	}
-	var got string
-	c.fill([]want{{refAt(row, number), &got}})
-	return strings.Compare(got, n)
 }
 
-// rank finds the rank of the fitment with key k.
-func (c *compiled) rank(k FitmentKey) (int32, bool) {
+// ids are vehicles' ids in the catalog, each once, ascending.
+func (c *compiled) ids(cat *Catalog, vehicles []Vehicle) []int32 {
+	var out []int32
+	for i := range vehicles {
+		if id, ok := cat.vehicleID(&vehicles[i]); ok {
+			out = append(out, id)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// redirect is Catalog.Redirect, cat being the compiled catalog's: each
+// vehicle's head, one read.
+func (c *compiled) redirect(cat *Catalog, partType string, vehicles []Vehicle, year *int) []*Redirect {
+	t, ok := uint32(0), true
+	if partType != "" {
+		if t, ok = c.typeAt[partType]; !ok {
+			return nil
+		}
+	}
+	var out []*Redirect
+	for _, id := range c.ids(cat, vehicles) {
+		bl := c.blocks[id]
+		head := cursor{c, c.read(secBlocks, bl.off, bl.head), 0}
+		c.typeRuns(&head)
+		for range head.count() {
+			rd := c.redirectAt(&head, id)
+			if (partType == "" || c.typeAt[rd.From] == t) && holds(rd.First, rd.Last, year) {
+				out = append(out, rd)
+			}
+		}
+		if head.more() {
+			c.damaged("vehicle %d's head is not its bytes", id)
+		}
+	}
+	slices.SortFunc(out, func(a, b *Redirect) int { return cmp.Compare(a.Line, b.Line) })
+	return out
+}
+
+// redirectAt reads a redirect of vehicle id's head.
+func (c *compiled) redirectAt(head *cursor, id int32) *Redirect {
+	rd := &Redirect{Line: int(head.uint()), Vehicle: c.vehicles[id]}
+	rd.From, rd.To = c.typeName(head.id(len(c.types), "part type")), c.typeName(head.id(len(c.types), "part type"))
+	rd.First, rd.Last = head.years()
+	rd.Options = head.str()
+	return rd
+}
+
+// pageOf is the page that holds key (t, side, number) if any does: the
+// last whose first key is not after it; -1 when every page's is.
+func (c *compiled) pageOf(t uint32, side Side, number string) int {
+	k := keyPage{typ: t, side: side, number: number}
+	return sort.Search(len(c.pages), func(i int) bool { return comparePages(c.pages[i], k) > 0 }) - 1
+}
+
+// pageEnd is where page i ends in keyed.
+func (c *compiled) pageEnd(i int) int64 {
+	if i+1 < len(c.pages) {
+		return c.pages[i+1].off
+	}
+	return c.sec[secKeyed].n
+}
+
+// keyedRecord is the key of one record of keyed.
+type keyedRecord struct {
+	kind   byte
+	typ    uint32
+	side   Side
+	number string
+}
+
+// next reads a keyed record's kind and key, leaving r at its line; for a
+// fitment, r.at is then rewound by back to read its body (cursor.fitment)
+// from its side.
+func (c *compiled) next(r *cursor) keyedRecord {
+	k := keyedRecord{kind: r.byte()}
+	if k.kind > recRetired {
+		c.damaged("a keyed record of kind %d", k.kind)
+	}
+	k.typ = r.id(len(c.types), "part type")
+	k.side, k.number = r.side(), r.str()
+	return k
+}
+
+// back is how many bytes before a record's line its side is.
+func (k keyedRecord) back() int { return 1 + uvarintLen(uint64(len(k.number))) + len(k.number) }
+
+// skip reads past the rest of a record next read the key of.
+func (c *compiled) skip(r *cursor, k keyedRecord) {
+	r.uint()
+	r.str()
+	if k.kind == recRetired {
+		r.id(len(c.types), "part type")
+		r.side()
+		r.str()
+		return
+	}
+	for range r.count() {
+		r.uint()
+		r.holds(nil)
+		r.uint()
+		r.str()
+	}
+	for range r.count() {
+		r.uint()
+		r.uint()
+		r.side()
+		r.str()
+		r.str()
+	}
+}
+
+// keyed finds key k's record: its page, one read, and the cursor at the
+// record's line (as next leaves it); ok false when there is none.
+func (c *compiled) keyed(k FitmentKey) (keyedRecord, cursor, bool) {
 	t, ok := c.typeAt[k.Type]
 	if !ok {
-		return 0, false
+		return keyedRecord{}, cursor{}, false
 	}
-	r := c.types[t].ranks
-	i, ok := c.search(secFitments, int(r.lo), int(r.hi), func(row []byte) int { return c.compareKeyAt(row, 32, 4, k.Side, k.Number) })
-	return int32(i), ok
+	p := c.pageOf(t, k.Side, k.Number)
+	if p < 0 {
+		return keyedRecord{}, cursor{}, false
+	}
+	r := cursor{c, c.read(secKeyed, c.pages[p].off, c.pageEnd(p)-c.pages[p].off), 0}
+	for r.more() {
+		rec := c.next(&r)
+		switch cmp.Or(cmp.Compare(rec.typ, t), cmp.Compare(rec.side, k.Side), strings.Compare(rec.number, k.Number)) {
+		case 0:
+			return rec, r, true
+		case 1:
+			return keyedRecord{}, cursor{}, false
+		}
+		c.skip(&r, rec)
+	}
+	return keyedRecord{}, cursor{}, false
 }
 
-func (c *compiled) byNumber(k FitmentKey) (*Fitment, *Retired) {
-	if rank, ok := c.rank(k); ok {
-		return &c.fitments([]int32{rank})[0], nil
-	}
-	t, ok := c.typeAt[k.Type]
-	if !ok {
-		return nil, nil
-	}
-	r := c.types[t].retired
-	i, ok := c.search(secRetired, int(r.lo), int(r.hi), func(row []byte) int { return c.compareKeyAt(row, 36, 8, k.Side, k.Number) })
-	if !ok {
-		return nil, nil
-	}
-	rt := c.retiredAt(i)
-	rank, ok := c.rank(rt.To)
-	if !ok {
-		return nil, rt
-	}
-	return &c.fitments([]int32{rank})[0], rt
+// fitmentAt reads the rest of a fitment record next read rec of.
+func (c *compiled) fitmentAt(r *cursor, rec keyedRecord) *Fitment {
+	r.at -= rec.back()
+	fit := r.fitment(c.typeName(rec.typ), nil)
+	return &fit
 }
 
-// retiredAt reads retired row i.
-func (c *compiled) retiredAt(i int) *Retired {
-	row := c.rowsAt(secRetired, i, 1)
-	rt := &Retired{Line: int(u32(row, 0)), Key: FitmentKey{Type: c.typeName(u32(row, 4)), Side: Side(row[36])}, To: FitmentKey{Type: c.typeName(u32(row, 16)), Side: Side(row[37])}}
-	c.fill([]want{{refAt(row, 8), &rt.Key.Number}, {refAt(row, 20), &rt.To.Number}, {refAt(row, 28), &rt.Note}})
+// uvarintLen is how many bytes v takes as a uvarint.
+func uvarintLen(v uint64) int {
+	n := 1
+	for ; v >= 0x80; v >>= 7 {
+		n++
+	}
+	return n
+}
+
+// retiredAt reads the rest of a retired record next read rec of.
+func (c *compiled) retiredAt(r *cursor, rec keyedRecord) *Retired {
+	rt := &Retired{Key: FitmentKey{Type: c.typeName(rec.typ), Side: rec.side, Number: rec.number}}
+	rt.Line, rt.Note = int(r.uint()), r.str()
+	rt.To.Type = c.typeName(r.id(len(c.types), "part type"))
+	rt.To.Side, rt.To.Number = r.side(), r.str()
 	return rt
 }
 
+func (c *compiled) byNumber(k FitmentKey) (*Fitment, *Retired) {
+	rec, r, ok := c.keyed(k)
+	switch {
+	case !ok:
+		return nil, nil
+	case rec.kind == recFitment:
+		return c.fitmentAt(&r, rec), nil
+	}
+	rt := c.retiredAt(&r, rec)
+	succ, r, ok := c.keyed(rt.To)
+	if !ok || succ.kind != recFitment {
+		return nil, rt
+	}
+	return c.fitmentAt(&r, succ), rt
+}
+
 // retiredTo returns the retired numbers fitment key k replaced, in line
-// order, reading every retired row once, on the first call, into an
-// index by successor. It is safe for concurrent use.
+// order: its record lists them.
 func (c *compiled) retiredTo(k FitmentKey) []*Retired {
-	c.successorsOnce.Do(func() {
-		c.successors = map[FitmentKey][]int32{}
-		lines := map[int32]int{}
-		for i := range c.rows(secRetired) {
-			rt := c.retiredAt(i)
-			c.successors[rt.To] = append(c.successors[rt.To], int32(i))
-			lines[int32(i)] = rt.Line
-		}
-		for _, rows := range c.successors {
-			slices.SortFunc(rows, func(a, b int32) int { return cmp.Compare(lines[a], lines[b]) })
-		}
-	})
+	rec, r, ok := c.keyed(k)
+	if !ok || rec.kind != recFitment {
+		return nil
+	}
+	r.uint()
+	r.str()
+	for range r.count() {
+		r.uint()
+		r.holds(nil)
+		r.uint()
+		r.str()
+	}
 	var out []*Retired
-	for _, i := range c.successors[k] {
-		out = append(out, c.retiredAt(int(i)))
+	for range r.count() {
+		rt := &Retired{Line: int(r.uint()), To: k}
+		rt.Key.Type = c.typeName(r.id(len(c.types), "part type"))
+		rt.Key.Side, rt.Key.Number, rt.Note = r.side(), r.str(), r.str()
+		out = append(out, rt)
 	}
 	return out
 }
 
-// byVehicle is Catalog.ByVehicle, cat being the compiled catalog's.
-func (c *compiled) byVehicle(cat *Catalog, partType string, vehicles []Vehicle, year *int, side *Side) []Candidate {
-	t, ok := c.typeAt[partType]
-	if !ok {
-		return nil
-	}
-	sp := c.types[t].spans
-	var ps []posting
-	for i := range vehicles {
-		id, ok := cat.vehicleID(&vehicles[i])
-		if !ok {
-			continue
-		}
-		s, ok := c.search(secSpans, int(sp.lo), int(sp.hi), func(row []byte) int { return cmp.Compare(i32(row, 4), id) })
-		if !ok {
-			continue
-		}
-		row := c.rowsAt(secSpans, s, 1)
-		lo, hi := int(u32(row, 8)), int(u32(row, 12))
-		if lo > hi {
-			panic(fmt.Errorf("compiled catalog %s: a span out of order: the file is damaged", c.path))
-		}
-		b := c.rowsAt(secPostings, lo, hi-lo)
-		for ; len(b) > 0; b = b[rowWidth[secPostings]:] {
-			if side != nil && Side(b[16]) != *side || !rowHolds(b, 8, 17, year) {
-				continue
-			}
-			ps = append(ps, posting{i32(b, 0), i32(b, 4)})
-		}
-	}
-	if len(vehicles) > 1 {
-		slices.SortFunc(ps, func(a, b posting) int { return cmp.Or(cmp.Compare(a.rank, b.rank), cmp.Compare(a.app, b.app)) })
-		ps = slices.Compact(ps)
-	}
-	if len(ps) == 0 {
-		return nil
-	}
-	ranks := make([]int32, 0, len(ps))
-	for _, p := range ps {
-		if n := len(ranks); n == 0 || ranks[n-1] != p.rank {
-			ranks = append(ranks, p.rank)
-		}
-	}
-	fits := c.fitments(ranks)
-	out := make([]Candidate, 0, len(ranks))
-	k := -1
-	for _, p := range ps {
-		if k < 0 || ranks[k] != p.rank {
-			k++
-			out = append(out, Candidate{Fitment: &fits[k]})
-		}
-		if uint(p.app) >= uint(len(fits[k].Applications)) {
-			panic(fmt.Errorf("compiled catalog %s: application %d is out of range: the file is damaged", c.path, p.app))
-		}
-		out[k].Applications = append(out[k].Applications, &fits[k].Applications[p.app])
-	}
-	return out
-}
-
-// redirect is Catalog.Redirect, cat being the compiled catalog's.
-func (c *compiled) redirect(cat *Catalog, partType string, vehicles []Vehicle, year *int) []*Redirect {
-	t, ok := c.typeAt[partType]
-	if !ok {
-		return nil
-	}
-	sp := c.types[t].redirects
-	var idx []int32
-	for i := range vehicles {
-		id, ok := cat.vehicleID(&vehicles[i])
-		if !ok {
-			continue
-		}
-		j, _ := c.search(secRedirectsBy, int(sp.lo), int(sp.hi), func(row []byte) int { return cmp.Compare(i32(row, 4), id) })
-		for ; j < int(sp.hi); j++ {
-			row := c.rowsAt(secRedirectsBy, j, 1)
-			if i32(row, 4) != id {
-				break
-			}
-			idx = append(idx, i32(row, 8))
-		}
-	}
-	if len(vehicles) > 1 {
-		slices.Sort(idx)
-		idx = slices.Compact(idx)
-	}
-	var out []*Redirect
-	var wants []want
-	for _, i := range idx {
-		row := c.rowsAt(secRedirects, int(i), 1)
-		if !rowHolds(row, 8, 32, year) {
-			continue
-		}
-		rd := &Redirect{Line: int(u32(row, 0)), Vehicle: c.vehicle(u32(row, 4)), From: c.typeName(u32(row, 16)), To: c.typeName(u32(row, 20))}
-		rd.First, rd.Last = c.yearsAt(row, 8, 32)
-		wants = append(wants, want{refAt(row, 24), &rd.Options})
-		out = append(out, rd)
-	}
-	c.fill(wants)
-	return out
-}
-
-// page is Catalog.Fitments.
+// page is Catalog.Fitments: the pages from the first key after *after
+// that hold limit fitments more, one read.
 func (c *compiled) page(partType string, after *FitmentKey, limit int) []*Fitment {
-	lo, hi := 0, c.rows(secFitments)
+	out := []*Fitment{}
+	if len(c.pages) == 0 {
+		return out
+	}
+	var t uint32
 	if partType != "" {
-		t, ok := c.typeAt[partType]
-		if !ok {
-			return []*Fitment{}
+		var ok bool
+		if t, ok = c.typeAt[partType]; !ok {
+			return out
 		}
-		lo, hi = int(c.types[t].ranks.lo), int(c.types[t].ranks.hi)
+	}
+	// from is the first page to read, to the page after the last.
+	from, to := 0, len(c.pages)
+	if partType != "" {
+		from = max(c.pageOf(t, SideNone, ""), 0)
+		to = c.pageOf(t+1, SideNone, "") + 1
 	}
 	if after != nil {
-		// The first rank whose key comes after *after.
-		lo, _ = c.search(secFitments, lo, hi, func(row []byte) int {
-			if r := strings.Compare(c.typeName(u32(row, 0)), after.Type); r != 0 {
-				return r
-			}
-			if c.compareKeyAt(row, 32, 4, after.Side, after.Number) <= 0 {
-				return -1
-			}
-			return 1
-		})
+		if at, ok := c.typeAt[after.Type]; ok {
+			from = max(from, c.pageOf(at, after.Side, after.Number))
+		} else if i := sort.Search(len(c.types), func(i int) bool { return c.types[i].name > after.Type }); i < len(c.types) {
+			from = max(from, c.pageOf(uint32(i), SideNone, ""))
+		} else {
+			return out
+		}
 	}
-	if limit > 0 && hi-lo > limit {
-		hi = lo + limit
+	if limit > 0 {
+		to = min(to, from+(limit+pageFitments-1)/pageFitments+1)
 	}
-	ranks := make([]int32, hi-lo)
-	for i := range ranks {
-		ranks[i] = int32(lo + i)
+	if from >= to {
+		return out
 	}
-	fits := c.fitments(ranks)
-	out := make([]*Fitment, len(fits))
-	for i := range fits {
-		out[i] = &fits[i]
+	r := cursor{c, c.read(secKeyed, c.pages[from].off, c.pageEnd(to-1)-c.pages[from].off), 0}
+	apps := appSlab((to - from) * pageFitments)
+	for r.more() && (limit < 1 || len(out) < limit) {
+		rec := c.next(&r)
+		switch {
+		case rec.kind != recFitment,
+			partType != "" && rec.typ < t,
+			after != nil && compareFitmentKeys(FitmentKey{c.typeName(rec.typ), rec.number, rec.side}, *after) <= 0:
+			c.skip(&r, rec)
+			continue
+		case partType != "" && rec.typ > t:
+			return out
+		}
+		r.at -= rec.back()
+		fit := r.fitment(c.typeName(rec.typ), &apps)
+		for range r.count() { // the retired numbers it replaced
+			r.uint()
+			r.uint()
+			r.side()
+			r.str()
+			r.str()
+		}
+		out = append(out, &fit)
 	}
 	return out
 }
@@ -751,14 +1173,14 @@ func (c *compiled) page(partType string, after *FitmentKey, limit int) []*Fitmen
 // it again, as `nitrovin vocab check` does. Expand first checks the file's
 // blake3 against its header, and refuses a damaged file. Any other file
 // is returned as it is.
-func (f *File) Expand() (*File, error) {
+func (f *File) Expand() (g *File, err error) {
 	c := f.compiled
 	if c == nil {
 		return f, nil
 	}
 	h := blake3.New()
 	b := make([]byte, 1<<20)
-	size := c.sec[secStrings].off + c.sec[secStrings].n
+	size := c.sec[numSections-1].off + c.sec[numSections-1].n
 	for off := int64(0); off < size; off += int64(len(b)) {
 		chunk := b[:min(int64(len(b)), size-off)]
 		if n, err := c.r.ReadAt(chunk, off); n < len(chunk) {
@@ -772,47 +1194,57 @@ func (f *File) Expand() (*File, error) {
 	if !bytes.Equal(h.Sum(nil), f.Hash[:]) {
 		return nil, Faults{fault(f.Path, 0, "its bytes do not hash to the blake3 its header records: the file is damaged")}
 	}
-	g := &File{Path: f.Path, Hash: f.Hash, Kind: f.Kind, Name: f.Name, Version: f.Version, DataMonth: f.DataMonth, Spine: f.Spine, Vehicles: f.Vehicles, Release: f.Release}
+	defer func() {
+		// A file that hashes as its header says and still contradicts
+		// itself was written so.
+		if r := recover(); r != nil {
+			e, ok := r.(error)
+			if !ok {
+				panic(r)
+			}
+			g, err = nil, Faults{fault(f.Path, 0, "%v", e)}
+		}
+	}()
+	g = &File{Path: f.Path, Hash: f.Hash, Kind: f.Kind, Name: f.Name, Version: f.Version, DataMonth: f.DataMonth, Spine: f.Spine, Vehicles: f.Vehicles, Release: f.Release}
 	// Its own vehicles: indexLines numbers them.
 	own := make(map[*Vehicle]*Vehicle, len(c.vehicles))
 	for _, v := range c.vehicles {
 		w := *v
 		own[v] = &w
 	}
-	ranks := make([]int32, c.rows(secFitments))
-	for i := range ranks {
-		ranks[i] = int32(i)
-	}
-	g.Fitments = c.fitments(ranks)
-	slices.SortFunc(g.Fitments, func(a, b Fitment) int { return cmp.Compare(a.Line, b.Line) })
-	for i := range g.Fitments {
-		for j := range g.Fitments[i].Applications {
-			a := &g.Fitments[i].Applications[j]
-			a.Vehicle = own[a.Vehicle]
+	r := cursor{c, c.read(secKeyed, 0, c.sec[secKeyed].n), 0}
+	var apps slab[Application]
+	for r.more() {
+		rec := c.next(&r)
+		if rec.kind == recRetired {
+			g.Retired = append(g.Retired, *c.retiredAt(&r, rec))
+			continue
+		}
+		r.at -= rec.back()
+		fit := r.fitment(c.typeName(rec.typ), &apps)
+		for i := range fit.Applications {
+			fit.Applications[i].Vehicle = own[fit.Applications[i].Vehicle]
+		}
+		g.Fitments = append(g.Fitments, fit)
+		for range r.count() {
+			r.uint()
+			r.uint()
+			r.side()
+			r.str()
+			r.str()
 		}
 	}
-	g.Redirects = make([]Redirect, c.rows(secRedirects))
-	var wants []want
-	rows := c.rowsAt(secRedirects, 0, len(g.Redirects))
-	for i := range g.Redirects {
-		row := rows[i*rowWidth[secRedirects]:]
-		rd := &g.Redirects[i]
-		*rd = Redirect{Line: int(u32(row, 0)), Vehicle: own[c.vehicle(u32(row, 4))], From: c.typeName(u32(row, 16)), To: c.typeName(u32(row, 20))}
-		rd.First, rd.Last = c.yearsAt(row, 8, 32)
-		wants = append(wants, want{refAt(row, 24), &rd.Options})
+	for id, bl := range c.blocks {
+		head := cursor{c, c.read(secBlocks, bl.off, bl.head), 0}
+		c.typeRuns(&head)
+		for range head.count() {
+			rd := c.redirectAt(&head, int32(id))
+			rd.Vehicle = own[rd.Vehicle]
+			g.Redirects = append(g.Redirects, *rd)
+		}
 	}
-	c.fill(wants)
-	n := c.rows(secRetired)
-	g.Retired = make([]Retired, n)
-	wants = wants[:0]
-	rows = c.rowsAt(secRetired, 0, n)
-	for i := range g.Retired {
-		row := rows[i*rowWidth[secRetired]:]
-		rt := &g.Retired[i]
-		*rt = Retired{Line: int(u32(row, 0)), Key: FitmentKey{Type: c.typeName(u32(row, 4)), Side: Side(row[36])}, To: FitmentKey{Type: c.typeName(u32(row, 16)), Side: Side(row[37])}}
-		wants = append(wants, want{refAt(row, 8), &rt.Key.Number}, want{refAt(row, 20), &rt.To.Number}, want{refAt(row, 28), &rt.Note})
-	}
-	c.fill(wants)
+	slices.SortFunc(g.Fitments, func(a, b Fitment) int { return cmp.Compare(a.Line, b.Line) })
+	slices.SortFunc(g.Redirects, func(a, b Redirect) int { return cmp.Compare(a.Line, b.Line) })
 	slices.SortFunc(g.Retired, func(a, b Retired) int { return cmp.Compare(a.Line, b.Line) })
 	if faults := g.indexLines(true); len(faults) > 0 {
 		return nil, faults

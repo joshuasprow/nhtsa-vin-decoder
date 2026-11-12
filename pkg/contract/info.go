@@ -111,6 +111,11 @@ type CompiledCatalog struct {
 	// vehicle drift is measured against the one loaded, and `nitrovin vocab
 	// check` checks the rest again.
 	LinksDiffer bool `json:"links_differ"`
+	// SkippedDrift are the drift kinds its compiling did not measure,
+	// because the month it had could not (ADR 0023): none from `nitrovin
+	// vocab compile`, model-years and model-qualifier from a compile in a
+	// browser. `nitrovin vocab check` measures them all.
+	SkippedDrift []string `json:"skipped_drift"`
 }
 
 // StockUnchecked is the status of a connector in Info before its first

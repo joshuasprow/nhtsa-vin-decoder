@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"math/bits"
 	"os"
 	"os/exec"
@@ -50,8 +51,12 @@ import (
 
 // peakEnv makes the test binary a child that loads the paths it names
 // (separated by the OS's list separator) and exits: BenchmarkLoad reads its
-// peak RSS.
-const peakEnv = "NITROVIN_BENCH_PEAK"
+// peak RSS. compileEnv makes it one that compiles the catalog-scale
+// fixture in the directory it names, as BenchmarkCompileCatalog does.
+const (
+	peakEnv    = "NITROVIN_BENCH_PEAK"
+	compileEnv = "NITROVIN_BENCH_COMPILE"
+)
 
 // decodeVIN is decode's budget VIN, and the EPA and MVL sets' translate VIN.
 const decodeVIN = "1HGCM82633A004352"
@@ -64,6 +69,13 @@ var tmp string // the 1M-entry file's directory, removed after the run
 func TestMain(m *testing.M) {
 	if paths := os.Getenv(peakEnv); paths != "" {
 		if _, err := load(filepath.SplitList(paths)); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	if dir := os.Getenv(compileEnv); dir != "" {
+		if err := compileCatalog(io.Discard, dir); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -280,22 +292,30 @@ func (h *histogram) quantile(q float64) float64 {
 }
 
 // measure runs f under b.Loop and reports p50-ns and p99-ns beside ns/op.
-func measure(b *testing.B, f func() error) {
+func measure(b *testing.B, f func() error) { measureReads(b, f, nil) }
+
+// measureReads is measure, and when c is not nil, the reads through c of
+// each call of f: reads-p50, reads-p99 and reads-max.
+func measureReads(b *testing.B, f func() error, c *countingReader) {
 	b.Helper()
 	if err := f(); err != nil {
 		b.Fatal(err)
 	}
 	h := new(histogram)
+	var rs reads
 	b.ReportAllocs()
 	for b.Loop() {
+		from := c.mark()
 		t := time.Now()
 		if err := f(); err != nil {
 			b.Fatal(err)
 		}
 		h.record(time.Since(t))
+		rs.add(c, from)
 	}
 	b.ReportMetric(h.quantile(0.50), "p50-ns")
 	b.ReportMetric(h.quantile(0.99), "p99-ns")
+	rs.report(b)
 }
 
 func BenchmarkDecode(b *testing.B) {
@@ -363,13 +383,19 @@ func BenchmarkLoad(b *testing.B) {
 // peakRSS is the maximum resident set of this test binary run as a child
 // that loads paths once, on this benchmark's GOMAXPROCS.
 func peakRSS(paths []string) (float64, error) {
+	return childPeakRSS(peakEnv, strings.Join(paths, string(os.PathListSeparator)))
+}
+
+// childPeakRSS is the maximum resident set of this test binary run as a
+// child with env set to value, on this benchmark's GOMAXPROCS.
+func childPeakRSS(env, value string) (float64, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return 0, err
 	}
 	cmd := exec.Command(exe)
 	cmd.Env = append(os.Environ(),
-		peakEnv+"="+strings.Join(paths, string(os.PathListSeparator)),
+		env+"="+value,
 		fmt.Sprintf("GOMAXPROCS=%d", runtime.GOMAXPROCS(0)))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return 0, fmt.Errorf("peak RSS: %v: %s", err, out)

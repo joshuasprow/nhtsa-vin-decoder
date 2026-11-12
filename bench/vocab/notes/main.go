@@ -208,22 +208,25 @@ func (r *results) table() string {
 	}
 	b.WriteString(r.catalog())
 	b.WriteString(r.fit())
+	b.WriteString(r.wide())
 	return b.String()
 }
 
-// fitRequests are BenchmarkFit's request kinds, with ADR 0018's budget;
-// each runs on every one of catalogForms.
-var fitRequests = []struct{ name, label, budget string }{
-	{"candidates", "candidates (vehicle, year, part type)", "p99 ≤ 5 ms"},
-	{"part-types", "part types (vehicle, year)", "p99 ≤ 10 ms"},
-	{"related", "related vehicles", "p99 ≤ 50 ms"},
-	{"part-types-any-year", "part types, no year", "p99 ≤ 10 ms"},
-	{"related-any-year", "related vehicles, no year", "p99 ≤ 50 ms"},
-	{"reverse", "reverse (one fitment key)", "p99 ≤ 1 ms per key"},
+// fitRequests are BenchmarkFit's request kinds, with ADR 0018's budget
+// and ADR 0023's for the compiled form's reads; each runs on every one of
+// catalogForms.
+var fitRequests = []struct{ name, label, budget, reads string }{
+	{"candidates", "candidates (vehicle, year, part type)", "p99 ≤ 5 ms", "≤ 10"},
+	{"part-types", "part types (vehicle, year)", "p99 ≤ 10 ms", "≤ 20"},
+	{"related", "related vehicles", "p99 ≤ 50 ms", "≤ 100"},
+	{"part-types-any-year", "part types, no year", "p99 ≤ 10 ms", "≤ 20"},
+	{"related-any-year", "related vehicles, no year", "p99 ≤ 50 ms", "≤ 100"},
+	{"reverse", "reverse (one fitment key)", "p99 ≤ 1 ms per key", "≤ 2"},
 }
 
 // fit is the fit requests' table on the catalog-scale fixture (ADR 0018),
-// the catalog's forms side by side, "" when they did not run.
+// the catalog's forms side by side, and the compiled form's reads per
+// request (ADR 0023), "" when they did not run.
 func (r *results) fit() string {
 	var b strings.Builder
 	for _, q := range fitRequests {
@@ -241,15 +244,76 @@ func (r *results) fit() string {
 			continue
 		}
 		if b.Len() == 0 {
-			b.WriteString("\n**Fit** (the catalog-scale fixture, one core): p50 / p99 · throughput.\n\n| |")
+			b.WriteString("\n**Fit** (the catalog-scale fixture, one core): p50 / p99 · throughput, and the compiled form's reads per request, p99 / most.\n\n| |")
 			for _, f := range catalogForms {
 				b.WriteString(" " + f.label + " |")
 			}
-			b.WriteString(" items | budget |\n|---|---|---|---|---|\n")
+			b.WriteString(" items | budget | reads | read budget |\n|---|---|---|---|---|---|---|\n")
 		}
-		fmt.Fprintf(&b, "| %s |%s %.0f | %s |\n", q.label, cells, items, q.budget)
+		fmt.Fprintf(&b, "| %s |%s %.0f | %s | %s | %s |\n", q.label, cells, items, q.budget, reads(r.bench[key{"Fit/compiled/" + q.name, 1}]), q.reads)
 	}
 	return b.String()
+}
+
+// wideVariants are BenchmarkFit's wide variants of the fixture, compiled
+// (bench/vocab's wideVariants).
+var wideVariants = []struct{ name, label string }{
+	{"wide-0.1", "0.1% wide"},
+	{"wide-0.3", "0.3% wide"},
+	{"wide-1", "1% wide"},
+}
+
+// wide is the fit requests' table on the fixture's wide variants
+// (ADR 0023), compiled: each kind's p99, reads p99 / most and the most
+// bytes a request read; "" when they did not run.
+func (r *results) wide() string {
+	var b strings.Builder
+	kinds := append(slices.Clone(fitRequests), struct{ name, label, budget, reads string }{"candidates-wide", "candidates of a wide fitment's part type", "p99 ≤ 5 ms", "≤ 10"})
+	for _, q := range kinds {
+		cells, any := "", false
+		for _, v := range wideVariants {
+			m, ok := r.bench[key{"Fit/compiled-" + v.name + "/" + q.name, 1}]
+			if !ok {
+				cells += " — |"
+				continue
+			}
+			any = true
+			cells += fmt.Sprintf(" %s · %s reads · %s |", duration(m["p99-ns"]), reads(m), kilobytes(m["read-KB-max"]))
+		}
+		if !any {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString("\n**Fit, wide variants** (the fixture and a share of fitments of 50–500 applications on vehicles at random, compiled, one core): p99 · reads p99 / most · the most bytes a request read.\n\n| |")
+			for _, v := range wideVariants {
+				file := "—"
+				if m, ok := r.bench[key{"Fit/compiled-" + v.name + "/candidates", 1}]; ok {
+					file = size(m["file-MB"])
+				}
+				b.WriteString(" " + v.label + " (" + file + ") |")
+			}
+			b.WriteString(" budget | read budget |\n|---|---|---|---|---|---|\n")
+		}
+		fmt.Fprintf(&b, "| %s |%s %s | %s |\n", q.label, cells, q.budget, q.reads)
+	}
+	return b.String()
+}
+
+// kilobytes says kb kilobytes in KB, or in MB from 1,000.
+func kilobytes(kb float64) string {
+	if kb < 1000 {
+		return fmt.Sprintf("%.0f KB", kb)
+	}
+	return fmt.Sprintf("%.1f MB", kb/1000)
+}
+
+// reads is a benchmark's reads per operation, "p99 / most", or — when it
+// counted none.
+func reads(m map[string]float64) string {
+	if _, ok := m["reads-p99"]; !ok {
+		return "—"
+	}
+	return fmt.Sprintf("%.0f / %.0f", m["reads-p99"], m["reads-max"])
 }
 
 // The catalog's forms, as BenchmarkLoadCatalog and BenchmarkCatalogReader
@@ -261,13 +325,13 @@ var catalogForms = []struct{ name, label, budget string }{
 }
 
 // catalogLookups are BenchmarkCatalogReader's, with ADR 0018's budget for
-// the request each serves.
+// the request each serves, and ADR 0023's for a page's reads.
 var catalogLookups = []struct{ name, label, budget string }{
 	{"by-vehicle", "by vehicle (a part type, a vehicle, a year)", "p99 ≤ 5 ms"},
 	{"summary", "by vehicle, every part type", "p99 ≤ 10 ms"},
 	{"by-number", "by number", "p99 ≤ 1 ms"},
 	{"redirect", "redirect", ""},
-	{"page", "a page of 1,000 fitments", ""},
+	{"page", "a page of 1,000 fitments", "≤ 8 reads"},
 }
 
 // catalog is the catalog's table, both forms side by side (ADR 0017,
@@ -319,18 +383,22 @@ func (r *results) catalog() string {
 			return fmt.Sprintf("%s, %s, %s", duration(m["ns/op"]), size(m["peak-RSS-MB"]), size(m["heap-MB"]))
 		})
 	}
-	row("compile, 1 core", "recorded", func(form string) string {
+	row("compile, 1 core: time, peak in process", "time recorded; ≤ 256 MiB peak", func(form string) string {
 		if m, ok := r.bench[key{"CompileCatalog", 1}]; ok && form == "compiled" {
-			return duration(m["ns/op"])
+			return fmt.Sprintf("%s, %s", duration(m["ns/op"]), size(m["peak-RSS-MB"]))
 		}
 		return "—"
 	})
 	for _, l := range catalogLookups {
 		row(l.label, l.budget, func(form string) string {
-			if m, ok := r.bench[key{"CatalogReader/" + form + "/" + l.name, 1}]; ok {
-				return quantiles(m)
+			m, ok := r.bench[key{"CatalogReader/" + form + "/" + l.name, 1}]
+			switch {
+			case !ok:
+				return "—"
+			case form == "compiled":
+				return quantiles(m) + " · " + reads(m) + " reads"
 			}
-			return "—"
+			return quantiles(m)
 		})
 	}
 	return b.String()

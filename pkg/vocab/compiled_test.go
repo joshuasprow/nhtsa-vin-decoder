@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"math/rand/v2"
 	"os"
@@ -16,12 +17,12 @@ import (
 	"testing"
 )
 
-// compile compiles the catalog among files, measured against m, to a file
-// in a temporary directory, returning its path.
+// compile compiles the JSON Lines catalog among files, measured against
+// m, to a file in a temporary directory, returning its path.
 func compile(t testing.TB, m Month, files []*File) string {
 	t.Helper()
 	var b bytes.Buffer
-	if _, err := Compile(&b, m, files, "v0.0.0-test"); err != nil {
+	if _, err := compileFiles(t, &b, m, files); err != nil {
 		t.Fatal(err)
 	}
 	p := filepath.Join(t.TempDir(), "catalog.compiled")
@@ -29,6 +30,37 @@ func compile(t testing.TB, m Month, files []*File) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// compileFiles compiles the JSON Lines catalog among files to w as
+// `nitrovin vocab compile` does: streamed from its file, beside the rest.
+func compileFiles(t testing.TB, w io.Writer, m Month, files []*File) ([]Finding, error) {
+	t.Helper()
+	var others []*File
+	source := ""
+	for _, f := range files {
+		if f.Kind == KindCatalog && f.compiled == nil && source == "" {
+			source = f.Path
+			continue
+		}
+		others = append(others, f)
+	}
+	if source == "" {
+		t.Fatal("no JSON Lines catalog to compile")
+	}
+	return compileSource(t, w, m, others, source)
+}
+
+// compileSource compiles the JSON Lines catalog at path, beside files, to
+// w.
+func compileSource(t testing.TB, w io.Writer, m Month, files []*File, path string) ([]Finding, error) {
+	t.Helper()
+	src, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	return Compile(w, m, files, src, path, DirScratch(t.TempDir()), CompileOptions{Writer: "v0.0.0-test"})
 }
 
 // swapCatalog is files with the catalog swapped for the compiled one at
@@ -129,7 +161,8 @@ func describeRetired(rt *Retired) string {
 
 // generated writes a synthetic catalog of n fitments, its vehicles vpic or
 // the entries of a vocabulary, with every shape a catalog line takes: no
-// side and each side, no note, zero to four applications, open and
+// side and each side, no note, zero to four applications or more than
+// wideApplications, open and
 // unbounded years and years far from today's, option text shared and
 // not, qualifiers of attributes and text, redirects and retired numbers;
 // and the files it links to. It returns them, opened.
@@ -186,9 +219,14 @@ func generated(t testing.TB, vpic bool, n int) []*File {
 		seen[k] = true
 		live = append(live, k)
 		var apps []string
-		for j := range rng.IntN(5) {
+		n := rng.IntN(5)
+		wide := rng.IntN(30) == 0 // more than a block copies whole
+		if wide {
+			n = wideApplications + 1 + rng.IntN(8)
+		}
+		for j := range n {
 			opt := options[rng.IntN(len(options))]
-			if rng.IntN(3) == 0 {
+			if wide || rng.IntN(3) == 0 {
 				opt = fmt.Sprintf("%s, own words %d-%d", opt, i, j)
 			}
 			o, _ := json.Marshal(opt)
@@ -248,6 +286,9 @@ func TestCompiledAnswersAsJSONLines(t *testing.T) {
 			if jl.File().compiled != nil || cc.File().compiled == nil {
 				t.Fatal("the forms are not the forms")
 			}
+			if !slices.ContainsFunc(jl.File().Fitments, func(f Fitment) bool { return len(f.Applications) > wideApplications }) {
+				t.Fatal("no fitment wider than a block copies whole")
+			}
 			if got, want := cc.Info(), jl.Info(); got != want {
 				t.Errorf("Info %+v; want %+v", got, want)
 			}
@@ -281,6 +322,16 @@ func TestCompiledAnswersAsJSONLines(t *testing.T) {
 							got, want := describeCandidates(cc.ByVehicle(typ, vs, y, s)), describeCandidates(jl.ByVehicle(typ, vs, y, s))
 							if got != want {
 								t.Fatalf("ByVehicle(%q, %d vehicles, %v, %v):\n%s\nwant\n%s", typ, len(vs), y, s, got, want)
+							}
+							matched := describeCandidates(jl.Matching(typ, vs, y, s))
+							cm := cc.Matching(typ, vs, y, s)
+							if got := describeCandidates(cm); got != matched {
+								t.Fatalf("Matching(%q, %d vehicles, %v, %v):\n%s\nwant\n%s", typ, len(vs), y, s, got, matched)
+							}
+							for _, c := range cm {
+								if len(c.Applications) != len(c.Fitment.Applications) {
+									t.Fatalf("Matching(%q, …): %s holds %d applications, %d matched", typ, c.Fitment.Key, len(c.Fitment.Applications), len(c.Applications))
+								}
 							}
 							asked += strings.Count(want, "matched")
 						}
@@ -411,9 +462,59 @@ func TestCompileIsDeterministic(t *testing.T) {
 	}
 }
 
+// TestCompileAcrossBatches: compiling reads its source a batch at a time,
+// and a catalog read in batches of a few lines, lines longer than a batch
+// among them, compiles to the bytes of one read whole: every line keeps
+// its number.
+func TestCompileAcrossBatches(t *testing.T) {
+	files := generated(t, true, 300)
+	whole, err := os.ReadFile(compile(t, month{}, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func(n int) { sourceBatch = n }(sourceBatch)
+	for _, n := range []int{1, 300, 1 << 10} {
+		sourceBatch = n
+		batched, err := os.ReadFile(compile(t, month{}, files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(batched, whole) {
+			t.Errorf("read %d bytes at a time: %d bytes, not the %d of one read", n, len(batched), len(whole))
+		}
+	}
+}
+
+// TestCompileAcrossRuns: compiling sorts in runs of runBytes, merged a
+// cursorBytes read at a time, and a catalog sorted in runs of a few
+// records, merged a few bytes at a time (every record longer than a read),
+// compiles to the bytes of one run, so it answers as one does
+// (TestCompiledAnswersAsJSONLines): its fitments, redirects and retired
+// numbers merge from many runs in their one order.
+func TestCompileAcrossRuns(t *testing.T) {
+	for _, vpic := range []bool{false, true} {
+		files := generated(t, vpic, 300)
+		whole, err := os.ReadFile(compile(t, month{}, files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		func() {
+			defer func(r, c int) { runBytes, cursorBytes = r, c }(runBytes, cursorBytes)
+			runBytes, cursorBytes = 256, 16
+			runs, err := os.ReadFile(compile(t, month{}, files))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(runs, whole) {
+				t.Errorf("vpic=%v: sorted in tiny runs, %d bytes, not the %d of one run", vpic, len(runs), len(whole))
+			}
+		}()
+	}
+}
+
 // TestCompiledHeader: a compiled catalog records its source's hash, the
-// files it was linked against, its writer and its drift, and is
-// identified by its own bytes' hash.
+// files it was linked against, its writer, its drift and the drift kinds
+// its month could not measure, and is identified by its own bytes' hash.
 func TestCompiledHeader(t *testing.T) {
 	files, err := Open("../../testdata/vocab/fitment")
 	if err != nil {
@@ -427,8 +528,14 @@ func TestCompiledHeader(t *testing.T) {
 	}
 	m := cc.Compiled()
 	want := []LinkedFile{{"part-types", "2026.11", byName["part-types"].Hash}, {"catalog-models", "2026.11", byName["catalog-models"].Hash}}
-	if m == nil || m.Format != CompiledFormat || m.SourceHash != byName["parts-catalog"].Hash || !slices.Equal(m.Links, want) || m.Writer != "v0.0.0-test" || m.DriftMonth != "2026_10" || m.Drift != nil {
+	skipped := []DriftKind{DriftModelYears, DriftModelQualifier} // fixtureMonth knows no model's years or values
+	if m == nil || m.Format != CompiledFormat || m.SourceHash != byName["parts-catalog"].Hash || !slices.Equal(m.Links, want) || m.Writer != "v0.0.0-test" || m.DriftMonth != "2026_10" || m.Drift != nil || !slices.Equal(m.Skipped, skipped) {
 		t.Errorf("Compiled %+v", m)
+	}
+	// A month that knows them skips none.
+	full := compile(t, fullMonth{}, files)
+	if m := catalogOf(t, fullMonth{}, swapCatalog(t, files, full)).File().Compiled(); m.Skipped != nil {
+		t.Errorf("skipped %v beside a month of model years and values; want none", m.Skipped)
 	}
 	if cc.Kind != KindCatalog || cc.Name != "parts-catalog" || cc.Release != "7.02" || cc.Spine != "part-types" || cc.Path != path {
 		t.Errorf("header %+v", cc)
@@ -445,11 +552,17 @@ func TestCompiledHeader(t *testing.T) {
 	}
 }
 
+// fullMonth is a month of model years and model values, as a server's.
+type fullMonth struct{ modelMonth }
+
+func (fullMonth) ModelYears(int32) []YearRange { return nil }
+
 // TestCompiledRefused: --vocab refuses a compiled catalog in a format it
-// cannot read, cut short or damaged, or without the spine or vehicle
-// vocabulary it links to; Expand refuses one whose bytes do not hash to
-// its header's blake3; Compile refuses a catalog with a fault, and a
-// compiled one.
+// cannot read, format 1 included, saying to compile it again; one cut
+// short or damaged; and one without the spine or vehicle vocabulary it
+// links to. Expand refuses one whose bytes do not hash to its header's
+// blake3. Compile refuses a catalog with a fault, a compiled one, and a
+// source that is no catalog.
 func TestCompiledRefused(t *testing.T) {
 	files, err := Open("../../testdata/vocab/fitment")
 	if err != nil {
@@ -471,14 +584,16 @@ func TestCompiledRefused(t *testing.T) {
 		}
 		return p
 	}
-	version := slices.Clone(good)
+	version, format1 := slices.Clone(good), slices.Clone(good)
 	binary.LittleEndian.PutUint32(version[8:], CompiledFormat+1)
+	binary.LittleEndian.PutUint32(format1[8:], 1)
 	for _, tc := range []struct {
 		name   string
 		paths  []string
 		detail string
 	}{
-		{"a format it cannot read", []string{write(version)}, "compiled catalog format 2: this nitrovin reads format 1 only"},
+		{"a format it cannot read", []string{write(version)}, "compiled catalog format 3: this nitrovin reads format 2 only; compile the catalog again with this release"},
+		{"format 1", []string{write(format1)}, "compiled catalog format 1: this nitrovin reads format 2 only; compile the catalog again with this release"},
 		{"cut short", []string{write(good[:len(good)-1])}, "it was cut short or added to"},
 		{"shorter than a header", []string{write(good[:20])}, "shorter than its header"},
 		{"no spine", []string{byName["catalog-models"].Path, path}, `/spine: spine "part-types" is not loaded`},
@@ -501,7 +616,7 @@ func TestCompiledRefused(t *testing.T) {
 	}
 
 	damaged := slices.Clone(good)
-	damaged[len(damaged)-1] ^= 1 // a byte of the string pool
+	damaged[len(damaged)-1] ^= 1 // a byte of the last vehicle's block
 	opened, err := Open(byName["part-types"].Path, byName["catalog-models"].Path, write(damaged))
 	if err != nil {
 		t.Fatal(err)
@@ -510,14 +625,50 @@ func TestCompiledRefused(t *testing.T) {
 		t.Errorf("Expand of a damaged file: %v", err)
 	}
 
-	if _, err := Compile(&bytes.Buffer{}, fixtureMonth{}, []*File{byName["parts-catalog"], byName["part-types"]}, "v"); err == nil || !strings.Contains(err.Error(), `/vehicles: vocabulary "catalog-models" is not loaded`) {
+	source := byName["parts-catalog"].Path
+	if _, err := compileSource(t, &bytes.Buffer{}, fixtureMonth{}, []*File{byName["part-types"]}, source); err == nil || !strings.Contains(err.Error(), `/vehicles: vocabulary "catalog-models" is not loaded`) {
 		t.Errorf("Compile without the vehicle vocabulary: %v", err)
 	}
-	if _, err := Compile(&bytes.Buffer{}, fixtureMonth{}, opened, "v"); err == nil || !strings.Contains(err.Error(), "compiled already") {
-		t.Errorf("Compile of a compiled catalog: %v", err)
+	if _, err := compileSource(t, &bytes.Buffer{}, fixtureMonth{}, opened, source); err == nil || !strings.Contains(err.Error(), "compiled already") {
+		t.Errorf("Compile beside a compiled catalog: %v", err)
 	}
-	if _, err := Compile(&bytes.Buffer{}, fixtureMonth{}, []*File{byName["part-types"]}, "v"); err == nil {
-		t.Error("Compile with no catalog")
+	if _, err := compileSource(t, &bytes.Buffer{}, fixtureMonth{}, []*File{byName["catalog-models"]}, byName["part-types"].Path); err == nil || !strings.Contains(err.Error(), "is a spine, not a catalog") {
+		t.Errorf("Compile of a spine: %v", err)
+	}
+	if _, err := Compile(&bytes.Buffer{}, fixtureMonth{}, nil, strings.NewReader("\n\n"), "empty.jsonl", DirScratch(t.TempDir()), CompileOptions{}); err == nil || !strings.Contains(err.Error(), "no header") {
+		t.Errorf("Compile of an empty file: %v", err)
+	}
+
+	// OpenCompiled, as a browser opens a picked file: one with no
+	// compiled catalog's magic is no compiled catalog.
+	for _, name := range []string{source, byName["part-types"].Path} {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := OpenCompiled(name, bytes.NewReader(b), int64(len(b))); err == nil || !strings.Contains(err.Error(), "it is not a compiled catalog") {
+			t.Errorf("OpenCompiled of %s: %v; want it is not a compiled catalog", filepath.Base(name), err)
+		}
+	}
+
+	// OpenCompile, as `vocab compile` reads its arguments: the catalog's
+	// path, never read, and the rest opened.
+	others, path, err := OpenCompile("../../testdata/vocab/fitment")
+	if err != nil || path != source || len(others) != len(files)-1 || slices.ContainsFunc(others, func(f *File) bool { return f.Kind == KindCatalog }) {
+		t.Errorf("OpenCompile: %d files, %q, %v; want the rest and %q", len(others), path, err, source)
+	}
+	for _, tc := range []struct {
+		name   string
+		paths  []string
+		detail string
+	}{
+		{"no catalog", []string{byName["part-types"].Path}, "no catalog among the files to compile"},
+		{"two catalogs", []string{source, source}, "is a catalog too: compile one at a time"},
+		{"a compiled catalog", []string{byName["part-types"].Path, byName["catalog-models"].Path, write(good), source}, "compiled already"},
+	} {
+		if _, _, err := OpenCompile(tc.paths...); err == nil || !strings.Contains(err.Error(), tc.detail) {
+			t.Errorf("OpenCompile of %s: %v; want %q", tc.name, err, tc.detail)
+		}
 	}
 }
 
@@ -605,7 +756,7 @@ type otherMonth struct{ month }
 func (otherMonth) Name() string                      { return "2026_11" }
 func (otherMonth) Text(element int32, _ string) bool { return false }
 
-// TestCompiledDamagedCount: a fitment row whose application count is
+// TestCompiledDamagedCount: a fitment record whose application count is
 // damaged ends in the reader's own panic, about a damaged file, before
 // anything is allocated by the count.
 func TestCompiledDamagedCount(t *testing.T) {
@@ -617,11 +768,31 @@ func TestCompiledDamagedCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fitments := int(binary.LittleEndian.Uint64(b[headerSize+secFitments*16:]))
-	binary.LittleEndian.PutUint32(b[fitments+28:], math.MaxUint32) // the first fitment's application count
+	// The first fitment of keyed, after any retired numbers: its kind,
+	// part type, side, number, line and note, then its count of
+	// applications, written over as 2^63-1, the bytes after it too, so the
+	// file keeps its length.
+	keyed := int(binary.LittleEndian.Uint64(b[headerSize+secKeyed*16:]))
+	r := &bcursor{b: b[keyed:]}
+	for r.byte() == recRetired {
+		r.uint()
+		r.byte()
+		r.bytes()
+		r.uint()
+		r.bytes()
+		r.uint()
+		r.byte()
+		r.bytes()
+	}
+	r.uint()
+	r.byte()
+	r.bytes()
+	r.uint()
+	r.bytes()
+	copy(b[len(b)-len(r.b):], binary.AppendUvarint(nil, math.MaxInt64))
 	f, err := Read("damaged.compiled", bytes.NewReader(b))
 	if err != nil {
-		t.Fatal(err) // Open reads no row
+		t.Fatal(err) // Open reads no record
 	}
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
@@ -638,6 +809,75 @@ func TestCompiledDamagedCount(t *testing.T) {
 	if n := after.TotalAlloc - before.TotalAlloc; n > 1<<20 {
 		t.Errorf("Fitments of a damaged count allocated %d bytes", n)
 	}
+}
+
+// TestCompiledFarRecordOutOfRange: a far record whose place in wide runs
+// past it, its length wrapping round, ends in the reader's own panic about
+// a damaged file, not a runtime error.
+func TestCompiledFarRecordOutOfRange(t *testing.T) {
+	c := &compiled{path: "damaged.compiled", vehicles: []*Vehicle{{}}}
+	c.sec[secWide].n = 20
+	for _, place := range [][2]uint64{{10, math.MaxInt64 - 5}, {10, 11}, {21, 1}, {0, 0}, {math.MaxUint64, 1}} {
+		b := []byte{recFar, byte(SideNone)}
+		b = appendStr(b, "N-1")
+		b = binary.AppendUvarint(b, 1) // its line
+		b = appendStr(b, "")           // its note
+		b = binary.AppendUvarint(b, 1) // one application of its own
+		b = binary.AppendUvarint(b, 0)
+		b = appendApplication(b, &Application{}, 0)
+		b = binary.AppendUvarint(b, place[0])
+		b = binary.AppendUvarint(b, place[1])
+		func() {
+			defer func() {
+				r := recover()
+				if _, ok := r.(runtime.Error); ok {
+					t.Fatalf("far record at %d, %d bytes: runtime error %v", place[0], place[1], r)
+				}
+				if e, ok := r.(error); !ok || !strings.Contains(e.Error(), "the file is damaged") {
+					t.Errorf("far record at %d, %d bytes: recovered %v; want the file is damaged", place[0], place[1], r)
+				}
+			}()
+			c.blockHit(&cursor{c, string(b), 0}, 0, 0, nil, nil)
+		}()
+	}
+}
+
+// TestReadFarSpan: far fitments read together are read in runs of at most
+// 1 MiB, however close each lies to the next, so a related vehicles
+// request's bytes stay within its reads × 1 MiB (ADR 0023).
+func TestReadFarSpan(t *testing.T) {
+	const step, n = 200 << 10, 7 // records 200 KiB apart: within farGap, 1.2 MiB in all
+	wide := make([]byte, step*(n-1)+64)
+	var hits []*hit
+	for i := range n {
+		rec := append([]byte{recFitment}, 0, byte(SideNone))
+		rec = appendStr(rec, fmt.Sprintf("N-%d", i))
+		copy(wide[i*step:], rec)
+		hits = append(hits, &hit{typ: 0, side: SideNone, number: fmt.Sprintf("N-%d", i), far: true, off: int64(i * step), n: int64(len(rec))})
+	}
+	r := &spanReader{r: bytes.NewReader(wide)}
+	c := &compiled{r: r, path: "far.compiled", types: []compiledType{{name: "pads"}}}
+	c.sec[secWide].n = int64(len(wide))
+	c.readFar(hits)
+	if r.reads != 2 || r.most > 1<<20 {
+		t.Errorf("%d far fitments %d KiB apart: %d reads, the longest %d bytes; want 2, none over 1 MiB", n, step>>10, r.reads, r.most)
+	}
+	for i, h := range hits {
+		if r := h.rec; r.s == "" || r.side() != h.side || r.str() != h.number {
+			t.Errorf("far fitment %d read wrongly", i)
+		}
+	}
+}
+
+// spanReader counts its reads and their longest.
+type spanReader struct {
+	r           io.ReaderAt
+	reads, most int
+}
+
+func (s *spanReader) ReadAt(p []byte, off int64) (int, error) {
+	s.reads, s.most = s.reads+1, max(s.most, len(p))
+	return s.r.ReadAt(p, off)
 }
 
 // FuzzOpenCompiled: whatever bytes begin like a compiled catalog, opening
@@ -679,12 +919,16 @@ func FuzzOpenCompiled(f *testing.F) {
 		for _, v := range c.Vehicles() {
 			vehicles = append(vehicles, *v)
 		}
+		c.ByVehicle("", vehicles, nil, nil)
+		c.ByVehicle("", vehicles[:min(1, len(vehicles))], new(2005), new(SideLeft))
+		c.Redirect("", vehicles, nil)
 		for _, typ := range file.compiled.types {
 			c.ByVehicle(typ.name, vehicles, nil, nil)
 			c.ByVehicle(typ.name, vehicles[:min(1, len(vehicles))], new(2005), new(SideLeft))
 			c.Redirect(typ.name, vehicles, nil)
 			for _, fit := range c.Fitments(typ.name, nil, 3) {
 				c.ByNumber(fit.Key.Type, fit.Key.Number, fit.Key.Side)
+				c.RetiredTo(fit.Key)
 			}
 			c.ByNumber(typ.name, "N-1", SideNone)
 		}

@@ -15,9 +15,11 @@
 // refused. A Set answers translations and lists (ADR 0012) over them:
 // routing, year scope, qualifiers checked against a Decoded, paging. A
 // loaded catalog is a Set's Catalog, which answers by vehicle, number and
-// redirect (package fitment's Reader). Compile writes a catalog as a
-// compiled catalog (ADR 0021), which Open and Read recognise by its magic
-// and read in place; Expand reads one in full, to check it again.
+// redirect (package fitment's Reader). Compile streams a JSON Lines
+// catalog into a compiled catalog (ADR 0021, ADR 0023), sorting in Scratch
+// storage; Open and Read recognise one by its magic and read it in place,
+// as OpenCompiled does through any io.ReaderAt; Expand reads one in full,
+// to check it again.
 //
 // The package reads no artifact: a Month can be backed by one (package
 // nitrovin) or by anything else that knows the month's makes, models and

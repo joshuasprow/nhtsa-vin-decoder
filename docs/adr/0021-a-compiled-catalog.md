@@ -178,3 +178,30 @@ clustered by vehicle, because format 1 costs thousands of reads per part-type
 summary when read by byte range in a browser. One streaming compiler, peaking at
 256 MiB, serves the CLI and the browser. Format 1 files are refused with "recompile".
 This ADR's budgets and Measured section remain the bar format 2 must meet.
+
+## Measured: format 2 (2026-11-12)
+
+Format 2 replaced format 1 ([#262](https://github.com/joshuasprow/nitrovin/issues/262)),
+measured as above (`bench/vocab`, one core, Apple M5 Pro) and
+[recorded on #260](https://github.com/joshuasprow/nitrovin/issues/260):
+
+| | Format 1 | Format 2 | Budget |
+| --- | ---: | ---: | ---: |
+| Retained heap | 2.1 MB | 2.7 MB | 256 MiB |
+| Peak while opening | 16 MB | 19 MB | 512 MiB |
+| Open and ready | 3.1 ms | 4.5 ms | 1 s |
+| File | 184 MB | 342 MB | 500 MB |
+| Compile | 3.9 s | 3.7 s | recorded |
+| Compile peak, `nitrovin vocab compile` | about 900 MB | 202 MB | 256 MiB (ADR 0023) |
+
+Whole `fit` requests, p99, against ADR 0018's budgets: candidates 147 µs (5 ms),
+part types 614 µs and 1.9 ms with no year (10 ms), related vehicles 729 µs and
+2.8 ms with no year (50 ms), and reverse 95 µs (1 ms). Each is one to three reads
+of the file; ADR 0023's Measured has them. The file is larger because each
+vehicle's block holds a copy of its fitments; it stays inside the budget, at
+about 180 bytes an application. The budget's 500 MB is set at ADR 0017's
+catalog scale, 1.9 million applications, so bytes per application is the
+figure to watch: a catalog of more applications may pass 500 MB at the same
+rate, as ADR 0023's wide variants do (595 MB for 4.1 million, about 146 bytes
+each). The compiler streams, so it no longer loads the catalog as JSON Lines
+first.

@@ -1,9 +1,11 @@
 package vocab
 
 import (
+	"bufio"
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -26,12 +28,45 @@ import (
 // it stays open for the File's life. Each File's Path is absolute. The
 // error is Faults: every fault of every file, which refuses them all.
 func Open(paths ...string) ([]*File, error) {
+	files, _, err := open(paths, false)
+	return files, err
+}
+
+// OpenCompile reads the files at paths as Open does, but for the one JSON
+// Lines catalog among them, which it does not read: it returns its path,
+// for Compile to stream, and links the rest. Two catalogs, a compiled
+// one, or none is an error.
+func OpenCompile(paths ...string) (files []*File, catalog string, err error) {
+	return open(paths, true)
+}
+
+// open is Open, and OpenCompile when source: the catalog's path is
+// returned, not read.
+func open(paths []string, source bool) ([]*File, string, error) {
 	var files []*File
 	var faults Faults
+	var catalog string
 	read := func(path string) {
+		if source {
+			switch is, err := isCatalogSource(path); {
+			case err != nil:
+				faults = append(faults, fault(path, 0, "%v", err))
+				return
+			case is && catalog != "":
+				faults = append(faults, fault(path, 0, "%s is a catalog too: compile one at a time", catalog))
+				return
+			case is:
+				catalog = path
+				return
+			}
+		}
 		f, err := openFile(path)
 		if fs, ok := err.(Faults); ok {
 			faults = append(faults, fs...)
+			return
+		}
+		if source && f.compiled != nil {
+			faults = append(faults, fault(path, 0, "it is compiled already: compile its JSON Lines source"))
 			return
 		}
 		files = append(files, f)
@@ -62,13 +97,37 @@ func Open(paths ...string) ([]*File, error) {
 			}
 		}
 	}
+	if source && catalog == "" && len(faults) == 0 {
+		return nil, "", fmt.Errorf("no catalog among the files to compile")
+	}
 	if len(faults) > 0 {
-		return nil, faults
+		return nil, "", faults
 	}
 	if err := Link(files); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return files, nil
+	return files, catalog, nil
+}
+
+// isCatalogSource reports whether the file at path is a JSON Lines
+// catalog, by its header, reading no more of it.
+func isCatalogSource(path string) (bool, error) {
+	osf, err := os.Open(path)
+	if err != nil {
+		return false, errors.New(errorText(err))
+	}
+	defer osf.Close()
+	br := bufio.NewReader(osf)
+	for {
+		line, err := br.ReadBytes('\n')
+		if len(line) > 0 && !blank(bytes.TrimSuffix(line, []byte("\n"))) {
+			f := &File{}
+			return f.header(bytes.TrimSuffix(line, []byte("\n"))) == nil && f.Kind == KindCatalog, nil
+		}
+		if err != nil {
+			return false, nil // no header: reading it says so
+		}
+	}
 }
 
 // errorText is a file system error without the path the finding already

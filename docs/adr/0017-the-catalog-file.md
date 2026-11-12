@@ -154,6 +154,22 @@ retained, 512 MiB peak, 1 s to open.
 - [The compiled fitment form](https://github.com/joshuasprow/nitrovin/issues/228)
   implements the same interface and is held to the budget above.
 
+## Amendment (2026-11-12): every part type at once, and only what matched
+
+[ADR 0023](0023-fitment-in-the-browser.md)'s compiled format 2 answers a vehicle's
+every part type from one read of its block, so `fitment.Reader` gains two things
+a request about every part type uses (#262):
+
+- **`ByVehicle` and `Redirect` take part type `""`** for every part type, in key
+  order and in file order. `fit` asks so once for part types and related
+  vehicles, not once per part type of the spine. A Reader that answers nothing for
+  `""` would answer `fit` with no part types and no related vehicles.
+- **`Matching`** is `ByVehicle` answering with only the applications that matched:
+  each candidate's fitment holds its key, line, note and those applications.
+  Part types and candidates need nothing more; related vehicles need
+  `ByVehicle`'s whole fitments. A compiled catalog answers `Matching` from the
+  vehicle's block alone, even for a fitment of hundreds of applications.
+
 ## Amendment (2026-11-12): one catalog across a server and its browsers
 
 [ADR 0023](0023-fitment-in-the-browser.md): a browser refuses to load a catalog when its server has one, so one

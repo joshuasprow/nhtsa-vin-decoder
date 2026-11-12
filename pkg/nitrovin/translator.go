@@ -131,7 +131,10 @@ func NewTranslatorWith(d *Decoder, c TranslatorConfig, files ...*vocab.File) (*T
 			}
 			if cc := f.Compiled(); cc != nil {
 				v.Compiled = &contract.CompiledCatalog{Format: cc.Format, SourceBlake3: hex.EncodeToString(cc.SourceHash[:]), Writer: cc.Writer,
-					DriftMonth: cc.DriftMonth, DriftMonthDiffers: cc.DriftMonth != info.DataMonth}
+					DriftMonth: cc.DriftMonth, DriftMonthDiffers: cc.DriftMonth != info.DataMonth, SkippedDrift: []string{}}
+				for _, k := range cc.Skipped {
+					v.Compiled.SkippedDrift = append(v.Compiled.SkippedDrift, string(k))
+				}
 				for _, l := range cc.Links {
 					j := slices.IndexFunc(files, func(g *vocab.File) bool { return g.Name == l.Name })
 					if j < 0 || files[j].Hash != l.Hash {

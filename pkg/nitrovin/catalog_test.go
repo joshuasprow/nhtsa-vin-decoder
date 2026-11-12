@@ -185,7 +185,7 @@ func TestCatalogModelDrift(t *testing.T) {
 	// rest and stored it. Load still reports none of it, and LoadInfo
 	// counts none; AllDrift and Info have it, as the source's do.
 	var b bytes.Buffer
-	if _, err := vocab.Compile(&b, d.month, files, Version()); err != nil {
+	if _, err := compileCatalog(t, &b, d.month, files); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "catalog.compiled")
@@ -222,7 +222,7 @@ func TestCatalogModelDrift(t *testing.T) {
 // renamed is a data month under another name: the month a catalog was
 // compiled against, when it is not the loaded one.
 type renamed struct {
-	vocab.ModelMonth
+	*month
 	name string
 }
 
@@ -261,7 +261,7 @@ func TestCompiledCatalog(t *testing.T) {
 	}{{d.month.Name(), false}, {"2026_01", true}} {
 		t.Run(tc.month, func(t *testing.T) {
 			var b bytes.Buffer
-			if _, err := vocab.Compile(&b, renamed{d.month, tc.month}, files, Version()); err != nil {
+			if _, err := compileCatalog(t, &b, renamed{d.month, tc.month}, files); err != nil {
 				t.Fatal(err)
 			}
 			path := filepath.Join(t.TempDir(), "catalog.compiled")
@@ -280,8 +280,8 @@ func TestCompiledCatalog(t *testing.T) {
 			conforms(t, "Info", info)
 			got, want := info.Vocabularies[2], jsonl.Info().Vocabularies[2]
 			source := want.Blake3
-			wantCompiled := contract.CompiledCatalog{Format: vocab.CompiledFormat, SourceBlake3: source, Writer: Version(), DriftMonth: tc.month, DriftMonthDiffers: tc.differs, LinksDiffer: false}
-			if got.Compiled == nil || *got.Compiled != wantCompiled || got.Blake3 == source || got.Path != path {
+			wantCompiled := contract.CompiledCatalog{Format: vocab.CompiledFormat, SourceBlake3: source, Writer: Version(), DriftMonth: tc.month, DriftMonthDiffers: tc.differs, LinksDiffer: false, SkippedDrift: []string{}}
+			if got.Compiled == nil || !reflect.DeepEqual(*got.Compiled, wantCompiled) || got.Blake3 == source || got.Path != path {
 				t.Errorf("info's compiled catalog: %+v, compiled %+v; want %+v", got, got.Compiled, wantCompiled)
 			}
 			if want.Compiled != nil {
@@ -319,7 +319,7 @@ func TestCompiledCatalog(t *testing.T) {
 	// as its source's is.
 	t.Run("another vehicle vocabulary", func(t *testing.T) {
 		var b bytes.Buffer
-		if _, err := vocab.Compile(&b, d.month, files, Version()); err != nil {
+		if _, err := compileCatalog(t, &b, d.month, files); err != nil {
 			t.Fatal(err)
 		}
 		tmp := t.TempDir()
