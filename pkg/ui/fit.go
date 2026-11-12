@@ -289,6 +289,9 @@ type relatedRow struct {
 // first rows.
 type stockView struct {
 	Title string
+	// Unknown marks a list a source of which is unavailable: its stock is
+	// unknown, not empty.
+	Unknown bool
 	// Level is its heading's: 3 for the answer's own list, 4 for a
 	// candidate's, under the candidate's heading.
 	Level   int
@@ -315,8 +318,11 @@ func (h *Handler) fit(r *http.Request) (view, error) {
 		raw = url.Values{}
 	}
 	// The fit: the query without the page's own tab and the fields a form
-	// sent empty, a VIN aside, which is refused empty.
+	// sent empty, a VIN aside, which is refused empty. A query with empty
+	// fields, as a form sends it, moves to the query without them, so the
+	// page's URL is always /v1/fit's query, which refuses them.
 	q := url.Values{}
+	dropped := false
 	for k, vs := range raw {
 		if k == tabParam {
 			continue
@@ -324,8 +330,21 @@ func (h *Handler) fit(r *http.Request) (view, error) {
 		for _, s := range vs {
 			if strings.TrimSpace(s) != "" || k == "from.vin" {
 				q[k] = append(q[k], s)
+			} else {
+				dropped = true
 			}
 		}
+	}
+	if dropped {
+		clean := maps.Clone(q)
+		if t, ok := raw[tabParam]; ok {
+			clean[tabParam] = t
+		}
+		loc := fitPath
+		if len(clean) > 0 {
+			loc += "?" + clean.Encode()
+		}
+		return view{location: loc, status: http.StatusSeeOther}, nil
 	}
 	cat, err := h.catalog()
 	if err != nil {
@@ -504,8 +523,10 @@ func (h *Handler) fitExamples(ctx context.Context, catalog string, stock []strin
 	}
 	key := line.Fitment
 	fq := fitmentQuery(key, nil, stock)
-	// The fitment's answer names the catalog's vehicle vocabulary.
-	req, err := contract.ParseFitQuery(fq)
+	// The fitment's answer names the catalog's vehicle vocabulary: asked
+	// without stock, which only the example's link asks for, so drawing
+	// the page never waits on a stock source.
+	req, err := contract.ParseFitQuery(fitmentQuery(key, nil, nil))
 	if err != nil {
 		return skip(err)
 	}
@@ -725,8 +746,7 @@ func (h *Handler) newFitResult(req contract.FitRequest, q url.Values, fit contra
 	}
 	res.Sentence = statusText(res.Kind, fit, req, subject)
 	if fit.Status != contract.FitNoCatalog {
-		n := len(fit.PartTypes) + len(fit.Candidates) + len(fit.Vehicles) + len(fit.Related)
-		res.Showing = fmt.Sprintf("Showing %d of %d.", n, fit.Total)
+		res.Showing = showingText(res, fit)
 	}
 	if fit.Next != "" {
 		nq := maps.Clone(q)
@@ -749,6 +769,46 @@ func (h *Handler) newFitResult(req contract.FitRequest, q url.Values, fit contra
 	}
 	res.JSON = []jsonDoc{doc}
 	return res, nil
+}
+
+// showingText says how much of its list an answer's page shows, and when
+// stock lists that page with the list (a fitment's shelf and yard, the
+// candidates' shelf by vehicle) go on past it.
+func showingText(res *fitResult, fit contract.Fit) string {
+	noun := map[string][2]string{
+		fitPartTypes:  {"part type", "part types"},
+		fitCandidates: {"candidate", "candidates"},
+		fitVehicles:   {"application", "applications"},
+		fitRelated:    {"related vehicle", "related vehicles"},
+	}[res.Kind]
+	n := len(fit.PartTypes) + len(fit.Candidates) + len(fit.Vehicles) + len(fit.Related)
+	var paged []*stockView
+	switch res.Kind {
+	case fitVehicles:
+		paged = []*stockView{res.Shelf, res.Yard}
+	case fitCandidates:
+		paged = []*stockView{res.ShelfByVehicle}
+	}
+	stockRows := 0
+	for _, sv := range paged {
+		if sv != nil {
+			stockRows += len(sv.Rows)
+		}
+	}
+	s := fmt.Sprintf("Showing %d of %d %s.", n, fit.Total, noun[1])
+	if fit.Total == 1 {
+		s = fmt.Sprintf("Showing %d of 1 %s.", n, noun[0])
+	}
+	if n == 0 && fit.Total > 0 && stockRows > 0 {
+		s = "Every one of the " + countText(fit.Total, noun[0], noun[1]) + " is on an earlier page: this page goes on with the stock lists."
+		if fit.Total == 1 {
+			s = "The 1 " + noun[0] + " is on an earlier page: this page goes on with the stock lists."
+		}
+	}
+	if fit.Next != "" && stockRows > 0 {
+		s += " The stock lists page with the " + noun[1] + ", so the next page may hold stock alone."
+	}
+	return s
 }
 
 // fitKindOf is the answer req's inputs ask for.
@@ -920,6 +980,9 @@ func newStockView(title string, level int, l *contract.StockList, name func(cont
 	}
 	for _, s := range l.Sources {
 		sv.Sources = append(sv.Sources, sourceText(s))
+		if s.Status == contract.StockUnavailable {
+			sv.Unknown = true
+		}
 	}
 	return sv
 }

@@ -475,8 +475,8 @@ func (l *Library) List(req contract.ListRequest) (contract.List, error) {
 	return l.translator(l.state.Load()).List(req)
 }
 
-// Fit answers as /v1/fit does. The browser holds no catalog, so every
-// fit answers no-catalog.
+// Fit answers as /v1/fit does: no-catalog, until #263 gives the browser
+// its catalog and replaces this.
 func (l *Library) Fit(ctx context.Context, req contract.FitRequest) (contract.Fit, error) {
 	return contract.Fitter{Translator: l.translator(l.state.Load())}.Fit(ctx, req)
 }

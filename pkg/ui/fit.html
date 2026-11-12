@@ -178,13 +178,14 @@ types, its names and its count in the yard. */}}
 source wrote them, its sources, and a link to the whole list. */}}
 {{define "fit-stock" -}}
 <div class="stock">
-{{if eq .Level 3}}<h3>{{.Title}} <span class="hint">({{.Total}})</span></h3>{{else}}<h4>{{.Title}} <span class="hint">({{.Total}})</span></h4>{{end}}
+{{if eq .Level 3}}<h3>{{.Title}} <span class="hint">({{.Total}}{{if .Unknown}} known{{end}})</span></h3>{{else}}<h4>{{.Title}} <span class="hint">({{.Total}}{{if .Unknown}} known{{end}})</span></h4>{{end}}
+{{if .Unknown}}<p class="unchecked">{{if .Rows}}Not every source answered: the list may be longer than shown{{else}}Unknown: a source is unavailable{{end}} (below).</p>{{end}}
 {{if .Rows}}<div class="wide" tabindex="0" role="group" aria-label="{{.Title}}"><table class="fit">
 <thead><tr><th scope="col">Id</th><th scope="col">Source</th><th scope="col">Location</th><th scope="col">Matched</th><th scope="col">Fields</th></tr></thead>
 <tbody>
 {{range .Rows}}<tr><td class="mono nowrap">{{.ID}}</td><td class="nowrap">{{.Source}}{{with .AsOf}}<br><span class="hint">as of {{.}}</span>{{end}}</td><td>{{.Location}}</td><td>{{.Matched}}</td><td><code class="fields">{{.Fields}}</code></td></tr>
 {{end}}</tbody>
-</table></div>{{else}}<p>None.</p>{{end}}
+</table></div>{{else if not .Unknown}}<p>None.</p>{{end}}
 {{with .More}}<p><a href="{{.}}">Every row of this list</a></p>{{end}}
 {{if .Sources}}<ul class="sources hint">{{range .Sources}}<li>{{.}}</li>{{end}}</ul>{{end}}
 </div>

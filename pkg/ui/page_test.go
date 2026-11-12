@@ -91,7 +91,7 @@ func TestPage(t *testing.T) {
 		`<a id="map-n0" class="node" href="/?from.vin=1HGCM82633A004352" data-lit="map-n0"><span class="box"><span class="name mono">1HGCM82633A004352</span><span class="rel"><span class="visually-hidden">, </span>what was translated, a link to this answer<span class="visually-hidden">;</span></span> <span class="meta">VIN · not found</span></span></a>`,
 		`<dialog id="result-json" popover aria-labelledby="result-json-h">`,
 		`id="translation-json" data-copy="the translation&#39;s JSON">{` + "\n" + `  &#34;from&#34;: {`,
-		`<a href="/v1/decode/1HGCM82633A004352">The same request on /v1</a>`,
+		`<a href="/v1/decode/1HGCM82633A004352" hx-boost="false">The same request on /v1</a>`,
 		`id="decode-json" data-copy="the decode&#39;s JSON">{` + "\n" + `  &#34;vin&#34;: &#34;1HGCM82633A004352&#34;,`,
 		`id="copy-url" data-copy="this page's URL">http://example.com/?from.vin=1HGCM82633A004352</pre>`,
 	} {

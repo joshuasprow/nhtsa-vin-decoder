@@ -31,7 +31,7 @@ func fitServer(t *testing.T) http.Handler {
 // names as the same.
 func pageFitJSON(t *testing.T, body string) (any, string) {
 	t.Helper()
-	m := regexp.MustCompile(`(?s)<a href="([^"]*)">The same request on /v1</a>.*?<pre tabindex="0" id="fit-json" data-copy="the fit&#39;s JSON">(.*?)</pre>`).FindStringSubmatch(body)
+	m := regexp.MustCompile(`(?s)<a href="([^"]*)" hx-boost="false">The same request on /v1</a>.*?<pre tabindex="0" id="fit-json" data-copy="the fit&#39;s JSON">(.*?)</pre>`).FindStringSubmatch(body)
 	if m == nil {
 		t.Fatalf("no fit JSON on the page\n%s", body)
 	}
@@ -87,7 +87,7 @@ func TestFitPageServer(t *testing.T) {
 		fitExamples[8].query: {"BR-2001", "A-1 shelf-annex", "S-2 shelf-stock", "S-3 shelf-stock", "filed under the retired number brake-rotor-front BR-1999",
 			"its numbers are under release 7.01, not the loaded catalog's", "Y-1 yard-stock", "Y-2 yard-stock", "Y-3 yard-stock", "by the catalog's vehicle, Chevrolet Silverado 1500, 2010"},
 		fitExamples[9].query:  {"S-1 shelf-stock north by its number, mirror MR-1001, left", "On the shelf with no number, for this vehicle (1)", "S-4 shelf-stock north by part type mirror for Dodge Ram 1500, 2010"},
-		fitExamples[10].query: {"A-1 shelf-annex", "Y-1 yard-stock", "Showing 1 of 2.", "Next page"},
+		fitExamples[10].query: {"A-1 shelf-annex", "Y-1 yard-stock", "Showing 1 of 2 applications. The stock lists page with the applications, so the next page may hold stock alone.", "Next page"},
 		fitExamples[11].query: {"1 vehicle shares fitments with this one.", "Dodge Ram 1500 2009–2012", "2 vehicles in the yard"},
 	}
 	for _, ex := range fitExamples {
@@ -199,6 +199,22 @@ func fitInBrowser(t *testing.T, path, base string, log *requestLog, js bool) {
 	tb.audit("the candidates' JSON")
 	tb.do(chromedp.Click(chromedp.CSS("#result-json .dialog-head button")))
 	tb.wait("#result-json:not(:popover-open)")
+	// Its link to the same request on /v1 is the API's answer, a document
+	// of its own, never swapped into the page by htmx.
+	v1 := attributes(tb, "#result-json a")
+	if len(v1) != 1 || !sameQuery(t, v1[0]["href"], strings.Replace(mirror, "/ui/fit?", "/v1/fit?", 1)) {
+		t.Fatalf("the JSON's /v1 link: %v", v1)
+	}
+	tb.do(chromedp.Click(chromedp.CSS("button.open-dialog")))
+	tb.wait("#result-json:popover-open")
+	tb.do(chromedp.Click(chromedp.CSS("#result-json a")))
+	tb.do(chromedp.WaitReady(chromedp.CSS("body")))
+	if at := tb.at(); !sameQuery(t, at, v1[0]["href"]) || eval[string](tb, `document.contentType`) != "application/json" {
+		t.Errorf("the /v1 link: at %s, %s; want %s, application/json", at, eval[string](tb, `document.contentType`), v1[0]["href"])
+	}
+	tb.do(chromedp.Navigate(base + mirror))
+	tb.wait(`#result[data-kind="candidates"]`)
+	log.take()
 	// A phone's width.
 	tb.do(chromedp.EmulateViewport(390, 844))
 	tb.audit("the candidates at a phone's width")
@@ -222,6 +238,11 @@ func fitInBrowser(t *testing.T, path, base string, log *requestLog, js bool) {
 	tb.do(chromedp.SetValue(chromedp.CSS("#fit-vin"), "1D7RV1GT5AS123456"), chromedp.SetValue(chromedp.CSS("#fit-model-year"), "2010.5"),
 		chromedp.Click(chromedp.CSS(`#fit-controls form button[type=submit]`)))
 	tb.wait("#fit-model-year-error")
+	// The form sent side empty: the page moved to the query without it,
+	// /v1/fit's.
+	if at, want := tb.at(), "/ui/fit?from.vin=1D7RV1GT5AS123456&model_year=2010.5"; !sameQuery(t, at, want) {
+		t.Errorf("a form's empty field: at %s; want %s", at, want)
+	}
 	tb.audit("a refusal")
 	log.take()
 
@@ -257,5 +278,29 @@ func fitInBrowser(t *testing.T, path, base string, log *requestLog, js bool) {
 			t.Errorf("thrown: %q", tb.thrown)
 		}
 		tb.mu.Unlock()
+	}
+}
+
+// TestFitPageUnavailableStock: serve with the connectors' headers and no
+// DSN: each stock list's sources are unavailable, and the page says its
+// stock is unknown, with why, never that it is empty.
+func TestFitPageUnavailableStock(t *testing.T) {
+	fixtureData(t)
+	t.Setenv("NITROVIN_STOCK_DSN", "")
+	os.Unsetenv("NITROVIN_STOCK_DSN")
+	s := startServe(t, nil, "--vocab", fixture, "--vocab", fitmentFixture, "--vocab", liveFixture, "--addr", "127.0.0.1:0")
+	defer s.stop(t)
+	words := pageText(get(t, "http://127.0.0.1:"+s.port+"/ui/fit?from.fitment.type=brake-rotor-front&from.fitment.number=BR-2001&stock=shelf&stock=yard", http.StatusOK))
+	for _, want := range []string{
+		"On the shelf (0 known) Unknown: a source is unavailable (below).",
+		"In the yard (0 known) Unknown: a source is unavailable (below).",
+		"shelf-stock, read live from stock.shelf_stock: unavailable, so its stock is unknown, not empty (environment variable NITROVIN_STOCK_DSN, which holds the DSN, is not set).",
+	} {
+		if !strings.Contains(words, want) {
+			t.Errorf("lacks %q:\n%s", want, words)
+		}
+	}
+	if strings.Contains(words, "None.") {
+		t.Errorf("an unknown list says None:\n%s", words)
 	}
 }

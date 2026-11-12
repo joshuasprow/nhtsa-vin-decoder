@@ -368,14 +368,6 @@ for. A part for both sides goes on the left or the right, and a fitment
 that states no side is never ruled out by one.
 _Avoid_: position filter
 
-**Fit page**:
-`/ui/fit`, a fit for a person (ADR 0023): its query is `GET /v1/fit`'s, so a
-link to it and the API call say the same thing; its answer reads every status
-as a sentence and pages every list with the API's cursors. The server and the
-browser's Service Worker answer it with the same handler, and every page's
-header links it beside translate, the vocabularies and the API's docs.
-_Avoid_: parts page, fitment UI, lookup page
-
 ### Stock
 
 **Stock**:

@@ -197,7 +197,8 @@ rel and meta for a screen reader. */}}
 
 {{/* json is the answer's JSON, the translation's object and a VIN's
 decode's, in a dialog behind its button: a popover, so it opens and closes
-without a script. */}}
+without a script. Its link to the same request on /v1 is a document of its
+own, never htmx's, even inside a boosted answer (the fit page's). */}}
 {{define "json" -}}
 <p><button type="button" class="open-dialog" popovertarget="result-json">Show the JSON</button></p>
 <dialog id="result-json" popover aria-labelledby="result-json-h">
@@ -206,7 +207,7 @@ without a script. */}}
 <button type="button" popovertarget="result-json" popovertargetaction="hide">Close</button>
 </div>
 {{range .JSON}}<h3>{{.Title}}</h3>
-{{with .Href}}<p class="hint"><a href="{{.}}">The same request on /v1</a></p>{{end}}
+{{with .Href}}<p class="hint"><a href="{{.}}" hx-boost="false">The same request on /v1</a></p>{{end}}
 <div class="copyable"><pre tabindex="0" id="{{.ID}}" data-copy="{{.What}}">{{.Text}}</pre></div>
 {{end}}</dialog>
 {{- end}}

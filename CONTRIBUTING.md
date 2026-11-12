@@ -536,8 +536,10 @@ links (`/?vin=…`, `/ui/decode`, `/ui/translate`, `/vocab`,
 The fit page (`fit.go`, `fit.html`: `/ui/fit`,
 [ADR 0023](docs/adr/0023-fitment-in-the-browser.md)) answers a fit from
 the catalog loaded where it is answered. Its query is `GET /v1/fit`'s, so
-a page link and an API call say the same thing; its JSON dialog holds the
-fit and, on the server, links the same request on `/v1`. Its controls are
+a page link and an API call say the same thing: a form's empty fields,
+which `/v1/fit` refuses, move (`303`) to the same query without them. Its
+JSON dialog holds the fit and, on the server, links the same request on
+`/v1`, a document of its own that htmx never boosts. Its controls are
 the translate page's inputs as tabs (VIN; Year, make and model, the
 vehicle vocabularies' entries; vPIC id) and a fitment's key, each with
 its year, side and the vocabularies to name vehicles in. A vehicle's
@@ -549,11 +551,13 @@ Every status is a sentence (`statusText`), `no-catalog` included; every
 list pages with the API's `after` and `next`. The links the page draws to
 candidates, a fitment's vehicles and related vehicles ask for every kind
 of stock loaded that each takes (`stock`), so stock lists show whenever
-stock is loaded. The server and the Service Worker answer it through the
+stock is loaded; a list with an unavailable source says its stock is
+unknown, never empty. The examples on the empty page ask no stock source. The server and the Service Worker answer it through the
 same `Handler`, over `ui.Pages`' `Fit`. `go test ./pkg/ui` walks every
 kind of answer, the statuses, paging, refusals and the header on the
 synthetic catalog; `TestFitPageServer` holds every documented fit example
-to `/v1/fit`'s answer, and `TestFitPageBrowser` runs the page in a browser
+to `/v1/fit`'s answer, `TestFitPageUnavailableStock` serves the
+connectors with no DSN, and `TestFitPageBrowser` runs the page in a browser
 with and without JavaScript under axe.
 
 The map (`map.go`) is from, the spine and the targets as three columns of

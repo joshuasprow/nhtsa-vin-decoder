@@ -6,10 +6,12 @@ import (
 	"html"
 	"io"
 	"log"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -366,6 +368,13 @@ func TestFitPagePaging(t *testing.T) {
 			}
 		}
 		pages := section(t, body, `<p class="pages">`, "</p>")
+		if got, want := plain(pages), map[int]string{
+			1: "Showing 1 of 2 applications. The stock lists page with the applications, so the next page may hold stock alone. Next page",
+			2: "Showing 1 of 2 applications. The stock lists page with the applications, so the next page may hold stock alone. First page Next page",
+			3: "Every one of the 2 applications is on an earlier page: this page goes on with the stock lists. First page",
+		}[page]; got != want {
+			t.Errorf("page %d says %q; want %q", page, got, want)
+		}
 		if (page > 1) != strings.Contains(pages, "First page") {
 			t.Errorf("page %d: first page link: %s", page, pages)
 		}
@@ -390,7 +399,7 @@ func TestFitPagePaging(t *testing.T) {
 
 	// The part types page too: one at a time, three pages.
 	body := getFit(t, h, "/ui/fit?from.vin="+ram2010+"&limit=1", 200)
-	if p := plain(section(t, body, `<p class="pages">`, "</p>")); p != "Showing 1 of 3. Next page" {
+	if p := plain(section(t, body, `<p class="pages">`, "</p>")); p != "Showing 1 of 3 part types. Next page" {
 		t.Errorf("part types, a page of one: %q", p)
 	}
 }
@@ -518,5 +527,101 @@ func TestBrowserFit(t *testing.T) {
 	}
 	if strings.Contains(body, `href="/v1/fit`) {
 		t.Errorf("the browser's fit links /v1\n%s", body)
+	}
+}
+
+// TestFitPageCleanURL: a form's empty fields, which /v1/fit refuses, move
+// to the same query without them (303), the page's tab along, so the
+// page's URL is always /v1/fit's query; a query with none answers as it is.
+func TestFitPageCleanURL(t *testing.T) {
+	h := fitHandler(t)
+	for target, want := range map[string]string{
+		"/ui/fit?from.fitment.type=mirror&from.fitment.number=MR-1001&from.fitment.side=&model_year=&stock=shelf&stock=yard": "/ui/fit?from.fitment.number=MR-1001&from.fitment.type=mirror&stock=shelf&stock=yard",
+		"/ui/fit?from.vin=" + ram2010 + "&model_year=&side=":                                                                 "/ui/fit?from.vin=" + ram2010,
+		"/ui/fit?tab=entry&from.vocabulary=catalog-models&from.entry.make=&from.entry.model=":                                "/ui/fit?from.vocabulary=catalog-models&tab=entry",
+	} {
+		for _, header := range []http.Header{nil, htmx} {
+			status, hdr, _ := response(t, h, "GET", target, header)
+			if status != http.StatusSeeOther || hdr.Get("Location") != want {
+				t.Errorf("%s (htmx %v): %d to %q; want 303 to %q", target, header != nil, status, hdr.Get("Location"), want)
+			}
+		}
+		if _, err := contract.ParseFitQuery(query(t, want)); err != nil && !strings.Contains(want, "tab=") {
+			t.Errorf("%s: not /v1/fit's query: %v", want, err)
+		}
+		getFit(t, h, want, 200)
+	}
+	getFit(t, h, "/ui/fit?from.vin=", 400) // an empty VIN is refused, not dropped
+}
+
+// TestFitPageUnknownStock: a stock list with an unavailable source says
+// its stock is unknown, not empty, beside the rows the others gave.
+func TestFitPageUnknownStock(t *testing.T) {
+	down := stock.Down(stock.Info{Name: "shelf-live", Holds: stock.Shelf, Kind: stock.KindLive, Catalog: "parts-catalog", Connector: vocab.ConnectorPostgres, Relation: "nitrovin_shelf"}, "its database is unreachable")
+	mirror := "/ui/fit?from.fitment.type=mirror&from.fitment.number=MR-1001&from.fitment.side=right&stock=shelf"
+
+	// The files' shelf has no MR-1001 right; the live one is down.
+	b := newFitBackend(t, ".", "fitment", "stock")
+	b.f.Stock = append(b.f.Stock, down)
+	body := getFit(t, New(b, log.New(io.Discard, "", 0)), mirror, 200)
+	shelf := plain(section(t, body, `<div class="stock">`, "</ul>"))
+	if want := "On the shelf (0 known) Unknown: a source is unavailable (below)."; !strings.HasPrefix(shelf, want) || strings.Contains(shelf, "None.") ||
+		!strings.Contains(shelf, "shelf-live, read live from nitrovin_shelf: unavailable, so its stock is unknown, not empty (its database is unreachable).") {
+		t.Errorf("a shelf with an unavailable source: %q", shelf)
+	}
+
+	// Beside a file's rows, the list may be longer than shown.
+	body = getFit(t, New(b, log.New(io.Discard, "", 0)), "/ui/fit?from.fitment.type=mirror&from.fitment.number=MR-1001&from.fitment.side=left&stock=shelf", 200)
+	if shelf := plain(section(t, body, `<div class="stock">`, "</ul>")); !strings.HasPrefix(shelf, "On the shelf (1 known) Not every source answered: the list may be longer than shown (below).") || !strings.Contains(shelf, "S-1") {
+		t.Errorf("a shelf with rows and an unavailable source: %q", shelf)
+	}
+
+	// Every source answering: no word of unknown.
+	body = getFit(t, fitHandler(t), mirror, 200)
+	if shelf := plain(section(t, body, `<div class="stock">`, "</ul>")); !strings.HasPrefix(shelf, "On the shelf (0) None.") || strings.Contains(shelf, "nknown") {
+		t.Errorf("a shelf every source answered: %q", shelf)
+	}
+}
+
+// countedSource is a stock source that counts its lookups.
+type countedSource struct {
+	stock.Source
+	lookups *atomic.Int32
+}
+
+func (c countedSource) ShelfByFitment(ctx context.Context, lists [][]vocab.FitmentKey, p stock.Page) ([]stock.Result, stock.Meta, error) {
+	c.lookups.Add(1)
+	return c.Source.ShelfByFitment(ctx, lists, p)
+}
+func (c countedSource) ShelfByVehicle(ctx context.Context, lists []stock.ShelfVehicle, p stock.Page) ([]stock.Result, stock.Meta, error) {
+	c.lookups.Add(1)
+	return c.Source.ShelfByVehicle(ctx, lists, p)
+}
+func (c countedSource) Yard(ctx context.Context, lists []stock.YardQuery, p stock.Page) ([]stock.Result, stock.Meta, error) {
+	c.lookups.Add(1)
+	return c.Source.Yard(ctx, lists, p)
+}
+
+// TestFitPageExamplesAskNoStock: drawing the empty page, its examples
+// among it, asks no stock source, which may be slow or unreachable; the
+// fitment example's link still asks for every kind loaded.
+func TestFitPageExamplesAskNoStock(t *testing.T) {
+	b := newFitBackend(t, ".", "fitment", "stock")
+	var lookups atomic.Int32
+	for i, src := range b.f.Stock {
+		b.f.Stock[i] = countedSource{src, &lookups}
+	}
+	h := New(b, log.New(io.Discard, "", 0))
+	body := getFit(t, h, "/ui/fit", 200)
+	if n := lookups.Load(); n != 0 {
+		t.Errorf("the empty page asked the stock sources %d times", n)
+	}
+	examples := hrefs(section(t, body, `<ul class="examples"`, "</ul>"))
+	if len(examples) != 2 || strings.Join(query(t, examples[1])["stock"], ",") != "shelf,yard" {
+		t.Fatalf("examples %q", examples)
+	}
+	getFit(t, h, examples[1], 200)
+	if lookups.Load() == 0 {
+		t.Errorf("the fitment example asked no stock")
 	}
 }
