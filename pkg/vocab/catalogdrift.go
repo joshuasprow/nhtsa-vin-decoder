@@ -132,7 +132,7 @@ func (d *drifts) catalog(vehicles *File) {
 				continue
 			}
 			k := qualifiersOf{qs: &qs[0]}
-			if known[a.Vehicle.id] {
+			if d.mm != nil && known[a.Vehicle.id] {
 				k.model = a.Vehicle.Model
 			}
 			ds, ok := measured[k]

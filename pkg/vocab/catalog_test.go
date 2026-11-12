@@ -481,3 +481,33 @@ func TestCatalogAcrossChunks(t *testing.T) {
 		t.Errorf("a key repeated across chunks: %v", err)
 	}
 }
+
+// countingMonth is modelMonth counting the elements it is asked about.
+type countingMonth struct {
+	modelMonth
+	elements int
+}
+
+func (m *countingMonth) Element(id int32) (bool, bool) {
+	m.elements++
+	return m.modelMonth.Element(id)
+}
+
+// TestCatalogQualifiersMeasuredOnce: applications of a vpic catalog that
+// share their qualifiers are measured once at load whatever their models,
+// and once per model only where model values are tested (ModelDrift).
+func TestCatalogQualifiersMeasuredOnce(t *testing.T) {
+	_, files, err := openFiles(t, []file{partSpine, {"c.jsonl", lines(vpicCatalog,
+		`{"fitment":{"type":"pads","number":"P1"},"applications":[{"vehicle":{"model":1938},"options":"","qualifiers":{"34":["1500"]}},{"vehicle":{"model":1939},"options":"a","qualifiers":{"34":["1500"]}}]}`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &countingMonth{}
+	if d := Drift(m, files); len(d) > 0 || m.elements != 1 {
+		t.Errorf("Drift: %v, %d element lookups; want none and 1", d, m.elements)
+	}
+	m.elements = 0
+	if d := ModelDrift(m, files); len(d) != 1 || m.elements != 2 {
+		t.Errorf("ModelDrift: %v, %d element lookups; want model 1939's finding and 2", d, m.elements)
+	}
+}
