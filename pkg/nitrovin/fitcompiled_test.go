@@ -2,6 +2,7 @@ package nitrovin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -13,7 +14,7 @@ import (
 )
 
 // compiledTwin is tr with its catalog compiled (ADR 0021) against tr's
-// data month and loaded beside the same files.
+// data month and loaded beside the same files, its stock files included.
 func compiledTwin(t *testing.T, tr *Translator) *Translator {
 	t.Helper()
 	cat := tr.core.Set.Catalog()
@@ -33,7 +34,11 @@ func compiledTwin(t *testing.T, tr *Translator) *Translator {
 	for _, f := range tr.core.Set.Files() {
 		paths = append(paths, f.Path)
 	}
-	loaded, err := vocab.Open(append(paths, path)...)
+	paths = append(paths, path)
+	for _, f := range tr.core.Set.Stock() {
+		paths = append(paths, f.Path)
+	}
+	loaded, err := vocab.Open(paths...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,14 +54,15 @@ func compiledTwin(t *testing.T, tr *Translator) *Translator {
 
 // sameFit asks req of both translators, and of every page after the
 // first, and fails unless they answer alike: the same JSON, or the same
-// refusal. It returns how many pages answered found.
-func sameFit(t *testing.T, jsonl, compiled *Translator, req contract.FitRequest) int {
+// refusal. It returns how many pages answered found, and counts in
+// retired the shelf rows answered under a retired number.
+func sameFit(t *testing.T, jsonl, compiled *Translator, req contract.FitRequest, retired ...*int) int {
 	t.Helper()
 	req.Now = fitNow
 	found := 0
 	for page := 1; ; page++ {
-		want, werr := jsonl.Fit(req)
-		got, gerr := compiled.Fit(req)
+		want, werr := jsonl.Fit(context.Background(), req)
+		got, gerr := compiled.Fit(context.Background(), req)
 		wb, _ := json.Marshal(want)
 		gb, _ := json.Marshal(got)
 		if (werr == nil) != (gerr == nil) || werr != nil && werr.Error() != gerr.Error() || !bytes.Equal(wb, gb) {
@@ -66,11 +72,32 @@ func sameFit(t *testing.T, jsonl, compiled *Translator, req contract.FitRequest)
 		if werr == nil && want.Status == contract.FitFound {
 			found++
 		}
+		if werr == nil && len(retired) > 0 {
+			lists := []*contract.StockList{want.Shelf}
+			for _, c := range want.Candidates {
+				lists = append(lists, c.Shelf)
+			}
+			for _, l := range lists {
+				for _, r := range rowsOf(l) {
+					if r.Reached == contract.ReachedRetired {
+						*retired[0]++
+					}
+				}
+			}
+		}
 		if werr != nil || want.Next == "" {
 			return found
 		}
 		req.After = want.Next
 	}
+}
+
+// rowsOf is l's rows, none when l is nil.
+func rowsOf(l *contract.StockList) []contract.StockRow {
+	if l == nil {
+		return nil
+	}
+	return l.Rows
 }
 
 // TestFitCompiled: fit answers from a compiled catalog exactly as from its
@@ -79,14 +106,16 @@ func sameFit(t *testing.T, jsonl, compiled *Translator, req contract.FitRequest)
 // through a redirect, related vehicles, a fitment's vehicles directly and
 // through a retired number), from VINs, vocabulary entries and spine
 // entries, in and across years, on every side, named in a vocabulary or as
-// spine entries, a page at a time and whole; and list's pages of the
-// catalog.
+// spine entries, a page at a time and whole; with the synthetic stock,
+// with every stock list, a shelf row under a retired number (RetiredTo)
+// among them; and list's pages of the catalog.
 func TestFitCompiled(t *testing.T) {
 	type source struct {
-		name string
-		tr   *Translator
-		from []contract.FitFrom
-		to   [][]string
+		name  string
+		tr    *Translator
+		from  []contract.FitFrom
+		to    [][]string
+		stock bool
 	}
 	entry := func(vocabulary string, fields ...string) contract.FitFrom {
 		e := map[string]string{}
@@ -103,13 +132,22 @@ func TestFitCompiled(t *testing.T) {
 			{VIN: "1D7RV1GT5AS123456"}, {VIN: "1GCEK19J07Z123456"}, model(1938), model(1850), model(13620),
 			entry("catalog-models", "make", "Dodge", "model", "Ram 1500"), entry("catalog-models", "make", "Chevrolet", "model", "Silverado 1500"),
 			entry("catalog-models", "make", "Dodge", "model", "Dakota"),
-		}, [][]string{nil, {"catalog-models"}}},
+		}, [][]string{nil, {"catalog-models"}}, false},
 		{"two models", modelsTranslator(t), []contract.FitFrom{
 			model(1938), model(1850), entry("cm", "model", "Ram A"), entry("cm", "model", "Ram B"), entry("cm", "model", "Other"),
-		}, [][]string{nil, {"cm"}}},
+		}, [][]string{nil, {"cm"}}, false},
+		{"fixture with stock", stockTranslator(t), []contract.FitFrom{
+			{VIN: "1D7RV1GT5AS123456"}, model(1850), entry("catalog-models", "make", "Dodge", "model", "Ram 1500"),
+			entry("catalog-models", "make", "Chevrolet", "model", "Silverado 1500"),
+		}, [][]string{nil}, true},
 	} {
 		t.Run(s.name, func(t *testing.T) {
 			compiled := compiledTwin(t, s.tr)
+			var stockAll, stockYard []string
+			var retired int
+			if s.stock {
+				stockAll, stockYard = []string{"shelf", "yard"}, []string{"yard"}
+			}
 			parts := []*contract.FitPart{nil}
 			var keys []contract.FitmentKey
 			cat := s.tr.Catalog()
@@ -133,12 +171,16 @@ func TestFitCompiled(t *testing.T) {
 						for _, part := range parts {
 							for _, side := range []string{"", "left", "right", "both"} {
 								for _, limit := range []int{0, 1} {
-									found += sameFit(t, s.tr, compiled, contract.FitRequest{From: from, ModelYear: year, Part: part, Side: side, To: to, Limit: limit})
+									req := contract.FitRequest{From: from, ModelYear: year, Part: part, Side: side, To: to, Limit: limit}
+									if part != nil {
+										req.Stock = stockAll
+									}
+									found += sameFit(t, s.tr, compiled, req, &retired)
 								}
 							}
 						}
 						for _, limit := range []int{0, 1} {
-							found += sameFit(t, s.tr, compiled, contract.FitRequest{From: from, ModelYear: year, To: to, Related: true, Limit: limit})
+							found += sameFit(t, s.tr, compiled, contract.FitRequest{From: from, ModelYear: year, To: to, Related: true, Stock: stockYard, Limit: limit}, &retired)
 						}
 					}
 				}
@@ -147,13 +189,16 @@ func TestFitCompiled(t *testing.T) {
 				for _, year := range years {
 					for _, to := range s.to {
 						for _, limit := range []int{0, 1} {
-							found += sameFit(t, s.tr, compiled, contract.FitRequest{From: contract.FitFrom{Fitment: &k}, ModelYear: year, To: to, Limit: limit})
+							found += sameFit(t, s.tr, compiled, contract.FitRequest{From: contract.FitFrom{Fitment: &k}, ModelYear: year, To: to, Stock: stockAll, Limit: limit}, &retired)
 						}
 					}
 				}
 			}
 			if found < 100 {
 				t.Fatalf("%d pages answered found; want many", found)
+			}
+			if s.stock && retired == 0 {
+				t.Fatal("no shelf row answered under a retired number")
 			}
 			t.Logf("%d pages answered found", found)
 

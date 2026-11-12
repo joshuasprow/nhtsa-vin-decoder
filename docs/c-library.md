@@ -110,7 +110,11 @@ are a `const char *` array and its length. With a catalog loaded too (the
 synthetic one is `testdata/vocab/fitment`), `{"op": "fit", "from":
 "1D7RV1GT5AS123456", "part": {"spine": "part-types", "id": "mirror"}}`
 answers `{"fit": {"status": "found", "candidates": […], …}}`; on a handle
-without a catalog, `{"fit": {"status": "no-catalog", …}}`.
+without a catalog, `{"fit": {"status": "no-catalog", …}}`. Stock files load
+the same way (the synthetic shelf and yard are `testdata/vocab/stock`): a
+fit with `"stock": ["shelf", "yard"]` gives each candidate its `shelf` and
+`yard` lists. The library reads stock files only, never a database
+connector.
 
 ## The rules
 
@@ -150,9 +154,12 @@ arm64. On each, 42 requests (decodes, and a fit with no catalog) must give byte 
 `nitrovin stdio` gives, again from 8 threads on one handle, and a second
 handle must not disturb the first
 ([#44](https://github.com/joshuasprow/nitrovin/issues/44)). Then a handle
-from `nitrovin_open_vocab` with `testdata/vocab` and the synthetic catalog
-in `testdata/vocab/fitment` must give the replies `nitrovin --vocab
-testdata/vocab --vocab testdata/vocab/fitment stdio` gives to decodes,
-translations, lists, fits and refused lines, in order and from 8 threads
+from `nitrovin_open_vocab` with `testdata/vocab`, the synthetic catalog
+in `testdata/vocab/fitment` and its stock in `testdata/vocab/stock` must
+give the replies `nitrovin --vocab testdata/vocab --vocab
+testdata/vocab/fitment --vocab testdata/vocab/stock stdio` gives to
+decodes, translations, lists, fits (with stock among them) and refused
+lines, in order and from 8 threads
 ([#138](https://github.com/joshuasprow/nitrovin/issues/138),
-[#241](https://github.com/joshuasprow/nitrovin/issues/241)).
+[#241](https://github.com/joshuasprow/nitrovin/issues/241),
+[#243](https://github.com/joshuasprow/nitrovin/issues/243)).

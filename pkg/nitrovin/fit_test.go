@@ -1,6 +1,7 @@
 package nitrovin
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,7 +41,7 @@ func fit(t *testing.T, tr *Translator, request string) (contract.Fit, error) {
 		t.Fatalf("%s: %v", request, err)
 	}
 	req.Now = fitNow
-	f, err := tr.Fit(req)
+	f, err := tr.Fit(context.Background(), req)
 	if err == nil {
 		conforms(t, "Fit", f)
 	}
@@ -450,7 +451,7 @@ func TestFitRefusals(t *testing.T) {
 		{From: contract.FitFrom{Fitment: &contract.FitmentKey{Type: "engine", Number: "EN-57"}}, Related: true},
 		{From: contract.FitFrom{VIN: "1D7RV1GT5AS123456"}, Side: "front"},
 	} {
-		if _, err := tr.Fit(r); contract.AsProblem(err).Type != contract.InvalidRequest {
+		if _, err := tr.Fit(context.Background(), r); contract.AsProblem(err).Type != contract.InvalidRequest {
 			t.Errorf("%+v: %v; want #invalid-request", r, err)
 		}
 	}
@@ -498,12 +499,12 @@ func TestFitBatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fits, err := tr.FitBatch(reqs)
+	fits, err := tr.FitBatch(context.Background(), reqs)
 	if err != nil || len(fits) != 2 || fits[0].PartTypes == nil || fits[1].Vehicles == nil || fits[0].Now != fits[1].Now {
 		t.Fatalf("%+v, %v", fits, err)
 	}
 	reqs = append(reqs, contract.FitRequest{From: contract.FitFrom{VIN: "1D7RV1GT5AS123456"}, To: []string{"nope"}})
-	if _, err := tr.FitBatch(reqs); contract.AsProblem(err).Pointer != "/2/to/0" {
+	if _, err := tr.FitBatch(context.Background(), reqs); contract.AsProblem(err).Pointer != "/2/to/0" {
 		t.Errorf("a batch's refusal: %v; want at /2/to/0", err)
 	}
 }

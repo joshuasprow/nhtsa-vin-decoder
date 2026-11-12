@@ -24,11 +24,12 @@ import (
 // The synthetic fixture: testdata/vocab loads clean against the embedded
 // month (its headers say 2026_10; its ids and values are long-lived), its
 // drift/ variant with one drift of each kind, and fitment/ a catalog with
-// its spine and vehicle vocabulary.
+// its spine and vehicle vocabulary, and stock/ a shelf and a yard on it.
 var (
 	fixture        = abs("../../testdata/vocab")
 	driftFixture   = abs("../../testdata/vocab/drift")
 	fitmentFixture = abs("../../testdata/vocab/fitment")
+	stockFixture   = abs("../../testdata/vocab/stock")
 )
 
 func abs(path string) string {
@@ -417,6 +418,21 @@ func TestVocabCompile(t *testing.T) {
 	}
 	if r := cli(t, nil, "", "vocab", "check", spine, models, out); r.exit != 0 || r.stdout != "" || r.stderr != "" {
 		t.Errorf("vocab check on the compiled catalog: exit %d, stdout %q, stderr %q; want exit 0 and nothing", r.exit, r.stdout, r.stderr)
+	}
+	// Stock on the compiled catalog: check finds the orphan as on its
+	// source, and a fit answers the shelf row under a retired number alike.
+	codes := filepath.Join(fitmentFixture, "part-codes.jsonl")
+	orphans := filepath.Join(stockFixture, "drift")
+	fromJSONL = cli(t, nil, "", "vocab", "check", fitmentFixture, stockFixture, orphans)
+	r = cli(t, nil, "", "vocab", "check", spine, models, codes, out, stockFixture, orphans)
+	if fs := findings(t, r.stdout); r.exit != 1 || fromJSONL.exit != 1 || r.stdout != fromJSONL.stdout || len(fs) != 1 || fs[0].Line != 2 || !strings.Contains(r.stdout, `MR-0000`) {
+		t.Errorf("vocab check on the compiled catalog and stock: exit %d, stdout %q; want exit 1 and %q", r.exit, r.stdout, fromJSONL.stdout)
+	}
+	stockArgs := []string{"fit", "--part", "part-types:brake-rotor-front", "--stock", "shelf,yard", "--now", now, "1D7RV1GT5AS123456"}
+	fromJSONL = cli(t, nil, "", append([]string{"--vocab", fitmentFixture, "--vocab", stockFixture}, stockArgs...)...)
+	fromCompiled = cli(t, nil, "", append([]string{"--vocab", spine, "--vocab", models, "--vocab", codes, "--vocab", out, "--vocab", stockFixture}, stockArgs...)...)
+	if fromCompiled.exit != 0 || fromCompiled.stdout != fromJSONL.stdout || !strings.Contains(fromCompiled.stdout, `"id":"S-3","location":"north","matched":"fitment","fitment":{"type":"brake-rotor-front","number":"BR-1999"},"reached":"retired"`) {
+		t.Errorf("fit with stock on the compiled catalog: exit %d, stdout %q, stderr %q; want %q", fromCompiled.exit, fromCompiled.stdout, fromCompiled.stderr, fromJSONL.stdout)
 	}
 	// A drifting catalog: check finds the same drift in either form, and
 	// compile writes it to stderr.

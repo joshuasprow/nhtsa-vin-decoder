@@ -1,0 +1,5 @@
+{"format":1,"kind":"stock","name":"yard-stock","version":"2026.11.01","source":"yard","as_of":"2026-11-01T06:30:00Z"}
+{"id":"Y-1","location":"north","decoded":{"make":476,"model":1938,"year":2010},"vin":"1D7RV1GT5AS123456","fields":{"stock_number":"Y100","color":"red","row":"B","photos":["y100-1.jpg","y100-2.jpg"]}}
+{"id":"Y-2","location":"south","vin":"1D7RV1GT5AS123456","vehicle":{"make":"Dodge","model":"Ram 1500"},"year":2010,"fields":{"stock_number":"Y101","color":"white","row":"C"}}
+{"id":"Y-3","location":"south","vehicle":{"make":"Chevrolet","model":"Silverado 1500"},"year":2010,"fields":{"stock_number":"Y102","color":"blue","row":"A","added":"2026-10-28"}}
+{"id":"Y-4","location":"north","vehicle":{"make":"Dodge","model":"Ram 1500"},"year":2016,"fields":{"stock_number":"Y103","photos":[]}}

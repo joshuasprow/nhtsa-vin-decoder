@@ -1,6 +1,7 @@
 package vocab
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -101,7 +102,7 @@ func measureFit(b *testing.B, tr *nitrovin.Translator, reqs []contract.FitReques
 	for b.Loop() {
 		n := ops % len(reqs)
 		t := time.Now()
-		fit, err := tr.Fit(reqs[n])
+		fit, err := tr.Fit(context.Background(), reqs[n])
 		h.record(time.Since(t))
 		if err != nil {
 			b.Fatalf("request %d: %v", n, err)

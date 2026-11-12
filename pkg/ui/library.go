@@ -592,6 +592,10 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 			return nil, &pageError{Status: http.StatusUnprocessableEntity, Message: fmt.Sprintf(
 				"%s is a catalog: catalogs load on a server, with --vocab, not in this browser.", p.FileName)}
 		}
+		if headerKind(p.Data) == vocab.KindStock {
+			return nil, &pageError{Status: http.StatusUnprocessableEntity, Message: fmt.Sprintf(
+				"%s is a stock source: stock loads on a server, with --vocab, not in this browser.", p.FileName)}
+		}
 		f, err := vocab.Read(p.FileName, bytes.NewReader(p.Data))
 		if err != nil {
 			return nil, &pageError{Status: http.StatusUnprocessableEntity, Message: faultText(err)}

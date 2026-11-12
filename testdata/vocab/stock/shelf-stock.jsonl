@@ -1,0 +1,6 @@
+{"format":1,"kind":"stock","name":"shelf-stock","version":"2026.11.01","source":"shelf","as_of":"2026-11-01T08:00:00Z","catalog":"parts-catalog","release":"7.01"}
+{"id":"S-1","location":"north","type":"mirror","number":"MR-1001","side":"left","fields":{"stock_number":"A100","condition":"A","price":129.5,"comments":null}}
+{"id":"S-2","location":"south","type":"brake-rotor-front","number":"BR-2001","fields":{"stock_number":"A101","condition":"B","price":45}}
+{"id":"S-3","location":"north","type":"brake-rotor-front","number":"BR-1999","fields":{"stock_number":"A102","condition":"A","price":52}}
+{"id":"S-4","location":"north","part":{"vocabulary":"part-codes","entry":{"code":"MIR"}},"vehicle":{"make":"Dodge","model":"Ram 1500"},"year":2010,"fields":{"stock_number":"A103","comments":"no number: tag reads 'left mirror'"}}
+{"id":"S-5","location":"south","part":{"spine":"part-types","id":"engine"},"vehicle":{"make":"Chevrolet","model":"Silverado 1500"},"year":2010,"fields":{"stock_number":"A104"}}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/zeebo/blake3"
 )
@@ -153,6 +154,11 @@ type compiled struct {
 	qualifiers [][]Qualifier
 	// years are the model years from yearBase that applications share.
 	years [yearSpan]int
+	// successors finds, per fitment key, the retired rows naming it as
+	// their successor, in line order: built on the first RetiredTo, since
+	// the file keeps retired numbers in their own key order only.
+	successorsOnce sync.Once
+	successors     map[FitmentKey][]int32
 }
 
 // compiledType is one part type: its name, and its rows in each section
@@ -562,14 +568,43 @@ func (c *compiled) byNumber(k FitmentKey) (*Fitment, *Retired) {
 	if !ok {
 		return nil, nil
 	}
-	row := c.rowsAt(secRetired, i, 1)
-	rt := &Retired{Line: int(u32(row, 0)), Key: FitmentKey{Type: c.typeName(u32(row, 4)), Side: Side(row[36])}, To: FitmentKey{Type: c.typeName(u32(row, 16)), Side: Side(row[37])}}
-	c.fill([]want{{refAt(row, 8), &rt.Key.Number}, {refAt(row, 20), &rt.To.Number}, {refAt(row, 28), &rt.Note}})
+	rt := c.retiredAt(i)
 	rank, ok := c.rank(rt.To)
 	if !ok {
 		return nil, rt
 	}
 	return &c.fitments([]int32{rank})[0], rt
+}
+
+// retiredAt reads retired row i.
+func (c *compiled) retiredAt(i int) *Retired {
+	row := c.rowsAt(secRetired, i, 1)
+	rt := &Retired{Line: int(u32(row, 0)), Key: FitmentKey{Type: c.typeName(u32(row, 4)), Side: Side(row[36])}, To: FitmentKey{Type: c.typeName(u32(row, 16)), Side: Side(row[37])}}
+	c.fill([]want{{refAt(row, 8), &rt.Key.Number}, {refAt(row, 20), &rt.To.Number}, {refAt(row, 28), &rt.Note}})
+	return rt
+}
+
+// retiredTo returns the retired numbers fitment key k replaced, in line
+// order, reading every retired row once, on the first call, into an
+// index by successor. It is safe for concurrent use.
+func (c *compiled) retiredTo(k FitmentKey) []*Retired {
+	c.successorsOnce.Do(func() {
+		c.successors = map[FitmentKey][]int32{}
+		lines := map[int32]int{}
+		for i := range c.rows(secRetired) {
+			rt := c.retiredAt(i)
+			c.successors[rt.To] = append(c.successors[rt.To], int32(i))
+			lines[int32(i)] = rt.Line
+		}
+		for _, rows := range c.successors {
+			slices.SortFunc(rows, func(a, b int32) int { return cmp.Compare(lines[a], lines[b]) })
+		}
+	})
+	var out []*Retired
+	for _, i := range c.successors[k] {
+		out = append(out, c.retiredAt(int(i)))
+	}
+	return out
 }
 
 // byVehicle is Catalog.ByVehicle, cat being the compiled catalog's.

@@ -1,6 +1,7 @@
 package nitrovin
 
 import (
+	"context"
 	"time"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
@@ -47,17 +48,19 @@ func (t *Translator) List(req contract.ListRequest) (contract.List, error) {
 // gives the year. When req.Now is zero it reads the wall clock once.
 // Nothing to fit is never an error, no catalog loaded included: it is a
 // status. The error is a *contract.Problem, an InvalidRequest for a
-// malformed request, an Internal for a fault in nitrovin.
-func (t *Translator) Fit(req contract.FitRequest) (contract.Fit, error) {
-	return t.core.Fit(req)
+// malformed request, an Internal for a fault in nitrovin. ctx bounds its
+// stock lookups: a stock source that has not answered when ctx ends is
+// unavailable, and the rest of the answer stands.
+func (t *Translator) Fit(ctx context.Context, req contract.FitRequest) (contract.Fit, error) {
+	return t.core.Fit(ctx, req)
 }
 
 // FitBatch fits requests in order, reading the wall clock once for every
 // request whose Now is zero, as the contract fixes for one HTTP request.
 // It stops at the first error, a *contract.Problem whose pointer names the
-// request ("/3/part").
-func (t *Translator) FitBatch(reqs []contract.FitRequest) ([]contract.Fit, error) {
-	return t.core.FitBatch(reqs)
+// request ("/3/part"). ctx bounds every fit's stock lookups, as Fit's.
+func (t *Translator) FitBatch(ctx context.Context, reqs []contract.FitRequest) ([]contract.Fit, error) {
+	return t.core.FitBatch(ctx, reqs)
 }
 
 // decode is the core's decoder: the engine, answering with the Decoder's

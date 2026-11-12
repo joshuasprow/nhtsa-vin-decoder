@@ -193,7 +193,8 @@ requests, and `GET /v1/translate` takes one as dotted query parameters
 `GET /v1/vocabularies` lists what is loaded and
 `GET /v1/vocabularies/{name}/entries` pages through one;
 `GET` and `POST /v1/fit` read a loaded catalog: a vehicle's part types,
-candidates and related vehicles, and a fitment's vehicles
+candidates and related vehicles, and a fitment's vehicles, with the
+shelf parts and yard vehicles of loaded stock sources when asked
 ([Translation](docs/api/README.md#translation-translate),
 [Listing](docs/api/README.md#listing-list),
 [Fit](docs/api/README.md#fit-fit)). Refusals are
@@ -454,7 +455,9 @@ Matching is exact after one fixed normalization (case and spaces): rules
 and fuzzy matching belong to whoever builds the file.
 [docs/vocabularies.md](docs/vocabularies.md) is how to write one, check
 it, and translate, list and fit on every surface. A **catalog** (which
-parts fit which vehicles) loads the same way, and `nitrovin fit` reads it.
+parts fit which vehicles) loads the same way, and `nitrovin fit` reads it,
+and so do **stock files**: shelf parts and yard vehicles a fit answers
+beside its candidates.
 
 Name files or directories with `--vocab` (repeatable, any command) or
 `NITROVIN_VOCAB`. A file with a fault stops nitrovin from starting; where a

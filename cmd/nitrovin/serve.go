@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -222,8 +221,8 @@ type decodeService interface {
 	Translate(contract.TranslateRequest) (contract.Translation, error)
 	TranslateBatch([]contract.TranslateRequest) ([]contract.Translation, error)
 	List(contract.ListRequest) (contract.List, error)
-	Fit(contract.FitRequest) (contract.Fit, error)
-	FitBatch([]contract.FitRequest) ([]contract.Fit, error)
+	Fit(context.Context, contract.FitRequest) (contract.Fit, error)
+	FitBatch(context.Context, []contract.FitRequest) ([]contract.Fit, error)
 	SpineBundle() ([]byte, error)
 	File(name string) ([]byte, error)
 }
@@ -279,7 +278,7 @@ func (a *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if v == http.ErrAbortHandler {
 				panic(v)
 			}
-			a.log.Printf("panic serving %s %s: %v\n%s", r.Method, r.URL.EscapedPath(), v, debug.Stack())
+			a.log.Printf("panic serving %s %s: %v\n%s", r.Method, r.URL.EscapedPath(), v, panicStack(v))
 			a.problem(w, contract.NewProblem(contract.Internal, "", fmt.Sprint("panic: ", v)))
 		}
 	}()
@@ -454,7 +453,7 @@ func (a *api) fit(w http.ResponseWriter, r *http.Request) {
 			a.problem(w, contract.AsProblem(err))
 			return
 		}
-		fits, err := a.d.FitBatch(reqs)
+		fits, err := a.d.FitBatch(r.Context(), reqs)
 		if err != nil {
 			a.problem(w, contract.AsProblem(err))
 			return
@@ -471,7 +470,7 @@ func (a *api) fit(w http.ResponseWriter, r *http.Request) {
 		a.problem(w, contract.AsProblem(err))
 		return
 	}
-	fit, err := a.d.Fit(req)
+	fit, err := a.d.Fit(r.Context(), req)
 	if err != nil {
 		a.problem(w, contract.AsProblem(err))
 		return

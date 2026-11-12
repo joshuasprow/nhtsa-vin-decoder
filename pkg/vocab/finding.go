@@ -45,6 +45,12 @@ const (
 	// DriftModelQualifier: a qualifier value, on a mapping to a vPIC
 	// model, that the month decodes but the model never does (ADR 0015).
 	DriftModelQualifier DriftKind = "model-qualifier"
+	// DriftOrphan: a shelf row whose number its catalog lacks, current or
+	// retired (ADR 0019).
+	DriftOrphan DriftKind = "orphan"
+	// DriftPersonal: a stock row's field name that looks personal: email,
+	// phone, name, address or license (ADR 0019).
+	DriftPersonal DriftKind = "personal-field"
 )
 
 // Finding is one fault or drift, about one line of one file: a line of

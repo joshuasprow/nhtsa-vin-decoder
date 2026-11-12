@@ -106,10 +106,10 @@ func newMCPServer(d decodeService, stderr io.Writer) (*mcp.Server, error) {
 		return nil, fmt.Errorf("mcp-tools.json: %w", err)
 	}
 	handlers := map[string]answer{
-		"decode_vin": func(args []byte) ([]byte, error) { return decodeJSON(d, args) },
-		"translate":  func(args []byte) ([]byte, error) { return translateJSON(d, args) },
-		"list":       func(args []byte) ([]byte, error) { return listJSON(d, args) },
-		"fit":        func(args []byte) ([]byte, error) { return fitJSON(d, args) },
+		"decode_vin": func(_ context.Context, args []byte) ([]byte, error) { return decodeJSON(d, args) },
+		"translate":  func(_ context.Context, args []byte) ([]byte, error) { return translateJSON(d, args) },
+		"list":       func(_ context.Context, args []byte) ([]byte, error) { return listJSON(d, args) },
+		"fit":        func(ctx context.Context, args []byte) ([]byte, error) { return fitJSON(ctx, d, args) },
 	}
 	if len(tools) != len(handlers) {
 		return nil, errors.New("mcp-tools.json: want the tools decode_vin, translate, list and fit")
@@ -180,8 +180,8 @@ func (l *toolsList) MarshalJSON() ([]byte, error) {
 }
 
 // answer answers one request object, a tool's arguments, with its answer
-// as compact JSON. The error is a *contract.Problem.
-type answer func(args []byte) ([]byte, error)
+// as compact JSON, within the call's ctx. The error is a *contract.Problem.
+type answer func(ctx context.Context, args []byte) ([]byte, error)
 
 // toolHandler is a tool's handler. An answer is the result's
 // structuredContent and, as the same compact JSON, its one text block.
@@ -193,7 +193,7 @@ func toolHandler(name string, h answer, stderr io.Writer) mcp.ToolHandler {
 		if len(args) == 0 { // arguments are optional in MCP: none is {}
 			args = json.RawMessage("{}")
 		}
-		b, err := recovered(name, h, args, stderr)
+		b, err := recovered(ctx, name, h, args, stderr)
 		if err != nil {
 			b, err := json.Marshal(contract.AsProblem(err))
 			if err != nil { // a Problem is strings and an int: unreachable
@@ -251,29 +251,39 @@ func listJSON(t decodeService, args []byte) ([]byte, error) {
 }
 
 // fitJSON answers one fit request object, args, with the fit's compact
-// JSON. The error is a *contract.Problem.
-func fitJSON(t decodeService, args []byte) ([]byte, error) {
+// JSON, its stock lookups bounded by ctx. The error is a *contract.Problem.
+func fitJSON(ctx context.Context, t decodeService, args []byte) ([]byte, error) {
 	r, err := contract.ParseFitRequest(args)
 	if err != nil {
 		return nil, err
 	}
-	f, err := t.Fit(r)
+	f, err := t.Fit(ctx, r)
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(f)
 }
 
+// panicStack is the stack to log with v, a recovered panic: the one it
+// happened on for a panic carried from a fit's stock lookup, else this
+// goroutine's.
+func panicStack(v any) []byte {
+	if p, ok := v.(*contract.LookupPanic); ok {
+		return p.Stack
+	}
+	return debug.Stack()
+}
+
 // recovered is h's answer to args, a call of tool name. A panic in it (a
 // fault in nitrovin, or a catalog reader failing on a damaged file) is an
 // #internal problem, so the server outlives it, and is written with its
 // stack to stderr, as serve logs one.
-func recovered(name string, h answer, args []byte, stderr io.Writer) (b []byte, err error) {
+func recovered(ctx context.Context, name string, h answer, args []byte, stderr io.Writer) (b []byte, err error) {
 	defer func() {
 		if v := recover(); v != nil {
-			fmt.Fprintf(stderr, "panic answering tool %s: %v\n%s", name, v, debug.Stack())
+			fmt.Fprintf(stderr, "panic answering tool %s: %v\n%s", name, v, panicStack(v))
 			b, err = nil, contract.NewProblem(contract.Internal, "", fmt.Sprint("panic: ", v))
 		}
 	}()
-	return h(args)
+	return h(ctx, args)
 }

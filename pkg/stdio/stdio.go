@@ -15,6 +15,7 @@ package stdio
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -84,7 +85,7 @@ func answer(t *nitrovin.Translator, req contract.StdioRequest, id json.RawMessag
 		}
 	case contract.OpFit:
 		var f contract.Fit
-		if f, err = t.Fit(req.Fit); err == nil {
+		if f, err = t.Fit(context.Background(), req.Fit); err == nil {
 			r.Fit = &f
 		}
 	default:

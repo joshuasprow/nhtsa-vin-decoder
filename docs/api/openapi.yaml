@@ -196,7 +196,8 @@ paths:
         `from.fitment.number` and, for a sided fitment, `from.fitment.side`.
         `part` is `part.spine` with `part.id`, or `part.vocabulary` with one
         `part.entry.<field>` per field. `to` is repeated, once per vehicle
-        vocabulary. Every parameter but `to` is given at most once, and an
+        vocabulary, and `stock` and `location` once per value. Every other
+        parameter is given at most once, and an
         unknown one is refused. The answer, and any refusal with its
         `pointer`, is the one the same request gets as a `POST /v1/fit`
         item. Nothing to fit is never an error: it answers with its
@@ -267,6 +268,18 @@ paths:
           in: query
           description: '`true` asks for the vehicles that share fitments with `from`.'
           schema: { type: string, enum: ['true', 'false'], default: 'false' }
+        - name: stock
+          in: query
+          description: '`shelf` or `yard`, the stock of the answer''s fitments to give; repeated for both. Only with a part, `related` (`yard` only) or a fitment.'
+          schema: { $ref: 'decode.schema.json#/$defs/FitRequestFields/properties/stock' }
+          style: form
+          explode: true
+        - name: location
+          in: query
+          description: A location to keep stock rows at; repeated for several. Only with `stock`.
+          schema: { $ref: 'decode.schema.json#/$defs/FitRequestFields/properties/location' }
+          style: form
+          explode: true
         - name: limit
           in: query
           description: List items a page.
