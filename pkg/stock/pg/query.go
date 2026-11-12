@@ -98,15 +98,22 @@ func (s *Source) queries(asOf string) *queries {
 				b = append(b, "NULL::int4 AS c_"+c)
 			}
 		}
-		b = append(b, col("fields")+"::text AS c_fields", asOfExpr+" AS c_as_of")
+		// jsonb's text: a json column keeps its input's, spaces and all.
+		b = append(b, col("fields")+"::jsonb::text AS c_fields", asOfExpr+" AS c_as_of")
 		return strings.Join(b, ", ")
 	}
 	where := col("id") + " IS NOT NULL AND " + col("location") + " IS NOT NULL AND (cardinality($2::text[]) = 0 OR " + col("location") + " = ANY($2::text[]))"
 	// vehicleIs matches a relation row's vehicle to the vehicle columns
-	// of key k, c_v0… (vpic: one of make, model or ext).
+	// of key k, c_v0…: a vocabulary's every field, or vpic's make, model
+	// and ext as a whole, as a file's vehicle key does, so a row matches
+	// at most one of a list's keys.
 	vehicleIs := func(k string) string {
 		if q.vpic {
-			return "(" + col(vehicle[0]) + " = " + k + ".v0 OR " + col(vehicle[1]) + " = " + k + ".v1 OR " + col(vehicle[2]) + " = " + k + ".v2)"
+			var b []string
+			for i, c := range vehicle {
+				b = append(b, col(c)+" IS NOT DISTINCT FROM "+k+".v"+strconv.Itoa(i))
+			}
+			return "(" + strings.Join(b, " AND ") + ")"
 		}
 		var b []string
 		for i, c := range vehicle {
@@ -248,7 +255,7 @@ func (s *Source) Yard(ctx context.Context, lists []stock.YardQuery, p stock.Page
 				mfirst, mlast = append(mfirst, sp.first()), append(mlast, sp.last())
 			}
 		}
-		if s.cols.vehicle() == nil {
+		if len(s.cols.vehicle()) == 0 {
 			continue // no catalog: no vehicle columns, and no vehicle to ask for
 		}
 		byVehicle := map[string][]span{}
@@ -270,7 +277,7 @@ func (s *Source) Yard(ctx context.Context, lists []stock.YardQuery, p stock.Page
 		}
 	}
 	args := []any{mli, models, mfirst, mlast}
-	if s.cols.vehicle() != nil {
+	if len(s.cols.vehicle()) > 0 {
 		args = append(append(args, vli, vfirst, vlast), vs.args()...)
 	}
 	return s.lookup(ctx, stock.Yard, len(lists), p, func(q *queries) string { return q.yard }, "", args...)
@@ -390,7 +397,8 @@ func merge(spans []span) []span {
 
 // lookup runs one of the relation's queries for n lists of what holds,
 // with p's page and the lookup's own args: every list's page and total,
-// the release it read, and as_of the oldest of the rows it returned.
+// each row with its own as_of, and the release it read; Meta.AsOf is "",
+// so each list's block says the oldest of its own rows' times.
 // matched is how a shelf row matched; a yard row says its own.
 func (s *Source) lookup(ctx context.Context, holds stock.Holds, n int, p stock.Page, sql func(*queries) string, matched stock.Matched, args ...any) ([]stock.Result, stock.Meta, error) {
 	out := make([]stock.Result, n)
@@ -492,16 +500,14 @@ func scan(rows pgx.Rows, q *queries, holds stock.Holds, matched stock.Matched, o
 			}
 		}
 		// fields are a JSON object, as a file's are; null, or any other
-		// value, which the column type allows, is served as {}.
+		// value, which the column type allows, is served as {}. The text
+		// is jsonb's, so an object starts with '{'.
 		row.Fields = json.RawMessage("{}")
 		if fields != nil && strings.HasPrefix(*fields, "{") {
 			row.Fields = json.RawMessage(*fields)
 		}
 		if asOf != nil {
 			row.AsOf = *asOf
-			if meta.AsOf == "" || row.AsOf < meta.AsOf {
-				meta.AsOf = row.AsOf
-			}
 		}
 		r.Rows = append(r.Rows, row)
 		return nil

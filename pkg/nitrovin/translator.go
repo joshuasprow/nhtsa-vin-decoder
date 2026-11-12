@@ -44,18 +44,26 @@ type Translator struct {
 // links them (vocab.Link), refusing with vocab.Faults, and measures their
 // drift against d's data month, which it reports and serves. With no
 // files it still translates a VIN or a vPIC id to the spine, and lists
-// vPIC. A connector's stock file (ADR 0020) loads as a source that is
-// always unavailable: NewTranslatorWith connects one.
+// vPIC. It is NewTranslatorWith with the zero TranslatorConfig: a
+// connector's stock file (ADR 0020) loads as a source that is always
+// unavailable.
 func NewTranslator(d *Decoder, files ...*vocab.File) (*Translator, error) {
-	return NewTranslatorWith(d, nil, files...)
+	return NewTranslatorWith(d, TranslatorConfig{}, files...)
 }
 
-// NewTranslatorWith is NewTranslator with connect opening each connector's
-// stock file (ADR 0020): the nitrovin binary passes pkg/stock/pg's, and a
-// build without a database driver (the C library) passes nil, which loads
-// each as stock.Down. Nothing connects here: a source connects on its
-// first lookup.
-func NewTranslatorWith(d *Decoder, connect stock.Connect, files ...*vocab.File) (*Translator, error) {
+// TranslatorConfig is what a Translator is given beyond its decoder and
+// files; its zero value is NewTranslator's.
+type TranslatorConfig struct {
+	// Connect opens each connector's stock file (ADR 0020): the nitrovin
+	// binary passes pkg/stock/pg's. Nil, as in a build without a database
+	// driver (the C library), loads each as stock.Down.
+	Connect stock.Connect
+}
+
+// NewTranslatorWith is NewTranslator configured by c. Nothing connects
+// here: a connector's source connects on its first lookup, and Close
+// releases it.
+func NewTranslatorWith(d *Decoder, c TranslatorConfig, files ...*vocab.File) (*Translator, error) {
 	m := d.month
 	set, err := vocab.NewSet(m, files)
 	if err != nil {
@@ -76,12 +84,12 @@ func NewTranslatorWith(d *Decoder, connect stock.Connect, files ...*vocab.File) 
 			continue
 		}
 		var src stock.Live
-		if connect == nil {
+		if c.Connect == nil {
 			info := stock.Info{Name: f.Name, Holds: f.Holds, Kind: stock.KindLive, Catalog: f.StockCatalog, Connector: vocab.ConnectorPostgres, Relation: f.Connector.Relation}
 			src = stock.Down(info, "this build reads stock files only: a connector needs the nitrovin binary")
 		} else {
 			catalog, vehicles := connectorCatalog(set, f)
-			src = connect(f, catalog, vehicles)
+			src = c.Connect(stock.Declared{File: f, Catalog: catalog, Vehicles: vehicles})
 		}
 		live[f] = src
 		t.core.Stock = append(t.core.Stock, src)
@@ -222,3 +230,13 @@ func (t *Translator) AllDrift() []vocab.Finding { return t.all() }
 // nil when none is loaded. Its vehicles are its own: a request reaches
 // them by a translation to its vehicle vocabulary (fitment.Vehicles).
 func (t *Translator) Catalog() fitment.Reader { return t.catalog }
+
+// Close releases what the Translator holds open: each connector's
+// connections and its pool's background work (ADR 0020). A fit after it
+// answers a connector's lists unavailable; files are unaffected. It is
+// safe to call more than once, and does nothing without connectors.
+func (t *Translator) Close() {
+	for _, src := range t.live {
+		src.Close()
+	}
+}

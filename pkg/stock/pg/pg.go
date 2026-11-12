@@ -45,10 +45,10 @@ import (
 const Retry = 5 * time.Second
 
 // Connect is stock.Connect reading each connector's DSN with getenv, as
-// the nitrovin binary passes it to nitrovin.NewTranslatorWith.
+// the nitrovin binary passes it in nitrovin.TranslatorConfig.
 func Connect(getenv func(string) string) stock.Connect {
-	return func(f, catalog, vehicles *vocab.File) stock.Live {
-		return New(f, catalog, vehicles, getenv(f.Connector.DSNEnv))
+	return func(d stock.Declared) stock.Live {
+		return New(d, getenv(d.File.Connector.DSNEnv))
 	}
 }
 
@@ -74,17 +74,18 @@ type Source struct {
 	health   stock.Health
 	tried    time.Time
 	checking chan struct{}
+	closed   bool
 }
 
 var _ stock.Live = (*Source)(nil)
 
-// New is the source connector file f declares, connecting with dsn when
-// first asked: f is a linked stock file with a Connector, catalog the
-// catalog its vehicles are of (nil: none is loaded) and vehicles that
-// catalog's vehicle vocabulary (nil: its vehicles are vpic). It does no
-// I/O. An empty dsn, or one that does not parse, makes a source that is
-// always unavailable.
-func New(f, catalog, vehicles *vocab.File, dsn string) *Source {
+// New is the source connector file d.File declares, connecting with dsn
+// when first asked: d.Catalog is the catalog its vehicles are of (nil:
+// none is loaded) and d.Vehicles that catalog's vehicle vocabulary (nil:
+// its vehicles are vpic). It does no I/O. An empty dsn, or one that does
+// not parse, makes a source that is always unavailable.
+func New(d stock.Declared, dsn string) *Source {
+	f, catalog, vehicles := d.File, d.Catalog, d.Vehicles
 	s := &Source{
 		info: stock.Info{Name: f.Name, Holds: f.Holds, Kind: stock.KindLive, Catalog: f.StockCatalog, Connector: vocab.ConnectorPostgres, Relation: f.Connector.Relation},
 		c:    *f.Connector,
@@ -135,11 +136,14 @@ func (s *Source) Health() stock.Health {
 	return s.health
 }
 
-// Close closes the source's connections. A lookup after it is
-// unavailable.
+// Close closes the source's connections and stops its pool's background
+// work; a lookup after it is unavailable. It is safe to call more than
+// once.
 func (s *Source) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.closed, s.q = true, nil
+	s.health = stock.Health{Checked: true, Down: &stock.Unavailable{Reason: reasonClosed}}
 	if s.pool != nil {
 		s.pool.Close()
 	}
@@ -155,6 +159,7 @@ const (
 	reasonFull        = "the database has no connection to spare"
 	reasonChanged     = "the relation changed since it was checked; it is checked again on a later lookup"
 	reasonSlow        = "the database did not answer in time"
+	reasonClosed      = "the source is closed"
 )
 
 // ready is the checked relation's queries and the pool to run them on,
@@ -166,6 +171,10 @@ func (s *Source) ready(ctx context.Context) (*queries, *pgxpool.Pool, error) {
 	}
 	for {
 		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return nil, nil, &stock.Unavailable{Reason: reasonClosed}
+		}
 		if s.q != nil {
 			q, pool := s.q, s.pool
 			s.mu.Unlock()
@@ -202,6 +211,8 @@ func (s *Source) ready(ctx context.Context) (*queries, *pgxpool.Pool, error) {
 		s.checking = nil
 		close(done)
 		switch {
+		case s.closed:
+			down = &stock.Unavailable{Reason: reasonClosed}
 		case down == nil:
 			s.q, s.health = q, stock.Health{Checked: true}
 		case ctx.Err() == nil: // a check the caller cut short says nothing of the database
@@ -221,6 +232,9 @@ func (s *Source) ready(ctx context.Context) (*queries, *pgxpool.Pool, error) {
 func (s *Source) reset(down *stock.Unavailable) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
 	s.q = nil
 	s.health, s.tried = stock.Health{Checked: true, Down: down}, s.now()
 }
@@ -408,6 +422,13 @@ func (s *Source) unavailable(ctx context.Context, err error) *stock.Unavailable 
 	}
 	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 		return &stock.Unavailable{Reason: reasonCancelled}
+	}
+	// A connection that could not be made, refused or timed out: the
+	// database is gone, whether at the first check or after it, so the
+	// source answers down at once for Retry rather than dialling again on
+	// every lookup.
+	if _, ok := errors.AsType[*pgconn.ConnectError](err); ok {
+		return s.down(reasonUnreachable)
 	}
 	if errors.Is(err, context.DeadlineExceeded) || pgconn.Timeout(err) {
 		return &stock.Unavailable{Reason: reasonSlow}

@@ -37,7 +37,7 @@ func liveFiles(t *testing.T) map[string]*vocab.File {
 func shelfSource(t *testing.T, dsn string) *Source {
 	t.Helper()
 	fs := liveFiles(t)
-	s := New(fs["shelf-stock"], fs["parts-catalog"], fs["catalog-models"], dsn)
+	s := New(stock.Declared{File: fs["shelf-stock"], Catalog: fs["parts-catalog"], Vehicles: fs["catalog-models"]}, dsn)
 	t.Cleanup(s.Close)
 	return s
 }
@@ -246,5 +246,20 @@ func TestNoDriverElsewhere(t *testing.T) {
 				t.Errorf("%v %v links %s", tc.env, tc.pkgs, p)
 			}
 		}
+	}
+}
+
+// TestClose: a closed source is unavailable, says so in its health, and
+// closing it again does nothing; one that never connected closes too.
+func TestClose(t *testing.T) {
+	s := shelfSource(t, "postgres://stockuser:hunter2@127.0.0.1:1/stockdb?sslmode=disable")
+	s.Close()
+	s.Close()
+	_, _, err := s.ShelfByFitment(context.Background(), oneList, stock.Page{Limit: 10})
+	if u, ok := errors.AsType[*stock.Unavailable](err); !ok || u.Reason != reasonClosed {
+		t.Errorf("lookup after Close: %v, want %q", err, reasonClosed)
+	}
+	if h := s.Health(); h.Down == nil || h.Down.Reason != reasonClosed {
+		t.Errorf("Health after Close %+v", h)
 	}
 }

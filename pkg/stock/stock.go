@@ -62,9 +62,11 @@ type Info struct {
 }
 
 // Meta is what one lookup read beside its rows: the catalog release a
-// shelf's numbers are under, and the time the rows are as of, each ""
-// when the source has none. A live source reads both with its rows, so
-// they describe exactly the rows returned.
+// shelf's numbers are under, and the time every list's rows are as of
+// (a file's own), each "" when the source has none. A live source reads
+// both with its rows, so they describe exactly the rows returned. A
+// source that keeps a time per row (Row.AsOf) leaves AsOf "": each list's
+// block then says the oldest of its own rows' times.
 type Meta struct {
 	Release, AsOf string
 }
@@ -178,19 +180,28 @@ type Health struct {
 }
 
 // Live is a Source read at request time, whose availability changes while
-// nitrovin runs. Health reads what it last found, with no I/O.
+// nitrovin runs. Health reads what it last found, with no I/O. Close
+// releases what it holds open (connections, background work); a lookup
+// after it is unavailable, and calling it again does nothing.
 type Live interface {
 	Source
 	Health() Health
+	Close()
 }
 
-// Connect opens the live source a connector's stock file declares
-// (ADR 0020): f is the file, catalog the catalog its rows' vehicles are
-// the vehicles of (a shelf's own, a yard's the one loaded; nil when none
-// is), vehicles that catalog's vehicle vocabulary (nil when its vehicles
-// are vpic, or none is loaded). It does no I/O: a source connects on its
-// first lookup, and one that cannot is unavailable, never a fault.
-type Connect func(f, catalog, vehicles *vocab.File) Live
+// Declared is what a connector's stock file declares (ADR 0020), as
+// Connect receives it: File, linked, with its Connector; Catalog, the
+// catalog its rows' vehicles are the vehicles of (a shelf's own, a yard's
+// the one loaded; nil when none is); and Vehicles, that catalog's vehicle
+// vocabulary (nil when its vehicles are vpic, or none is loaded).
+type Declared struct {
+	File, Catalog, Vehicles *vocab.File
+}
+
+// Connect opens the live source d declares. It does no I/O: a source
+// connects on its first lookup, and one that cannot is unavailable, never
+// a fault.
+type Connect func(d Declared) Live
 
 // Down is a live source that is always unavailable for reason: a
 // connector's file loaded where no Connect is, such as the C library.
@@ -203,6 +214,7 @@ type down struct {
 
 func (d down) Info() Info     { return d.info }
 func (d down) Health() Health { return Health{Checked: true, Down: d.err} }
+func (d down) Close()         {}
 
 func (d down) ShelfByFitment(context.Context, [][]vocab.FitmentKey, Page) ([]Result, Meta, error) {
 	return nil, Meta{}, d.err

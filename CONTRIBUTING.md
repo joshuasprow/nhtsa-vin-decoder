@@ -375,7 +375,8 @@ driver. Its `*Postgres` tests need a database they own, by URL in
 synthetic rows and holds every fit to the same rows loaded as files; the
 others check missing and mistyped columns, credentials, as_of, the
 `READ ONLY` transaction, a cancelled and a timed-out query, a full pool,
-a relation that changes, and a vpic catalog:
+a relation that changes, a database lost after its check (and `Close`),
+a yard with no catalog, and a vpic catalog:
 
 ```sh
 docker run -d --name nitrovin-stock -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=stock -p 55432:5432 \

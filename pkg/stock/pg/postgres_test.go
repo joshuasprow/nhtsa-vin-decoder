@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -160,7 +162,7 @@ func open(t *testing.T, d *nitrovin.Decoder, env map[string]string, paths ...str
 	if err != nil {
 		t.Fatal(err)
 	}
-	tr, err := nitrovin.NewTranslatorWith(d, Connect(func(k string) string { return env[k] }), files...)
+	tr, err := nitrovin.NewTranslatorWith(d, nitrovin.TranslatorConfig{Connect: Connect(func(k string) string { return env[k] })}, files...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,12 +386,14 @@ INSERT INTO nvtest.shelf VALUES
   ('S-1', 'north', 'mirror', 'MR-1001', 'left', NULL, NULL, NULL, NULL, '{"price": 129.5}', '2026-11-01 08:00:00+00'),
   ('S-2', 'south', 'mirror', 'MR-1001', 'left', NULL, NULL, NULL, NULL, NULL, '2026-10-30 23:30:00-05'),
   ('S-3', 'north', NULL, NULL, NULL, 'mirror', 'Dodge', 'Ram 1500', 2010, '[1, 2]', NULL),
+  ('S-4', 'north', 'mirror', 'MR-1001', 'right', NULL, NULL, NULL, NULL, '{}', '2026-11-05 00:00:00+00'),
   (NULL, 'north', 'mirror', 'MR-1001', 'left', NULL, NULL, NULL, NULL, '{}', NULL);
 CREATE TABLE nvtest.release (release text);
 INSERT INTO nvtest.release VALUES ('7.02'), ('7.03');
 CREATE VIEW nvtest.dated AS SELECT id, location, type, number, side, part_type, vehicle_make, vehicle_model, year, fields, as_of::date AS as_of FROM nvtest.shelf;
 CREATE VIEW nvtest.no_fields AS SELECT id, location, type, number, side, part_type, vehicle_make, vehicle_model, year FROM nvtest.shelf;
 CREATE VIEW nvtest.text_year AS SELECT id, location, type, number, side, part_type, vehicle_make, vehicle_model, year::text AS year, fields FROM nvtest.shelf;
+CREATE VIEW nvtest.json_fields AS SELECT id, location, type, number, side, part_type, vehicle_make, vehicle_model, year, ('  ' || fields::text)::json AS fields FROM nvtest.shelf;
 CREATE FUNCTION nvtest.sleepy() RETURNS boolean LANGUAGE sql VOLATILE AS $$ SELECT pg_sleep(5); SELECT true $$;
 CREATE VIEW nvtest.slow AS SELECT * FROM nvtest.shelf WHERE nvtest.sleepy()`
 
@@ -410,7 +414,7 @@ func connector(t *testing.T, relation, dsn, extra string) *Source {
 	for _, f := range files {
 		byName[f.Name] = f
 	}
-	s := New(byName["shelf-live"], byName["parts-catalog"], byName["catalog-models"], dsn)
+	s := New(stock.Declared{File: byName["shelf-live"], Catalog: byName["parts-catalog"], Vehicles: byName["catalog-models"]}, dsn)
 	t.Cleanup(s.Close)
 	return s
 }
@@ -466,9 +470,10 @@ func TestUnavailablePostgres(t *testing.T) {
 }
 
 // TestRowsPostgres: rows carry their own as_of, a timestamp in UTC or a
-// date, and the lookup's as_of is the oldest of the rows it returned; a
-// row with no id is never served, and fields that are null or not an
-// object are {}; and every query runs in a READ ONLY transaction.
+// date, and each list's block in a fit says the oldest of that list's own
+// rows, none for a list with none; a row with no id is never served;
+// fields that are null or not an object are {}, and a json column's text
+// is read as jsonb's; and every query runs in a READ ONLY transaction.
 func TestRowsPostgres(t *testing.T) {
 	conn, u := testDB(t)
 	exec(t, conn, nvtest)
@@ -485,18 +490,59 @@ func TestRowsPostgres(t *testing.T) {
 		got = append(got, r.ID+" "+r.AsOf+" "+string(r.Fields))
 	}
 	want := []string{`S-1 2026-11-01T08:00:00Z {"price": 129.5}`, `S-2 2026-10-31T04:30:00Z {}`}
-	if !slices.Equal(got, want) || rs[0].Total != 2 || rs[1].Total != 0 || meta.AsOf != "2026-10-31T04:30:00Z" {
-		t.Errorf("rows %q, totals %d %d, as_of %q\nwant %q, totals 2 0, as_of the oldest", got, rs[0].Total, rs[1].Total, meta.AsOf, want)
+	if !slices.Equal(got, want) || rs[0].Total != 2 || rs[1].Total != 0 || meta.AsOf != "" {
+		t.Errorf("rows %q, totals %d %d, meta as_of %q\nwant %q, totals 2 0, and the as_of the rows' own", got, rs[0].Total, rs[1].Total, meta.AsOf, want)
 	}
 	vehicle := []stock.ShelfVehicle{{PartTypes: []string{"mirror"}, Vehicles: []vocab.Vehicle{{Entry: map[string]string{"make": "Dodge", "model": "Ram 1500"}}}, Year: new(2010)}}
-	rs, meta, err = s.ShelfByVehicle(ctx, vehicle, stock.Page{Limit: 10})
-	if err != nil || len(rs[0].Rows) != 1 || string(rs[0].Rows[0].Fields) != "{}" || rs[0].Rows[0].Vehicle.Entry["model"] != "Ram 1500" || meta.AsOf != "" {
-		t.Errorf("by vehicle: %+v, %+v, %v; want S-3 with fields {} (its fields are an array), and no as_of", rs, meta, err)
+	rs, _, err = s.ShelfByVehicle(ctx, vehicle, stock.Page{Limit: 10})
+	if err != nil || len(rs[0].Rows) != 1 || string(rs[0].Rows[0].Fields) != "{}" || rs[0].Rows[0].Vehicle.Entry["model"] != "Ram 1500" || rs[0].Rows[0].AsOf != "" {
+		t.Errorf("by vehicle: %+v, %v; want S-3 with fields {} (its fields are an array), and no as_of", rs, err)
+	}
+
+	s = connector(t, "nvtest.json_fields", u.String(), "")
+	if rs, _, err := s.ShelfByFitment(ctx, mirrorKey, stock.Page{Limit: 1}); err != nil || len(rs[0].Rows) != 1 || string(rs[0].Rows[0].Fields) != `{"price": 129.5}` {
+		t.Errorf("a json column with leading spaces: %+v, %v; want S-1's object", rs, err)
 	}
 
 	s = connector(t, "nvtest.dated", u.String(), "")
-	if _, meta, err := s.ShelfByFitment(ctx, mirrorKey, stock.Page{Limit: 10}); err != nil || meta.AsOf != "2026-10-31" {
-		t.Errorf("a date as_of: %+v, %v; want 2026-10-31", meta, err)
+	if rs, _, err := s.ShelfByFitment(ctx, mirrorKey, stock.Page{Limit: 10}); err != nil || rs[0].Rows[1].AsOf != "2026-10-31" {
+		t.Errorf("a date as_of: %+v, %v; want S-2's 2026-10-31", rs, err)
+	}
+
+	// In a fit, two candidates with rows of different times, and a list
+	// whose rows keep none.
+	d, err := nitrovin.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	header := `{"format":1,"kind":"stock","name":"shelf-live","version":"1","source":"shelf","catalog":"parts-catalog","connector":{"postgres":{"relation":"nvtest.shelf","dsn_env":"DSN"}}}`
+	if err := os.WriteFile(filepath.Join(dir, "shelf-live.jsonl"), []byte(header+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tr := open(t, d, map[string]string{"DSN": u.String()}, "../../../testdata/vocab", "../../../testdata/vocab/fitment", dir)
+	t.Cleanup(tr.Close)
+	type list struct {
+		Total   int
+		Sources []contract.StockSource
+	}
+	var f struct {
+		Candidates []struct {
+			Fitment struct{ Side string }
+			Shelf   list
+		}
+		ByVehicle list `json:"shelf_by_vehicle"`
+	}
+	if err := json.Unmarshal(fitJSON(t, tr, `{"from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010,"part":{"vocabulary":"part-codes","entry":{"code":"MIR"}},"stock":["shelf"]}`), &f); err != nil {
+		t.Fatal(err)
+	}
+	got = nil
+	for _, c := range f.Candidates {
+		got = append(got, fmt.Sprintf("%s %d %q", c.Fitment.Side, c.Shelf.Total, c.Shelf.Sources[0].AsOf))
+	}
+	got = append(got, fmt.Sprintf("by vehicle %d %q", f.ByVehicle.Total, f.ByVehicle.Sources[0].AsOf))
+	if want := []string{`left 2 "2026-10-31T04:30:00Z"`, `right 1 "2026-11-05T00:00:00Z"`, `by vehicle 1 ""`}; !slices.Equal(got, want) {
+		t.Errorf("as_of per list %q\nwant %q", got, want)
 	}
 
 	c, err := s.pool.Acquire(ctx)
@@ -642,7 +688,8 @@ func TestChangedPostgres(t *testing.T) {
 
 // TestVPICPostgres: under a catalog whose vehicles are vpic, a relation's
 // vehicle columns are vehicle_make, vehicle_model and vehicle_ext, one of
-// them set.
+// them set; rows match a vehicle as a whole, as a file's do, so a row
+// setting two of them matches neither, and none is served twice.
 func TestVPICPostgres(t *testing.T) {
 	conn, u := testDB(t)
 	exec(t, conn, `DROP SCHEMA IF EXISTS nvtest CASCADE; CREATE SCHEMA nvtest;
@@ -651,7 +698,8 @@ CREATE TABLE nvtest.shelf (id text, location text, type text, number text, side 
 INSERT INTO nvtest.shelf VALUES
   ('V-1', 'north', NULL, NULL, NULL, 'mirror', NULL, 1938, NULL, 2010, '{}'),
   ('V-2', 'north', NULL, NULL, NULL, 'mirror', 476, NULL, NULL, 2010, '{}'),
-  ('V-3', 'north', NULL, NULL, NULL, 'mirror', NULL, NULL, 'ext:classics/corvair', 2010, '{}')`)
+  ('V-3', 'north', NULL, NULL, NULL, 'mirror', NULL, NULL, 'ext:classics/corvair', 2010, '{}'),
+  ('V-4', 'north', NULL, NULL, NULL, 'mirror', 476, 1938, NULL, 2010, '{}')`)
 	t.Cleanup(func() { exec(t, conn, `DROP SCHEMA IF EXISTS nvtest CASCADE`) })
 	dir := t.TempDir()
 	catalog := `{"format":1,"kind":"catalog","name":"vpic-catalog","version":"1","spine":"part-types","vehicles":"vpic"}
@@ -671,11 +719,12 @@ INSERT INTO nvtest.shelf VALUES
 	for _, f := range files {
 		byName[f.Name] = f
 	}
-	s := New(byName["shelf-vpic"], byName["vpic-catalog"], nil, u.String())
+	s := New(stock.Declared{File: byName["shelf-vpic"], Catalog: byName["vpic-catalog"]}, u.String())
 	t.Cleanup(s.Close)
 	lists := []stock.ShelfVehicle{
 		{PartTypes: []string{"mirror"}, Vehicles: []vocab.Vehicle{{Target: vocab.Target{Model: 1938}}}, Year: new(2010)},
 		{PartTypes: []string{"mirror"}, Vehicles: []vocab.Vehicle{{Target: vocab.Target{Make: 476}}, {Target: vocab.Target{Ext: "ext:classics/corvair"}}}},
+		{PartTypes: []string{"mirror"}, Vehicles: []vocab.Vehicle{{Target: vocab.Target{Make: 476}}, {Target: vocab.Target{Model: 1938}}}},
 	}
 	rs, _, err := s.ShelfByVehicle(context.Background(), lists, stock.Page{Limit: 10})
 	if err != nil {
@@ -689,7 +738,121 @@ INSERT INTO nvtest.shelf VALUES
 		}
 		got = append(got, strings.Join(ids, " "))
 	}
-	if want := []string{"V-1:0/1938/", "V-2:476/0/ V-3:0/0/ext:classics/corvair"}; !slices.Equal(got, want) {
+	if want := []string{"V-1:0/1938/", "V-2:476/0/ V-3:0/0/ext:classics/corvair", "V-1:0/1938/ V-2:476/0/"}; !slices.Equal(got, want) || rs[2].Total != 2 {
 		t.Errorf("rows %q, want %q", got, want)
+	}
+}
+
+// TestLostPostgres: a database lost after its check passed (connections
+// gone, new ones hanging past the connect timeout) makes the source
+// unavailable and resets it: the next lookups answer at once, dialling
+// nothing, for Retry, and Info says unavailable. Close then releases the
+// pool: a lookup after it is unavailable, and the pool lends nothing.
+func TestLostPostgres(t *testing.T) {
+	conn, u := testDB(t)
+	exec(t, conn, nvtest)
+	t.Cleanup(func() { exec(t, conn, `DROP SCHEMA IF EXISTS nvtest CASCADE`) })
+	ctx := context.Background()
+	d, err := nitrovin.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	header := `{"format":1,"kind":"stock","name":"shelf-live","version":"1","source":"shelf","catalog":"parts-catalog","connector":{"postgres":{"relation":"nvtest.shelf","dsn_env":"DSN","connect_timeout_ms":300}}}`
+	if err := os.WriteFile(filepath.Join(dir, "shelf-live.jsonl"), []byte(header+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files, err := vocab.Open("../../../testdata/vocab/fitment", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var src *Source
+	var hang atomic.Bool
+	var dials atomic.Int32
+	connect := func(decl stock.Declared) stock.Live {
+		src = New(decl, u.String())
+		dial := src.cfg.ConnConfig.DialFunc
+		src.cfg.ConnConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			dials.Add(1)
+			if hang.Load() {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+			return dial(ctx, network, addr)
+		}
+		return src
+	}
+	tr, err := nitrovin.NewTranslatorWith(d, nitrovin.TranslatorConfig{Connect: connect}, files...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := func() string {
+		for _, v := range tr.Info().Vocabularies {
+			if v.Name == "shelf-live" {
+				return v.Status + " " + v.Reason
+			}
+		}
+		return "absent"
+	}
+	if _, _, err := src.ShelfByFitment(ctx, mirrorKey, stock.Page{Limit: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(); got != "available " {
+		t.Fatalf("after a lookup: %q", got)
+	}
+
+	hang.Store(true)
+	src.pool.Reset() // the database's connections are gone
+	start := time.Now()
+	if got := reason(t, ctx, src); got != reasonUnreachable {
+		t.Errorf("the first lookup after: %q, want %q", got, reasonUnreachable)
+	}
+	if took := time.Since(start); took < 250*time.Millisecond || took > 2*time.Second {
+		t.Errorf("it took %v; want about the 300 ms connect timeout", took)
+	}
+	if got, want := status(), "unavailable "+reasonUnreachable; got != want {
+		t.Errorf("Info after it: %q, want %q", got, want)
+	}
+	n := dials.Load()
+	start = time.Now()
+	if got := reason(t, ctx, src); got != reasonUnreachable || dials.Load() != n || time.Since(start) > 100*time.Millisecond {
+		t.Errorf("the next lookup: %q after %v and %d more dials; want at once, none", got, time.Since(start), dials.Load()-n)
+	}
+
+	hang.Store(false)
+	tr.Close()
+	tr.Close()
+	if got := reason(t, ctx, src); got != reasonClosed {
+		t.Errorf("a lookup after Close: %q, want %q", got, reasonClosed)
+	}
+	if c, err := src.pool.Acquire(ctx); err == nil {
+		c.Release()
+		t.Error("the pool lends a connection after Close")
+	}
+}
+
+// TestNoCatalogPostgres: a yard read with no catalog loaded has no
+// vehicle columns, and still answers by its decodes.
+func TestNoCatalogPostgres(t *testing.T) {
+	conn, u := testDB(t)
+	exec(t, conn, `DROP SCHEMA IF EXISTS nvtest CASCADE; CREATE SCHEMA nvtest;
+CREATE TABLE nvtest.yard (id text, location text, decoded_make integer, decoded_model integer, decoded_year integer, year integer, fields jsonb);
+INSERT INTO nvtest.yard VALUES ('Y-1', 'north', 476, 1938, 2010, NULL, '{}'), ('Y-2', 'north', 476, 1938, 2016, NULL, '{}')`)
+	t.Cleanup(func() { exec(t, conn, `DROP SCHEMA IF EXISTS nvtest CASCADE`) })
+	dir := t.TempDir()
+	header := `{"format":1,"kind":"stock","name":"yard-live","version":"1","source":"yard","connector":{"postgres":{"relation":"nvtest.yard","dsn_env":"DSN"}}}`
+	if err := os.WriteFile(filepath.Join(dir, "yard-live.jsonl"), []byte(header+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files, err := vocab.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(stock.Declared{File: files[0]}, u.String())
+	t.Cleanup(s.Close)
+	q := stock.YardQuery{Models: []stock.ModelYears{{Model: 1938, First: new(2009), Last: new(2012)}}}
+	rs, _, err := s.Yard(context.Background(), []stock.YardQuery{q}, stock.Page{Limit: 10})
+	if err != nil || len(rs[0].Rows) != 1 || rs[0].Rows[0].ID != "Y-1" || rs[0].Rows[0].Matched != stock.MatchedVIN {
+		t.Errorf("Yard with no catalog: %+v, %v; want Y-1 by its decode", rs, err)
 	}
 }

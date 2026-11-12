@@ -3725,7 +3725,7 @@
           "as_of": {
             "type": "string",
             "minLength": 1,
-            "description": "The time the list's rows from it are as of: a file's own, or for a live source the oldest as_of of the rows the lookup returned, when its relation has that column. Absent when it has none, and when unavailable."
+            "description": "The time the list's rows from it are as of: a file's own, or for a live source the oldest as_of of the list's own rows from it, when its relation has that column. Absent when it has none, when the list has none of its rows, and when unavailable."
           },
           "catalog": {
             "type": "string",

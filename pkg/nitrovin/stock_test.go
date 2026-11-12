@@ -398,36 +398,39 @@ func TestConnectorWithoutDriver(t *testing.T) {
 	}
 }
 
-// liveFake is a live source whose health is set by the test.
+// liveFake is a live source whose health is set by the test, counting its
+// Close calls.
 type liveFake struct {
 	blocking
 	health stock.Health
+	closed int
 }
 
 func (l *liveFake) Health() stock.Health { return l.health }
+func (l *liveFake) Close()               { l.closed++ }
 
 // TestConnectorStatus: NewTranslatorWith hands each connector's file to
-// connect with the catalog its vehicles are of and that catalog's vehicle
-// vocabulary, and Info reads each source's health on every call:
-// unchecked, available, then unavailable with its reason.
+// its Connect with the catalog its vehicles are of and that catalog's
+// vehicle vocabulary; Info reads each source's health on every call:
+// unchecked, available, then unavailable with its reason; and Close
+// closes every connector's source, as often as it is called.
 func TestConnectorStatus(t *testing.T) {
-	var fake *liveFake
+	var fakes []*liveFake
 	var got []string
-	connect := func(f, catalog, vehicles *vocab.File) stock.Live {
-		got = append(got, f.Name+" "+catalog.Name+" "+vehicles.Name)
-		l := &liveFake{blocking: blocking{name: f.Name, holds: f.Holds}}
-		if f.Name == "yard-stock" {
-			fake = l
-		}
+	connect := func(d stock.Declared) stock.Live {
+		got = append(got, d.File.Name+" "+d.Catalog.Name+" "+d.Vehicles.Name)
+		l := &liveFake{blocking: blocking{name: d.File.Name, holds: d.File.Holds}}
+		fakes = append(fakes, l)
 		return l
 	}
-	tr, err := NewTranslatorWith(embeddedDecoder(t), connect, liveFiles(t)...)
+	tr, err := NewTranslatorWith(embeddedDecoder(t), TranslatorConfig{Connect: connect}, liveFiles(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"shelf-annex parts-catalog catalog-models", "shelf-stock parts-catalog catalog-models", "yard-stock parts-catalog catalog-models"}; !slices.Equal(got, want) {
 		t.Errorf("connect got %q, want %q", got, want)
 	}
+	yard := fakes[2]
 	for _, tc := range []struct {
 		health stock.Health
 		want   string
@@ -436,7 +439,7 @@ func TestConnectorStatus(t *testing.T) {
 		{stock.Health{Checked: true}, "yard-stock postgres stock.yard_stock available"},
 		{stock.Health{Checked: true, Down: &stock.Unavailable{Reason: "the database is unreachable"}}, "yard-stock postgres stock.yard_stock unavailable (the database is unreachable)"},
 	} {
-		fake.health = tc.health
+		yard.health = tc.health
 		for _, info := range []contract.Info{tr.Info(), tr.LoadInfo()} {
 			conforms(t, "Info", info)
 			if s := stockStatus(info); s[2] != tc.want {
@@ -444,6 +447,18 @@ func TestConnectorStatus(t *testing.T) {
 			}
 		}
 	}
+	tr.Close()
+	tr.Close()
+	for _, l := range fakes {
+		if l.closed != 2 {
+			t.Errorf("%s closed %d times by two Closes; want 2, each passed on", l.name, l.closed)
+		}
+	}
+	files, err := NewTranslator(embeddedDecoder(t), liveFiles(t)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files.Close() // stock.Down sources: nothing to release
 }
 
 // blocking is a stock source that never answers by itself: it waits for

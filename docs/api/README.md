@@ -888,9 +888,10 @@ refused.
 Every list (`StockList`) is `rows`, `total` across every page and source,
 and `sources`: each loaded source of its kind, as a block of `name`,
 `kind` (`file` or `live`), for a live source its `connector`
-(`postgres`) and `relation`, `as_of` (the time the rows the lookup
-returned are as of: a file's header time, or the oldest `as_of` of a
-connector's returned rows when its relation keeps one), for a shelf its
+(`postgres`) and `relation`, `as_of` (the time the list's rows from it
+are as of: a file's header time, or the oldest `as_of` of the list's own
+rows from a connector whose relation keeps one, absent when the list has
+none of them), for a shelf its
 `catalog` and the `release` the lookup read,
 `catalog_mismatch: true` when that release is not the loaded catalog's,
 and `status`: `available`, or `unavailable` with a `reason` when the
@@ -905,8 +906,9 @@ one of the wrong type (naming it); its database is unreachable, refused
 the credentials, or has no connection to spare; the query ran past its
 statement timeout; every connection was busy until the lookup's
 deadline; the environment variable holding its DSN is not set (naming the
-variable). A connector that could not connect answers unavailable at
-once for 5 s before it tries again, and nothing it reads is cached.
+variable). A connector that could not connect, at its first lookup or
+after its database went away, answers unavailable at once for 5 s before
+it tries again, and nothing it reads is cached.
 
 A row (`StockRow`) is its `source` (the source's name), `id`, `location`,
 how it `matched`, what it names, `as_of` when its source keeps a time per

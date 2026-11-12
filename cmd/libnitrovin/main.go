@@ -192,6 +192,7 @@ func nitrovin_close(h *C.nitrovin_t) {
 	if h == nil {
 		return
 	}
+	translatorOf(h).Close() // holds nothing here: the library's connectors are stock.Down
 	(*(*cgo.Handle)(unsafe.Pointer(h))).Delete()
 	C.free(unsafe.Pointer(h))
 }

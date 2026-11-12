@@ -460,8 +460,9 @@ for example with `POST /v1/decode`), else by its vehicle and `year`; a
 vehicle matches when its columns equal the catalog's values exactly, as
 the catalog writes them; a row with a null `id` or `location` is never
 served; `fields` that are null, or not an object, are served as `{}`.
-Each list's rows come in `id` order (bytewise), and its `as_of` is the
-oldest of the rows a lookup returned.
+Each list's rows come in `id` order (bytewise), and its block's `as_of`
+is the oldest of that list's own rows: two candidates' shelves can say
+two times, and a list with none of the source's rows says none.
 
 **Lookups and indexes.** Each lookup is one fixed, parameterised `SELECT`
 for every list of its kind in an answer, each list bounded by the page,
@@ -503,9 +504,9 @@ lookup connects and checks the relation's columns against
 `information_schema`; a missing or mistyped column makes the source
 unavailable, naming the column (`column year of stock.shelf_stock is
 text, not an integer (smallint, integer or bigint)`). A database that is
-down does not stop nitrovin: its lists answer `unavailable` (`the
-database is unreachable`), at once and with no connection for 5 s, then
-it tries again. A slow query fails only its own list. A relation that
+down does not stop nitrovin, at start or later: its lists answer
+`unavailable` (`the database is unreachable`), at once and with no
+connection for 5 s, then it tries again. A slow query fails only its own list. A relation that
 changes under a running nitrovin is checked again. `/v1/info` shows each
 connector's `connector`, `relation` and latest `status`:
 
@@ -521,8 +522,12 @@ and the Unicode tables its password hashing needs; ADR 0020's estimate
 was 0.5 MB. The C library loads a connector's file as a source that is
 always unavailable (`this build reads stock files only: a connector
 needs the nitrovin binary`), and the browser loads no stock; neither
-links a driver. In Go, `nitrovin.NewTranslatorWith(d, pg.Connect(os.Getenv),
-files...)` connects them; `nitrovin.NewTranslator` does not.
+links a driver. In Go, `nitrovin.NewTranslatorWith(d,
+nitrovin.TranslatorConfig{Connect: pg.Connect(os.Getenv)}, files...)`
+connects them, and `nitrovin.NewTranslator` does not; the Translator's
+`Close` releases their connections, which every `nitrovin` command does
+when it ends (`serve` on SIGINT or SIGTERM, stdio and MCP at the end of
+their input).
 
 ## Loading
 

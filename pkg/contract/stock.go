@@ -134,7 +134,8 @@ func (f Fitter) stockLists(ctx context.Context, holds stock.Holds, n, offset, li
 	if f.Catalog != nil {
 		release = f.Catalog.Info().Release
 	}
-	skip := offset // a single list's rows of offset left to skip
+	skip := offset    // a single list's rows of offset left to skip
+	var asOf []string // each list's oldest row time from the source at hand
 	for _, src := range f.Stock {
 		info := src.Info()
 		if info.Holds != holds {
@@ -159,20 +160,33 @@ func (f Fitter) stockLists(ctx context.Context, holds stock.Holds, n, offset, li
 		default:
 			block.AsOf, block.Release = meta.AsOf, meta.Release
 			block.CatalogMismatch = holds == stock.Shelf && meta.Release != "" && meta.Release != release
+			// A source with a time per row gives each list's block the
+			// oldest of the rows that list carries from it: none when it
+			// carries none.
+			asOf = asOf[:0]
 			for i, r := range rs {
 				out[i].Total += r.Total
+				oldest := ""
 				for _, row := range r.Rows {
 					if len(out[i].Rows) < limit {
 						out[i].Rows = append(out[i].Rows, f.stockRow(info.Name, row, into[i]))
+						if row.AsOf != "" && (oldest == "" || row.AsOf < oldest) {
+							oldest = row.AsOf
+						}
 					}
 				}
+				asOf = append(asOf, oldest)
 			}
 			if n == 1 {
 				skip = max(0, skip-rs[0].Total)
 			}
 		}
 		for i := range out {
-			out[i].Sources = append(out[i].Sources, block)
+			b := block
+			if err == nil && asOf[i] != "" {
+				b.AsOf = asOf[i]
+			}
+			out[i].Sources = append(out[i].Sources, b)
 		}
 	}
 	return out

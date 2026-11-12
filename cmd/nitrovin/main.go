@@ -84,6 +84,10 @@ type env struct {
 	// vocab is every --vocab, the root's then the command's; none means
 	// $NITROVIN_VOCAB.
 	vocab []string
+	// loaded are the Translators load made, closed when the command ends:
+	// a connector's pool (ADR 0020) is released however the command
+	// stops, serve's shutdown and stdio's and MCP's end of input included.
+	loaded []*nitrovin.Translator
 }
 
 // paths is a repeatable flag, each use appending its value.
@@ -170,6 +174,9 @@ func run(args []string, e *env) int {
 		return usageExit(e, err.Error(), commandUsage(c, fs))
 	}
 	err = body(e, pos)
+	for _, t := range e.loaded {
+		t.Close()
+	}
 	if u, ok := errors.AsType[usageError](err); ok {
 		return usageExit(e, string(u), commandUsage(c, fs))
 	}
@@ -291,11 +298,12 @@ func (e *env) load() (*nitrovin.Translator, []byte, error) {
 	files, err := vocab.Open(paths...)
 	var t *nitrovin.Translator
 	if err == nil {
-		t, err = nitrovin.NewTranslatorWith(d, pg.Connect(e.getenv), files...)
+		t, err = nitrovin.NewTranslatorWith(d, nitrovin.TranslatorConfig{Connect: pg.Connect(e.getenv)}, files...)
 	}
 	if err != nil {
 		return nil, nil, contract.NewProblem(contract.Internal, "", fmt.Sprintf("%s: %v", from, err))
 	}
+	e.loaded = append(e.loaded, t)
 	for _, f := range t.Drift() {
 		writeFinding(e.stderr, f)
 	}

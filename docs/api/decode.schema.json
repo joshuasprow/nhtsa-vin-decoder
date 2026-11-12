@@ -1165,7 +1165,7 @@
         "kind": { "enum": ["file", "live"], "description": "file: a stock file loaded with --vocab. live: a request-time source." },
         "connector": { "const": "postgres", "description": "How a live source is read (ADR 0020); absent for a file." },
         "relation": { "type": "string", "minLength": 1, "description": "The relation a live source's rows are read from; absent for a file. Never a DSN, host or user." },
-        "as_of": { "type": "string", "minLength": 1, "description": "The time the list's rows from it are as of: a file's own, or for a live source the oldest as_of of the rows the lookup returned, when its relation has that column. Absent when it has none, and when unavailable." },
+        "as_of": { "type": "string", "minLength": 1, "description": "The time the list's rows from it are as of: a file's own, or for a live source the oldest as_of of the list's own rows from it, when its relation has that column. Absent when it has none, when the list has none of its rows, and when unavailable." },
         "catalog": { "type": "string", "minLength": 1, "description": "A shelf's catalog." },
         "release": { "type": "string", "minLength": 1, "description": "The catalog release a shelf's numbers are under, as read with the rows; absent when it names none, and when unavailable." },
         "catalog_mismatch": { "const": true, "description": "Present when the shelf's release is not the loaded catalog's." },
