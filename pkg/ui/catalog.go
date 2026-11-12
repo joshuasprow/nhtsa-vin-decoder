@@ -155,7 +155,7 @@ func (l *Library) Compile(src io.Reader, fileName string, size int64, scratch vo
 		}
 		return StoredFile{}, err
 	}
-	next.set = next.relink(set, dropped)
+	next.relink(set, dropped)
 	l.state.Store(next)
 	for _, f := range l.Files() {
 		if f.Catalog {

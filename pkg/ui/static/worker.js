@@ -16,7 +16,8 @@
 //   naming no target included, so one URL means one thing with
 //   JavaScript on or off, and in every browser.
 // - A file reaches it by postMessage from the page, never by a request: no
-//   file's bytes are ever sent to the server.
+//   file's bytes are ever sent to the server. A yard stock file's VINs
+//   alone go to the server's POST /v1/decode, once, as it loads.
 // - It installs beside an older release's worker and waits until that
 //   one's pages close, or until the visitor asks for it (Update now:
 //   vocab.js posts {op: "skipWaiting"} to it, then reloads); once active it
@@ -166,6 +167,13 @@ async function dropStaleIndexes() {
 self.nitrovinGet = async (path) => {
   if (outdated) throw new Error(stale());
   const r = (await caches.match(path, { cacheName: CACHE })) || heard(await fetch(path), path);
+  return { status: r.status, body: new Uint8Array(await r.arrayBuffer()) };
+};
+// post is a POST of body, JSON, to path on this origin (ui.Remote): only
+// POST /v1/decode, a yard file's VINs as it loads, never a row.
+self.nitrovinPost = async (path, body) => {
+  if (outdated) throw new Error(stale());
+  const r = heard(await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }), path);
   return { status: r.status, body: new Uint8Array(await r.arrayBuffer()) };
 };
 

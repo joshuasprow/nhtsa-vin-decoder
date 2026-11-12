@@ -571,6 +571,66 @@ page starts, as decided, and a Service Worker's events stay short.
 - **The server's catalog is named, never published:** `/sw.js` carries its
   name, so the browser refuses a catalog of its own while the server has one,
   and the worker sends the fit page to the server.
+- **Stock files** ([#265](https://github.com/joshuasprow/nitrovin/issues/265))
+  load in the dialog like any file, with the server's faults and drift, and
+  are stored with their index (a stock file's rows are now in it) and read
+  from memory through `stock.NewFile`, as on the server. A shelf loads only
+  beside the browser's own catalog: one of the server's catalog loads on the
+  server. A connector's file is refused: "connectors run on a server". A
+  yard's VINs, of the rows with no `decoded`, are decoded by the server's
+  `POST /v1/decode` as the file loads, 50 a request (a full decode is about
+  18 kB), each batch reduced to a model and year as it arrives, and the
+  decodes are kept in its stored index, by blake3 and release, so another
+  release decodes them again when it opens the file. The dialog repeats
+  ADR 0019's warning about personal data, and a row's fields never leave
+  the browser. The fit page's stock lists are the server's on the same
+  files in the same order (the browser's sources are its files in name
+  order).
+- **A shelf's orphans are counted once a catalog.** Each is a read of the
+  catalog, so a shelf's drift is measured as it loads and kept in its
+  stored index with the blake3 of the catalog it was measured against;
+  it is measured again only when that catalog changes, or under a release
+  that keeps no index. Opening the files (each start of the module), the
+  fit page and the panel read none of it from the catalog, and a fit
+  asked by htmx reads no drift at all (`Library.LoadInfo`). Visiting the
+  rows in key order instead was measured too: 19,950 rows spread over the
+  catalog-scale fixture's 790,000 fitments still took 13,498 reads of
+  19,950 with a one-read cache, seconds on every start.
+- **Measured** in Chrome 157 (2026-11-12,
+  [#276](https://github.com/joshuasprow/nitrovin/pull/276)), on the
+  catalog-scale fixture compiled in the browser with a shelf of 19,950
+  numbered rows (200 orphans), the worker stopped before each request as a
+  browser stops an idle one:
+
+  | First request after a start | Before | After |
+  | --- | ---: | ---: |
+  | a fit page: `serve`, reads | 2,820–2,973 ms, 19,955 reads | 136–143 ms, 5 reads |
+  | the panel (`/ui/files`): `serve`, reads | 2,655–3,058 ms, 19,953 reads | 136–138 ms, 3 reads |
+  | allocated, collections | 231 MB, 10–11 | 61 MB, 1 |
+
+  The shelf loads in 2.6 s, its orphans counted then. A yard of 3,000 VINs
+  to decode, in a fresh profile, took the module's WebAssembly memory from
+  46.9 to 72.8 MiB before its batches were reduced as they arrived, and to
+  53.9 MiB after. With the synthetic shelves and yard beside the fixture's
+  catalog, Chrome 157 retained 21.3 MiB of Go heap and 53.4 MiB of
+  WebAssembly memory (19.7 and 53.4 MiB with the catalog alone); with a
+  2,000-row shelf and a 3,000-VIN yard loaded beside them too, 22.0 and
+  54.9 MiB: within 64 MiB.
+- **The first start under a new release costs memory once.** A new
+  release keeps none of the last one's stored indexes, so its first start
+  parses the stock files again and has the server decode the yard again,
+  and its first panel counts the shelf's orphans again. On the 19,950-row
+  shelf and the 3,000-VIN yard beside the catalog-scale catalog, in
+  Chrome 157, that start allocated about 320 MB and the panel 190 MB, the
+  backstop collecting 12–15 times in each. That left 64.4 and 65.8–66.1 MiB
+  of WebAssembly memory, until the browser stops the worker; every start
+  after is back at 56.6 MiB. Collecting more often in the middle of those
+  requests changed nothing, since what was over was live, not garbage. Not
+  holding a stock file's text while its yard decodes, and writing its
+  stored index without a second copy, brought them to 62.9 and 64.6 MiB.
+  The panel's 0.6 MiB over the budget is left: it happens once a release,
+  per browser, and only with a shelf of tens of thousands of numbered rows
+  beside a catalog of this scale.
 
 ## Considered options
 

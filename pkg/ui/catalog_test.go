@@ -49,6 +49,8 @@ func fitmentFile(t *testing.T, name string) []byte {
 type decoderServer struct {
 	*fakeServer
 	d *nitrovin.Decoder
+	// decodesDown fails every POST /v1/decode, as a server out of reach.
+	decodesDown bool
 }
 
 func newDecoderServer(t *testing.T, d *nitrovin.Decoder, names ...string) *decoderServer {
@@ -107,6 +109,28 @@ func (s *decoderServer) Get(path string) (int, []byte, error) {
 	}
 	b, err := json.Marshal(dec)
 	return http.StatusOK, b, err
+}
+
+// Post answers POST /v1/decode, a batch, as `nitrovin serve` does.
+func (s *decoderServer) Post(path string, body []byte) (int, []byte, error) {
+	s.posts = append(s.posts, body)
+	if s.down || s.decodesDown {
+		return 0, nil, errors.New("Failed to fetch")
+	}
+	if path != "/v1/decode" {
+		return http.StatusNotFound, nil, nil
+	}
+	reqs, err := contract.ParseBatch(body)
+	if err == nil {
+		var decs []contract.Decode
+		if decs, err = s.d.DecodeBatch(reqs); err == nil {
+			b, err := json.Marshal(decs)
+			return http.StatusOK, b, err
+		}
+	}
+	p := contract.AsProblem(err)
+	b, _ := json.Marshal(p)
+	return p.Status, b, nil
 }
 
 // serve has s serve data as its file name.
@@ -244,8 +268,9 @@ func blake3Of(b []byte) []byte {
 
 // sameFits asks every request of the fixture of both, a page at a time,
 // and fails unless they answer alike: the same JSON, or the same refusal.
+// Each request is asked again with each of stock's stock and locations.
 // It returns how many answers were found.
-func sameFits(t *testing.T, srv *nitrovin.Translator, l *Library) int {
+func sameFits(t *testing.T, srv *nitrovin.Translator, l *Library, stock ...stockAsk) int {
 	t.Helper()
 	entry := func(vocabulary string, fields ...string) contract.FitFrom {
 		e := map[string]string{}
@@ -279,12 +304,12 @@ func sameFits(t *testing.T, srv *nitrovin.Translator, l *Library) int {
 				for _, part := range parts {
 					for _, side := range []string{"", "left", "right", "both"} {
 						for _, limit := range []int{0, 1} {
-							found += sameFit(t, srv, l, contract.FitRequest{From: from, ModelYear: year, Part: part, Side: side, To: to, Limit: limit})
+							found += sameFitStock(t, srv, l, stock, contract.FitRequest{From: from, ModelYear: year, Part: part, Side: side, To: to, Limit: limit})
 						}
 					}
 				}
 				for _, limit := range []int{0, 1} {
-					found += sameFit(t, srv, l, contract.FitRequest{From: from, ModelYear: year, To: to, Related: true, Limit: limit})
+					found += sameFitStock(t, srv, l, stock, contract.FitRequest{From: from, ModelYear: year, To: to, Related: true, Limit: limit})
 				}
 			}
 		}
@@ -293,10 +318,26 @@ func sameFits(t *testing.T, srv *nitrovin.Translator, l *Library) int {
 		for _, year := range years {
 			for _, to := range tos {
 				for _, limit := range []int{0, 1} {
-					found += sameFit(t, srv, l, contract.FitRequest{From: contract.FitFrom{Fitment: &k}, ModelYear: year, To: to, Limit: limit})
+					found += sameFitStock(t, srv, l, stock, contract.FitRequest{From: contract.FitFrom{Fitment: &k}, ModelYear: year, To: to, Limit: limit})
 				}
 			}
 		}
+	}
+	return found
+}
+
+// stockAsk is the stock a request asks for, and where.
+type stockAsk struct {
+	stock, location []string
+}
+
+// sameFitStock is sameFit of req, and of req asking each of asks.
+func sameFitStock(t *testing.T, srv *nitrovin.Translator, l *Library, asks []stockAsk, req contract.FitRequest) int {
+	t.Helper()
+	found := sameFit(t, srv, l, req)
+	for _, a := range asks {
+		req.Stock, req.Location = a.stock, a.location
+		found += sameFit(t, srv, l, req)
 	}
 	return found
 }

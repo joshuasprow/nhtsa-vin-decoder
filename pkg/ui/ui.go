@@ -576,8 +576,10 @@ func apiDocs(info *contract.Info) string {
 // render writes v: its fragment alone, or the page around it. A fragment
 // that is no error starts with its page's title and clears the page's
 // error slot, and one with a target is sent there whatever its status.
-// Rendering is whole before anything is written, so a template's fault is
-// a clean 500.
+// A full page, and an error, is rendered whole before anything is
+// written, so a template's fault there is a clean 500; a fragment streams
+// (below), so a fault in its template is logged and its error follows
+// what was sent, under the status already sent.
 func (h *Handler) render(w http.ResponseWriter, frag bool, info *contract.Info, v view, failed bool) {
 	status := v.status
 	if status == 0 {

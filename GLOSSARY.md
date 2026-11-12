@@ -449,11 +449,21 @@ answer and is counted as drift.
 _Avoid_: unmatched part, missing part
 
 **Stock file**:
-A file of `kind: "stock"` loaded with `--vocab`: one stock source's header
+A file of `kind: "stock"` loaded with `--vocab`, or in a browser's Vocabularies
+dialog (ADR 0023): one stock source's header
 (`source`, `as_of`, and a shelf's `catalog` and `release`), then one row a line,
 each a shelf part or a yard vehicle. A row is the line, or a connector's relation
 row, a part or vehicle comes from.
 _Avoid_: inventory file, stock feed
+
+**Browser's stock**:
+The stock files a visitor's browser holds, loaded in the Vocabularies dialog and
+kept in IndexedDB with their index (ADR 0023): a shelf beside the browser's
+catalog, never the server's, and a yard, its VINs decoded once by the server as
+it loads and the decodes kept with the file. The fit page the Service Worker
+answers lists it as a server lists the same files; its fields never leave the
+browser. A connector never loads in a browser.
+_Avoid_: uploaded stock (nothing is uploaded), local stock
 
 **Stock list**:
 A fit answer's list of shelf parts or yard vehicles: a page of its rows, its

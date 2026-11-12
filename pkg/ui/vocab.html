@@ -11,7 +11,7 @@ Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 <thead><tr><th scope="col">Name</th><th scope="col">What it is</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
 <tbody>
 {{range .Rows}}<tr data-where="{{.Where}}"><th scope="row">{{if .Fault}}{{.Name}}{{else}}<a href="/ui/vocabularies/{{.Name}}">{{.Name}}</a>{{end}}</th>
-<td>{{.What}}{{with .File}}{{if .Catalog}}{{if .Fitments}}, {{.FitmentsText}} fitments, compiled in this browser{{end}}{{else if .Lines}}, {{.Lines}} lines{{end}}{{end}}{{if .Fault}}<br><span class="error">Left out: {{.Fault}}</span>{{end}}
+<td>{{.What}}{{with .File}}{{if .Catalog}}{{if .Fitments}}, {{.FitmentsText}} fitments, compiled in this browser{{end}}{{else if .Holds}}, a {{.Holds}}{{with .StockCatalog}} of {{.}}{{end}}, {{.Lines}} rows{{else if .Lines}}, {{.Lines}} lines{{end}}{{end}}{{if .Fault}}<br><span class="error">Left out: {{.Fault}}</span>{{end}}
 <details class="row-details"><summary>Details<span class="visually-hidden"> of {{.Name}}</span></summary><dl>
 <dt>Version</dt><dd class="version">{{.Version}}</dd>
 <dt>Kept in</dt><dd>{{.WhereText}}{{with .File}}: {{.FileName}}, {{.SizeText}}, stored {{.Stored.Format "2006-01-02 15:04"}} UTC{{end}}</dd>
@@ -63,10 +63,14 @@ replaces. */}}
 </div>{{end}}
 <div class="load dropzone">
 <label for="vocab-files">Drop your vocabulary files here, or choose them</label>
-<input type="file" id="vocab-files" multiple accept=".jsonl,application/jsonl" aria-describedby="vocab-files-hint">
+<input type="file" id="vocab-files" multiple accept=".jsonl,application/jsonl" aria-describedby="vocab-files-hint stock-files-hint">
 <p id="vocab-files-hint" class="hint">Files loaded together are linked as one batch. A file with the same name as one you have replaces it. They stay in this browser.
 {{- if .ServerCatalog}} This server has a catalog, {{.ServerCatalog}}; one catalog per nitrovin, so this browser compiles none.
 {{- else}} A catalog picked on its own is compiled here, read in place and never stored as you picked it; keep the tab open while it compiles.{{end}}</p>
+<p id="stock-files-hint" class="hint">
+{{- if .ServerCatalog}}Stock beside this server's catalog loads on the server.
+{{- else}}Stock files load here too: a shelf beside the catalog this browser holds, and a yard, whose VINs alone go to this server, once, to be decoded.{{end}}
+Connectors run on a server. A stock row's fields are shown as they are on every fit page that lists it, so a stock file supplies no personal data: no names, contact details or identity numbers of owners, sellers, customers or staff, and nothing it would not show a customer, such as cost. Field names that look personal are reported as drift, but nitrovin cannot tell what a field holds.</p>
 </div>
 {{with .Offer}}<div class="offer">
 {{if .Held}}<p>EPA's vocabulary, {{.Name}} {{.Version}}, is kept in this browser.</p>

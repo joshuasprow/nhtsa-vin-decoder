@@ -3,6 +3,7 @@ package vocab
 import (
 	"cmp"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,11 +26,17 @@ const (
 )
 
 // WriteIndex writes f's stored index to w: everything ReadIndex needs to
-// give back a File that answers as f does. A catalog has none: it loads on
-// a server, not in a browser.
+// give back a File that answers as f does. A catalog has none: a browser
+// compiles it and reads it in place. Nor has a connector's file: it runs
+// on a server (ADR 0020). A stock file's rows are written as Read made
+// them, before Link resolves their parts and vehicles, which a Set over
+// the index resolves again.
 func WriteIndex(w io.Writer, f *File) error {
-	if f.Kind == KindCatalog {
+	switch {
+	case f.Kind == KindCatalog:
 		return fmt.Errorf("%s: a catalog has no stored index", f.Path)
+	case f.Connector != nil:
+		return fmt.Errorf("%s: a connector's file has no stored index", f.Path)
 	}
 	e := indexWriter{at: map[string]int{}}
 	e.b = append(e.b, f.Hash[:]...)
@@ -113,6 +120,9 @@ func WriteIndex(w io.Writer, f *File) error {
 		e.str(s.ID)
 		e.str(s.Name)
 	}
+	if f.Kind == KindStock {
+		e.stock(f)
+	}
 	head := binary.AppendUvarint([]byte(indexMagic), indexFormat)
 	head = binary.AppendUvarint(head, uint64(len(e.b)))
 	for _, p := range [][]byte{head, e.b, e.text} {
@@ -121,6 +131,59 @@ func WriteIndex(w io.Writer, f *File) error {
 		}
 	}
 	return nil
+}
+
+// stock writes a stock file's header fields and rows.
+func (e *indexWriter) stock(f *File) {
+	for _, s := range []string{string(f.Holds), f.AsOf, f.StockCatalog, f.Release} {
+		e.str(s)
+	}
+	e.count(len(f.Stock), f.Stock == nil)
+	for i := range f.Stock {
+		r := &f.Stock[i]
+		e.uint(uint64(r.Line))
+		e.str(r.ID)
+		e.str(r.Location)
+		e.present(r.Key != nil)
+		if k := r.Key; k != nil {
+			e.str(k.Type)
+			e.str(k.Number)
+			e.uint(uint64(k.Side))
+		}
+		e.present(r.Part != nil)
+		if p := r.Part; p != nil {
+			e.str(p.Spine)
+			e.str(p.ID)
+			e.str(p.Vocabulary)
+			e.count(len(p.Entry), p.Entry == nil)
+			for _, k := range slices.Sorted(maps.Keys(p.Entry)) {
+				e.str(k)
+				e.str(p.Entry[k])
+			}
+		}
+		e.present(r.Decoded != nil)
+		if d := r.Decoded; d != nil {
+			e.int(int64(d.Make))
+			e.int(int64(d.Model))
+			e.int(int64(d.Year))
+		}
+		e.str(r.VIN)
+		e.present(r.vehicle != nil)
+		if r.vehicle != nil {
+			e.str(string(r.vehicle))
+		}
+		e.year(r.Year)
+		e.str(string(r.Fields))
+	}
+}
+
+// present writes whether an optional value follows.
+func (e *indexWriter) present(ok bool) {
+	if ok {
+		e.uint(1)
+		return
+	}
+	e.uint(0)
 }
 
 // indexWriter builds an index: its body, and every string once in text,
@@ -339,6 +402,9 @@ func (d *indexReader) file() (*File, error) {
 		s.ID = d.str()
 		s.Name = d.str()
 	}
+	if f.Kind == KindStock {
+		d.stock(f)
+	}
 	if d.err != nil {
 		return nil, d.err
 	}
@@ -346,8 +412,8 @@ func (d *indexReader) file() (*File, error) {
 	return f, nil
 }
 
-// reindex rebuilds an extension set's or a declared spine's lookups from
-// its lines, as index made them.
+// reindex rebuilds an extension set's, a declared spine's or a stock
+// file's lookups from its lines, as index made them.
 func (f *File) reindex() {
 	switch f.Kind {
 	case KindExtensionSet:
@@ -360,7 +426,70 @@ func (f *File) reindex() {
 		for i, s := range f.SpineEntries {
 			f.spine[s.ID] = i
 		}
+	case KindStock:
+		f.stockIDs = make(map[string]int, len(f.Stock))
+		for i, r := range f.Stock {
+			f.stockIDs[r.ID] = i
+		}
 	}
+}
+
+// stock reads a stock file's header fields and rows, as stock wrote them.
+func (d *indexReader) stock(f *File) {
+	f.Holds = StockHolds(d.str())
+	f.AsOf = d.str()
+	f.StockCatalog = d.str()
+	f.Release = d.str()
+	if n, ok := d.count(); ok {
+		f.Stock = make([]StockRow, n)
+	}
+	var years slab[int]
+	for i := range f.Stock {
+		r := &f.Stock[i]
+		r.Line = d.line()
+		r.ID = d.str()
+		r.Location = d.str()
+		if d.present() {
+			r.Key = &FitmentKey{Type: d.str(), Number: d.str()}
+			if r.Key.Side = Side(d.uint()); r.Key.Side > SideBoth {
+				d.fail()
+			}
+		}
+		if d.present() {
+			r.Part = &StockPart{Spine: d.str(), ID: d.str(), Vocabulary: d.str()}
+			if n, ok := d.count(); ok {
+				r.Part.Entry = make(map[string]string, n)
+				for range n {
+					k := d.str()
+					r.Part.Entry[k] = d.str()
+				}
+			}
+		}
+		if d.present() {
+			r.Decoded = &StockDecoded{Make: d.int32(), Model: d.int32(), Year: int(d.int())}
+		}
+		r.VIN = d.str()
+		if d.present() {
+			r.vehicle = []byte(d.str())
+		}
+		r.Year = d.year(&years)
+		r.Fields = json.RawMessage(d.str())
+		if d.err != nil {
+			return
+		}
+	}
+}
+
+// present reads whether an optional value follows.
+func (d *indexReader) present() bool {
+	switch d.uint() {
+	case 0:
+		return false
+	case 1:
+		return true
+	}
+	d.fail()
+	return false
 }
 
 // indexReader reads an index's body, its strings from text. Its first

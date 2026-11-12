@@ -3,7 +3,10 @@ package vocab
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -133,4 +136,71 @@ func TestReadIndexRefuses(t *testing.T) {
 	if _, err := ReadIndex([]byte(`{"format":1}`)); err == nil {
 		t.Error("JSON read as an index")
 	}
+}
+
+// TestIndexStock: a stock file, shelf or yard, with every route a row
+// names its part or vehicle by, reads back from its stored index as Read
+// made it, cut anywhere refuses, and links beside the catalog to the same
+// parts and vehicles. A connector's file, which runs on a server, has no
+// index.
+func TestIndexStock(t *testing.T) {
+	files, err := Open("../../testdata/vocab/fitment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	back := slices.Clone(files)
+	for _, name := range []string{"shelf-annex", "shelf-stock", "yard-stock", "drift/shelf-orphans"} {
+		f := readStock(t, name)
+		g := indexed(t, f)
+		if !reflect.DeepEqual(f, g) {
+			t.Errorf("%s: the index reads back as another file", f.Name)
+		}
+		var b bytes.Buffer
+		if err := WriteIndex(&b, f); err != nil {
+			t.Fatal(err)
+		}
+		data := b.Bytes()
+		for n := range len(data) {
+			if _, err := ReadIndex(data[:n]); err == nil {
+				t.Errorf("%s cut to %d of %d bytes: read", f.Name, n, len(data))
+			}
+		}
+		files = append(files, f)
+		back = append(back, g)
+	}
+	want, err := NewSet(fixtureMonth{}, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := NewSet(fixtureMonth{}, back)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, gs := want.Stock(), got.Stock()
+	if len(ws) != 4 || len(gs) != 4 {
+		t.Fatalf("%d and %d stock files linked; want 4", len(ws), len(gs))
+	}
+	for i := range ws {
+		if !reflect.DeepEqual(ws[i].Stock, gs[i].Stock) {
+			t.Errorf("%s: links from its index to other rows", ws[i].Name)
+		}
+	}
+
+	if err := WriteIndex(io.Discard, readStock(t, "live/shelf-stock")); err == nil || !strings.Contains(err.Error(), "a connector's file has no stored index") {
+		t.Errorf("a connector's file: %v", err)
+	}
+}
+
+// readStock reads testdata/vocab/stock/name.jsonl, unlinked.
+func readStock(t *testing.T, name string) *File {
+	t.Helper()
+	b, err := os.ReadFile("../../testdata/vocab/stock/" + name + ".jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Read(name+".jsonl", bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
 }
