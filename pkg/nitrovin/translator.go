@@ -14,13 +14,14 @@ import (
 // Translator is a Decoder with the vocabularies, extension sets, declared
 // spines and catalog loaded beside it (ADR 0011, ADR 0012, ADR 0017): the
 // files never change for its life, and the Decoder stays vocabulary-free.
-// It translates and lists through them (Translate, List), wrapping
-// translation's decoder-free core (contract.Translator over a vocab.Set,
-// ADR 0013) with the Decoder's engine, and reads the catalog through
+// It translates, lists and fits through them (Translate, List, Fit),
+// wrapping the decoder-free core (contract.Translator over a vocab.Set,
+// ADR 0013, and contract.Fitter over the catalog's fitment.Reader,
+// ADR 0018) with the Decoder's engine, and reads the catalog through
 // Catalog. It is safe for concurrent use.
 type Translator struct {
 	d       *Decoder
-	core    contract.Translator
+	core    contract.Fitter
 	catalog fitment.Reader
 	drift   []vocab.Finding
 	// load is Info with the drift measured at load; all is drift with the
@@ -45,9 +46,10 @@ func NewTranslator(d *Decoder, files ...*vocab.File) (*Translator, error) {
 	}
 	base := d.Info()
 	t := &Translator{d: d}
-	t.core = contract.Translator{Set: set, Decode: t.decode, DataMonth: base.DataMonth, DecoderVersion: base.DecoderVersion}
+	t.core.Translator = contract.Translator{Set: set, Decode: t.decode, DataMonth: base.DataMonth, DecoderVersion: base.DecoderVersion}
 	if c := set.Catalog(); c != nil {
 		t.catalog = c
+		t.core.Catalog = c
 	}
 	if len(files) > 0 {
 		t.drift = vocab.Drift(m, files)

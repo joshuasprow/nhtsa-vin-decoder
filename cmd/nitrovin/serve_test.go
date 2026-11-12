@@ -26,6 +26,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
+	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
@@ -419,6 +420,8 @@ const (
 	opDecodeBatch    = "POST /v1/decode"
 	opTranslateOne   = "GET /v1/translate"
 	opTranslateBatch = "POST /v1/translate"
+	opFitOne         = "GET /v1/fit"
+	opFitBatch       = "POST /v1/fit"
 	opCatalog        = "GET /v1/vocabularies"
 	opEntries        = "GET /v1/vocabularies/{name}/entries"
 	opInfo           = "GET /v1/info"
@@ -464,6 +467,14 @@ func refusalCases() []apiCase {
 	list := func(op, target, pointer string) apiCase {
 		return apiCase{op: op, method: "GET", target: target, status: 400, problem: contract.InvalidRequest, pointer: pointer}
 	}
+	fitGET := func(query, pointer string) apiCase {
+		return apiCase{op: opFitOne, method: "GET", target: "/v1/fit" + query, status: 400, problem: contract.InvalidRequest, pointer: pointer}
+	}
+	fitPOST := func(body string, status int, problem contract.ProblemType, pointer string) apiCase {
+		return apiCase{op: opFitBatch, method: "POST", target: "/v1/fit", body: body, status: status, problem: problem, pointer: pointer}
+	}
+	fitItem := `{"from":{"model":1938},"part":{"spine":"part-types","id":"mirror"}}`
+	fitOverlong := "[" + fitItem + strings.Repeat(" ", contract.MaxBody-len(fitItem)-1) + "]"
 	translateItem := `{"from":{"make":476}}`
 	translateOverlong := "[" + translateItem + strings.Repeat(" ", contract.MaxBody-len(translateItem)-1) + "]"
 	preflight := notAllowed(opDecodeBatch, "OPTIONS", "/v1/decode")
@@ -559,6 +570,27 @@ func refusalCases() []apiCase {
 		{op: opTranslateBatch, method: "POST", target: "/v1/translate?to=yard", body: `[` + translateItem + `]`, status: 400, problem: contract.InvalidRequest},
 		translatePOST(batchOf(contract.MaxBatch+1, translateItem), 413, contract.TooLarge, ""),
 		translatePOST(translateOverlong, 413, contract.TooLarge, ""),
+		fitGET("", "/from"),
+		fitGET("?from.fitment.type=mirror", "/from/fitment/number"),
+		fitGET("?from.fitment.number=MR-1001", "/from/fitment/type"),
+		fitGET("?from.fitment.type=mirror&from.fitment.number=MR-1001&part.spine=part-types&part.id=mirror", "/part"),
+		fitGET("?from.fitment.type=mirror&from.fitment.number=MR-1001&related=true", "/related"),
+		fitGET("?from.fitment.type=mirror&from.fitment.number=MR-1001&from.fitment.side=front", "/from/fitment/side"),
+		fitGET("?from.model=1938&side=front", "/side"),
+		fitGET("?from.model=1938&related=yes", "/related"),
+		fitGET("?from.model=1938&limit=1001", "/limit"),
+		fitGET("?from.spine=part-types&from.id=mirror", "/from/id"),
+		fitGET("?from.model=1938&part.spine=part-types", "/part/id"),
+		fitGET("?from.model=1938&vin=1D7RV1GT5AS123456", "/vin"),
+		fitPOST(`[{"from":`, 400, contract.MalformedJSON, ""),
+		fitPOST(fitItem, 400, contract.InvalidRequest, ""),
+		fitPOST(`[]`, 400, contract.InvalidRequest, ""),
+		fitPOST(`[`+fitItem+`,{"from":{"fitment":{"type":"mirror"}}}]`, 400, contract.InvalidRequest, "/1/from/fitment/number"),
+		{op: opFitBatch, method: "POST", target: "/v1/fit?side=left", body: `[` + fitItem + `]`, status: 400, problem: contract.InvalidRequest},
+		fitPOST(batchOf(contract.MaxBatch+1, fitItem), 413, contract.TooLarge, ""),
+		fitPOST(fitOverlong, 413, contract.TooLarge, ""),
+		notAllowed(opFitOne, "PUT", "/v1/fit"),
+		notAllowed(opFitBatch, "DELETE", "/v1/fit"),
 		list(opCatalog, "/v1/vocabularies?of=yard", "/of"),
 		list(opCatalog, "/v1/vocabularies?limit=5&limit=6", "/limit"),
 		list(opEntries, "/v1/vocabularies/yard/entries?limit=0", "/limit"),
@@ -786,6 +818,72 @@ func vocabCases(t *testing.T, svc decodeService) []apiCase {
 	)
 }
 
+// fitCases need data and the synthetic catalog loaded beside
+// testdata/vocab; their bodies are the Go module's bytes for the same
+// requests, refusals included. Each GET /v1/fit asks what one item of the
+// POST asks, and the POST answers exactly the GETs' answers, in order.
+func fitCases(t *testing.T, svc decodeService) []apiCase {
+	var cases []apiCase
+	var items, answers []string
+	for _, c := range fitExamples {
+		item := strings.TrimSuffix(c.item, "}") + `,"now":"` + now + `"}`
+		req, err := contract.ParseFitRequest([]byte(item))
+		if err != nil {
+			t.Fatalf("%s: %v", item, err)
+		}
+		f, err := svc.Fit(req)
+		want := wantBody(t, f, err)
+		cases = append(cases, apiCase{op: opFitOne, method: "GET", target: "/v1/fit?" + c.query + "&now=" + now, status: 200, want: want})
+		items = append(items, item)
+		answers = append(answers, string(bytes.TrimSuffix(want, []byte("\n"))))
+	}
+	cases = append(cases, apiCase{op: opFitBatch, method: "POST", target: "/v1/fit", body: "[" + strings.Join(items, ",") + "]", status: 200,
+		want: []byte("[" + strings.Join(answers, ",") + "]\n")})
+	for _, c := range fitRefusals {
+		req, err := contract.ParseFitRequest([]byte(c.item))
+		if err != nil {
+			t.Fatalf("%s: %v", c.item, err)
+		}
+		_, err = svc.Fit(req)
+		if err == nil {
+			t.Fatalf("%s: the Go module answers; want a refusal", c.item)
+		}
+		p := contract.AsProblem(err)
+		cases = append(cases, apiCase{op: opFitOne, method: "GET", target: "/v1/fit?" + c.query, status: p.Status, problem: p.Type, pointer: p.Pointer, want: wantBody(t, p, nil)})
+	}
+	// list of the catalog pages its fitment lines.
+	l, err := svc.List(contract.ListRequest{Of: "parts-catalog", Where: map[string]string{"type": "mirror"}, Limit: 1})
+	return append(cases, apiCase{op: opEntries, method: "GET", target: "/v1/vocabularies/parts-catalog/entries?where.type=mirror&limit=1", status: 200, want: wantBody(t, l, err)})
+}
+
+// fitExamples are the synthetic catalog's documented fit examples
+// (docs/api/README.md), each as a GET's query and a POST's item.
+var fitExamples = []struct{ query, item string }{
+	{"from.vocabulary=catalog-models&from.entry.make=Dodge&from.entry.model=Ram+1500&model_year=2010",
+		`{"from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010}`},
+	{"from.vin=1D7RV1GT5AS123456&part.spine=part-types&part.id=mirror&side=left",
+		`{"from":"1D7RV1GT5AS123456","part":{"spine":"part-types","id":"mirror"},"side":"left"}`},
+	{"from.vocabulary=catalog-models&from.entry.make=Chevrolet&from.entry.model=Silverado+1500&model_year=2010&part.spine=part-types&part.id=brake-rotor-rear",
+		`{"from":{"vocabulary":"catalog-models","entry":{"make":"Chevrolet","model":"Silverado 1500"}},"model_year":2010,"part":{"spine":"part-types","id":"brake-rotor-rear"}}`},
+	{"from.model=1850&model_year=2010&part.vocabulary=part-codes&part.entry.code=ROT",
+		`{"from":{"model":1850},"model_year":2010,"part":{"vocabulary":"part-codes","entry":{"code":"ROT"}}}`},
+	{"from.fitment.type=brake-rotor-front&from.fitment.number=BR-1999&to=yard",
+		`{"from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}},"to":["yard"]}`},
+	{"from.vin=1D7RV1GT5AS123456&related=true", `{"from":"1D7RV1GT5AS123456","related":true}`},
+	{"from.vocabulary=yard&from.entry.make=Tucker&from.entry.model=48", `{"from":{"vocabulary":"yard","entry":{"make":"Tucker","model":"48"}}}`},
+	{"from.fitment.type=mirror&from.fitment.number=MR-1001", `{"from":{"fitment":{"type":"mirror","number":"MR-1001"}}}`},
+}
+
+// fitRefusals are fit requests the loaded files refuse, as a GET's query
+// and a POST's item.
+var fitRefusals = []struct{ query, item string }{
+	{"from.model=1938&part.vocabulary=listing&part.entry.category=Brake+Pads", `{"from":{"model":1938},"part":{"vocabulary":"listing","entry":{"category":"Brake Pads"}}}`},
+	{"from.model=1938&part.spine=parts&part.id=brake-rotor", `{"from":{"model":1938},"part":{"spine":"parts","id":"brake-rotor"}}`},
+	{"from.vocabulary=nope&from.entry.make=Dodge", `{"from":{"vocabulary":"nope","entry":{"make":"Dodge"}}}`},
+	{"from.vocabulary=catalog-models&from.entry.make=Dodge", `{"from":{"vocabulary":"catalog-models","entry":{"make":"Dodge"}}}`},
+	{"from.model=1938&related=true&to=listing", `{"from":{"model":1938},"related":true,"to":["listing"]}`},
+}
+
 // faulty fails every call as a fault in nitrovin would: a decode error, or
 // a panic.
 type faulty struct{}
@@ -806,6 +904,12 @@ func (faulty) TranslateBatch([]contract.TranslateRequest) ([]contract.Translatio
 func (faulty) List(contract.ListRequest) (contract.List, error) {
 	return contract.List{}, errors.New("injected fault")
 }
+func (faulty) Fit(contract.FitRequest) (contract.Fit, error) {
+	return contract.Fit{}, errors.New("injected fault")
+}
+func (faulty) FitBatch([]contract.FitRequest) ([]contract.Fit, error) {
+	return nil, errors.New("injected fault")
+}
 func (faulty) SpineBundle() ([]byte, error) { return nil, errors.New("injected fault") }
 func (faulty) File(string) ([]byte, error)  { return nil, errors.New("injected fault") }
 
@@ -817,6 +921,8 @@ func faultCases() []apiCase {
 		{op: opInfo, method: "GET", target: "/v1/info", status: 500, problem: contract.Internal},
 		{op: opTranslateOne, method: "GET", target: "/v1/translate?from.make=476", status: 500, problem: contract.Internal},
 		{op: opTranslateBatch, method: "POST", target: "/v1/translate", body: `[{"from":{"make":476}}]`, status: 500, problem: contract.Internal},
+		{op: opFitOne, method: "GET", target: "/v1/fit?from.model=1938", status: 500, problem: contract.Internal},
+		{op: opFitBatch, method: "POST", target: "/v1/fit", body: `[{"from":{"model":1938}}]`, status: 500, problem: contract.Internal},
 		{op: opCatalog, method: "GET", target: "/v1/vocabularies", status: 500, problem: contract.Internal},
 		{op: opEntries, method: "GET", target: "/v1/vocabularies/yard/entries", status: 500, problem: contract.Internal},
 	}
@@ -914,17 +1020,17 @@ func TestServeContract(t *testing.T) {
 		t.Skip("stops the server with SIGINT")
 	}
 	path, d := artifact(t)
-	files, err := vocab.Open(fixture)
+	files, err := vocab.Open(fixture, fitmentFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
 	svc := translating(t, d, files...)
 	s := loadSpec(t)
-	srv := startServe(t, []string{"NITROVIN_DATA=" + path}, "--vocab", fixture, "--addr", "127.0.0.1:0")
+	srv := startServe(t, []string{"NITROVIN_DATA=" + path}, "--vocab", fixture, "--vocab", fitmentFixture, "--addr", "127.0.0.1:0")
 	base := "http://127.0.0.1:" + srv.port
 
 	covered := map[string]bool{}
-	for _, c := range slices.Concat(refusalCases(), decodeCases(t, svc), vocabCases(t, svc)) {
+	for _, c := range slices.Concat(refusalCases(), decodeCases(t, svc), vocabCases(t, svc), fitCases(t, svc)) {
 		s.run(t, client, base, c)
 		covered[fmt.Sprintf("%s %d", c.op, c.status)] = true
 	}
@@ -1099,5 +1205,48 @@ func TestServeCORS(t *testing.T) {
 	resp.Body.Close()
 	if got := resp.Header.Get("Access-Control-Allow-Origin"); resp.StatusCode != 500 || got != "*" {
 		t.Errorf("--cors *: GET /v1/info %d, Access-Control-Allow-Origin %q; want 500 (faulty) and *", resp.StatusCode, got)
+	}
+}
+
+// TestServeFitNoCatalog: with no catalog loaded, as on nitrovin.app, GET
+// and POST /v1/fit answer the status no-catalog, never a refusal.
+func TestServeFitNoCatalog(t *testing.T) {
+	fixtureData(t)
+	d, err := nitrovin.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := vocab.Open(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := newAPI(translating(t, d, files...), log.New(io.Discard, "", 0), io.Discard, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(a)
+	t.Cleanup(srv.Close)
+	for _, c := range []struct{ method, target, body, want string }{
+		{"GET", "/v1/fit?from.vin=1D7RV1GT5AS123456&part.spine=part-types&part.id=mirror&now=" + now, "",
+			`{"status":"no-catalog","models":[],"candidates":[],"total":0,"now":"` + now + `",`},
+		{"POST", "/v1/fit", `[{"from":{"fitment":{"type":"mirror","number":"MR-1001","side":"left"}},"now":"` + now + `"}]`,
+			`[{"status":"no-catalog","vehicles":[],"total":0,"now":"` + now + `",`},
+	} {
+		req, err := http.NewRequest(c.method, srv.URL+c.target, strings.NewReader(c.body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != 200 || !strings.HasPrefix(string(body), c.want) {
+			t.Errorf("%s %s: %d %s; want 200 and %s…", c.method, c.target, resp.StatusCode, body, c.want)
+		}
 	}
 }

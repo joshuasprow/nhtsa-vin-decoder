@@ -294,14 +294,7 @@ func vocabularyEntry(f *vocab.File, e *vocab.Entry) VocabularyEntry {
 			First: year(mp.First), Last: year(mp.Last), Origin: mp.Origin, Note: mp.Note,
 		}
 		if len(mp.Qualifiers) > 0 {
-			m.Qualifiers = make(map[string][]QualifierValue, len(mp.Qualifiers))
-			for _, q := range mp.Qualifiers {
-				vs := make([]QualifierValue, len(q.Values))
-				for j, v := range q.Values {
-					vs[j] = QualifierValue{IsText: v.IsText, Attribute: v.Attribute, Text: v.Text}
-				}
-				m.Qualifiers[strconv.Itoa(int(q.Element))] = vs
-			}
+			m.Qualifiers = qualifierValues(mp.Qualifiers)
 		}
 		out.Mappings[i] = m
 	}
@@ -312,6 +305,20 @@ func fileVersions(files []*vocab.File) []FileVersion {
 	out := make([]FileVersion, len(files))
 	for i, f := range files {
 		out[i] = FileVersion{Name: f.Name, Version: f.Version}
+	}
+	return out
+}
+
+// qualifierValues are qualifiers as a file writes them: element id (as a
+// decimal string) → values.
+func qualifierValues(qs []vocab.Qualifier) map[string][]QualifierValue {
+	out := make(map[string][]QualifierValue, len(qs))
+	for _, q := range qs {
+		vs := make([]QualifierValue, len(q.Values))
+		for j, v := range q.Values {
+			vs[j] = QualifierValue{IsText: v.IsText, Attribute: v.Attribute, Text: v.Text}
+		}
+		out[strconv.Itoa(int(q.Element))] = vs
 	}
 	return out
 }

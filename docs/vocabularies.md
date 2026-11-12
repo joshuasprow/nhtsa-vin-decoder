@@ -248,9 +248,25 @@ nitrovin --vocab testdata/vocab/fitment info | jq -c '.vocabularies[] | select(.
 {"name":"parts-catalog","kind":"catalog","version":"2026.11","release":"7.02","drift":[],"fitments":5,"applications":7,"redirects":1,"retired":1}
 ```
 
-Translate and list read only vocabularies, extension sets and spines: a
-catalog is not in `list`'s catalog of what is loaded, and naming it as
-`of` or a `to` is refused. The browser neither loads a catalog nor is
+Translate reads only vocabularies, extension sets and spines: a catalog
+is not in `list`'s catalog of what is loaded, and naming it as a `to` is
+refused. **`fit`** reads the catalog
+([the API's Fit section](api/README.md#fit-fit), ADR 0018): from a vehicle
+its part types with counts, with a `part` its candidates, with `related`
+the vehicles that share its fitments, and from a fitment key its vehicles.
+Nothing to fit is a status, `no-catalog` included. `list` with `of` the
+catalog's name pages its fitment lines, `where.type` keeping one part
+type. The synthetic catalog's `part-codes.jsonl` is a part vocabulary on
+its spine, whose `ROT` code files both rotors under one code, so a fit
+can name a part type in a parts system's words:
+
+```sh
+nitrovin --vocab testdata/vocab --vocab testdata/vocab/fitment fit --part part-types:mirror --side left 1D7RV1GT5AS123456
+echo '{"from":{"model":1850},"model_year":2010,"part":{"vocabulary":"part-codes","entry":{"code":"ROT"}}}' |
+  nitrovin --vocab testdata/vocab --vocab testdata/vocab/fitment fit -
+```
+
+The browser neither loads a catalog nor is
 offered the server's, and `serve` never publishes one. In Go, a loaded
 catalog is a `fitment.Reader` ([`pkg/fitment`](../pkg/fitment)), the one
 interface every consumer reads it through (ADR 0017): `ByVehicle`,

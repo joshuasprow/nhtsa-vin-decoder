@@ -150,7 +150,7 @@ type mcpCall struct {
 
 // knownTool reports whether name is one of mcp-tools.json's tools.
 func knownTool(name string) bool {
-	return name == "decode_vin" || name == "translate" || name == "list"
+	return name == "decode_vin" || name == "translate" || name == "list" || name == "fit"
 }
 
 // mcpCalls is the scripted session's calls after tools/list: a decode in
@@ -187,6 +187,10 @@ func mcpCalls(t *testing.T) []mcpCall {
 		{args: `{"vin":"` + vin + `","model_year":2003.5}`, pointer: "/model_year"},
 		{args: `{"vin":"` + vin + `","model_year":2147483648}`, pointer: "/model_year"},
 		{args: `{"vin":"` + vin + `","full":"yes"}`, pointer: "/full"},
+
+		// No catalog is loaded: a fit is the status no-catalog.
+		{tool: "fit", args: `{"from":"` + vin + `","part":{"spine":"part-types","id":"mirror"},"now":"` + now + `"}`},
+		{tool: "fit", args: `{"from":{"fitment":{"type":"mirror"}}}`, pointer: "/from/fitment/number"},
 
 		{tool: "decode_vins", args: `{"vin":"` + vin + `"}`},
 	}
@@ -403,8 +407,9 @@ func translating(t *testing.T, d *nitrovin.Decoder, files ...*vocab.File) loaded
 }
 
 // TestMCPVocabSession runs a scripted session against the embedded data
-// with testdata/vocab loaded, over stdio and Streamable HTTP as
-// TestMCPSession does: tools/list is still mcp-tools.json's tools array;
+// with testdata/vocab and the synthetic catalog loaded, over stdio and
+// Streamable HTTP as TestMCPSession does: tools/list is still
+// mcp-tools.json's tools array; fit answers the catalog's examples;
 // translate answers a VIN and an entry, list gives the catalog and pages a
 // listing end to end, each as the Translator answers in-process; a request
 // the loaded files refuse is an isError Problem.
@@ -414,7 +419,7 @@ func TestMCPVocabSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := vocab.Open(fixture)
+	files, err := vocab.Open(fixture, fitmentFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,8 +446,15 @@ func TestMCPVocabSession(t *testing.T) {
 		{tool: "list", args: `{"of":"ebay"}`, pointer: "/of"},
 		{tool: "list", args: `{"of":"parts","limit":0}`, pointer: "/limit"},
 		{tool: "list", args: `{"of":"vpic","where":{"element":15}}`, pointer: "/where/element"},
+
+		{tool: "fit", args: `{"from":"` + ram2010 + `","part":{"spine":"part-types","id":"mirror"},"side":"left","now":"` + now + `"}`},
+		{tool: "fit", args: `{"from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010,"now":"` + now + `"}`},
+		{tool: "fit", args: `{"from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}},"to":["yard"],"now":"` + now + `"}`},
+		{tool: "fit", args: `{"from":"` + ram2010 + `","related":true,"now":"` + now + `"}`},
+		{tool: "list", args: `{"of":"parts-catalog","where":{"type":"mirror"}}`},
+		{tool: "fit", args: `{"from":{"model":1938},"part":{"vocabulary":"listing","entry":{"category":"Brake Pads"}}}`, pointer: "/part/vocabulary"},
 	}
-	runSessions(t, d, "", fixture, calls)
+	runSessions(t, d, "", fixture+string(os.PathListSeparator)+fitmentFixture, calls)
 }
 
 // runSessions runs the scripted session twice with a 2026-07-28 client and
@@ -591,6 +603,8 @@ func checkCall(t *testing.T, d loaded, c mcpCall, resp message, outputs map[stri
 			want, err = translateJSON(d, []byte(cmp.Or(c.args, "{}")))
 		case "list":
 			want, err = listJSON(d, []byte(cmp.Or(c.args, "{}")))
+		case "fit":
+			want, err = fitJSON(d, []byte(cmp.Or(c.args, "{}")))
 		}
 		if err != nil {
 			t.Fatalf("%s %s: %v", name, c.args, err)
@@ -625,5 +639,19 @@ func checkCall(t *testing.T, d loaded, c mcpCall, resp message, outputs map[stri
 	}
 	if err := validates(problem, []byte(text)); err != nil {
 		t.Errorf("%s: not a valid Problem: %v", c.args, err)
+	}
+}
+
+// TestMCPRecovers: a panic answering a tool call (a fault in nitrovin, or
+// a catalog reader failing on a damaged file) is an #internal Problem for
+// that call, and the server goes on.
+func TestMCPRecovers(t *testing.T) {
+	var stderr strings.Builder
+	b, err := recovered("fit", func([]byte) ([]byte, error) { panic("damaged catalog") }, []byte(`{}`), &stderr)
+	if p := contract.AsProblem(err); b != nil || p.Type != contract.Internal || !strings.Contains(p.Detail, "damaged catalog") {
+		t.Errorf("%s, %v; want an #internal problem naming the panic", b, err)
+	}
+	if log := stderr.String(); !strings.HasPrefix(log, "panic answering tool fit: damaged catalog\n") || !strings.Contains(log, "goroutine ") {
+		t.Errorf("stderr %q; want the panic and its stack", log)
 	}
 }

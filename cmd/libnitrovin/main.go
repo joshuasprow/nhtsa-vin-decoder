@@ -32,13 +32,14 @@ package main
 // nitrovin_t *nitrovin_open_vocab(const char *artifact_path,
 //                                 const char *const *vocab_paths, size_t n,
 //                                 char **err);
-//     nitrovin_open, then load the n vocabulary, extension set and spine
-//     paths (files, or directories of *.jsonl) beside the artifact, as
+//     nitrovin_open, then load the n vocabulary, extension set, spine and
+//     catalog paths (files, or directories of *.jsonl) beside the artifact, as
 //     --vocab does. A fault in a file fails as nitrovin_open does; drift
 //     is served and counted in nitrovin_info. vocab_paths may be NULL
 //     when n is 0.
 // char *nitrovin_decode(nitrovin_t *h, const char *request_json);
-//     request_json: one StdioRequest of any op (decode, translate, list).
+//     request_json: one StdioRequest of any op (decode, translate, list,
+//     fit).
 //     Returns one StdioReply, exactly the line `nitrovin stdio` would
 //     write, without the newline. Never NULL.
 // char *nitrovin_info(nitrovin_t *h);

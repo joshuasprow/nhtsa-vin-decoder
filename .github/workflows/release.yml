@@ -185,7 +185,7 @@ jobs:
           read -r -t 30 reply <&"${mcp[0]}"
           printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}' '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' >&"${mcp[1]}"
           read -r -t 30 reply <&"${mcp[0]}"
-          jq -e '.id == 2 and [.result.tools[].name] == ["decode_vin", "translate", "list"]' <<<"$reply" >/dev/null || { echo "release: tools/list answered $reply" >&2; exit 1; }
+          jq -e '.id == 2 and [.result.tools[].name] == ["decode_vin", "translate", "list", "fit"]' <<<"$reply" >/dev/null || { echo "release: tools/list answered $reply" >&2; exit 1; }
           in=${mcp[1]}
           exec {in}>&-
           wait "$mcp_PID"

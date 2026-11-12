@@ -137,8 +137,8 @@ func serve(e *env, addr, cors string) error {
 }
 
 // loaded is the decoder with the files loaded beside it: /v1/info lists
-// them, /v1/translate and /v1/vocabularies answer through them, and /ui/r
-// publishes them with the data month's spine bundle.
+// them, /v1/translate, /v1/fit and /v1/vocabularies answer through them,
+// and /ui/r publishes them with the data month's spine bundle.
 type loaded struct {
 	*nitrovin.Decoder
 	*nitrovin.Translator
@@ -222,6 +222,8 @@ type decodeService interface {
 	Translate(contract.TranslateRequest) (contract.Translation, error)
 	TranslateBatch([]contract.TranslateRequest) ([]contract.Translation, error)
 	List(contract.ListRequest) (contract.List, error)
+	Fit(contract.FitRequest) (contract.Fit, error)
+	FitBatch([]contract.FitRequest) ([]contract.Fit, error)
 	SpineBundle() ([]byte, error)
 	File(name string) ([]byte, error)
 }
@@ -330,6 +332,8 @@ func (a *api) route(path string) (string, http.HandlerFunc) {
 		return http.MethodPost, a.decodeBatch
 	case "/v1/translate":
 		return "GET, POST", a.translate
+	case "/v1/fit":
+		return "GET, POST", a.fit
 	case "/v1/vocabularies":
 		return http.MethodGet, func(w http.ResponseWriter, r *http.Request) { a.list(w, r, "") }
 	case "/v1/info":
@@ -435,6 +439,44 @@ func (a *api) translateBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.ok(w, trs)
+}
+
+// fit is GET /v1/fit, one request as dotted query parameters, and POST
+// /v1/fit, a batch (ADR 0018).
+func (a *api) fit(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		body, ok := a.body(w, r)
+		if !ok {
+			return
+		}
+		reqs, err := contract.ParseFitBatch(body)
+		if err != nil {
+			a.problem(w, contract.AsProblem(err))
+			return
+		}
+		fits, err := a.d.FitBatch(reqs)
+		if err != nil {
+			a.problem(w, contract.AsProblem(err))
+			return
+		}
+		a.ok(w, fits)
+		return
+	}
+	query, ok := a.query(w, r)
+	if !ok {
+		return
+	}
+	req, err := contract.ParseFitQuery(query)
+	if err != nil {
+		a.problem(w, contract.AsProblem(err))
+		return
+	}
+	fit, err := a.d.Fit(req)
+	if err != nil {
+		a.problem(w, contract.AsProblem(err))
+		return
+	}
+	a.ok(w, fit)
 }
 
 // list is GET /v1/vocabularies, the catalog, with escapedName "", and GET

@@ -31,11 +31,33 @@ func (t *Translator) TranslateBatch(reqs []contract.TranslateRequest) ([]contrac
 // one page of vPIC's makes, a make's models or a model's values for an
 // element (ADR 0015, Month's ModelValues), a vocabulary's entries with
 // their mappings, a declared spine's entries or an extension set's
-// extensions. The error is a *contract.Problem, an InvalidRequest for an
-// Of nothing loaded has, a where field the listing lacks or a vPIC where
-// it refuses, a limit out of range or an after it never gave.
+// extensions, or the loaded catalog's fitments (ADR 0018). The error is a
+// *contract.Problem, an InvalidRequest for an Of nothing loaded has, a
+// where field the listing lacks or a vPIC where it refuses, a limit out of
+// range or an after it never gave.
 func (t *Translator) List(req contract.ListRequest) (contract.List, error) {
 	return t.core.List(req)
+}
+
+// Fit answers one fit request (ADR 0018) from the loaded catalog
+// (contract.Fitter): from a vehicle, its part types with counts, with a
+// part its candidates, with related the vehicles that share its
+// fitments; from a fitment key, its vehicles. A VIN is decoded with the
+// request's model year as its hint; its decode checks qualifiers and
+// gives the year. When req.Now is zero it reads the wall clock once.
+// Nothing to fit is never an error, no catalog loaded included: it is a
+// status. The error is a *contract.Problem, an InvalidRequest for a
+// malformed request, an Internal for a fault in nitrovin.
+func (t *Translator) Fit(req contract.FitRequest) (contract.Fit, error) {
+	return t.core.Fit(req)
+}
+
+// FitBatch fits requests in order, reading the wall clock once for every
+// request whose Now is zero, as the contract fixes for one HTTP request.
+// It stops at the first error, a *contract.Problem whose pointer names the
+// request ("/3/part").
+func (t *Translator) FitBatch(reqs []contract.FitRequest) ([]contract.Fit, error) {
+	return t.core.FitBatch(reqs)
 }
 
 // decode is the core's decoder: the engine, answering with the Decoder's

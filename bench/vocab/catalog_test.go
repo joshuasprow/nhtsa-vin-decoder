@@ -135,33 +135,10 @@ func writeCatalog(dir string, m vocab.Month) error {
 	}); err != nil {
 		return err
 	}
-	// fitment i's part type, number and side, and its application j's
-	// vehicle and years: functions of i and j, so redirects and retired
-	// numbers can point at them. One fitment in three is one of a left and
-	// right pair: one part type, one number.
-	typeOf := func(i int) string { return fmt.Sprintf("%03d", i/2%catalogTypes+1) }
-	numberOf := func(i int) string {
-		if i%6 < 2 {
-			return fmt.Sprintf("N%07d", i-i%2)
-		}
-		return fmt.Sprintf("N%07d", i)
-	}
-	sideOf := func(i int) string {
-		switch i % 6 {
-		case 0:
-			return `,"side":"left"`
-		case 1:
-			return `,"side":"right"`
-		}
-		return ""
-	}
-	vehicleOf := func(i, j int) int { return (i*31 + j*977) % catalogModels }
-	firstOf := func(i, j int) int { return 1981 + (i+j*7)%40 }
-	lastOf := func(i, j int) int { return firstOf(i, j) + (i+j)%6 }
 	return write("catalog.jsonl", func(w *bufio.Writer) {
 		fmt.Fprintf(w, `{"format":1,"kind":"catalog","name":"bench-catalog","version":"synthetic","release":"1.0","data_month":%q,"spine":"bench-types","vehicles":"bench-models"}`+"\n", m.Name())
 		for i := range catalogFitments {
-			fmt.Fprintf(w, `{"fitment":{"type":"%s","number":"%s"%s}`, typeOf(i), numberOf(i), sideOf(i))
+			fmt.Fprintf(w, `{"fitment":{"type":"%s","number":"%s"%s}`, catalogTypeOf(i), catalogNumberOf(i), catalogSide(i))
 			if i%5 == 0 {
 				w.WriteString(`,"note":"remanufactured"`)
 			}
@@ -174,7 +151,7 @@ func writeCatalog(dir string, m vocab.Month) error {
 				if (i+j)%10 < 6 {
 					opt = fmt.Sprintf("%s, w/ part %d-%d, from the parts tree", opt, i, j) // an application's own words
 				}
-				fmt.Fprintf(w, `{"vehicle":%s,"first":%d,"last":%d,"options":%q`, vehicles[vehicleOf(i, j)], firstOf(i, j), lastOf(i, j), opt)
+				fmt.Fprintf(w, `{"vehicle":%s,"first":%d,"last":%d,"options":%q`, vehicles[catalogVehicleOf(i, j)], catalogFirstOf(i, j), catalogLastOf(i, j), opt)
 				if (i+j)%2 == 0 {
 					fmt.Fprintf(w, `,"qualifiers":%s`, qualifierSets[(i/2+j)%len(qualifierSets)])
 				}
@@ -188,12 +165,12 @@ func writeCatalog(dir string, m vocab.Month) error {
 			i := r * 7 % catalogFitments
 			from := fmt.Sprintf("%03d", (i+101)%catalogTypes+1)
 			fmt.Fprintf(w, `{"redirect":{"vehicle":%s,"first":%d,"last":%d,"from":"%s","to":"%s","options":"listed under %s"}}`+"\n",
-				vehicles[vehicleOf(i, 0)], firstOf(i, 0), lastOf(i, 0), from, typeOf(i), typeOf(i))
+				vehicles[catalogVehicleOf(i, 0)], catalogFirstOf(i, 0), catalogLastOf(i, 0), from, catalogTypeOf(i), catalogTypeOf(i))
 		}
 		for r := range catalogRetired {
 			i := r * 461 % catalogFitments
 			fmt.Fprintf(w, `{"retired":{"type":"%s","number":"R%07d"%s},"to":{"type":"%s","number":"%s"%s},"note":"0.9 → 1.0"}`+"\n",
-				typeOf(i), r, sideOf(i), typeOf(i), numberOf(i), sideOf(i))
+				catalogTypeOf(i), r, catalogSide(i), catalogTypeOf(i), catalogNumberOf(i), catalogSide(i))
 		}
 	})
 }
@@ -262,3 +239,40 @@ func retained(paths []string) (float64, error) {
 	runtime.KeepAlive(tr)
 	return float64(after.HeapAlloc) - float64(before.HeapAlloc), nil
 }
+
+// The catalog-scale fixture's generator, which writeCatalog writes and
+// BenchmarkFit asks from: fitment i's part type, number and side (one in
+// three is one of a left and right pair: one part type, one number), and
+// its application j's vehicle (an index into the vehicle entries) and
+// years.
+func catalogTypeOf(i int) string { return fmt.Sprintf("%03d", i/2%catalogTypes+1) }
+
+func catalogNumberOf(i int) string {
+	if i%6 < 2 {
+		return fmt.Sprintf("N%07d", i-i%2)
+	}
+	return fmt.Sprintf("N%07d", i)
+}
+
+// catalogSideOf is fitment i's side, "" for none.
+func catalogSideOf(i int) string {
+	switch i % 6 {
+	case 0:
+		return "left"
+	case 1:
+		return "right"
+	}
+	return ""
+}
+
+// catalogSide is fitment i's side as its key's member, "" for none.
+func catalogSide(i int) string {
+	if s := catalogSideOf(i); s != "" {
+		return `,"side":"` + s + `"`
+	}
+	return ""
+}
+
+func catalogVehicleOf(i, j int) int { return (i*31 + j*977) % catalogModels }
+func catalogFirstOf(i, j int) int   { return 1981 + (i+j*7)%40 }
+func catalogLastOf(i, j int) int    { return catalogFirstOf(i, j) + (i+j)%6 }

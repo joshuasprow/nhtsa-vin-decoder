@@ -39,3 +39,4 @@
 {"id":13,"vin":
 [1,2,3]
 not json
+{"id":"fit","op":"fit","from":"1D7RV1GT5AS123456","part":{"spine":"part-types","id":"mirror"},"now":"2026-11-01"}

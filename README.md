@@ -191,9 +191,12 @@ decodes in order; `POST /v1/translate` does the same for translate
 requests, and `GET /v1/translate` takes one as dotted query parameters
 (`from.vocabulary=yard&from.entry.make=Dodge&from.entry.model=Ram%201500`).
 `GET /v1/vocabularies` lists what is loaded and
-`GET /v1/vocabularies/{name}/entries` pages through one
+`GET /v1/vocabularies/{name}/entries` pages through one;
+`GET` and `POST /v1/fit` read a loaded catalog: a vehicle's part types,
+candidates and related vehicles, and a fitment's vehicles
 ([Translation](docs/api/README.md#translation-translate),
-[Listing](docs/api/README.md#listing-list)). Refusals are
+[Listing](docs/api/README.md#listing-list),
+[Fit](docs/api/README.md#fit-fit)). Refusals are
 `application/problem+json` (RFC 9457) with a `pointer` to the offending
 value. `GET /v1/openapi.json` serves the
 [OpenAPI 3.1 document](docs/api/openapi.yaml); `GET /healthz` is the probe.
@@ -209,8 +212,9 @@ printf '{"id":1,"vin":"1HGCM82633A004352"}\n{"id":2,"vin":"5YJ3E1EA2JF000316","s
 
 One request per line in, one line out per request, in order and flushed per
 line: `{"id": …, "decode": {…}}` or `{"id": …, "error": {…}}`. A line with
-`"op": "translate"` or `"op": "list"` translates or lists instead, through
-the `--vocab` files, and its reply is keyed `translation` or `list`. A bad
+`"op": "translate"`, `"op": "list"` or `"op": "fit"` translates, lists or
+fits instead, through the `--vocab` files, and its reply is keyed
+`translation`, `list` or `fit`. A bad
 line gets an error line and the session goes on; EOF ends it. This is the
 easiest way to keep one decoder process open from another language
 (`docker run --rm -i ghcr.io/joshuasprow/nitrovin stdio` works too).
@@ -219,8 +223,8 @@ easiest way to keep one decoder process open from another language
 ### MCP
 
 `nitrovin mcp` is an MCP server over stdio with the tools `decode_vin`,
-whose arguments are the request above, and `translate` and `list`, which
-answer from the vocabularies `--vocab` loads
+whose arguments are the request above, and `translate`, `list` and `fit`,
+which answer from the vocabularies and catalog `--vocab` loads
 ([tool definitions](docs/api/mcp-tools.json)). For Claude Desktop
 (`~/Library/Application Support/Claude/claude_desktop_config.json` on
 macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows) and Cursor
@@ -315,7 +319,7 @@ carry the data. Every `pkg/` package is public API:
 [nitrovin-data release](https://github.com/joshuasprow/nitrovin-data/releases).
 `nitrovin_decode` takes one stdio request line and returns exactly the
 reply line `nitrovin stdio` would write; `nitrovin_open_vocab` opens the
-artifact with vocabularies beside it, for translate and list lines
+artifact with vocabularies beside it, for translate, list and fit lines
 ([the C library](docs/c-library.md)).
 
 ```c
@@ -449,7 +453,8 @@ lacks; a **spine** declares the part types a part vocabulary maps onto.
 Matching is exact after one fixed normalization (case and spaces): rules
 and fuzzy matching belong to whoever builds the file.
 [docs/vocabularies.md](docs/vocabularies.md) is how to write one, check
-it, and translate and list on every surface.
+it, and translate, list and fit on every surface. A **catalog** (which
+parts fit which vehicles) loads the same way, and `nitrovin fit` reads it.
 
 Name files or directories with `--vocab` (repeatable, any command) or
 `NITROVIN_VOCAB`. A file with a fault stops nitrovin from starting; where a

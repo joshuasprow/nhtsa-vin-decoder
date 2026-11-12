@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"runtime/debug"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -21,7 +22,7 @@ func init() {
 	register(command{
 		name:     "mcp",
 		synopsis: "[flags]",
-		summary:  "Serve the decode_vin, translate and list tools to an MCP client over stdin and stdout.",
+		summary:  "Serve the decode_vin, translate, list and fit tools to an MCP client over stdin and stdout.",
 		setup:    mcpSetup,
 	})
 }
@@ -95,7 +96,8 @@ type nopWriteCloser struct{ io.Writer }
 func (nopWriteCloser) Close() error { return nil }
 
 // newMCPServer returns the MCP server of docs/api/README.md's MCP section:
-// the tools decode_vin, translate and list, answering with d, on every protocol revision the SDK serves. The SDK's diagnostics
+// the tools decode_vin, translate, list and fit, answering with d, on every
+// protocol revision the SDK serves. The SDK's diagnostics
 // go to stderr. `nitrovin mcp` serves it over stdio, `nitrovin serve` over
 // Streamable HTTP at /mcp.
 func newMCPServer(d decodeService, stderr io.Writer) (*mcp.Server, error) {
@@ -107,9 +109,10 @@ func newMCPServer(d decodeService, stderr io.Writer) (*mcp.Server, error) {
 		"decode_vin": func(args []byte) ([]byte, error) { return decodeJSON(d, args) },
 		"translate":  func(args []byte) ([]byte, error) { return translateJSON(d, args) },
 		"list":       func(args []byte) ([]byte, error) { return listJSON(d, args) },
+		"fit":        func(args []byte) ([]byte, error) { return fitJSON(d, args) },
 	}
 	if len(tools) != len(handlers) {
-		return nil, errors.New("mcp-tools.json: want the tools decode_vin, translate and list")
+		return nil, errors.New("mcp-tools.json: want the tools decode_vin, translate, list and fit")
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "nitrovin", Version: nitrovin.Version()}, &mcp.ServerOptions{
 		Logger: slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
@@ -130,7 +133,7 @@ func newMCPServer(d decodeService, stderr io.Writer) (*mcp.Server, error) {
 			InputSchema:  tool.InputSchema,
 			OutputSchema: tool.OutputSchema,
 			Annotations:  tool.Annotations,
-		}, toolHandler(h))
+		}, toolHandler(tool.Name, h, stderr))
 	}
 	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -184,13 +187,13 @@ type answer func(args []byte) ([]byte, error)
 // structuredContent and, as the same compact JSON, its one text block.
 // A refused request (or a fault in nitrovin) is an isError result whose
 // one text block is the Problem, as compact JSON.
-func toolHandler(h answer) mcp.ToolHandler {
+func toolHandler(name string, h answer, stderr io.Writer) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := req.Params.Arguments
 		if len(args) == 0 { // arguments are optional in MCP: none is {}
 			args = json.RawMessage("{}")
 		}
-		b, err := h(args)
+		b, err := recovered(name, h, args, stderr)
 		if err != nil {
 			b, err := json.Marshal(contract.AsProblem(err))
 			if err != nil { // a Problem is strings and an int: unreachable
@@ -245,4 +248,32 @@ func listJSON(t decodeService, args []byte) ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(l)
+}
+
+// fitJSON answers one fit request object, args, with the fit's compact
+// JSON. The error is a *contract.Problem.
+func fitJSON(t decodeService, args []byte) ([]byte, error) {
+	r, err := contract.ParseFitRequest(args)
+	if err != nil {
+		return nil, err
+	}
+	f, err := t.Fit(r)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(f)
+}
+
+// recovered is h's answer to args, a call of tool name. A panic in it (a
+// fault in nitrovin, or a catalog reader failing on a damaged file) is an
+// #internal problem, so the server outlives it, and is written with its
+// stack to stderr, as serve logs one.
+func recovered(name string, h answer, args []byte, stderr io.Writer) (b []byte, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			fmt.Fprintf(stderr, "panic answering tool %s: %v\n%s", name, v, debug.Stack())
+			b, err = nil, contract.NewProblem(contract.Internal, "", fmt.Sprint("panic: ", v))
+		}
+	}()
+	return h(args)
 }

@@ -326,6 +326,30 @@ _Avoid_: match, result, hit
 A number a catalog no longer uses, pointing at the fitment that replaced it.
 _Avoid_: alias (the word is kept away from mappings and entries), old number
 
+**Fit**:
+The request that reads a loaded catalog (ADR 0018), shaped by its inputs: a
+vehicle's part types, a vehicle and a part type's candidates, a fitment's
+vehicles, a vehicle's related vehicles. Nothing to fit is a status (`unknown`,
+`no-vehicle`, `no-fitment`, `no-catalog`), never a refusal.
+_Avoid_: match, lookup, interchange
+
+**Part-type summary**:
+A vehicle's part types, each with its count of fitments: what a fit answers
+for a vehicle with no part type, instead of every fitment.
+_Avoid_: whole-vehicle list, parts list
+
+**Related vehicle**:
+A catalog vehicle and a year range that shares at least one fitment with a
+fit's vehicle: the longest range over which it shares the same fitments,
+with their count per part type.
+_Avoid_: interchangeable vehicle, sibling, twin
+
+**Side filter**:
+A fit's `side`: it drops only a fitment whose side excludes the one asked
+for. A part for both sides goes on the left or the right, and a fitment
+that states no side is never ruled out by one.
+_Avoid_: position filter
+
 ### Stock
 
 **Stock**:

@@ -268,3 +268,75 @@ func TestListPagingEveryLimit(t *testing.T) {
 		t.Errorf("order %q; want %q", names, want)
 	}
 }
+
+// TestTranslateYears: with no model year, the years a vehicle falls in
+// (Query's First and Last, as a catalog application has them) keep the
+// mappings that overlap them, confirmed only when they hold every one.
+func TestTranslateYears(t *testing.T) {
+	s := fixtureSet(t)
+	ram := From{Vocabulary: "yard", Entry: map[string]string{"make": "Dodge", "model": "Ram 1500"}}
+	models := func(q Query) []string {
+		t.Helper()
+		tr, err := s.Translate(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, r := range tr.Spine {
+			if r.Ref.Model != 0 {
+				out = append(out, fmt.Sprintf("model:%d year %t", r.Ref.Model, r.Unconfirmed.ModelYear))
+			}
+		}
+		return out
+	}
+	for _, c := range []struct {
+		q    Query
+		want []string
+	}{
+		{Query{From: ram}, []string{"model:1938 year true", "model:13620 year true"}},
+		{Query{From: ram, First: new(2009), Last: new(2012)}, []string{"model:1938 year false"}},
+		{Query{From: ram, First: new(2010), Last: new(2014)}, []string{"model:1938 year true", "model:13620 year true"}},
+		{Query{From: ram, First: new(2013)}, []string{"model:13620 year false"}},
+		{Query{From: ram, Last: new(2005)}, []string{"model:1938 year false"}},
+		{Query{From: ram, ModelYear: new(2015), First: new(2009), Last: new(2012)}, []string{"model:13620 year false"}},
+	} {
+		if got := models(c.q); !slices.Equal(got, c.want) {
+			t.Errorf("years %v-%v, model year %v: %v; want %v", deref(c.q.First), deref(c.q.Last), deref(c.q.ModelYear), got, c.want)
+		}
+	}
+}
+
+func deref(y *int) any {
+	if y == nil {
+		return "nil"
+	}
+	return *y
+}
+
+// TestApplicationCheck: an application holds as a mapping does: a known
+// year outside its years or a decoded value outside a qualifier's set
+// rules it out, and what cannot be checked is returned.
+func TestApplicationCheck(t *testing.T) {
+	c := fixtureCatalog(t)
+	fit, _ := c.ByNumber("mirror", "MR-1001", SideLeft)
+	a := &fit.Applications[1] // 2009-2012, Drive Type (15) 4WD (2)
+	fourWD := &Decoded{Values: map[int32][]Value{15: {{Attribute: 2}}}}
+	twoWD := &Decoded{Values: map[int32][]Value{15: {{Attribute: 7}}}}
+	for _, tc := range []struct {
+		year *int
+		d    *Decoded
+		ok   bool
+		want string
+	}{
+		{new(2010), nil, true, " [15] false"},
+		{nil, nil, true, " [15] true"},
+		{new(2014), nil, false, ""},
+		{new(2010), fourWD, true, ""},
+		{new(2010), twoWD, false, ""},
+	} {
+		u, ok := a.Check(tc.year, tc.d)
+		if ok != tc.ok || unconfirmedLine(u) != tc.want {
+			t.Errorf("year %v, decode %v: %t%q; want %t%q", deref(tc.year), tc.d, ok, unconfirmedLine(u), tc.ok, tc.want)
+		}
+	}
+}

@@ -157,7 +157,7 @@ that crosses midnight on 31 December keeps its starting instant.
 
 Routes, bodies and status codes are in [`openapi.yaml`](openapi.yaml):
 `GET /v1/decode/{vin}`, `POST /v1/decode` (≤ 1,000 items, ≤ 1 MiB),
-`GET` and `POST /v1/translate`, `GET /v1/vocabularies`,
+`GET` and `POST /v1/translate`, `GET` and `POST /v1/fit`, `GET /v1/vocabularies`,
 `GET /v1/vocabularies/{name}/entries`, `GET /v1/info`,
 `GET /v1/openapi.json`, `GET /healthz`, and `POST /mcp`, the MCP server
 below over Streamable HTTP. `GET /` (`HEAD` too) and `/ui/…` are pages for
@@ -171,8 +171,8 @@ Vocabularies dialog; the Service Worker's panel (`/ui/files`) and
 `/sw.js`; and their assets under `/ui/r/<release>/`. All are outside the
 contract, not in `openapi.yaml`, and may change.
 
-**Translate and list** ([Translation](#translation-translate),
-[Listing](#listing-list)) carry the same request objects:
+**Translate, list and fit** ([Translation](#translation-translate),
+[Listing](#listing-list), [Fit](#fit-fit)) carry the same request objects:
 
 - `POST /v1/translate` takes a JSON array of `TranslateRequest` (≤ 1,000
   items, ≤ 1 MiB) and answers an array of `Translation` in the same order,
@@ -184,11 +184,22 @@ contract, not in `openapi.yaml`, and may change.
   The parameters are read as the JSON request they spell, so a GET answers
   exactly as the equivalent `POST` item, refusals and their `pointer`
   (`/from/entry/model`) included.
+- `POST /v1/fit` takes a JSON array of `FitRequest` (≤ 1,000 items,
+  ≤ 1 MiB) and answers an array of `Fit` in the same order, reading the
+  clock once. `GET /v1/fit` takes one request as dotted query parameters,
+  read as the JSON request they spell, as `GET /v1/translate` is:
+  `from.vin`; `from.vocabulary` with one `from.entry.<field>` per field;
+  `from.make`, `from.model` or `from.ext`; or `from.fitment.type`,
+  `from.fitment.number` and `from.fitment.side`. Then `part.spine` with
+  `part.id`, or `part.vocabulary` with one `part.entry.<field>` per field;
+  `side`; `to` repeated; `model_year`; `related` (`true` or `false`);
+  `limit`; `after`; `now`.
 - `GET /v1/vocabularies` is the catalog (`list` with no `of`), and takes no
   parameter. `GET /v1/vocabularies/{name}/entries` is `list` with `of` the
-  name (`vpic` included): `where.<field>` per field (`where.make=476`;
-  `where.model=1850&where.element=34` for a model's values), `limit`,
-  `after`.
+  name (`vpic` included, and the loaded catalog's, which pages its
+  fitments): `where.<field>` per field (`where.make=476`;
+  `where.model=1850&where.element=34` for a model's values;
+  `where.type=mirror` for a catalog's part type), `limit`, `after`.
 - Every parameter but `to` is given at most once, and an unknown one is
   refused, as on `GET /v1/decode/{vin}`.
 
@@ -207,7 +218,7 @@ status is 200. A refusal is an RFC 9457 `application/problem+json` body whose
 | `type` (fragment of this file's URL) | Status | When |
 | --- | --- | --- |
 | <a id="malformed-json"></a>`#malformed-json` | 400 | The body is not JSON |
-| <a id="invalid-request"></a>`#invalid-request` | 400 | Valid JSON that breaks the request schema: wrong type, unknown field or query parameter, empty or over-long VIN, bad `model_year`, `full`, `shape` or `now`; an empty batch. For translate and list, also what the loaded files refuse (below) |
+| <a id="invalid-request"></a>`#invalid-request` | 400 | Valid JSON that breaks the request schema: wrong type, unknown field or query parameter, empty or over-long VIN, bad `model_year`, `full`, `shape` or `now`; an empty batch. For translate, list and fit, also what the loaded files refuse (below) |
 | <a id="too-large"></a>`#too-large` | 413 | More than 1,000 items, or a body over 1 MiB |
 | <a id="not-found"></a>`#not-found` | 404 | No such route |
 | <a id="method-not-allowed"></a>`#method-not-allowed` | 405 | The route exists; the method does not (`Allow` lists the methods) |
@@ -221,20 +232,21 @@ The full URI is
 JSON lines over stdin and stdout, UTF-8, `\n`-terminated.
 
 - Each input line is a `StdioRequest`: an optional `op`, `decode` (the
-  default), `translate` or `list` (ADR 0012), and an optional `id` (any JSON
-  value), beside that op's request object: a decode request, a
-  `TranslateRequest` or a `ListRequest`. A field the op's request lacks is
+  default), `translate`, `list` (ADR 0012) or `fit` (ADR 0018), and an
+  optional `id` (any JSON value), beside that op's request object: a decode
+  request, a `TranslateRequest`, a `ListRequest` or a `FitRequest`. A field the op's request lacks is
   refused, as everywhere; another `op` is `#invalid-request` at `/op`. A
   line without `op` is a decode request, so a session of decode lines gets
   the bytes it always has.
 - Each input line gets exactly one output line, in input order, flushed per
   line, keyed by its op: `{"id": …, "decode": {…}}`,
-  `{"id": …, "translation": {…}}` or `{"id": …, "list": {…}}`, or
+  `{"id": …, "translation": {…}}`, `{"id": …, "list": {…}}` or
+  `{"id": …, "fit": {…}}`, or
   `{"id": …, "error": <problem>}`. `id` is present when the request had one,
   or could be read from a refused line.
-- Translations and lists answer from the files `--vocab` or
+- Translations, lists and fits answer from the files `--vocab` or
   `NITROVIN_VOCAB` loads with the data, as for every command; with none,
-  from vPIC alone.
+  from vPIC alone, and a fit is the status `no-catalog`.
 - A malformed or refused line gets an error line, and the session continues.
 - Blank lines (nothing but spaces, tabs and a `\r`) are skipped and get no reply.
 - EOF on stdin ends the session after the last reply; exit 0. Exit 1 only when
@@ -244,10 +256,10 @@ The problem objects are HTTP's, with the same `type` URIs and `status`.
 
 ## MCP (`nitrovin mcp`, `POST /mcp`)
 
-An MCP server with three tools over stdio (`nitrovin mcp`) and over
+An MCP server with four tools over stdio (`nitrovin mcp`) and over
 Streamable HTTP (`nitrovin serve`'s `/mcp`): `decode_vin` decodes,
-`translate` translates ([Translation](#translation-translate)) and `list`
-lists ([Listing](#listing-list)). Their definitions (name, title, the
+`translate` translates ([Translation](#translation-translate)), `list`
+lists ([Listing](#listing-list)) and `fit` fits ([Fit](#fit-fit)). Their definitions (name, title, the
 description an assistant reads, schemas and annotations) are
 [`mcp-tools.json`](mcp-tools.json), whose `tools` array is exactly what
 `tools/list` returns on both, whatever `--vocab` loads. The why is
@@ -259,15 +271,16 @@ description an assistant reads, schemas and annotations) are
   are 405). Any instance answers any request.
 - **Arguments** are one request object, with the same fields, defaults and
   refusal of unknown fields as everywhere else: a `DecodeRequest`, a
-  `TranslateRequest` or a `ListRequest`. One VIN, translation or page per
-  call.
+  `TranslateRequest`, a `ListRequest` or a `FitRequest`. One VIN,
+  translation, page or fit per call.
 - **Schemas** are self-contained, because MCP forbids fetching a `$ref` over
   the network. Each is `{"type": "object", "$ref": …, "$defs": …}`, and every
   entry in `$defs` equals the same-named definition in
   [`decode.schema.json`](decode.schema.json): `decode_vin` bundles
   `DecodeRequest` and `Decode`, `translate` `TranslateRequest` and
-  `Translation`, `list` `ListRequest` and `List`.
-- **An answer** (a decode, translation or list) is the result's
+  `Translation`, `list` `ListRequest` and `List`, `fit` `FitRequest` and
+  `Fit`.
+- **An answer** (a decode, translation, list or fit) is the result's
   `structuredContent`, and the same JSON, compact, is its one text block. Clients differ in which of the two they show
   the model, so the two must stay identical.
 - **A refusal** is a result with `isError: true` and one text block: the
@@ -276,11 +289,12 @@ description an assistant reads, schemas and annotations) are
   are only for MCP faults, such as an unknown tool or a malformed request.
 - **Annotations:** read-only, not destructive, idempotent, closed-world.
 - **The descriptions are static.** They name neither the data month nor
-  the loaded vocabularies, so `--data` and `--vocab` never change
-  `tools/list`; every answer carries `data_month`, and `translate`'s and
-  `list`'s descriptions tell the assistant to call `list` with no arguments
-  to discover what is loaded. Without `--vocab` both tools are still listed
-  and answer for vPIC alone.
+  the loaded vocabularies or catalog, so `--data` and `--vocab` never
+  change `tools/list`; every answer carries `data_month`, and `translate`'s,
+  `list`'s and `fit`'s descriptions tell the assistant to call `list` with
+  no arguments to discover what is loaded. Without `--vocab` every tool is
+  still listed: `translate` and `list` answer for vPIC alone, and `fit`
+  answers the status `no-catalog`.
 - **Protocol revisions** are whatever the official Go SDK serves, not part of
   this contract.
 - stdout carries only MCP messages; diagnostics go to stderr.
@@ -371,6 +385,35 @@ listing lacks, `--limit` or `--after` beside the catalog, an `after` that is
 not a cursor of the listing) is a problem on stderr, nothing on stdout,
 exit 2. A malformed flag (`--where` without `=`, a field given twice, a
 `--limit` outside 1 to 1,000) or a second argument is a usage error, exit 2.
+
+### `nitrovin fit`
+
+| Argument or flag | Request field |
+| --- | --- |
+| `<vin>…` | `from`, one request each |
+| `--part spine:id` | `part`, an entry of the catalog's part spine |
+| `--side left\|right\|both` | `side` |
+| `--to a,b` | `to`, comma-separated; repeatable, each use appending |
+| `--model-year N` | `model_year` |
+| `--related` | `related` |
+| `--limit N`, `--after <cursor>` | `limit` (1 to 1,000) and `after` |
+| `--now <instant\|date>` | `now` |
+
+`nitrovin fit <vin>…` fits each argument VIN against the loaded catalog
+([Fit](#fit-fit)): its part types, with `--part` its candidates, with
+`--related` the vehicles that share its fitments. `nitrovin fit -` reads one
+`FitRequest` object per stdin line (a VIN, an entry, a spine entry or a
+fitment key as `from`), and the flags fill what a line leaves out: a line's
+own `to`, `side`, `model_year` and `now` beat the flags', and a line
+without one takes the flag's. `--part` and `--related` fill a line
+whose `from` is a vehicle and that gives neither, and `--limit` a line
+without `limit`; `--after` continues one answer, so it is a usage error
+beside `-`. Output, refusals and exit codes are
+`translate`'s: one argument prints one `Fit`, several or `-` print JSON
+lines; a refused argument is exit 2 with nothing on stdout (a VIN before
+any data is loaded, a `--part` or `--to` the loaded files refuse after); a
+refused stdin line stops the run with exit 1. Nothing to fit, no catalog
+loaded included, is an answer with its `status`, exit 0.
 
 ## Vocabularies (`--vocab`)
 
@@ -546,8 +589,14 @@ MCP and C surfaces carry the same object.
   order, each a `CatalogEntry`: `name`, `kind` (vPIC is a `spine`),
   `version` (vPIC's is the data month), `subject` (`vehicle` or `part`), a
   vocabulary's `fields`, and the `spine` a vocabulary or extension set
-  routes through. A loaded catalog (ADR 0017) is in `/v1/info`, not here,
-  and an `of` naming it is `#invalid-request`.
+  routes through. A loaded catalog (ADR 0017) is in `/v1/info`, not here.
+- **A catalog's fitments** (ADR 0018): `of` naming the loaded catalog
+  pages through its fitments in key order (part type, side, number), each a
+  `FitmentLine`, the fitment line as the file has it (`fitment`, `note`,
+  `applications` with `vehicle`, `first`, `last`, `options`,
+  `qualifiers`), 1,000 at most a page. `where.type` keeps one part type;
+  any other `where` field is `#invalid-request`. `vocabularies` is the
+  catalog's name and version.
 - **Entries.** A vocabulary's are `VocabularyEntry` values, its entries
   with their mappings as the file has them, ordered by normalized fields.
   vPIC's makes, or one make's models, are `SpineEntry` values ordered by
@@ -600,6 +649,136 @@ MCP and C surfaces carry the same object.
   listing lacks, a `limit` out of range or an `after` that is not a cursor
   of the listing's shape is `#invalid-request`.
 
+## Fit (`fit`)
+
+`FitRequest` reads the loaded catalog (ADR 0016, 0017,
+[ADR 0018](../adr/0018-fit-is-a-request-beside-translate.md)); in Go,
+`nitrovin.NewTranslator(d, files…)`'s `Fit`, over `contract.Fitter` and
+`fitment.Reader`. The HTTP, stdio, CLI, MCP and C surfaces carry the same
+object. Its inputs shape the answer:
+
+| Field | Type | Default | Rule |
+| --- | --- | --- | --- |
+| `from` | string \| object | required | A vehicle: a VIN; a vehicle vocabulary's entry, `{"vocabulary", "entry": {…}}`; or `{"make"}`, `{"model"}`, `{"ext"}`. Or a fitment key, `{"fitment": {"type", "number", "side"?}}` |
+| `model_year` | int \| null | none | The vehicle's year when no VIN decodes one, and a VIN's decode hint; with a fitment key, it keeps the applications whose years hold it |
+| `part` | object | none | A part type: `{"spine", "id"}`, an entry of the catalog's part spine, or `{"vocabulary", "entry"}`, an entry of a part vocabulary on that spine |
+| `side` | `left` \| `right` \| `both` | none | The side filter, below |
+| `to` | string[] | none | Vehicle vocabularies the answer's vehicles are named in; none names them as spine entries |
+| `related` | bool | `false` | The vehicles that share fitments with `from` |
+| `limit` | int | 100 | 1 to 1,000 items a page |
+| `after` | string | none | The previous page's `next` |
+| `now` | string | wall clock | A VIN's decode clock, as a translate request's |
+
+| `from` | Also given | Answer's list |
+| --- | --- | --- |
+| a vehicle | nothing | `part_types`: each part type the vehicle has, with its count of fitments |
+| a vehicle | `part` | `candidates` |
+| a vehicle | `related` (and `part`, to keep its part types) | `related` vehicles |
+| a fitment key | — | `vehicles`: the fitment's applications |
+
+- **Reaching the catalog.** A vehicle reaches the catalog's own vehicles
+  as a translation to its vehicle vocabulary would (through the spine, or
+  as itself when it is that vocabulary's entry); a `vpic` catalog's are
+  the spine entries reached. They are the answer's `models` (`vehicle`,
+  as the catalog writes it, with `via` and `unconfirmed` as a translation's
+  target entry has them), so a person can be asked which one when there
+  are several. A `part` reaches part types the same way.
+- **Year and qualifiers.** The year is the VIN's decoded year, else
+  `model_year`. An application whose years exclude it, or whose qualifier a
+  decoded value fails, is dropped; what could not be checked keeps it and
+  is listed in its `unconfirmed`, with what its model and part type left
+  unchecked. Without a year every year's applications come back, with
+  `"model_year"` unconfirmed where they have years.
+- **Candidates** are ordered by part type, side and number. Each has
+  `fitment` (`type`, `number`, `side`, `note`), `applications` (each
+  `vehicle`, `via`, `first`, `last`, `options` verbatim, `unconfirmed`)
+  and `reached`: `direct`, or `redirect` with the `redirects` that led
+  there (one hop, never more). A redirect is for a catalog vehicle and
+  years: it is followed unless a direct candidate already has an
+  application to that vehicle in years that overlap the redirect's, so
+  one of several `models`, or one range of years, can be reached through a
+  redirect while the others are direct. A fitment reached both ways is
+  `direct`, and a part type in `part_types` is `direct` when any of its
+  candidates is. The catalog's option
+  text is the requirement a person settles; it is never interpreted.
+- **The side filter** drops only a fitment whose side excludes the one
+  asked for: `left` keeps `left`, `both` and fitments with no side; `right`
+  likewise; `both` keeps `both` and fitments with no side. A part for both
+  sides goes on either, and a fitment that states no side is never ruled
+  out by one, as an unknown value keeps an application (ADR 0009).
+- **A fitment key** answers its `fitment` with `reached`: `direct`, or
+  `retired` with `retired` (the key asked for and the catalog's note) when
+  the number is retired. Its `vehicles` are its applications in file order,
+  each named into every `to` vocabulary (`to`, as a translation's) or,
+  without `to`, as spine entries (`spine`), translated within the
+  application's years.
+- **Related vehicles** are the catalog vehicles that share at least one
+  fitment with `from` (the vehicle's own applications aside: in its year
+  when one is known, else all of them). Each vehicle's years are cut where
+  the set of fitments it shares changes: a row is a catalog vehicle and
+  the longest year range (`first`, `last`, either open) over which it
+  shares the same fitments, with `shared`, how many it shares in every
+  year of that range, and `part_types`, those per part type. A vehicle
+  whose shared applications all span the same years is one row; years in
+  which it shares nothing are in none. Rows are ordered by `shared`, most
+  first, then by name and years, and named as a fitment's vehicles are,
+  within the row's years.
+- **The answer** (`Fit`): `status`; `catalog` (`name`, `version`,
+  `release`, `spine`, the part spine a `part` names, and `vehicles`, its
+  vehicle vocabulary or `vpic`: `list` with no `of` leaves the catalog
+  out, so a fit answer is where a caller learns its name for `list`'s
+  `of`); `vehicle` with a VIN, as a translation's; `models`; the list
+  the inputs ask for, always present, empty when nothing fits; `total`,
+  the count across every page; `next`, present when a page follows; `now`,
+  `data_month`, `decoder_version`. Paging is `list`'s: `next` is an opaque
+  cursor of this answer, and passing it as `after` continues, losing and
+  repeating nothing.
+- **Nothing to fit is never a refusal.** It is a `status`: `found`;
+  `unknown` (a VIN that decodes to no make or model, an entry or spine
+  entry the files lack, a part type the spine lacks, a fitment key that is
+  neither a fitment nor a retired number); `no-vehicle` (the vehicle
+  reaches none of the catalog's vehicles); `no-fitment` (nothing fits); or
+  `no-catalog` when none is loaded, which is nitrovin.app's case. Only a
+  malformed request is `#invalid-request`, with a pointer: a part
+  vocabulary (or a spine) that isn't the catalog's; `part` or `related`
+  with a fitment key; a side other than `left`, `right` or `both`; an
+  unknown vocabulary (or a name of the wrong kind: a part vocabulary as
+  `from` or in `to`); entry fields other than the vocabulary's; a fitment
+  key without `type` and `number`. Besides those, as for every request:
+  a field of the wrong type or unknown, a `limit` out of range, or an
+  `after` that is not a cursor of the answer.
+
+The synthetic catalog's examples, tested on every surface, with
+`--vocab testdata/vocab --vocab testdata/vocab/fitment`:
+
+```json
+{"op":"fit","from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010}
+{"op":"fit","from":"1D7RV1GT5AS123456","part":{"spine":"part-types","id":"mirror"},"side":"left"}
+{"op":"fit","from":{"vocabulary":"catalog-models","entry":{"make":"Chevrolet","model":"Silverado 1500"}},"model_year":2010,"part":{"spine":"part-types","id":"brake-rotor-rear"}}
+{"op":"fit","from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}},"to":["yard"]}
+{"op":"fit","from":"1D7RV1GT5AS123456","related":true}
+```
+
+- The 2010 Ram's part types: `brake-rotor-front` 1, `engine` 1, `mirror`
+  2, each `reached: direct`.
+- The VIN's left mirror: `MR-1001` (`side: left`), both of its Ram 1500
+  applications for 2009–2012, `via` vPIC model 1938; the decode settles
+  the 4WD qualifier, so neither is `unconfirmed`. From `{"model": 1938}`
+  and a year instead, the 4WD one is `unconfirmed: [15]`.
+- The 2010 Silverado's rear rotor: `BR-2001`, a front rotor, `reached:
+  redirect` with the redirect's option text "rear rotors are listed with
+  the front", `unconfirmed: [34]` (its Series qualifier). A 2007
+  Silverado whose decoded Series fails that qualifier answers `no-fitment`.
+- The retired number `BR-1999`: `BR-2001`, `reached: retired`, with the
+  Ram 1500 (2009–2012) and the Silverado 1500 (2007–2013), each named in
+  `yard`.
+- The Ram's related vehicles: the Silverado 1500, 2007–2013, sharing one
+  `brake-rotor-front`.
+
+`{"op":"list","of":"parts-catalog","where":{"type":"mirror"}}` pages the
+two `MR-1001` lines as the file has them. Without the catalog every fit
+answers `{"status":"no-catalog", …}`.
+
 ## C ABI (`libnitrovin`, `nitrovin.h`)
 
 Lean only: the library carries no data. The artifact is its own release asset,
@@ -620,7 +799,7 @@ nitrovin_t *nitrovin_open_vocab(const char *artifact_path,
                                 const char *const *vocab_paths, size_t n,
                                 char **err);
 
-/* request_json: one StdioRequest of any op (decode, translate, list).
+/* request_json: one StdioRequest of any op (decode, translate, list, fit).
    Returns one StdioReply, exactly the line `nitrovin stdio` would write,
    without the newline. Never NULL. */
 char *nitrovin_decode(nitrovin_t *h, const char *request_json);
@@ -636,8 +815,9 @@ void nitrovin_close(nitrovin_t *h);
 ```
 
 - `nitrovin_decode` answers every op, despite its name (ADR 0012): a
-  translation or a list is a `StdioRequest` with its `op`, from the files
-  the handle loaded, or vPIC alone for a `nitrovin_open` handle.
+  translation, a list or a fit is a `StdioRequest` with its `op`, from the
+  files the handle loaded, or vPIC alone for a `nitrovin_open` handle (and
+  a fit is then `no-catalog`).
 - `nitrovin_open_vocab` loads as `--vocab` does (Vocabularies, above): a
   fault fails the open, NULL with `*err` naming the file and line; drift
   is served, and since a library has no stderr, `nitrovin_info` is where

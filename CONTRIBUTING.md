@@ -323,7 +323,12 @@ each kind. `testdata/vocab/fitment/` is the synthetic catalog
 (`parts-catalog`) with its declared spine (`part-types`) and vehicle
 vocabulary (`catalog-models`), using every line kind: fitments, one number
 on a left and a right fitment, a qualifier, a redirect and a retired
-number; it loads clean beside `testdata/vocab`, or alone. `go test
+number, and a part vocabulary on its spine (`part-codes`); it loads clean
+beside `testdata/vocab`, or alone. Its fit examples (docs/api/README.md's
+Fit section) are answered on every surface: `go test ./pkg/nitrovin`
+(`TestFit`, statuses, the side filter, refusals, paging, list of a
+catalog), `TestServeContract`, `TestStdioOps`, `TestMCPVocabSession`,
+`cmd/nitrovin`'s `TestFit`, and the C library's `vocab-requests.jsonl`. `go test
 ./pkg/vocab` refuses one file per fault class, catalogs' included,
 measures every catalog drift class, reads the catalog through its reader,
 and validates the fixtures against the schema; `go test ./pkg/nitrovin`
@@ -387,7 +392,7 @@ else `NITROVIN_VOCAB` (`env.load`).
 
 `go test ./cmd/nitrovin` runs the built binary: usage, refusal and
 unloadable-data cases, and `info`, `--version` and a decode on the embedded
-data; `TestStdioOps` a stdio session mixing decode, translate and list
+data; `TestStdioOps` a stdio session mixing decode, translate, list and fit
 lines with `testdata/vocab`; `TestForm` drives the page's VIN form (`/`)
 on the embedded data, over HTTP and then in a browser (below),
 and `TestServeCORS` `serve --cors` on it. With
@@ -720,7 +725,15 @@ temporary directory, and reports its file's size, the heap the load
 retains and a loading process's peak RSS, against the budget of 15 s on
 one core, 1.5 GiB peak and a 500 MB file. On the reference machine it
 measured 2.7 s on one core, 900 MB peak, 322 MB retained and a 330 MB
-file. `release.yml`'s bench job runs them on its runner, and
+file. `BenchmarkFit` asks `fit` of that catalog on one core, cycling
+through 64 vehicles and fitment keys: candidates, part types and related
+vehicles (each in a year and, the expensive path, with none) and
+reverse, each reporting p50, p99 and its answers' average `total`
+(`items`), against ADR 0018's p99 budget of 5 ms, 10 ms, 50 ms and 1 ms
+per key. On the reference machine they measured 4.6 µs; 344 µs, and
+2.0 ms with no year; 385 µs, and 9.4 ms with no year; and 6.4 µs. The
+no-year tails are garbage collection of the loaded catalog's heap on one
+core, which the compiled form (ADR 0021) shrinks. `release.yml`'s bench job runs them on its runner, and
 `bench/vocab/notes` turns the output into the table the release notes end
 with, beside the budgets, which are stated for the reference machine (an
 Apple M5 Pro). Nothing gates on it: runner timings are too noisy, and a

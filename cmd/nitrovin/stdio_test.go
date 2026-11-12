@@ -176,7 +176,7 @@ func TestStdioOps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := vocab.Open(fixture)
+	files, err := vocab.Open(fixture, fitmentFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,6 +210,12 @@ func TestStdioOps(t *testing.T) {
 		{in: `{"id":9,"op":"list","of":"nowhere"}`, id: "9", kind: string(contract.InvalidRequest), pointer: "/of"},
 		{in: `{"op":"list","of":"vpic","where":{"model":1850,"element":7777}}`, kind: string(contract.InvalidRequest), pointer: "/where/element"},
 		{in: `{"id":10,"op":"translate","from":`, kind: string(contract.MalformedJSON)},
+		{in: `{"id":11,"op":"fit","from":"1D7RV1GT5AS123456","part":{"spine":"part-types","id":"mirror"},"side":"left","now":"` + now + `"}`, id: "11", kind: "fit"},
+		{in: `{"op":"fit","from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}},"to":["yard"],"now":"` + now + `"}`, kind: "fit"},
+		{in: `{"id":12,"op":"fit","from":{"vocabulary":"yard","entry":{"make":"Tucker","model":"48"}},"now":"` + now + `"}`, id: "12", kind: "fit"},
+		{in: `{"id":13,"op":"list","of":"parts-catalog","where":{"type":"mirror"}}`, id: "13", kind: "list"},
+		{in: `{"id":14,"op":"fit","from":{"model":1938},"part":{"spine":"parts","id":"brake-rotor"},"now":"` + now + `"}`, id: "14", kind: string(contract.InvalidRequest), pointer: "/part/spine"},
+		{in: `{"id":15,"op":"fit","from":{"fitment":{"type":"mirror","number":"MR-1001"}},"related":true}`, id: "15", kind: string(contract.InvalidRequest), pointer: "/related"},
 	}
 
 	var stdin, want strings.Builder
@@ -229,6 +235,9 @@ func TestStdioOps(t *testing.T) {
 			case contract.OpList:
 				body, err = tr.List(req.List)
 				key = "list"
+			case contract.OpFit:
+				body, err = tr.Fit(req.Fit)
+				key = "fit"
 			default:
 				body, err = d.Decode(req.Decode)
 				key = "decode"
@@ -256,7 +265,7 @@ func TestStdioOps(t *testing.T) {
 		want.WriteString("}\n")
 	}
 
-	first := cli(t, nil, stdin.String(), "--vocab", fixture, "stdio")
+	first := cli(t, nil, stdin.String(), "--vocab", fixture, "--vocab", fitmentFixture, "stdio")
 	if first.exit != 0 || first.stderr != "" || first.stdout != want.String() {
 		t.Errorf("first run: exit %d, stderr %q, stdout equals the contract layer's replies: %t", first.exit, first.stderr, first.stdout == want.String())
 		for i, l := range strings.SplitAfter(first.stdout, "\n") {
@@ -265,7 +274,7 @@ func TestStdioOps(t *testing.T) {
 			}
 		}
 	}
-	second := cli(t, []string{"NITROVIN_VOCAB=" + fixture}, stdin.String(), "stdio")
+	second := cli(t, []string{"NITROVIN_VOCAB=" + fixture + string(os.PathListSeparator) + fitmentFixture}, stdin.String(), "stdio")
 	if second != first {
 		t.Errorf("second run differs: exit %d, stderr %q, stdout identical: %t", second.exit, second.stderr, second.stdout == first.stdout)
 	}
@@ -278,6 +287,17 @@ func TestStdioOps(t *testing.T) {
 		if err != nil {
 			t.Errorf("reply %d is not a StdioReply: %v", i+1, err)
 		}
+	}
+}
+
+// TestStdioNoCatalog: with no catalog loaded, a fit is the status
+// no-catalog, never an error line.
+func TestStdioNoCatalog(t *testing.T) {
+	fixtureData(t)
+	r := cli(t, nil, `{"id":1,"op":"fit","from":"1D7RV1GT5AS123456","part":{"spine":"part-types","id":"mirror"},"now":"`+now+`"}`+"\n", "--vocab", fixture, "stdio")
+	want := `{"id":1,"fit":{"status":"no-catalog","models":[],"candidates":[],"total":0,"now":"` + now + `","data_month":"`
+	if r.exit != 0 || r.stderr != "" || !strings.HasPrefix(r.stdout, want) {
+		t.Errorf("exit %d, stderr %q, stdout %q; want it to start %s", r.exit, r.stderr, r.stdout, want)
 	}
 }
 

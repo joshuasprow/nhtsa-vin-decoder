@@ -2,7 +2,7 @@
 
 `libnitrovin` is the decoder as a C shared library, for any language with a
 C FFI. It speaks the stdio surface's JSON: `nitrovin_decode` takes one
-request line, a decode, a translation or a list, and returns the reply line
+request line, a decode, a translation, a list or a fit, and returns the reply line
 `nitrovin stdio` would write, built by the same Go function, so the two
 cannot drift apart. The ABI is fixed by
 [the C ABI contract](api/README.md#c-abi-libnitrovin-nitrovinh); this page
@@ -77,12 +77,12 @@ needs.
 
 ### Vocabularies
 
-`nitrovin_open_vocab` opens the artifact with vocabularies, extension sets
-and declared spines loaded beside it, the files or directories `--vocab`
-takes; a request with `"op": "translate"` or `"op": "list"` then answers
-from them
+`nitrovin_open_vocab` opens the artifact with vocabularies, extension sets,
+declared spines and a catalog loaded beside it, the files or directories
+`--vocab` takes; a request with `"op": "translate"`, `"op": "list"` or
+`"op": "fit"` then answers from them
 ([Translation](api/README.md#translation-translate),
-[Listing](api/README.md#listing-list)):
+[Listing](api/README.md#listing-list), [Fit](api/README.md#fit-fit)):
 
 ```python
 lib.nitrovin_open_vocab.restype = ctypes.c_void_p
@@ -106,16 +106,21 @@ lib.nitrovin_close(h)
 ```
 
 That is with the repository's `testdata/vocab` as `vocab/`. In C the paths
-are a `const char *` array and its length.
+are a `const char *` array and its length. With a catalog loaded too (the
+synthetic one is `testdata/vocab/fitment`), `{"op": "fit", "from":
+"1D7RV1GT5AS123456", "part": {"spine": "part-types", "id": "mirror"}}`
+answers `{"fit": {"status": "found", "candidates": […], …}}`; on a handle
+without a catalog, `{"fit": {"status": "no-catalog", …}}`.
 
 ## The rules
 
 - **Requests and replies** are one JSON object each, UTF-8 and
   NUL-terminated: a request is a stdio line, a decode (`{"id": …, "vin": …,
   "model_year": …, "shape": …, "full": …, "now": …}`) or, with `"op":
-  "translate"` or `"op": "list"`, a translation or a list; a reply is
-  `{"id": …, "decode": {…}}`, `{"id": …, "translation": {…}}`,
-  `{"id": …, "list": {…}}` or `{"id": …, "error": {…}}`. A refused request
+  "translate"`, `"op": "list"` or `"op": "fit"`, a translation, a list or a
+  fit; a reply is `{"id": …, "decode": {…}}`, `{"id": …, "translation":
+  {…}}`, `{"id": …, "list": {…}}`, `{"id": …, "fit": {…}}` or `{"id": …,
+  "error": {…}}`. A refused request
   is an `error` reply, never a NULL.
 - **`nitrovin_info(h)`** returns the `/v1/info` object: decoder version,
   data month, artifact hash, the element table, and the vocabularies the
@@ -141,11 +146,13 @@ are a `const char *` array and its length.
 `.github/workflows/libnitrovin.yml` builds all six libraries with `zig cc`
 on one Linux job (`scripts/libnitrovin.sh`) and loads each one through
 ctypes on its own native runner: Linux, macOS and Windows on amd64 and
-arm64. On each, 41 decode requests must give byte for byte the replies
+arm64. On each, 42 requests (decodes, and a fit with no catalog) must give byte for byte the replies
 `nitrovin stdio` gives, again from 8 threads on one handle, and a second
 handle must not disturb the first
 ([#44](https://github.com/joshuasprow/nitrovin/issues/44)). Then a handle
-from `nitrovin_open_vocab` with `testdata/vocab` must give the replies
-`nitrovin --vocab testdata/vocab stdio` gives to decodes, translations,
-lists and refused lines, in order and from 8 threads
-([#138](https://github.com/joshuasprow/nitrovin/issues/138)).
+from `nitrovin_open_vocab` with `testdata/vocab` and the synthetic catalog
+in `testdata/vocab/fitment` must give the replies `nitrovin --vocab
+testdata/vocab --vocab testdata/vocab/fitment stdio` gives to decodes,
+translations, lists, fits and refused lines, in order and from 8 threads
+([#138](https://github.com/joshuasprow/nitrovin/issues/138),
+[#241](https://github.com/joshuasprow/nitrovin/issues/241)).

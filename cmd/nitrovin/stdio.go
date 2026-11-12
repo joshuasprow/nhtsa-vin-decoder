@@ -10,7 +10,7 @@ func init() {
 	register(command{
 		name:     "stdio",
 		synopsis: "[flags]",
-		summary:  `Answer JSON lines: one request per stdin line ({"id": 1, "vin": "…"}; "op": "translate" or "list" for the others), one {"id", "decode"|"translation"|"list"} or {"id", "error"} line back, in order, until EOF.`,
+		summary:  `Answer JSON lines: one request per stdin line ({"id": 1, "vin": "…"}; "op": "translate", "list" or "fit" for the others), one {"id", "decode"|"translation"|"list"|"fit"} or {"id", "error"} line back, in order, until EOF.`,
 		setup:    stdioSetup,
 	})
 }

@@ -1129,7 +1129,7 @@
     {
       "name": "list",
       "title": "List vocabularies",
-      "description": "List what this server has loaded, or page through one part of it, offline.\n\nCall it with no arguments first: the catalog names vPIC and every loaded vocabulary, spine and extension set, with each vocabulary's fields and the spine it translates through. What is loaded differs from server to server, so never guess a name.\n\n- of: \"vpic\" for vPIC's makes, or a name from the catalog for its entries.\n- where: exact field matches after normalization: a vocabulary's fields; for vpic, make, a make id, to list that make's models, and with it year, one model year: the models whose years include it, or are unknown. A vpic model's years are on its entry. Or, for vpic, model and element together, a vPIC model id and a public element id (34 is Series, 15 Drive Type), to list the model's values: every value a decode with a model year gives the element for a VIN of the model, except a value a formula pattern computes from the VIN's characters; it may list values no VIN of the model ends up with. Model Year and the error and correction elements are decoded from the VIN itself and refused.\n- limit: entries a page, 1-1000 (default 100).\n- after: the previous page's next, to continue. No next means the last page.",
+      "description": "List what this server has loaded, or page through one part of it, offline.\n\nCall it with no arguments first: the catalog names vPIC and every loaded vocabulary, spine and extension set, with each vocabulary's fields and the spine it translates through. What is loaded differs from server to server, so never guess a name.\n\n- of: \"vpic\" for vPIC's makes, or a name from the catalog for its entries; the loaded parts catalog's name, a fit answer's catalog.name, pages its fitment lines (the catalog is not in the no-argument list).\n- where: exact field matches after normalization: a vocabulary's fields; for vpic, make, a make id, to list that make's models, and with it year, one model year: the models whose years include it, or are unknown. A vpic model's years are on its entry. Or, for vpic, model and element together, a vPIC model id and a public element id (34 is Series, 15 Drive Type), to list the model's values: every value a decode with a model year gives the element for a VIN of the model, except a value a formula pattern computes from the VIN's characters; it may list values no VIN of the model ends up with. Model Year and the error and correction elements are decoded from the VIN itself and refused. For a parts catalog only type, a part type.\n- limit: entries a page, 1-1000 (default 100).\n- after: the previous page's next, to continue. No next means the last page.",
       "inputSchema": {
         "type": "object",
         "$ref": "#/$defs/ListRequest",
@@ -1141,7 +1141,7 @@
           },
           "ListRequestFields": {
             "type": "object",
-            "description": "A list request's fields (ADR 0012). Without of: the catalog of what is loaded. With of: one page of vPIC ('vpic') or a loaded file. Contract prose: docs/api/README.md, Listing.",
+            "description": "A list request's fields (ADR 0012). Without of: the catalog of what is loaded. With of: one page of vPIC ('vpic'), a loaded file, or the loaded catalog's name, whose rows are its fitment lines in key order. Contract prose: docs/api/README.md, Listing.",
             "properties": {
               "of": {
                 "type": "string",
@@ -1155,7 +1155,7 @@
                     "integer"
                   ]
                 },
-                "description": "Fields to match after the fixed normalization: a vocabulary's fields; for vpic, make, a vPIC make id, to list its models, and with make year, one model year, keeping the models whose years include it or are unknown (ADR 0022); or model and element together, a vPIC model id and a public element id, to list the model's values for the element (ADR 0015). Model or element alone, either with make or year, or an element decoded from the VIN itself rather than a pattern (Model Year and the Corrections elements 142, 143, 144, 156, 191, 196) is refused."
+                "description": "Fields to match after the fixed normalization: a vocabulary's fields; for vpic, make, a vPIC make id, to list its models, and with make year, one model year, keeping the models whose years include it or are unknown (ADR 0022); or model and element together, a vPIC model id and a public element id, to list the model's values for the element (ADR 0015). Model or element alone, either with make or year, or an element decoded from the VIN itself rather than a pattern (Model Year and the Corrections elements 142, 143, 144, 156, 191, 196) is refused. For the loaded catalog only type, a part type id."
               },
               "limit": {
                 "type": "integer",
@@ -1178,7 +1178,7 @@
         "$defs": {
           "List": {
             "type": "object",
-            "description": "The answer to a ListRequest: the catalog, or one page of what of names.",
+            "description": "The answer to a ListRequest: the catalog, or one page of what of names: vPIC, a loaded file, or the loaded catalog's fitment lines.",
             "required": [
               "entries",
               "vocabularies",
@@ -1204,10 +1204,13 @@
                     },
                     {
                       "$ref": "#/$defs/ModelValueEntry"
+                    },
+                    {
+                      "$ref": "#/$defs/FitmentLine"
                     }
                   ]
                 },
-                "description": "CatalogEntry for the catalog; VocabularyEntry for a vocabulary; ModelValueEntry for vpic with where.model and where.element; SpineEntry for the rest of vpic, a declared spine or an extension set."
+                "description": "CatalogEntry for the catalog; VocabularyEntry for a vocabulary; ModelValueEntry for vpic with where.model and where.element; SpineEntry for the rest of vpic, a declared spine or an extension set; FitmentLine for the loaded catalog, in key order."
               },
               "next": {
                 "type": "string",
@@ -1670,6 +1673,1278 @@
               "last": {
                 "type": "integer"
               }
+            },
+            "additionalProperties": false
+          },
+          "CatalogVehicle": {
+            "type": "object",
+            "description": "A catalog's vehicle as its file writes it: an entry of its vehicle vocabulary, by its fields (string values), or, when its vehicles are vpic, exactly one of a vPIC make id, a vPIC model id and an extension.",
+            "anyOf": [
+              {
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              {
+                "required": [
+                  "make"
+                ],
+                "properties": {
+                  "make": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "required": [
+                  "model"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "required": [
+                  "ext"
+                ],
+                "properties": {
+                  "ext": {
+                    "type": "string",
+                    "pattern": "^ext:[a-z0-9][a-z0-9._-]*/[^/\\s]+$"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "FitmentKey": {
+            "type": "object",
+            "description": "A fitment's key within its catalog (ADR 0016): its part type, its number, and its side, absent for a fitment that has none.",
+            "required": [
+              "type",
+              "number"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The part type, an id of the catalog's part spine."
+              },
+              "number": {
+                "type": "string",
+                "minLength": 1
+              },
+              "side": {
+                "enum": [
+                  "left",
+                  "right",
+                  "both"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "FitmentLine": {
+            "type": "object",
+            "description": "One fitment line of a catalog as its file has it: an entry of list's page of a catalog.",
+            "required": [
+              "fitment",
+              "applications"
+            ],
+            "properties": {
+              "fitment": {
+                "$ref": "#/$defs/FitmentKey"
+              },
+              "note": {
+                "type": "string"
+              },
+              "applications": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/LineApplication"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "LineApplication": {
+            "type": "object",
+            "description": "One application as its catalog's file has it.",
+            "required": [
+              "vehicle",
+              "options"
+            ],
+            "properties": {
+              "vehicle": {
+                "$ref": "#/$defs/CatalogVehicle"
+              },
+              "first": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
+              },
+              "options": {
+                "type": "string",
+                "description": "The catalog's option text, verbatim."
+              },
+              "qualifiers": {
+                "type": "object",
+                "minProperties": 1,
+                "propertyNames": {
+                  "pattern": "^[1-9][0-9]*$"
+                },
+                "additionalProperties": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": [
+                      "integer",
+                      "string"
+                    ]
+                  }
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "fit",
+      "title": "Fit parts and vehicles",
+      "description": "Fit a vehicle or a part number against the loaded parts catalog, offline: which parts fit a vehicle, and which vehicles a part fits. What it answers depends on the inputs:\n- a vehicle alone: its part types, each with a count of fitments.\n- a vehicle with part: the candidate fitments of that part type, with the applications that matched.\n- a fitment key ({\"fitment\": {\"type\", \"number\", \"side\"}}) as from: the fitment's vehicles. A retired number reaches the fitment that replaced it.\n- a vehicle with related: true: the vehicles that share its fitments, with how many per part type.\n\nWhat is loaded differs from server to server: call fit with the vehicle alone first. Its catalog gives the catalog's name (list's of, to page its fitment lines), its part spine (part's spine) and its vehicle vocabulary, and its part_types the part type ids; list with no arguments gives the vocabulary names and fields. Use only names these give.\n\n- from: a VIN string; {\"vocabulary\": name, \"entry\": {...}} with exactly that vocabulary's fields; {\"make\": id}, {\"model\": id} or {\"ext\": id}; or {\"fitment\": {\"type\": part type, \"number\": number}}, with \"side\" for a sided fitment.\n- part: {\"spine\": the catalog's part spine, \"id\": part type} or {\"vocabulary\": name, \"entry\": {...}}. Not with a fitment.\n- side: \"left\", \"right\" or \"both\", to keep the fitments that can go on that side.\n- to: vehicle vocabulary names to name vehicles in. None names them as spine entries.\n- model_year: only a year the user knows apart from the VIN; with a fitment, keeps the applications whose years hold it.\n- limit: list items a page, 1-1000 (default 100); after: the previous page's next, to continue. total counts every page; no next means the last page.\n- now: omit.\n\nNothing to fit is not an error: status says why (unknown, no-vehicle, no-fitment, or no-catalog when no parts catalog is loaded) and the list is empty. When models lists several vehicles, ask the user which one. An application's options is the catalog's requirement text, verbatim: a person must settle it, so report it with the part, never decide it. A result with unconfirmed was not fully checked: report it as possible, not certain.",
+      "inputSchema": {
+        "type": "object",
+        "$ref": "#/$defs/FitRequest",
+        "$defs": {
+          "VocabularyEntryRef": {
+            "type": "object",
+            "description": "An entry of a loaded vocabulary, by its fields: exactly the vocabulary's fields, matched after trimming, collapsing whitespace and Unicode lower-casing.",
+            "required": [
+              "vocabulary",
+              "entry"
+            ],
+            "properties": {
+              "vocabulary": {
+                "type": "string",
+                "minLength": 1
+              },
+              "entry": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "FitRequestFields": {
+            "type": "object",
+            "description": "A fit request's fields (ADR 0018): from a vehicle or a fitment, shaped by its inputs. A vehicle alone asks for its part types; with part, for candidates; with related, for the vehicles that share its fitments. A fitment asks for its vehicles. Contract prose: docs/api/README.md, Fit.",
+            "required": [
+              "from"
+            ],
+            "properties": {
+              "from": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "A VIN, 1-17 characters after trimming spaces, as a decode request's vin."
+                  },
+                  {
+                    "$ref": "#/$defs/VocabularyEntryRef"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "make"
+                    ],
+                    "properties": {
+                      "make": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2147483647,
+                        "description": "A vPIC make id."
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "model"
+                    ],
+                    "properties": {
+                      "model": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2147483647,
+                        "description": "A vPIC model id."
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "ext"
+                    ],
+                    "properties": {
+                      "ext": {
+                        "type": "string",
+                        "pattern": "^ext:[a-z0-9][a-z0-9._-]*/[^/\\s]+$",
+                        "description": "An extension, ext:<set>/<id>."
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "fitment"
+                    ],
+                    "properties": {
+                      "fitment": {
+                        "$ref": "#/$defs/FitmentKey"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "model_year": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": -2147483648,
+                "maximum": 2147483647,
+                "description": "The model year when no VIN gives one, and a VIN's decode hint; a decoded year wins over it. With a fitment it keeps the applications whose years hold it."
+              },
+              "part": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "spine",
+                      "id"
+                    ],
+                    "properties": {
+                      "spine": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The catalog's part spine."
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "An entry id of the part spine."
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "$ref": "#/$defs/VocabularyEntryRef"
+                  }
+                ],
+                "description": "The part type asked for: an entry of the catalog's part spine, or of a part vocabulary on that spine. Only beside a vehicle."
+              },
+              "side": {
+                "enum": [
+                  "left",
+                  "right",
+                  "both"
+                ],
+                "description": "Keeps the fitments that can go on that side. Absent: every one."
+              },
+              "to": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Vehicle vocabularies the catalog's vehicles are named in. Absent or empty: named as spine entries."
+              },
+              "related": {
+                "type": "boolean",
+                "default": false,
+                "description": "Asks for the vehicles that share fitments with from. Only beside a vehicle."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "default": 100
+              },
+              "after": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The previous page's next cursor."
+              },
+              "now": {
+                "type": "string",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?([Zz]|[+-][0-9]{2}:[0-9]{2}))?$",
+                "description": "Frozen clock for the VIN's decode, as a decode request's now."
+              }
+            },
+            "if": {
+              "required": [
+                "from"
+              ],
+              "properties": {
+                "from": {
+                  "type": "object",
+                  "required": [
+                    "fitment"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "part"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "related"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "FitRequest": {
+            "description": "One fit request, the same object on every surface (ADR 0018); on stdio, a line with op fit.",
+            "$ref": "#/$defs/FitRequestFields",
+            "unevaluatedProperties": false
+          },
+          "FitmentKey": {
+            "type": "object",
+            "description": "A fitment's key within its catalog (ADR 0016): its part type, its number, and its side, absent for a fitment that has none.",
+            "required": [
+              "type",
+              "number"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The part type, an id of the catalog's part spine."
+              },
+              "number": {
+                "type": "string",
+                "minLength": 1
+              },
+              "side": {
+                "enum": [
+                  "left",
+                  "right",
+                  "both"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "$ref": "#/$defs/Fit",
+        "$defs": {
+          "SpineRefFields": {
+            "type": "object",
+            "description": "One spine entry as a mapping target names it: exactly one of a vPIC make id, a vPIC model id, an extension, or a declared spine's name with one of its ids.",
+            "properties": {
+              "make": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647,
+                "description": "A vPIC make id."
+              },
+              "model": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647,
+                "description": "A vPIC model id."
+              },
+              "ext": {
+                "type": "string",
+                "pattern": "^ext:[a-z0-9][a-z0-9._-]*/[^/\\s]+$",
+                "description": "An extension, ext:<set>/<id>."
+              },
+              "spine": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A declared spine's name, beside id."
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "An entry id of the declared spine."
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "make"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ext"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "spine"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "model"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "make"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ext"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "spine"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "ext"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "make"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "spine"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "spine",
+                  "id"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "make"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "model"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ext"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "SpineRef": {
+            "$ref": "#/$defs/SpineRefFields",
+            "unevaluatedProperties": false
+          },
+          "Vehicle": {
+            "type": "object",
+            "description": "What a translation reads from a VIN's decode, from or context: never the whole decode.",
+            "required": [
+              "vin",
+              "make",
+              "model",
+              "model_year"
+            ],
+            "properties": {
+              "vin": {
+                "type": "string",
+                "description": "The VIN as decoded."
+              },
+              "make": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "The decoded vPIC make id (element 26's attribute id)."
+              },
+              "model": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "The decoded vPIC model id (element 28's attribute id)."
+              },
+              "model_year": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "The decoded model year (element 29)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "SpineEntry": {
+            "description": "One spine entry in an answer, named from the data month or its file.",
+            "$ref": "#/$defs/SpineRefFields",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Absent for a declared-spine entry its file leaves unnamed, and with drift."
+              },
+              "drift": {
+                "const": true,
+                "description": "A vPIC id the data month lacks, named by a mapping and served anyway (ADR 0011)."
+              },
+              "under": {
+                "$ref": "#/$defs/SpineRef",
+                "description": "The make a vPIC or extension model sits under."
+              },
+              "years": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/YearRange"
+                },
+                "description": "In a list of vpic, a model's model years: the year bands of every VIN schema with a Model pattern naming it, merged into ranges, ascending, gaps kept (ADR 0022). Absent when unknown: no VIN schema with a Model pattern naming it has a year band."
+              },
+              "via": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/Via"
+                },
+                "description": "In a translation from a vocabulary entry: the entry's mappings that reached this spine entry. A make reached because a model sits under it has the model's mapping."
+              },
+              "unconfirmed": {
+                "$ref": "#/$defs/Unconfirmed"
+              }
+            },
+            "unevaluatedProperties": false
+          },
+          "YearRange": {
+            "description": "A run of model years, inclusive. No last: still running.",
+            "type": "object",
+            "required": [
+              "first"
+            ],
+            "properties": {
+              "first": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "Via": {
+            "description": "One mapping that held on a route: the spine entry it names, its years, origin and note as its file has them, and what could not be checked on the route through it.",
+            "$ref": "#/$defs/SpineRefFields",
+            "properties": {
+              "first": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
+              },
+              "origin": {
+                "enum": [
+                  "derived",
+                  "curated",
+                  "seed"
+                ]
+              },
+              "note": {
+                "type": "string"
+              },
+              "unconfirmed": {
+                "$ref": "#/$defs/Unconfirmed"
+              }
+            },
+            "unevaluatedProperties": false
+          },
+          "Unconfirmed": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "const": "model_year"
+                }
+              ]
+            },
+            "description": "What applied but could not be checked: qualifier element ids, ascending, with no decode or that the decode left empty, then \"model_year\" when a year range applied and no year was known. Absent when everything was checked."
+          },
+          "Translated": {
+            "type": "object",
+            "required": [
+              "vocabulary",
+              "entries"
+            ],
+            "properties": {
+              "vocabulary": {
+                "type": "string",
+                "minLength": 1
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/TranslatedEntry"
+                },
+                "description": "Each entry reached once, in list order (by normalized fields)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "TranslatedEntry": {
+            "type": "object",
+            "required": [
+              "entry",
+              "via"
+            ],
+            "properties": {
+              "entry": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "note": {
+                "type": "string",
+                "description": "The entry's own note."
+              },
+              "via": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/Via"
+                },
+                "description": "Every mapping of the entry that held, each naming the spine entry that led to it, in spine order."
+              },
+              "unconfirmed": {
+                "$ref": "#/$defs/Unconfirmed",
+                "description": "Absent when one via checked everything, so a client can keep only fully confirmed entries."
+              }
+            },
+            "additionalProperties": false
+          },
+          "FitStatus": {
+            "enum": [
+              "found",
+              "unknown",
+              "no-vehicle",
+              "no-fitment",
+              "no-catalog"
+            ],
+            "description": "What a fit found. found: the list has something. unknown: from or part names nothing loaded. no-vehicle: the vehicle reaches none of the catalog's vehicles. no-fitment: the catalog has the vehicle or the fitment, but nothing fits. no-catalog: no catalog is loaded. Nothing to fit is a status, never a refusal."
+          },
+          "Fit": {
+            "type": "object",
+            "description": "The answer to a FitRequest (ADR 0018). Exactly one of part_types, candidates, vehicles and related is present, the one the request's inputs ask for, empty when nothing fits.",
+            "required": [
+              "status",
+              "total",
+              "now",
+              "data_month",
+              "decoder_version"
+            ],
+            "properties": {
+              "status": {
+                "$ref": "#/$defs/FitStatus"
+              },
+              "catalog": {
+                "$ref": "#/$defs/FitCatalog",
+                "description": "The loaded catalog; absent with no-catalog."
+              },
+              "vehicle": {
+                "$ref": "#/$defs/Vehicle",
+                "description": "The VIN's decode; absent without a VIN."
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/FitModel"
+                },
+                "description": "The catalog's vehicles a vehicle reached, so a person can be asked which one when there are several. Absent from a fitment."
+              },
+              "fitment": {
+                "$ref": "#/$defs/Fitment",
+                "description": "The fitment a fitment key reached."
+              },
+              "reached": {
+                "enum": [
+                  "direct",
+                  "retired"
+                ],
+                "description": "How the key reached the fitment: the number asked for, or the number that replaced a retired one."
+              },
+              "retired": {
+                "$ref": "#/$defs/FitRetired"
+              },
+              "part_types": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/FitPartType"
+                },
+                "description": "A vehicle's part types."
+              },
+              "candidates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/FitCandidate"
+                },
+                "description": "The fitments that may be the part for a vehicle."
+              },
+              "vehicles": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/FitVehicle"
+                },
+                "description": "A fitment's applications."
+              },
+              "related": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/RelatedVehicle"
+                },
+                "description": "The vehicles that share fitments with a vehicle."
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "How many the list holds across every page."
+              },
+              "next": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The after of the next page; absent on the last."
+              },
+              "now": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+                "description": "The clock the VIN's decode used (resolved when there is no VIN), in UTC whole seconds."
+              },
+              "data_month": {
+                "type": "string",
+                "pattern": "^[0-9]{4}_(0[1-9]|1[0-2])$"
+              },
+              "decoder_version": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "part_types"
+                ]
+              },
+              {
+                "required": [
+                  "candidates"
+                ]
+              },
+              {
+                "required": [
+                  "vehicles"
+                ]
+              },
+              {
+                "required": [
+                  "related"
+                ]
+              }
+            ],
+            "additionalProperties": false
+          },
+          "FitCatalog": {
+            "type": "object",
+            "description": "The catalog a fit answered from, and the files it names: its name is what list's of takes to page its fitment lines, spine the part spine a part names, vehicles its vehicle vocabulary.",
+            "required": [
+              "name",
+              "version",
+              "spine",
+              "vehicles"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "release": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The publisher's release; absent when the catalog gives none."
+              },
+              "spine": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The declared spine its part types come from: a part's spine."
+              },
+              "vehicles": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The vehicle vocabulary its vehicles are entries of, or vpic."
+              }
+            },
+            "additionalProperties": false
+          },
+          "CatalogVehicle": {
+            "type": "object",
+            "description": "A catalog's vehicle as its file writes it: an entry of its vehicle vocabulary, by its fields (string values), or, when its vehicles are vpic, exactly one of a vPIC make id, a vPIC model id and an extension.",
+            "anyOf": [
+              {
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              {
+                "required": [
+                  "make"
+                ],
+                "properties": {
+                  "make": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "required": [
+                  "model"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "required": [
+                  "ext"
+                ],
+                "properties": {
+                  "ext": {
+                    "type": "string",
+                    "pattern": "^ext:[a-z0-9][a-z0-9._-]*/[^/\\s]+$"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "FitModel": {
+            "type": "object",
+            "description": "One of the catalog's vehicles a vehicle reached, with the route to it as a translation has it.",
+            "required": [
+              "vehicle"
+            ],
+            "properties": {
+              "vehicle": {
+                "$ref": "#/$defs/CatalogVehicle"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A vPIC make's or model's, or an extension's, when the catalog's vehicles are vpic."
+              },
+              "note": {
+                "type": "string",
+                "description": "The vehicle vocabulary entry's own note."
+              },
+              "via": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/Via"
+                },
+                "description": "The mappings that reached it. Absent when from is the entry itself, or a vpic catalog's vehicle was reached from a VIN or itself."
+              },
+              "unconfirmed": {
+                "$ref": "#/$defs/Unconfirmed"
+              }
+            },
+            "additionalProperties": false
+          },
+          "Fitment": {
+            "type": "object",
+            "description": "One part (ADR 0016): its key and the catalog's note.",
+            "required": [
+              "type",
+              "number"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "number": {
+                "type": "string",
+                "minLength": 1
+              },
+              "side": {
+                "enum": [
+                  "left",
+                  "right",
+                  "both"
+                ]
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "FitReach": {
+            "enum": [
+              "direct",
+              "redirect"
+            ],
+            "description": "How a vehicle's part type or candidate was reached: directly, or, with no fitment of the part type asked for, through a redirect that lists it under this one."
+          },
+          "FitRetired": {
+            "type": "object",
+            "description": "The retired number a fitment was reached through: the key asked for, and the catalog's note on it.",
+            "required": [
+              "type",
+              "number"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "number": {
+                "type": "string",
+                "minLength": 1
+              },
+              "side": {
+                "enum": [
+                  "left",
+                  "right",
+                  "both"
+                ]
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "FitRedirect": {
+            "type": "object",
+            "description": "A redirect line as the catalog writes it: for a vehicle and years, part type from is listed under to.",
+            "required": [
+              "vehicle",
+              "from",
+              "to"
+            ],
+            "properties": {
+              "vehicle": {
+                "$ref": "#/$defs/CatalogVehicle"
+              },
+              "first": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string",
+                "minLength": 1
+              },
+              "to": {
+                "type": "string",
+                "minLength": 1
+              },
+              "options": {
+                "type": "string",
+                "description": "The catalog's option text, verbatim."
+              }
+            },
+            "additionalProperties": false
+          },
+          "FitPartType": {
+            "type": "object",
+            "description": "A part type with a count of fitments: a vehicle's, or those a related vehicle shares.",
+            "required": [
+              "type",
+              "count"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The spine entry's name; absent when it has none."
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reached": {
+                "$ref": "#/$defs/FitReach",
+                "description": "How a vehicle's part type was reached. Absent for a related vehicle's."
+              }
+            },
+            "additionalProperties": false
+          },
+          "FitCandidate": {
+            "type": "object",
+            "description": "One fitment that may be the part for a vehicle, with the applications of it that matched.",
+            "required": [
+              "fitment",
+              "applications",
+              "reached"
+            ],
+            "properties": {
+              "fitment": {
+                "$ref": "#/$defs/Fitment"
+              },
+              "applications": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/FitApplication"
+                }
+              },
+              "reached": {
+                "$ref": "#/$defs/FitReach"
+              },
+              "redirects": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/FitRedirect"
+                },
+                "description": "The redirects that reached it, when reached is redirect."
+              }
+            },
+            "additionalProperties": false
+          },
+          "FitApplication": {
+            "type": "object",
+            "description": "One application of a candidate that matched: the catalog's vehicle, the route to it, its years, its option text verbatim, and what could not be checked.",
+            "required": [
+              "vehicle",
+              "options"
+            ],
+            "properties": {
+              "vehicle": {
+                "$ref": "#/$defs/CatalogVehicle"
+              },
+              "via": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/Via"
+                },
+                "description": "The mappings that reached the vehicle: its model's."
+              },
+              "first": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
+              },
+              "options": {
+                "type": "string",
+                "description": "The catalog's option text, verbatim: a requirement for a person to settle."
+              },
+              "unconfirmed": {
+                "$ref": "#/$defs/Unconfirmed",
+                "description": "The application's qualifiers and years, its model's and its part type's, that could not be checked; absent when everything was checked."
+              }
+            },
+            "additionalProperties": false
+          },
+          "FitVehicle": {
+            "type": "object",
+            "description": "One application of a fitment: its vehicle, years and option text, and the vehicle named as spine entries or, with to, in the target vocabularies.",
+            "required": [
+              "vehicle",
+              "options"
+            ],
+            "properties": {
+              "vehicle": {
+                "$ref": "#/$defs/CatalogVehicle"
+              },
+              "first": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
+              },
+              "options": {
+                "type": "string",
+                "description": "The catalog's option text, verbatim."
+              },
+              "spine": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/SpineEntry"
+                },
+                "description": "The vehicle as spine entries, without to."
+              },
+              "to": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Translated"
+                },
+                "description": "The vehicle in each to vocabulary."
+              }
+            },
+            "not": {
+              "required": [
+                "spine",
+                "to"
+              ]
+            },
+            "additionalProperties": false
+          },
+          "RelatedVehicle": {
+            "type": "object",
+            "description": "A vehicle that shares fitments with a fit's from: a catalog vehicle and a year range, as its applications have them, with how many fitments it shares, per part type, and the vehicle named.",
+            "required": [
+              "vehicle",
+              "shared",
+              "part_types"
+            ],
+            "properties": {
+              "vehicle": {
+                "$ref": "#/$defs/CatalogVehicle"
+              },
+              "first": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
+              },
+              "shared": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "The count of fitments shared, every part type's."
+              },
+              "part_types": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/FitPartType"
+                }
+              },
+              "spine": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/SpineEntry"
+                },
+                "description": "The vehicle as spine entries, without to."
+              },
+              "to": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Translated"
+                },
+                "description": "The vehicle in each to vocabulary."
+              }
+            },
+            "not": {
+              "required": [
+                "spine",
+                "to"
+              ]
             },
             "additionalProperties": false
           }
