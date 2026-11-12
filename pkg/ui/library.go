@@ -75,6 +75,11 @@ type Library struct {
 	// mu serializes changes; state is what the pages answer from.
 	mu    sync.Mutex
 	state atomic.Pointer[shelf]
+
+	// shelfDrift is each shelf's drift, by its blake3, as measured
+	// against a catalog (stockDriftOf), kept in its stored index too.
+	driftMu    sync.Mutex
+	shelfDrift map[string]*stockDrift
 }
 
 // Disk is the browser's IndexedDB, as the worker's script keeps it:
@@ -246,7 +251,7 @@ func OpenLibrary(info contract.Info, remote Remote, disk Disk) (*Library, error)
 	if month.Name() != info.DataMonth {
 		return nil, fmt.Errorf("the spine bundle is of data month %s, the release's %s", month.Name(), info.DataMonth)
 	}
-	l := &Library{info: info, month: month, disk: disk, remote: remote, now: time.Now}
+	l := &Library{info: info, month: month, disk: disk, remote: remote, now: time.Now, shelfDrift: map[string]*stockDrift{}}
 	s := &shelf{}
 	for _, v := range info.Vocabularies {
 		if v.Kind == string(vocab.KindCatalog) {
@@ -273,7 +278,12 @@ func OpenLibrary(info contract.Info, remote Remote, disk Disk) (*Library, error)
 	}
 	for _, rec := range records {
 		h := &held{name: rec.Name, rec: rec}
-		h.file, h.decodes, err = l.read(rec.Blake3, browserPath(rec.FileName, rec.Name), func() ([]byte, error) { return disk.Text(rec.Blake3) })
+		var kept stockStored
+		h.file, kept, err = l.read(rec.Blake3, browserPath(rec.FileName, rec.Name), func() ([]byte, error) { return disk.Text(rec.Blake3) })
+		h.decodes = kept.Decodes
+		if kept.Drift != nil {
+			l.shelfDrift[rec.Blake3] = kept.Drift
+		}
 		if err != nil {
 			h.fault = err.Error()
 		} else if h.file.Name != rec.Name {
@@ -328,46 +338,47 @@ func browserPath(fileName, name string) string {
 	return fileName + " (" + name + ")"
 }
 
-// read is the file with hash blake3, and a yard file's decodes: from its
-// stored index, else parsed from text's bytes, a yard's VINs decoded by
-// the server, its index then stored. A yard whose VINs cannot be decoded
-// now (the server is out of reach) is an error, its index not stored, so
-// the next open tries again.
-func (l *Library) read(blake3, path string, text func() ([]byte, error)) (*vocab.File, map[string]*vinDecode, error) {
+// read is the file with hash blake3, and what a stock file's index keeps
+// beside it: from its stored index, else parsed from text's bytes, a
+// yard's VINs decoded by the server, its index then stored. A yard whose
+// VINs cannot be decoded now (the server is out of reach) is an error,
+// its index not stored, so the next open tries again.
+func (l *Library) read(blake3, path string, text func() ([]byte, error)) (*vocab.File, stockStored, error) {
 	t0 := time.Now()
 	idx, err := l.disk.Index(blake3)
 	t1 := time.Now()
 	l.indexRead += t1.Sub(t0)
 	if err == nil && idx != nil {
-		f, decodes, err := readStoredIndex(idx)
+		f, kept, err := readStoredIndex(idx)
 		l.indexParse += time.Since(t1)
 		if err == nil && hex.EncodeToString(f.Hash[:]) == blake3 && f.Path == path {
-			return f, decodes, nil
+			return f, kept, nil
 		}
 	}
 	data, err := text()
 	if err != nil {
-		return nil, nil, err
+		return nil, stockStored{}, err
 	}
 	f, err := vocab.Read(path, bytes.NewReader(data))
 	if err != nil {
-		return nil, nil, errors.New(faultText(err))
+		return nil, stockStored{}, errors.New(faultText(err))
 	}
 	if got := hex.EncodeToString(f.Hash[:]); got != blake3 {
-		return nil, nil, fmt.Errorf("its bytes changed: blake3 %s, not %s", got, blake3)
+		return nil, stockStored{}, fmt.Errorf("its bytes changed: blake3 %s, not %s", got, blake3)
 	}
 	decodes, err := l.decodeYard(f, func(string) {})
 	if err != nil {
-		return nil, nil, err
+		return nil, stockStored{}, err
 	}
-	written, err := storedIndex(f, decodes)
+	kept := stockStored{Decodes: decodes}
+	written, err := storedIndex(f, kept)
 	if err != nil {
-		return nil, nil, err
+		return nil, stockStored{}, err
 	}
 	if err := l.disk.PutIndex(blake3, written); err != nil {
-		return nil, nil, fmt.Errorf("storing its index: %w", err)
+		return nil, stockStored{}, fmt.Errorf("storing its index: %w", err)
 	}
-	return f, decodes, nil
+	return f, kept, nil
 }
 
 // faultText is a load's error in words: its first faults, and how many
@@ -582,16 +593,29 @@ func (l *Library) list(s *shelf, hs []*held) []StoredFile {
 }
 
 // drift is the drift of s's linked files from the release's data month,
-// measured on first use.
+// measured on first use: a stock file's by stockDriftOf, which keeps a
+// shelf's against its catalog, the rest's from memory.
 func (l *Library) drift(s *shelf) []vocab.Finding {
 	s.driftOnce.Do(func() {
 		var files []*vocab.File
+		var stocks []*held
+		var cat *held
 		for _, h := range s.all() {
-			if h.linked() {
+			switch {
+			case !h.linked():
+			case h.file.Kind == vocab.KindStock:
+				stocks = append(stocks, h)
+			default:
 				files = append(files, h.file)
+				if h.catalog {
+					cat = h
+				}
 			}
 		}
 		s.drift = vocab.Drift(l.month, files)
+		for _, h := range stocks {
+			s.drift = append(s.drift, l.stockDriftOf(h, cat)...)
+		}
 	})
 	return s.drift
 }
@@ -846,6 +870,18 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 			return nil, err
 		}
 	}
+	// A shelf's orphans are each a read of the catalog: counted here,
+	// once, and kept with it, never on a start of the module.
+	cat := slices.IndexFunc(next.browser, func(h *held) bool { return h.catalog && h.linked() })
+	drifts := map[*held]*stockDrift{}
+	for _, n := range news {
+		if _, out := dropped[n]; cat < 0 || out || n.file.Kind != vocab.KindStock || n.file.Holds != vocab.StockShelf {
+			continue
+		}
+		progress("Counting the orphans of " + n.name + "…")
+		c := next.browser[cat]
+		drifts[n] = newStockDrift(c.rec.Blake3, measureStock(l.month, n.file, c.file))
+	}
 	progress("Storing…")
 	selection, err := l.Selection()
 	if err != nil {
@@ -856,7 +892,7 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 	}
 	put := make([]Stored, len(news))
 	for i, n := range news {
-		idx, err := storedIndex(n.file, n.decodes)
+		idx, err := storedIndex(n.file, stockStored{Decodes: n.decodes, Drift: drifts[n]})
 		if err != nil {
 			return nil, err
 		}
@@ -875,6 +911,11 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 	if err := l.disk.Change(put, nil, selection); err != nil {
 		return nil, fmt.Errorf("storing the batch in this browser: %w", err)
 	}
+	l.driftMu.Lock()
+	for n, d := range drifts {
+		l.shelfDrift[n.rec.Blake3] = d
+	}
+	l.driftMu.Unlock()
 	next.relink(set, dropped)
 	l.state.Store(next)
 	return l.Files(), nil

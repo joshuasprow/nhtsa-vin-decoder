@@ -123,7 +123,9 @@ func (w *worker) open() (*ui.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening the browser's files: %w", err)
 	}
-	logger.Printf("opened %d stored files in %v", len(lib.Files()), time.Since(start).Round(time.Millisecond))
+	// Files would measure drift (a shelf's orphans are reads of the
+	// catalog): opening says how long it took, and nothing more.
+	logger.Printf("opened the stored files in %v", time.Since(start).Round(time.Millisecond))
 	w.lib, w.h = lib, ui.NewInBrowser(lib, w.config, logger)
 	return w.h, nil
 }

@@ -579,18 +579,43 @@ page starts, as decided, and a Service Worker's events stay short.
   server. A connector's file is refused: "connectors run on a server". A
   yard's VINs, of the rows with no `decoded`, are decoded by the server's
   `POST /v1/decode` as the file loads, 50 a request (a full decode is about
-  18 kB), and the decodes are kept in its stored index, by blake3 and
-  release, so another release decodes them again when it opens the file. The
-  dialog repeats ADR 0019's warning about personal data, and a row's fields
-  never leave the browser. The fit page's stock lists are the server's on
-  the same files in the same order (the browser's sources are its files in
-  name order). Drift, a shelf's orphans among it (one read of the catalog a
-  numbered row), is measured once for a set of files, when a page first
-  draws the dialog; a fit asked by htmx draws none, and no longer reads
-  drift for its `Info` (`Library.LoadInfo`). With
-  the synthetic shelves and yard beside the fixture's catalog, Chrome 157
-  retained 21.3 MiB of Go heap and 52.9 MiB of WebAssembly memory (19.7 and
-  52.9 MiB with the catalog alone), within 64 MiB.
+  18 kB), each batch reduced to a model and year as it arrives, and the
+  decodes are kept in its stored index, by blake3 and release, so another
+  release decodes them again when it opens the file. The dialog repeats
+  ADR 0019's warning about personal data, and a row's fields never leave
+  the browser. The fit page's stock lists are the server's on the same
+  files in the same order (the browser's sources are its files in name
+  order).
+- **A shelf's orphans are counted once a catalog.** Each is a read of the
+  catalog, so a shelf's drift is measured as it loads and kept in its
+  stored index with the blake3 of the catalog it was measured against;
+  it is measured again only when that catalog changes, or under a release
+  that keeps no index. Opening the files (each start of the module), the
+  fit page and the panel read none of it from the catalog, and a fit
+  asked by htmx reads no drift at all (`Library.LoadInfo`). Visiting the
+  rows in key order instead was measured too: 19,950 rows spread over the
+  catalog-scale fixture's 790,000 fitments still took 13,498 reads of
+  19,950 with a one-read cache, seconds on every start.
+- **Measured** in Chrome 157 (2026-11-12,
+  [#276](https://github.com/joshuasprow/nitrovin/pull/276)), on the
+  catalog-scale fixture compiled in the browser with a shelf of 19,950
+  numbered rows (200 orphans), the worker stopped before each request as a
+  browser stops an idle one:
+
+  | First request after a start | Before | After |
+  | --- | ---: | ---: |
+  | a fit page: `serve`, reads | 2,820–2,973 ms, 19,955 reads | 136–143 ms, 5 reads |
+  | the panel (`/ui/files`): `serve`, reads | 2,655–3,058 ms, 19,953 reads | 136–138 ms, 3 reads |
+  | allocated, collections | 231 MB, 10–11 | 61 MB, 1 |
+
+  The shelf loads in 2.6 s, its orphans counted then. A yard of 3,000 VINs
+  to decode, in a fresh profile, took the module's WebAssembly memory from
+  46.9 to 72.8 MiB before its batches were reduced as they arrived, and to
+  53.9 MiB after. With the synthetic shelves and yard beside the fixture's
+  catalog, Chrome 157 retained 21.3 MiB of Go heap and 53.4 MiB of
+  WebAssembly memory (19.7 and 53.4 MiB with the catalog alone); with a
+  2,000-row shelf and a 3,000-VIN yard loaded beside them too, 22.0 and
+  54.9 MiB: within 64 MiB.
 
 ## Considered options
 

@@ -106,6 +106,8 @@ type memDisk struct {
 	// one part.
 	partBytes int
 	spanning  int
+	// catalogReads counts the reads of the stored catalog.
+	catalogReads int
 }
 
 func newDisk() *memDisk {
@@ -185,9 +187,22 @@ func (d *memDisk) Catalog() (Record, io.ReaderAt, bool, error) {
 		return Record{}, nil, false, nil
 	}
 	if d.partBytes > 0 {
-		return *d.catalog, &partedReader{d: d, parts: split(d.catalogData, d.partBytes)}, true, nil
+		return *d.catalog, countedReader{d, &partedReader{d: d, parts: split(d.catalogData, d.partBytes)}}, true, nil
 	}
-	return *d.catalog, bytes.NewReader(d.catalogData), true, nil
+	return *d.catalog, countedReader{d, bytes.NewReader(d.catalogData)}, true, nil
+}
+
+// countedReader is the stored catalog, its reads counted.
+type countedReader struct {
+	d *memDisk
+	r io.ReaderAt
+}
+
+func (c countedReader) ReadAt(p []byte, off int64) (int, error) {
+	c.d.mu.Lock()
+	c.d.catalogReads++
+	c.d.mu.Unlock()
+	return c.r.ReadAt(p, off)
 }
 
 // split is b in parts of n bytes, the last one shorter.

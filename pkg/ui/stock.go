@@ -68,35 +68,28 @@ const decodeBatch = 50
 // /v1/decode, a batch at a time, telling progress how far it is: every
 // VIN the server decodes, and nil for one that decodes to no model or that
 // no decode accepts (empty, or too long), as a server's stock decodes
-// each (stock.NewFile). It refuses in words when the server cannot be
-// reached or decodes with another data month.
+// each (stock.NewFile). Each batch's full decodes are reduced to a model
+// and year as it arrives, so the module holds one batch's at a time. It
+// refuses in words when the server cannot be reached or decodes with
+// another data month.
 func (l *Library) decodeYard(f *vocab.File, progress func(string)) (map[string]*vinDecode, error) {
 	vins := yardVINs(f)
 	if len(vins) == 0 {
 		return nil, nil
 	}
-	got := map[string]contract.VINDecode{}
+	out := make(map[string]*vinDecode, len(vins))
 	var ask []string
 	for _, vin := range vins {
+		out[vin] = nil
 		if (contract.Request{VIN: vin}).Validate() == nil {
 			ask = append(ask, vin)
-		}
-	}
-	for start := 0; start < len(ask); start += decodeBatch {
-		progress(fmt.Sprintf("Decoding the VINs of %s through this nitrovin's server: %d of %d…", f.Name, start, len(ask)))
-		batch := ask[start:min(start+decodeBatch, len(ask))]
-		decs, err := l.decodeBatch(f.Name, batch)
-		if err != nil {
-			return nil, err
-		}
-		for i, d := range decs {
-			got[batch[i]] = d
 		}
 	}
 	bare, err := vocab.NewSet(l.month, nil)
 	if err != nil {
 		return nil, err
 	}
+	var got map[string]contract.VINDecode // the batch at hand's
 	t := contract.Translator{Set: bare, Decode: func(vin string, _ contract.Null[int32], _ time.Time) (contract.VINDecode, error) {
 		d, ok := got[vin]
 		if !ok {
@@ -105,11 +98,21 @@ func (l *Library) decodeYard(f *vocab.File, progress func(string)) (map[string]*
 		return d, nil
 	}}
 	read := t.StockDecode(time.Time{})
-	out := make(map[string]*vinDecode, len(vins))
-	for _, vin := range vins {
-		out[vin] = nil
-		if model, year, ok := read(vin); ok {
-			out[vin] = &vinDecode{Model: model, Year: year}
+	for start := 0; start < len(ask); start += decodeBatch {
+		progress(fmt.Sprintf("Decoding the VINs of %s through this nitrovin's server: %d of %d…", f.Name, start, len(ask)))
+		batch := ask[start:min(start+decodeBatch, len(ask))]
+		decs, err := l.decodeBatch(f.Name, batch)
+		if err != nil {
+			return nil, err
+		}
+		got = make(map[string]contract.VINDecode, len(batch))
+		for i, d := range decs {
+			got[batch[i]] = d
+		}
+		for _, vin := range batch {
+			if model, year, ok := read(vin); ok {
+				out[vin] = &vinDecode{Model: model, Year: year}
+			}
 		}
 	}
 	return out, nil
@@ -168,50 +171,129 @@ func stockDecode(decodes map[string]*vinDecode) stock.Decode {
 	}
 }
 
-// A stored file's index is vocab.WriteIndex's, but for a yard file whose
-// rows' VINs were decoded: yardIndex, the length of the vocabulary index
-// (a uvarint), that index, then its decodes as JSON ({VIN: {model,
-// year}}, null for no model).
-const yardIndex = "nitrovin yard index\n"
+// stockStored is what a stock file's stored index keeps beside its
+// vocabulary index: a yard's decodes, and a shelf's drift as measured
+// against the browser's catalog.
+type stockStored struct {
+	Decodes map[string]*vinDecode `json:"decodes,omitempty"`
+	Drift   *stockDrift           `json:"drift,omitempty"`
+}
 
-// storedIndex is f's index to store, decodes beside it when f has any.
-func storedIndex(f *vocab.File, decodes map[string]*vinDecode) ([]byte, error) {
+// stockDrift is a shelf's drift (its orphans and its fields that look
+// personal), measured against the catalog whose blake3 is Catalog: an
+// orphan is a read of that catalog a numbered row, so it is measured once
+// a catalog, not on every start of the module.
+type stockDrift struct {
+	Catalog  string          `json:"catalog"`
+	Findings []storedFinding `json:"findings"`
+}
+
+// storedFinding is one drift finding of a stock file, its file implied.
+type storedFinding struct {
+	Line   int    `json:"line"`
+	Kind   string `json:"kind"`
+	Detail string `json:"detail"`
+}
+
+// newStockDrift keeps findings, f's drift against catalog.
+func newStockDrift(catalog string, findings []vocab.Finding) *stockDrift {
+	d := &stockDrift{Catalog: catalog, Findings: make([]storedFinding, len(findings))}
+	for i, g := range findings {
+		d.Findings[i] = storedFinding{Line: g.Line, Kind: string(g.Drift), Detail: g.Detail}
+	}
+	return d
+}
+
+// of is d's findings as f's.
+func (d *stockDrift) of(f *vocab.File) []vocab.Finding {
+	out := make([]vocab.Finding, len(d.Findings))
+	for i, g := range d.Findings {
+		out[i] = vocab.Finding{File: f.Path, Line: g.Line, Severity: vocab.SeverityDrift, Detail: g.Detail, Drift: vocab.DriftKind(g.Kind)}
+	}
+	return out
+}
+
+// A stored file's index is vocab.WriteIndex's, but for a stock file with
+// something to keep beside it: stockIndex, the length of the vocabulary
+// index (a uvarint), that index, then a stockStored as JSON.
+const stockIndex = "nitrovin stock index\n"
+
+// storedIndex is f's index to store, with kept beside it when it keeps
+// anything.
+func storedIndex(f *vocab.File, kept stockStored) ([]byte, error) {
 	var idx bytes.Buffer
 	if err := vocab.WriteIndex(&idx, f); err != nil {
 		return nil, err
 	}
-	if decodes == nil {
+	if kept.Decodes == nil && kept.Drift == nil {
 		return idx.Bytes(), nil
 	}
-	js, err := json.Marshal(decodes)
+	js, err := json.Marshal(kept)
 	if err != nil {
 		return nil, err
 	}
-	out := binary.AppendUvarint([]byte(yardIndex), uint64(idx.Len()))
+	out := binary.AppendUvarint([]byte(stockIndex), uint64(idx.Len()))
 	return slices.Concat(out, idx.Bytes(), js), nil
 }
 
 // readStoredIndex reads what storedIndex wrote.
-func readStoredIndex(b []byte) (*vocab.File, map[string]*vinDecode, error) {
-	rest, ok := bytes.CutPrefix(b, []byte(yardIndex))
+func readStoredIndex(b []byte) (*vocab.File, stockStored, error) {
+	rest, ok := bytes.CutPrefix(b, []byte(stockIndex))
 	if !ok {
 		f, err := vocab.ReadIndex(b)
-		return f, nil, err
+		return f, stockStored{}, err
 	}
+	damaged := errors.New("stock index: damaged")
 	n, k := binary.Uvarint(rest)
 	if k <= 0 || n > uint64(len(rest)-k) {
-		return nil, nil, errors.New("yard index: damaged")
+		return nil, stockStored{}, damaged
 	}
 	rest = rest[k:]
 	f, err := vocab.ReadIndex(rest[:n])
 	if err != nil {
-		return nil, nil, err
+		return nil, stockStored{}, err
 	}
-	var decodes map[string]*vinDecode
-	if err := json.Unmarshal(rest[n:], &decodes); err != nil || decodes == nil {
-		return nil, nil, errors.New("yard index: damaged")
+	var kept stockStored
+	if err := json.Unmarshal(rest[n:], &kept); err != nil || kept.Decodes == nil && kept.Drift == nil {
+		return nil, stockStored{}, damaged
 	}
-	return f, decodes, nil
+	return f, kept, nil
+}
+
+// stockDriftOf is h's drift, a linked stock file's, beside cat, the
+// browser's catalog (nil for none). A yard's is measured, from memory; a
+// shelf's is the one kept against cat, else measured, each orphan a read
+// of cat, and kept, in memory and in its stored index, so the next start
+// of the module reads none.
+func (l *Library) stockDriftOf(h, cat *held) []vocab.Finding {
+	if h.file.Holds != vocab.StockShelf || cat == nil {
+		return measureStock(l.month, h.file, nil)
+	}
+	l.driftMu.Lock()
+	defer l.driftMu.Unlock()
+	if d := l.shelfDrift[h.rec.Blake3]; d != nil && d.Catalog == cat.rec.Blake3 {
+		return d.of(h.file)
+	}
+	found := measureStock(l.month, h.file, cat.file)
+	d := newStockDrift(cat.rec.Blake3, found)
+	l.shelfDrift[h.rec.Blake3] = d
+	// The stored index is a cache: one this browser refuses to store is
+	// measured again by the next start of the module, and the page shows
+	// the drift all the same.
+	if idx, err := storedIndex(h.file, stockStored{Decodes: h.decodes, Drift: d}); err == nil {
+		_ = l.disk.PutIndex(h.rec.Blake3, idx)
+	}
+	return found
+}
+
+// measureStock is f's drift, a stock file's, beside catalog (nil for
+// none): Drift of the two, f's findings alone.
+func measureStock(m vocab.Month, f, catalog *vocab.File) []vocab.Finding {
+	files := []*vocab.File{f}
+	if catalog != nil {
+		files = append(files, catalog)
+	}
+	return slices.DeleteFunc(vocab.Drift(m, files), func(g vocab.Finding) bool { return g.File != f.Path })
 }
 
 // admitStock refuses f, a stock file picked as fileName, when this

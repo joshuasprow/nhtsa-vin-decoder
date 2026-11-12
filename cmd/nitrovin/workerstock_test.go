@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"html"
 	"net/http/httptest"
 	"os"
@@ -171,6 +172,53 @@ func TestWorkerStock(t *testing.T) {
 	samePages("after a reload")
 	if n := slices.IndexFunc(wire.all(), func(r wireRequest) bool { return r.method == "POST" }); n >= 0 && slices.ContainsFunc(wire.all()[n+1:], func(r wireRequest) bool { return r.method == "POST" }) {
 		t.Error("the yard's VINs were decoded again after a reload")
+	}
+
+	// A shelf of many numbered rows is a read of the catalog a row to
+	// count its orphans: done once, as it loads. A start of the module
+	// (a browser stops an idle worker) and the fit page and the panel
+	// after it read the catalog only as a fit does. A yard of many VINs
+	// to decode keeps the module within its memory.
+	dir := t.TempDir()
+	many, yard := filepath.Join(dir, "shelf-many.jsonl"), filepath.Join(dir, "yard-many.jsonl")
+	writeStock(t, many, `{"format":1,"kind":"stock","name":"shelf-many","version":"1","source":"shelf","as_of":"2026-11-01","catalog":"parts-catalog"}`, 2000,
+		func(i int) string {
+			return fmt.Sprintf(`{"id":"M-%d","location":"north","type":"brake-rotor-front","number":"BR-%d","fields":{}}`, i, 2001+i%2*1000)
+		})
+	writeStock(t, yard, `{"format":1,"kind":"stock","name":"yard-many","version":"1","source":"yard","as_of":"2026-11-01"}`, 3000,
+		func(i int) string {
+			return fmt.Sprintf(`{"id":"V-%d","location":"north","vin":"1D7RV1GT5AS%06d","fields":{}}`, i, i)
+		})
+	tb.do(chromedp.SetUploadFiles(chromedp.CSS("#vocab-files"), []string{many, yard}))
+	tb.waitPrefix("#load-status", "Loaded shelf-many (2000 lines), yard-many (3000 lines).")
+	if s := tb.html("#browser-files"); !strings.Contains(s, "Drift: 1000 orphan") {
+		t.Errorf("shelf-many's orphans are not counted: %s", s)
+	}
+	loaded := tb.timeFetch("/ui/files").Timing
+	t.Logf("after loading a 2,000-row shelf and a 3,000-VIN yard: Go heap %.1f MiB, WebAssembly memory %.1f MiB",
+		float64(timingDesc(loaded, "heap"))/(1<<20), float64(timingDesc(loaded, "memory"))/(1<<20))
+	if memory := timingDesc(loaded, "memory"); memory == 0 || memory > 64<<20 {
+		t.Errorf("after loading them, WebAssembly memory %d bytes; ADR 0023's budget is 64 MiB (%s)", memory, loaded)
+	}
+	for _, target := range []string{"/ui/fit?from.fitment.type=brake-rotor-front&from.fitment.number=BR-2001&stock=shelf&stock=yard" + pinned, "/ui/files"} {
+		tb.stopWorkers()
+		timing := tb.timeFetch(target).Timing
+		if reads := timingDesc(timing, "reads"); reads > 20 {
+			t.Errorf("%s after a start of the module read the catalog %d times; want only what a fit reads (%s)", target, reads, timing)
+		}
+	}
+}
+
+// writeStock writes a stock file to path: header, then n rows, row(i).
+func writeStock(t *testing.T, path, header string, n int, row func(int) string) {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString(header + "\n")
+	for i := range n {
+		b.WriteString(row(i) + "\n")
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

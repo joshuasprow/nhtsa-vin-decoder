@@ -633,12 +633,18 @@ the browser does not hold. Each is stored with its index
 `Stock`, in the set's order: the browser's files by name. A yard's VINs
 are the one thing a load sends the server: `POST /v1/decode` in batches of
 50 (`ui.Remote`'s `Post`, `worker.js`'s `nitrovinPost`), read as the server's
-`StockDecode` reads a decode, and kept after the file's index in its stored
-index (`storedIndex`), so a release that keeps no index decodes them again
-when it opens the file. `stock_test.go` holds the browser's fit, every
-request of `TestLibraryCatalogFit` asked with every kind of stock and at
-locations, to the server's on the same files, and `TestWorkerStock` does
-the same for the fit page in Chrome, with what the module retains.
+`StockDecode` reads a decode, a batch at a time, and kept after the file's
+index in its stored index (`storedIndex`), so a release that keeps no index
+decodes them again when it opens the file. A shelf's orphans are a read of
+the catalog each: they are counted as it loads and kept in the same stored
+index with the catalog's blake3 (`stockDriftOf`), so opening the files, a
+fit and the panel never count them again until the catalog changes; nothing
+on the way to a fit may call `Files` or `Info` with drift. `stock_test.go`
+holds the browser's fit, every request of `TestLibraryCatalogFit` asked
+with every kind of stock and at locations, to the server's on the same
+files, and `TestLibraryShelfDriftKept` counts the catalog's reads on a
+reopen, a fit and the panel; `TestWorkerStock` does the same for the fit
+page in Chrome, with what the module retains.
 `cmd/nitrovin-sw` is the module: `ui.NewInBrowser`
 over a `Library`, given IndexedDB and `fetch` by `pkg/ui/static/worker.js`,
 the worker script that `/sw.js` (its release and the server's files, never
@@ -783,6 +789,9 @@ refused in words; the yard's one VIN to decode is the only body the server
 gets; the worker's fit pages with stock are the server's on the same files
 in the same order, before and after a reload; it logs the module's retained
 memory, and checks the dialog's first opening drops a compile's leftovers.
+With a 2,000-row shelf and a 3,000-VIN yard loaded, the module stays within
+64 MiB, and the fit page and the panel after a start of the module read the
+catalog only as a fit does.
 
 `cmd/libnitrovin` is the C library (`-buildmode=c-shared`, no data).
 `scripts/libnitrovin.sh <dir> [<goos>/<goarch>…]` builds it for all six

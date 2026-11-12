@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -297,4 +299,87 @@ func TestFilesPanelStock(t *testing.T) {
 			t.Errorf("the panel lacks %q:\n%s", want, text)
 		}
 	}
+}
+
+// manyShelf is a shelf of n numbered rows over the fitment fixture's
+// catalog, each tenth an orphan: n reads of the catalog to count them.
+func manyShelf(n int) Picked {
+	var b strings.Builder
+	b.WriteString(`{"format":1,"kind":"stock","name":"shelf-many","version":"1","source":"shelf","as_of":"2026-11-01","catalog":"parts-catalog"}` + "\n")
+	for i := range n {
+		number := "BR-2001"
+		if i%10 == 0 {
+			number = "NONE-" + strconv.Itoa(i)
+		}
+		fmt.Fprintf(&b, `{"id":"M-%d","location":"north","type":"brake-rotor-front","number":%q,"fields":{"stock_number":"M%d"}}`+"\n", i, number, i)
+	}
+	return Picked{FileName: "shelf-many.jsonl", Data: []byte(b.String())}
+}
+
+// TestLibraryShelfDriftKept: a shelf's orphans, each a read of the
+// browser's catalog, are counted once, when it loads, and kept with its
+// stored index: opening the files again (a start of the module), a fit
+// with its stock, the panel's files and Info read the catalog only as a
+// fit needs, and say the same drift. A release that keeps no index counts
+// them once again, on the panel, and keeps them.
+func TestLibraryShelfDriftKept(t *testing.T) {
+	d := embedded(t)
+	s, disk := newDecoderServer(t, d, "part-types", "part-codes"), newDisk()
+	l := openWith(t, s, disk)
+	if _, err := l.Load([]Picked{{FileName: "catalog-models.jsonl", Data: fitmentFile(t, "catalog-models")}}, quiet); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compileFixture(t, l, fitmentFile(t, "catalog")); err != nil {
+		t.Fatal(err)
+	}
+	const rows = 500
+	l = openWith(t, s, disk) // the catalog read from the disk, its reads counted
+	disk.catalogReads = 0
+	var said []string
+	if _, err := l.Load([]Picked{manyShelf(rows)}, func(s string) { said = append(said, s) }); err != nil {
+		t.Fatal(err)
+	}
+	if disk.catalogReads < rows || !slices.Contains(said, "Counting the orphans of shelf-many…") {
+		t.Errorf("the load read the catalog %d times and said %q; want its %d rows counted once", disk.catalogReads, said, rows)
+	}
+	orphans := func(l *Library) int {
+		for _, f := range l.Files() {
+			for _, c := range f.Drift {
+				if f.Name == "shelf-many" && c.Kind == "orphan" {
+					return c.Count
+				}
+			}
+		}
+		return 0
+	}
+	if n := orphans(l); n != rows/10 {
+		t.Errorf("%d orphans; want %d", n, rows/10)
+	}
+	fit := contract.FitRequest{From: contract.FitFrom{Fitment: &contract.FitmentKey{Type: "brake-rotor-front", Number: "BR-2001"}}, Stock: []string{"shelf"}, Now: fitNow}
+	cold := func(what string, want int) {
+		t.Helper()
+		disk.catalogReads = 0
+		again := openWith(t, s, disk)
+		f, err := again.Fit(context.Background(), fit)
+		if err != nil || f.Shelf == nil || f.Shelf.Total != rows-rows/10 {
+			t.Fatalf("%s: fit %v, %+v", what, err, f.Shelf)
+		}
+		_ = again.LoadInfo()
+		if disk.catalogReads > 10 {
+			t.Errorf("%s: opening and a fit read the catalog %d times; want only what the fit reads", what, disk.catalogReads)
+		}
+		if n := orphans(again); n != rows/10 {
+			t.Errorf("%s: %d orphans; want %d", what, n, rows/10)
+		}
+		_ = again.Info()
+		if reads := disk.catalogReads; reads < want || reads > want+10 {
+			t.Errorf("%s: the panel and Info read the catalog %d times in all; want %d and a fit's", what, reads, want)
+		}
+	}
+	cold("a start of the module", 0)
+	// Another release keeps no index of this one's: the panel counts them
+	// once again, and keeps them.
+	clear(disk.indexes)
+	cold("with no index", rows)
+	cold("again", 0)
 }
