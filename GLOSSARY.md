@@ -230,6 +230,11 @@ patterns whose keys could match together with the model's own. It may list a val
 never ends up with, but it never leaves one out.
 _Avoid_: model attributes, series list
 
+**Model years**:
+The model-year ranges a vPIC model's VIN schemas cover, gaps kept and an open
+range still running. A model with no Model pattern has none: unknown, not empty.
+_Avoid_: span (one range hides the gaps), production years
+
 **Extension**:
 A spine entry an author mints for a vehicle vPIC lacks: a make, or a model
 under a vPIC make or an extension make. It stands in until the author maps to
