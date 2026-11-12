@@ -266,3 +266,40 @@ month: a malformed line, an unknown field, a duplicate entry or id, a
 reference no loaded file defines. A fault stops nitrovin from starting;
 drift never does.
 _Avoid_: error (a decode's error codes are about the VIN), invalid
+
+### Fitment
+
+**Catalog**:
+One author's statement of which parts fit which vehicles, loaded as data. It
+names the declared part spine its part types come from and the vehicle
+vocabulary its applications use; a deployment loads one.
+_Avoid_: interchange (a catalog vendor's term), parts database
+
+**Fitment**:
+One part in a catalog: a part type, the catalog's number for it and its side,
+with every vehicle and model-year range it fits.
+_Avoid_: interchange, compatibility, part record
+
+**Application**:
+One vehicle and model-year range a fitment fits, with the catalog's option text
+for it and, optionally, qualifiers.
+_Avoid_: fit, usage, vehicle row
+
+**Option text**:
+A catalog's own words for the conditions under which an application holds
+("w/o sunroof"), passed through verbatim for a person to settle.
+_Avoid_: description, notes (a fitment's note is something else)
+
+**Side**:
+Left, right, both or none: the one position a fitment states for itself. Front
+and rear, upper and lower live in the part type.
+_Avoid_: position (as the field's name), orientation
+
+**Redirect**:
+A catalog's statement that, for a vehicle and years, one part type is listed
+under another. A request follows it one hop.
+_Avoid_: see-also, cross-reference
+
+**Retired number**:
+A number a catalog no longer uses, pointing at the fitment that replaced it.
+_Avoid_: alias (the word is kept away from mappings and entries), old number
