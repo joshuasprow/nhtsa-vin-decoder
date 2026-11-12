@@ -1016,6 +1016,9 @@ func (c *Catalog) ByNumber(partType, number string, side Side) (fitment *Fitment
 // RetiredTo returns the retired numbers fitment key k replaced, in file
 // order: a shelf row under one of them joins k's fitment (ADR 0019).
 func (c *Catalog) RetiredTo(k FitmentKey) []*Retired {
+	if cc := c.f.compiled; cc != nil {
+		return cc.retiredTo(k)
+	}
 	var out []*Retired
 	for _, i := range c.f.catalog.retiredTo[k] {
 		out = append(out, &c.f.Retired[i])

@@ -393,6 +393,10 @@ nitrovin --vocab testdata/vocab/fitment --vocab testdata/vocab/stock info | jq -
 {"name":"yard-stock","kind":"stock","version":"2026.11.01","drift":[],"source":"yard","as_of":"2026-11-01T06:30:00Z","rows":4}
 ```
 
+A shelf's catalog may be compiled (above): it answers stock, retired
+numbers and orphans as its JSON Lines source, and `vocab check` on the
+compiled file with the stock files finds the same drift.
+
 A shelf whose catalog is not loaded, a row in neither form, a duplicate
 id, a part the catalog's spine lacks, and a vehicle its vehicle
 vocabulary has no entry for are faults. The browser loads no stock, and

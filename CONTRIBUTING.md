@@ -354,6 +354,10 @@ paging, unavailable sources, `Info`), `TestServeContract`,
 `cmd/nitrovin`'s `TestFit`, and the C library's `vocab-requests.jsonl`;
 `go test ./pkg/stock` checks the yard routes, and `go test ./pkg/vocab`
 refuses each stock fault and measures orphans and personal-looking fields.
+On a compiled catalog, `TestCompiledAnswersAsJSONLines` asks `RetiredTo`
+of every key, `TestFitCompiled` fits the synthetic stock against both
+forms alike, and `TestVocabCompile` checks the stock's orphan and fits
+with it through the CLI.
 
 Its headers say 2026_10, but the ids, values and VINs it relies on are
 long-lived ones (2026_06 loads it the same), so its tests never skip on

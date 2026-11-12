@@ -310,6 +310,32 @@ func TestCompiledAnswersAsJSONLines(t *testing.T) {
 					t.Fatalf("ByNumber(%s): %s, %s; want %s, %s", k, describe(gf), describeRetired(gr), describe(wf), describeRetired(wr))
 				}
 			}
+			// RetiredTo, the reverse of ByNumber's retired step: of every
+			// key, a retired number's successor among them.
+			retiredTo := func(rts []*Retired) string {
+				var b strings.Builder
+				fmt.Fprintf(&b, "%d:", len(rts))
+				for _, rt := range rts {
+					b.WriteString(" " + describeRetired(rt))
+				}
+				return b.String()
+			}
+			successors := 0
+			for _, rt := range jl.File().Retired {
+				keys = append(keys, rt.To)
+			}
+			for _, k := range keys {
+				got, want := retiredTo(cc.RetiredTo(k)), retiredTo(jl.RetiredTo(k))
+				if got != want {
+					t.Fatalf("RetiredTo(%s): %s; want %s", k, got, want)
+				}
+				if len(jl.RetiredTo(k)) > 0 {
+					successors++
+				}
+			}
+			if len(jl.File().Retired) > 0 && successors == 0 {
+				t.Fatal("no successor of a retired number asked of")
+			}
 
 			page := func(fs []*Fitment) string {
 				var b strings.Builder
