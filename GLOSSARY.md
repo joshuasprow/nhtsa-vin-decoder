@@ -1,7 +1,8 @@
 # nitrovin
 
-An offline decoder that turns a VIN into the vehicle NHTSA's vPIC says it is,
-shipped as one binary with the data inside.
+A decoder that turns a VIN into the vehicle NHTSA's vPIC says it is, shipped as
+one binary with its data inside. It translates names and answers fitment from
+files it loads, and reads stock from a database only when a stock source says to.
 
 ## Language
 
@@ -322,6 +323,12 @@ A named supply of stock rows, either a file or a database read at request time,
 of one kind: `shelf` (parts, numbered under one catalog) or `yard` (vehicles).
 The source decides what is available and what fields it shows.
 _Avoid_: feed, connector (that is how a live source is read)
+
+**Connector**:
+How a stock source is read from a database at request time: a stock file with a
+header and no lines, naming a relation and the environment variable that holds
+its credentials.
+_Avoid_: plugin, adapter, live source (as the term)
 
 **Shelf part**:
 One part a source has on a shelf, tied to a fitment by its catalog number, or to
