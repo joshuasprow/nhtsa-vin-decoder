@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -56,7 +57,11 @@ func TestSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	drift, _ := filepath.Glob("../../testdata/vocab/drift/*.jsonl")
-	for _, p := range append(paths, drift...) {
+	fitment, _ := filepath.Glob("../../testdata/vocab/fitment/*.jsonl")
+	if len(fitment) == 0 {
+		t.Fatal("no testdata/vocab/fitment/*.jsonl")
+	}
+	for _, p := range slices.Concat(paths, drift, fitment) {
 		data, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatal(err)
@@ -79,6 +84,16 @@ func TestSchema(t *testing.T) {
 		`{"entry":{"make":"Dodge"},"mappings":[],"aliases":[]}`,
 		`{"id":"packard","make_name":"Packard","make":467,"name":"Clipper"}`,
 		`{"id":"pads","parent":"brakes"}`,
+		`{"format":1,"kind":"catalog","name":"cat","version":"1","spine":"parts"}`,
+		`{"format":1,"kind":"catalog","name":"cat","version":"1","spine":"parts","vehicles":"yard","release":""}`,
+		`{"format":1,"kind":"catalog","name":"cat","version":"1","spine":"parts","vehicles":"yard","subject":"vehicle"}`,
+		`{"fitment":{"type":"pads","number":"P1","side":"front"},"applications":[]}`,
+		`{"fitment":{"type":"pads","number":"P1"}}`,
+		`{"fitment":{"type":"pads","number":"P1"},"applications":[{"vehicle":{"make":"Dodge"}}]}`,
+		`{"fitment":{"type":"pads","number":"P1"},"applications":[{"vehicle":{"make":476,"model":1938},"options":""}]}`,
+		`{"fitment":{"type":"pads","number":"P1"},"applications":[],"to":{"type":"pads","number":"P2"}}`,
+		`{"redirect":{"vehicle":{"model":1938},"from":"pads"}}`,
+		`{"retired":{"type":"pads","number":"P0"}}`,
 	} {
 		if validLine(s, line) == nil {
 			t.Errorf("%s validates; the schema should refuse it as Read does", line)

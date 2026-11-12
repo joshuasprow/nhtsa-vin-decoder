@@ -206,6 +206,39 @@ func (r *results) table() string {
 		}
 		fmt.Fprintf(&b, " %s |\n", q.budget)
 	}
+	b.WriteString(r.catalog())
+	return b.String()
+}
+
+// catalogBudget is ADR 0017's interim budget for a JSON Lines catalog.
+const catalogBudget = "≤ 15 s on one core, ≤ 1.5 GiB peak, file ≤ 500 MB"
+
+// catalog is the catalog load's table (ADR 0017), "" when it did not run:
+// one row per GOMAXPROCS.
+func (r *results) catalog() string {
+	var procs []int
+	for k := range r.bench {
+		if k.name == "LoadCatalog" {
+			procs = append(procs, k.procs)
+		}
+	}
+	if len(procs) == 0 {
+		return ""
+	}
+	slices.Sort(procs)
+	var b strings.Builder
+	m := r.bench[key{"LoadCatalog", procs[0]}]
+	fmt.Fprintf(&b, "\n**Catalog load** (synthetic, ADR 0017: %s fitments, %s applications, %s redirects, a %s file). Budget: %s.\n\n",
+		count(m["fitments"]), count(m["applications"]), count(m["redirects"]), size(m["file-MB"]), catalogBudget)
+	b.WriteString("| | load | peak | retained heap |\n|---|---|---|---|\n")
+	for _, p := range procs {
+		m := r.bench[key{"LoadCatalog", p}]
+		cores := "1 core"
+		if p != 1 {
+			cores = fmt.Sprintf("%d cores", p)
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", cores, duration(m["ns/op"]), size(m["peak-RSS-MB"]), size(m["heap-MB"]))
+	}
 	return b.String()
 }
 

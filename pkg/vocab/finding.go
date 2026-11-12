@@ -32,9 +32,16 @@ const (
 	// DriftExtension: an extension named like a vPIC entry under the same
 	// make.
 	DriftExtension DriftKind = "extension"
-	// DriftModelYears: a mapping to a vPIC model whose model years fall
-	// partly or wholly outside the model's (ADR 0022).
+	// DriftModelYears: a mapping, or a catalog's application, to a vPIC
+	// model whose model years fall partly or wholly outside the model's
+	// (ADR 0022).
 	DriftModelYears DriftKind = "model-years"
+	// DriftVehicle: a catalog's vehicle its vehicle vocabulary lacks, or
+	// lists without a mapping (ADR 0017).
+	DriftVehicle DriftKind = "vehicle"
+	// DriftRedirect: a catalog's redirect whose target part type has no
+	// application for its vehicle and years (ADR 0017).
+	DriftRedirect DriftKind = "redirect"
 )
 
 // Finding is one fault or drift, about one line of one file: a line of

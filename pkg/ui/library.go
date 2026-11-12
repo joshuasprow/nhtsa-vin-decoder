@@ -590,6 +590,10 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 		if err != nil {
 			return nil, &pageError{Status: http.StatusUnprocessableEntity, Message: faultText(err)}
 		}
+		if f.Kind == vocab.KindCatalog {
+			return nil, &pageError{Status: http.StatusUnprocessableEntity, Message: fmt.Sprintf(
+				"%s is a catalog: catalogs load on a server, with --vocab, not in this browser.", p.FileName)}
+		}
 		if slices.ContainsFunc(cur.server, func(h *held) bool { return h.name == f.Name }) {
 			return nil, &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
 				"%s is named %q, like a file this server loaded: one name is one file (ADR 0011), so rename it in its header to load it here.", p.FileName, f.Name)}

@@ -25,8 +25,12 @@ const (
 )
 
 // WriteIndex writes f's stored index to w: everything ReadIndex needs to
-// give back a File that answers as f does.
+// give back a File that answers as f does. A catalog has none: it loads on
+// a server, not in a browser.
 func WriteIndex(w io.Writer, f *File) error {
+	if f.Kind == KindCatalog {
+		return fmt.Errorf("%s: a catalog has no stored index", f.Path)
+	}
 	e := indexWriter{at: map[string]int{}}
 	e.b = append(e.b, f.Hash[:]...)
 	for _, s := range []string{f.Path, string(f.Kind), f.Name, f.Version, f.DataMonth, string(f.Subject), f.Spine} {

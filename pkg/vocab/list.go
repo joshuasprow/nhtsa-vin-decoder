@@ -189,8 +189,11 @@ func (s *Set) pager(q ListQuery, l *Listing) (pager, int, error) {
 		return s.vpicPager(q, where, l)
 	}
 	f := s.byName[q.Of]
-	if f == nil {
+	switch {
+	case f == nil:
 		return nil, 0, refuse("/of", "nothing named %q is loaded: list without of names what is", q.Of)
+	case f.Kind == KindCatalog:
+		return nil, 0, refuse("/of", "%q is a catalog: list pages vocabularies, extension sets, spines and vpic", q.Of)
 	}
 	l.File = f
 	if f.Kind != KindVocabulary && len(where) > 0 {

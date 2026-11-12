@@ -1,12 +1,19 @@
 package vocab
 
-import "strconv"
+import (
+	"cmp"
+	"maps"
+	"slices"
+	"strconv"
+)
 
 // Link checks files against each other, as loaded together: one name per
-// file across the three kinds, every extension reference defined by a
-// loaded extension set (and naming an extension make where a make is
-// meant), every part vocabulary's spine loaded and every id it maps to in
-// that spine. The error is Faults.
+// file across the kinds, every extension reference defined by a loaded
+// extension set (and naming an extension make where a make is meant),
+// every part vocabulary's spine loaded and every id it maps to in that
+// spine, and at most one catalog, its spine and vehicle vocabulary loaded,
+// its part types in that spine and its vehicles named by exactly that
+// vocabulary's fields. The error is Faults.
 func Link(files []*File) error {
 	var faults Faults
 	byName := map[string]*File{}
@@ -17,6 +24,7 @@ func Link(files []*File) error {
 		}
 		byName[f.Name] = f
 	}
+	var catalog *File
 	// ext resolves an extension reference, or says why it does not.
 	ext := func(ref string) (*Extension, string) {
 		set, id := splitExt(ref)
@@ -74,10 +82,94 @@ func Link(files []*File) error {
 					faults = append(faults, fault(f.Path, x.Line, "/make: %s is an extension model, not a make", x.MakeExt))
 				}
 			}
+		case KindCatalog:
+			if catalog != nil {
+				faults = append(faults, fault(f.Path, 1, "/kind: %s is a catalog too: a deployment loads one catalog", catalog.Path))
+				continue
+			}
+			catalog = f
+			faults = append(faults, linkCatalog(f, byName, ext)...)
 		}
 	}
 	if len(faults) > 0 {
 		return faults
 	}
 	return nil
+}
+
+// linkCatalog checks catalog f against the files loaded with it, byName:
+// its spine and vehicle vocabulary loaded, every part type of its
+// fitments and redirects in that spine, and every vehicle named by
+// exactly that vocabulary's fields, or by an extension a loaded set
+// defines. Its faults come in line order.
+func linkCatalog(f *File, byName map[string]*File, ext func(string) (*Extension, string)) Faults {
+	var faults Faults
+	spine := byName[f.Spine]
+	switch {
+	case spine == nil:
+		faults = append(faults, fault(f.Path, 1, "/spine: spine %q is not loaded", f.Spine))
+	case spine.Kind != KindSpine:
+		faults = append(faults, fault(f.Path, 1, "/spine: %q is %s, not a spine", f.Spine, spine.Kind.noun()))
+		spine = nil
+	}
+	var vehicles *File
+	if f.Vehicles != Reserved {
+		switch vehicles = byName[f.Vehicles]; {
+		case vehicles == nil:
+			faults = append(faults, fault(f.Path, 1, "/vehicles: vocabulary %q is not loaded", f.Vehicles))
+		case vehicles.Kind != KindVocabulary:
+			faults = append(faults, fault(f.Path, 1, "/vehicles: %q is %s, not a vehicle vocabulary", f.Vehicles, vehicles.Kind.noun()))
+			vehicles = nil
+		case vehicles.Subject != SubjectVehicle:
+			faults = append(faults, fault(f.Path, 1, "/vehicles: %q is a part vocabulary, not a vehicle vocabulary", f.Vehicles))
+			vehicles = nil
+		}
+	}
+	// why is, per vehicle that does not resolve, why not: once each,
+	// however many lines name it.
+	why := map[*Vehicle]string{}
+	for _, v := range f.catalog.vehicleList {
+		switch {
+		case v.Ext != "":
+			if _, w := ext(v.Ext); w != "" {
+				why[v] = "/ext: " + w
+			}
+		case vehicles != nil:
+			names := slices.Sorted(maps.Keys(v.Entry))
+			if want := slices.Sorted(slices.Values(vehicles.Fields)); !slices.Equal(names, want) {
+				why[v] = ": fields " + quoted(names) + " are not vocabulary " + strconv.Quote(vehicles.Name) + "'s: " + quoted(vehicles.Fields)
+			}
+		}
+	}
+	typeOK := func(id string) bool {
+		_, ok := spine.SpineEntry(id)
+		return ok
+	}
+	for i := range f.Fitments {
+		fit := &f.Fitments[i]
+		if spine != nil && !typeOK(fit.Key.Type) {
+			faults = append(faults, fault(f.Path, fit.Line, "/fitment/type: spine %q has no id %q", f.Spine, fit.Key.Type))
+		}
+		if len(why) == 0 {
+			continue
+		}
+		for j := range fit.Applications {
+			if w, bad := why[fit.Applications[j].Vehicle]; bad {
+				faults = append(faults, fault(f.Path, fit.Line, "/applications/%d/vehicle%s", j, w))
+			}
+		}
+	}
+	for i := range f.Redirects {
+		rd := &f.Redirects[i]
+		for _, t := range []struct{ ptr, id string }{{"from", rd.From}, {"to", rd.To}} {
+			if spine != nil && !typeOK(t.id) {
+				faults = append(faults, fault(f.Path, rd.Line, "/redirect/%s: spine %q has no id %q", t.ptr, f.Spine, t.id))
+			}
+		}
+		if w, bad := why[rd.Vehicle]; bad {
+			faults = append(faults, fault(f.Path, rd.Line, "/redirect/vehicle%s", w))
+		}
+	}
+	slices.SortStableFunc(faults, func(a, b Finding) int { return cmp.Compare(a.Line, b.Line) })
+	return faults
 }

@@ -263,17 +263,22 @@ spine. May be one-to-many in either direction.
 _Avoid_: lookup, aliasing
 
 **Drift**:
-Where a vocabulary, extension set or declared spine disagrees with the loaded
-data month: a vPIC id the month lacks, a qualifier value its decode cannot
-produce, or one the mapping's own model never decodes to, an extension named like a vPIC entry under the same make, or a mapping's years outside its model's model years. Reported,
+Where a vocabulary, extension set, declared spine or catalog disagrees with
+the loaded data month or the files loaded with it: a vPIC id the month lacks,
+a qualifier value its decode cannot
+produce, or one the mapping's own model never decodes to, an extension named like a vPIC entry under the same make,
+a mapping's or a catalog application's years outside its model's model years,
+a catalog's vehicle its vehicle vocabulary lacks or lists unmapped, a redirect
+no application answers. Reported,
 never refused: NHTSA's monthly changes are not the author's mistakes.
 _Avoid_: stale, invalid, broken mapping
 
 **Fault**:
-What refuses a vocabulary, extension set or declared spine whatever the data
-month: a malformed line, an unknown field, a duplicate entry or id, a
-reference no loaded file defines. A fault stops nitrovin from starting;
-drift never does.
+What refuses a vocabulary, extension set, declared spine or catalog whatever
+the data month: a malformed line, an unknown field, a duplicate entry, id or
+fitment key, a reference no loaded file defines, a second catalog, a retired
+number that is live or points at no fitment. A fault stops nitrovin from
+starting; drift never does.
 _Avoid_: error (a decode's error codes are about the VIN), invalid
 
 ### Fitment

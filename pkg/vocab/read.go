@@ -152,6 +152,8 @@ func parse(name string, data []byte) (*File, error) {
 		f.Extensions = make([]Extension, slots)
 	case KindSpine:
 		f.SpineEntries = make([]SpineEntry, slots)
+	case KindCatalog:
+		f.Fitments = make([]Fitment, slots)
 	}
 	inParallel(chunks, func() func(*chunk) {
 		r := newReader(f)
@@ -183,6 +185,10 @@ type chunk struct {
 	data         []byte
 	first, lines int
 	faults       Faults
+	// redirects and retired are a catalog's lines of those kinds, in line
+	// order; its fitments go to the file's slots.
+	redirects []Redirect
+	retired   []Retired
 }
 
 // inParallel calls work with every chunk, on up to GOMAXPROCS goroutines,
@@ -221,6 +227,8 @@ type reader struct {
 	strings  slab[string]
 	mappingS slab[Mapping]
 	years    slab[int]
+
+	catalog catalogReader // a catalog's lines
 }
 
 func newReader(f *File) *reader {
@@ -271,6 +279,8 @@ func (r *reader) read(c *chunk, header int, keys []string) {
 			if e, err = spineEntry(n, line); err == nil {
 				f.SpineEntries[slot] = e
 			}
+		case KindCatalog:
+			err = r.readCatalogLine(c, slot, n, line)
 		}
 		if err != nil {
 			c.faults = append(c.faults, fault(f.Path, n, "%v", err))
@@ -297,6 +307,8 @@ func (f *File) index(chunks []*chunk, keys []string) Faults {
 	case KindSpine:
 		f.spine = make(map[string]int, len(f.SpineEntries))
 		f.SpineEntries, faults = keep(f.Path, chunks, f.SpineEntries, func(e *SpineEntry) int { return e.Line }, f.addSpineEntry)
+	case KindCatalog:
+		faults = f.indexCatalog(chunks)
 	}
 	return faults
 }
@@ -485,9 +497,17 @@ func nameAt(raw []byte, ptr string) (string, error) {
 	return s, nil
 }
 
-// headerNames are a header's fields: a spine's are the first four, an
-// extension set's the first five, a vocabulary's all of them.
-var headerNames = []string{"format", "kind", "name", "version", "data_month", "subject", "fields", "spine"}
+// headerNames are a header's fields; headerFields picks each kind's.
+var headerNames = []string{"format", "kind", "name", "version", "data_month", "subject", "fields", "spine", "vehicles", "release"}
+
+// headerFields are the indexes in headerNames of each kind's header
+// fields.
+var headerFields = map[Kind][]int{
+	KindSpine:        {0, 1, 2, 3},
+	KindExtensionSet: {0, 1, 2, 3, 4},
+	KindVocabulary:   {0, 1, 2, 3, 4, 5, 6, 7},
+	KindCatalog:      {0, 1, 2, 3, 4, 7, 8, 9},
+}
 
 // header reads line 1.
 func (f *File) header(line []byte) error {
@@ -495,7 +515,7 @@ func (f *File) header(line []byte) error {
 	if err != nil {
 		return err
 	}
-	var v, scratch [8][]byte
+	var v, scratch [10][]byte
 	if _, _, ok := members(raw, headerNames, v[:]); !ok {
 		return errAt("", "must be an object")
 	}
@@ -513,22 +533,23 @@ func (f *File) header(line []byte) error {
 		return err
 	}
 	f.Kind = Kind(kind)
-	allowed := 4
-	switch f.Kind {
-	case KindVocabulary:
-		allowed = 8
-	case KindExtensionSet:
-		allowed = 5
-	case KindSpine:
-	default:
-		return errAt("/kind", "unknown kind %q: vocabulary, extension-set or spine", kind)
+	names, known := headerFields[f.Kind]
+	if !known {
+		return errAt("/kind", "unknown kind %q: vocabulary, extension-set, spine or catalog", kind)
 	}
-	if unknown, has, _ := members(raw, headerNames[:allowed], scratch[:allowed]); has {
+	allowed := make([]string, len(names))
+	for i, j := range names {
+		allowed[i] = headerNames[j]
+	}
+	if unknown, has, _ := members(raw, allowed, scratch[:len(allowed)]); has {
 		return errAt("", "unknown field %q", unknown)
 	}
 	required := []int{2, 3} // name, version
-	if f.Kind == KindVocabulary {
+	switch f.Kind {
+	case KindVocabulary:
 		required = append(required, 5, 6) // subject, fields
+	case KindCatalog:
+		required = append(required, 7, 8) // spine, vehicles
 	}
 	for _, i := range required {
 		if v[i] == nil {
@@ -549,7 +570,11 @@ func (f *File) header(line []byte) error {
 			return errAt("/data_month", "%q is not a data month, YYYY_MM", f.DataMonth)
 		}
 	}
-	if f.Kind != KindVocabulary {
+	switch f.Kind {
+	case KindCatalog:
+		return f.catalogHeader(v[7], v[8], v[9])
+	case KindVocabulary:
+	default:
 		return nil
 	}
 	subject, err := stringAt(v[5], "/subject")

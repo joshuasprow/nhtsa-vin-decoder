@@ -1,6 +1,7 @@
 // Package vocab reads, validates and indexes the files nitrovin translates
-// with: vocabularies, extension sets and declared spines, each a JSON Lines
-// file of docs/api/vocabulary.schema.json (ADR 0009, 0010, 0011).
+// and fits with: vocabularies, extension sets, declared spines and
+// catalogs, each a JSON Lines file of docs/api/vocabulary.schema.json
+// (ADR 0009, 0010, 0011, 0016, 0017).
 //
 //	files, err := vocab.Open("yard.jsonl", "vocabularies/") // a directory loads its *.jsonl
 //	findings := vocab.Drift(month, files)                  // against a data month
@@ -12,7 +13,9 @@
 // line, and the error is Faults. Drift measures loaded files against a data
 // month, reached through the Month interface, and is reported, never
 // refused. A Set answers translations and lists (ADR 0012) over them:
-// routing, year scope, qualifiers checked against a Decoded, paging.
+// routing, year scope, qualifiers checked against a Decoded, paging. A
+// loaded catalog is a Set's Catalog, which answers by vehicle, number and
+// redirect (package fitment's Reader).
 //
 // The package reads no artifact: a Month can be backed by one (package
 // nitrovin) or by anything else that knows the month's makes, models and
@@ -38,6 +41,9 @@ const (
 	KindVocabulary   Kind = "vocabulary"
 	KindExtensionSet Kind = "extension-set"
 	KindSpine        Kind = "spine"
+	// KindCatalog is a catalog: fitments, redirects and retired numbers
+	// (ADR 0016, ADR 0017). A deployment loads at most one.
+	KindCatalog Kind = "catalog"
 )
 
 // noun is the kind in a sentence: "a vocabulary".
@@ -47,6 +53,8 @@ func (k Kind) noun() string {
 		return "a vocabulary"
 	case KindExtensionSet:
 		return "an extension set"
+	case KindCatalog:
+		return "a catalog"
 	}
 	return "a spine"
 }
@@ -86,10 +94,18 @@ type File struct {
 
 	// Subject, Fields and Spine are a vocabulary's: what its mappings name,
 	// the fields that name an entry in order, and the declared spine a part
-	// vocabulary maps onto ("" for a vehicle vocabulary).
+	// vocabulary maps onto ("" for a vehicle vocabulary). A catalog's Spine
+	// is the declared spine its part types come from.
 	Subject Subject
 	Fields  []string
 	Spine   string
+
+	// Vehicles and Release are a catalog's: the vehicle vocabulary its
+	// applications and redirects name, or Reserved (vpic) for vPIC's makes
+	// and models and extensions, and its publisher's release, "" when it
+	// says none.
+	Vehicles string
+	Release  string
 
 	// Entries are a vocabulary's lines.
 	Entries []Entry
@@ -97,10 +113,16 @@ type File struct {
 	Extensions []Extension
 	// SpineEntries are a declared spine's lines.
 	SpineEntries []SpineEntry
+	// Fitments, Redirects and Retired are a catalog's lines, each kind in
+	// file order.
+	Fitments  []Fitment
+	Redirects []Redirect
+	Retired   []Retired
 
 	targets    map[Target][]int // mapping target → indexes in Entries, ascending
 	extensions map[string]int   // extension id → index in Extensions
 	spine      map[string]int   // spine entry id → index in SpineEntries
+	catalog    *catalogIndex    // a catalog's indexes
 
 	// listed is a vocabulary's entries in list order (listOrder), made
 	// once: on first use, or by ReadIndex.
@@ -212,13 +234,13 @@ func normalASCII(s string) bool {
 
 // appendNormalized appends Normalize(s) to b: byte by byte when s is
 // ASCII, through Unicode's white space and case otherwise.
-func appendNormalized(b []byte, s string) []byte {
+func appendNormalized[S ~string | ~[]byte](b []byte, s S) []byte {
 	start, space := len(b), false
 	for i := range len(s) {
 		c := s[i]
 		switch {
 		case c >= utf8.RuneSelf:
-			return append(b[:start], strings.ToLower(strings.Join(strings.Fields(s), " "))...)
+			return append(b[:start], strings.ToLower(strings.Join(strings.Fields(string(s)), " "))...)
 		case asciiSpace(c):
 			space = len(b) > start
 			continue
@@ -244,15 +266,21 @@ func asciiSpace(c byte) bool {
 // prefixed so no value can run into the next.
 func appendKey(b []byte, values []string) []byte {
 	for _, v := range values {
-		at := len(b)
-		b = appendNormalized(b, v)
-		n := len(b) - at
-		var buf [21]byte
-		prefix := append(strconv.AppendInt(buf[:0], int64(n), 10), ':')
-		b = append(b, prefix...)             // room for the prefix
-		copy(b[at+len(prefix):], b[at:at+n]) // the value, after it
-		copy(b[at:], prefix)
+		b = appendNormalizedValue(b, v)
 	}
+	return b
+}
+
+// appendNormalizedValue appends v normalized, length prefixed.
+func appendNormalizedValue[S ~string | ~[]byte](b []byte, v S) []byte {
+	at := len(b)
+	b = appendNormalized(b, v)
+	n := len(b) - at
+	var buf [21]byte
+	prefix := append(strconv.AppendInt(buf[:0], int64(n), 10), ':')
+	b = append(b, prefix...)             // room for the prefix
+	copy(b[at+len(prefix):], b[at:at+n]) // the value, after it
+	copy(b[at:], prefix)
 	return b
 }
 

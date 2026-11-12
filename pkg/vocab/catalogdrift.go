@@ -1,0 +1,178 @@
+package vocab
+
+import (
+	"cmp"
+	"encoding/json"
+	"fmt"
+	"slices"
+)
+
+// A catalog's drift is reported once per vehicle, per qualifier value and
+// per redirect, not once per line: a catalog names each vehicle on
+// thousands of lines, and one unmapped vehicle is one thing to curate. A
+// finding is about the first line that has it, and counts the others as
+// "(and N more)".
+
+// catalog measures d.f, a catalog whose vehicles are entries of vehicles,
+// nil when they are vpic: vehicles the vocabulary lacks or lists without
+// a mapping, vPIC ids the month lacks, qualifiers its decode cannot
+// satisfy, and redirects whose target part type has no application for
+// the redirect's vehicle and years.
+func (d *drifts) catalog(vehicles *File) {
+	f, x := d.f, d.f.catalog
+	start := len(d.out)
+
+	// The first line naming each vehicle, and how many do.
+	firsts := make([]use, len(x.vehicleList))
+	for i := range f.Fitments {
+		fit := &f.Fitments[i]
+		for j := range fit.Applications {
+			firsts[fit.Applications[j].Vehicle.id].see(fit.Line, j)
+		}
+	}
+	for i := range f.Redirects {
+		firsts[f.Redirects[i].Vehicle.id].see(f.Redirects[i].Line, -1)
+	}
+	for _, v := range x.vehicleList {
+		u := firsts[v.id]
+		switch {
+		case vehicles != nil:
+			e, ok := vehicles.Entry(v.Entry)
+			switch {
+			case !ok:
+				d.addFile(u.line, DriftVehicle, "%s/vehicle: vocabulary %q has no entry %s%s", u.ptr(), vehicles.Name, entryText(v.Entry), u.more())
+			case len(e.Mappings) == 0:
+				d.addFile(u.line, DriftVehicle, "%s/vehicle: vocabulary %q lists %s without a mapping, so no translation reaches it%s", u.ptr(), vehicles.Name, entryText(v.Entry), u.more())
+			}
+		case v.Make != 0:
+			if _, ok := d.m.Make(v.Make); !ok {
+				d.add(u.line, DriftMake, "%s/vehicle/make: vPIC make %d is not in data month %s%s", u.ptr(), v.Make, d.month, u.more())
+			}
+		case v.Model != 0:
+			if _, _, ok := d.m.Model(v.Model); !ok {
+				d.add(u.line, DriftModel, "%s/vehicle/model: vPIC model %d is not in data month %s%s", u.ptr(), v.Model, d.month, u.more())
+			}
+		}
+	}
+
+	// Each qualifier drift once, at the first application with it. A
+	// reader shares one slice among the applications that write the same
+	// qualifiers, so most are measured once.
+	type drifted struct{ at, detail string } // at: the pointer into the qualifiers
+	measured := map[*Qualifier][]drifted{}
+	type qualifierUse struct {
+		use
+		drifted
+	}
+	var uses []*qualifierUse
+	byDetail := map[string]*qualifierUse{}
+	for i := range f.Fitments {
+		fit := &f.Fitments[i]
+		for j := range fit.Applications {
+			qs := fit.Applications[j].Qualifiers
+			if len(qs) == 0 {
+				continue
+			}
+			ds, ok := measured[&qs[0]]
+			if !ok {
+				d.qualifiers(qs, func(ptr, detail string) { ds = append(ds, drifted{ptr, detail}) })
+				measured[&qs[0]] = ds
+			}
+			for _, dr := range ds {
+				q := byDetail[dr.detail]
+				if q == nil {
+					q = &qualifierUse{drifted: dr}
+					byDetail[dr.detail] = q
+					uses = append(uses, q)
+				}
+				q.see(fit.Line, j)
+			}
+		}
+	}
+	for _, q := range uses {
+		d.add(q.line, DriftQualifier, "%s/qualifiers%s: %s%s", q.ptr(), q.at, q.detail, q.more())
+	}
+
+	for i := range f.Redirects {
+		if rd := &f.Redirects[i]; !x.answers(f, rd) {
+			d.addFile(rd.Line, DriftRedirect, "/redirect/to: part type %q has no application for this vehicle in %s", rd.To, rangeText(rd.First, rd.Last))
+		}
+	}
+	slices.SortStableFunc(d.out[start:], func(a, b Finding) int { return cmp.Compare(a.Line, b.Line) })
+}
+
+// addFile adds a finding about the file and the files loaded with it,
+// whatever the data month.
+func (d *drifts) addFile(line int, kind DriftKind, format string, a ...any) {
+	d.out = append(d.out, Finding{File: d.f.Path, Line: line, Severity: SeverityDrift, Detail: fmt.Sprintf(format, a...), Drift: kind})
+}
+
+// use is where a catalog first names something, and how many times it
+// does.
+type use struct {
+	line int
+	app  int // the application on line, -1 for a redirect
+	n    int
+}
+
+// see counts one more naming, application app on line.
+func (u *use) see(line, app int) {
+	if u.n == 0 || line < u.line {
+		u.line, u.app = line, app
+	}
+	u.n++
+}
+
+// ptr is the pointer into the first line to what it names.
+func (u *use) ptr() string {
+	if u.app < 0 {
+		return "/redirect"
+	}
+	return fmt.Sprintf("/applications/%d", u.app)
+}
+
+// more counts the namings after the first.
+func (u *use) more() string {
+	if u.n > 1 {
+		return fmt.Sprintf(" (and %d more)", u.n-1)
+	}
+	return ""
+}
+
+// answers reports whether some application of redirect rd's target part
+// type is for its vehicle in years that overlap its own.
+func (x *catalogIndex) answers(f *File, rd *Redirect) bool {
+	s, ok := x.byVehicle[typeVehicle{rd.To, rd.Vehicle.id}]
+	if !ok {
+		return false
+	}
+	sp := x.spans[s]
+	for _, p := range x.postings[sp.lo:sp.hi] {
+		a := &f.Fitments[x.order[p.rank]].Applications[p.app]
+		if (a.First == nil || rd.Last == nil || *a.First <= *rd.Last) && (rd.First == nil || a.Last == nil || *rd.First <= *a.Last) {
+			return true
+		}
+	}
+	return false
+}
+
+// entryText is a vocabulary entry's fields as a file writes them.
+func entryText(fields map[string]string) string {
+	b, _ := json.Marshal(fields) // keys sorted
+	return string(b)
+}
+
+// rangeText says a model-year range in words.
+func rangeText(first, last *int) string {
+	switch {
+	case first != nil && last != nil && *first == *last:
+		return fmt.Sprintf("%d", *first)
+	case first != nil && last != nil:
+		return fmt.Sprintf("%d–%d", *first, *last)
+	case first != nil:
+		return fmt.Sprintf("%d on", *first)
+	case last != nil:
+		return fmt.Sprintf("years through %d", *last)
+	}
+	return "any year"
+}

@@ -48,6 +48,7 @@ import (
 	"sync"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
+	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
 // CSP is every /ui response's Content-Security-Policy: nothing but the
@@ -435,6 +436,11 @@ func (h *Handler) published(info contract.Info, name string, missing *pageError)
 	for _, f := range info.Vocabularies {
 		if f.Name != fileName {
 			continue
+		}
+		if f.Kind == string(vocab.KindCatalog) {
+			// A catalog is often licensed, and no page reads one: it stays
+			// on its server.
+			return "", nil, &pageError{Status: http.StatusNotFound, Message: "This nitrovin publishes no catalog: " + fileName + " stays on the server."}
 		}
 		if f.Blake3 != hash {
 			return "", nil, &pageError{Status: http.StatusNotFound, Message: "This nitrovin's " + fileName +
