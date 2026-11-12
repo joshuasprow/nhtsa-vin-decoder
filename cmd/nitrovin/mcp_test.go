@@ -646,8 +646,12 @@ func checkCall(t *testing.T, d loaded, c mcpCall, resp message, outputs map[stri
 // a catalog reader failing on a damaged file) is an #internal Problem for
 // that call, and the server goes on.
 func TestMCPRecovers(t *testing.T) {
-	b, err := recovered(func([]byte) ([]byte, error) { panic("damaged catalog") }, []byte(`{}`))
+	var stderr strings.Builder
+	b, err := recovered("fit", func([]byte) ([]byte, error) { panic("damaged catalog") }, []byte(`{}`), &stderr)
 	if p := contract.AsProblem(err); b != nil || p.Type != contract.Internal || !strings.Contains(p.Detail, "damaged catalog") {
 		t.Errorf("%s, %v; want an #internal problem naming the panic", b, err)
+	}
+	if log := stderr.String(); !strings.HasPrefix(log, "panic answering tool fit: damaged catalog\n") || !strings.Contains(log, "goroutine ") {
+		t.Errorf("stderr %q; want the panic and its stack", log)
 	}
 }

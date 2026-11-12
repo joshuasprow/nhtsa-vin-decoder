@@ -635,8 +635,11 @@ func (f Fitter) related(types []partType, v *reached, side vocab.Side) []related
 		vehicle *vocab.Vehicle
 		spans   []sharedSpan
 	}
-	// A catalog shares one Vehicle among every line naming it.
-	byVehicle := map[*vocab.Vehicle]*spans{}
+	// Vehicles group by their key, not by pointer: a reader need not
+	// share one Vehicle among the lines naming it. keys remembers each
+	// Vehicle's.
+	byKey := map[string]*spans{}
+	keys := map[*vocab.Vehicle]string{}
 	var order []*spans
 	var fits []int32 // each shared fitment's part type, an index in types
 	for ti, t := range types {
@@ -654,10 +657,15 @@ func (f Fitter) related(types []partType, v *reached, side vocab.Side) []related
 				if v.modelOf(a.Vehicle) >= 0 && (v.year == nil || holds(a.First, a.Last, *v.year)) {
 					continue // the vehicle itself
 				}
-				g := byVehicle[a.Vehicle]
+				k, ok := keys[a.Vehicle]
+				if !ok {
+					k = vehicleKey(catalogVehicle(a.Vehicle))
+					keys[a.Vehicle] = k
+				}
+				g := byKey[k]
 				if g == nil {
 					g = &spans{vehicle: a.Vehicle}
-					byVehicle[a.Vehicle] = g
+					byKey[k] = g
 					order = append(order, g)
 				}
 				sp := sharedSpan{fit: fi, lo: math.MinInt, hi: math.MaxInt}
@@ -761,6 +769,20 @@ func compareYear(a, b *int) int {
 		return 1
 	}
 	return cmp.Compare(*a, *b)
+}
+
+// vehicleKey identifies a catalog vehicle: its fields in name order, each
+// normalized, or its target.
+func vehicleKey(v CatalogVehicle) string {
+	if v.Entry == nil {
+		return fmt.Sprintf("\x00%d\x00%d\x00%s", v.Make, v.Model, v.Ext)
+	}
+	var b strings.Builder
+	for _, k := range slices.Sorted(maps.Keys(v.Entry)) {
+		val := vocab.Normalize(v.Entry[k])
+		fmt.Fprintf(&b, "%d:%s%d:%s", len(k), k, len(val), val)
+	}
+	return b.String()
 }
 
 // vehicleName is what related vehicles are ordered by after their count:

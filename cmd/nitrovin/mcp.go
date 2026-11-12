@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"runtime/debug"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -132,7 +133,7 @@ func newMCPServer(d decodeService, stderr io.Writer) (*mcp.Server, error) {
 			InputSchema:  tool.InputSchema,
 			OutputSchema: tool.OutputSchema,
 			Annotations:  tool.Annotations,
-		}, toolHandler(h))
+		}, toolHandler(tool.Name, h, stderr))
 	}
 	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -186,13 +187,13 @@ type answer func(args []byte) ([]byte, error)
 // structuredContent and, as the same compact JSON, its one text block.
 // A refused request (or a fault in nitrovin) is an isError result whose
 // one text block is the Problem, as compact JSON.
-func toolHandler(h answer) mcp.ToolHandler {
+func toolHandler(name string, h answer, stderr io.Writer) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := req.Params.Arguments
 		if len(args) == 0 { // arguments are optional in MCP: none is {}
 			args = json.RawMessage("{}")
 		}
-		b, err := recovered(h, args)
+		b, err := recovered(name, h, args, stderr)
 		if err != nil {
 			b, err := json.Marshal(contract.AsProblem(err))
 			if err != nil { // a Problem is strings and an int: unreachable
@@ -263,12 +264,14 @@ func fitJSON(t decodeService, args []byte) ([]byte, error) {
 	return json.Marshal(f)
 }
 
-// recovered is h's answer to args, a panic in it (a fault in nitrovin, or
-// a catalog reader failing on a damaged file) an #internal problem, so
-// the server outlives it.
-func recovered(h answer, args []byte) (b []byte, err error) {
+// recovered is h's answer to args, a call of tool name. A panic in it (a
+// fault in nitrovin, or a catalog reader failing on a damaged file) is an
+// #internal problem, so the server outlives it, and is written with its
+// stack to stderr, as serve logs one.
+func recovered(name string, h answer, args []byte, stderr io.Writer) (b []byte, err error) {
 	defer func() {
 		if v := recover(); v != nil {
+			fmt.Fprintf(stderr, "panic answering tool %s: %v\n%s", name, v, debug.Stack())
 			b, err = nil, contract.NewProblem(contract.Internal, "", fmt.Sprint("panic: ", v))
 		}
 	}()
