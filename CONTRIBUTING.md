@@ -840,12 +840,15 @@ with no year; and 25 µs. The compiled form measured 147 µs; 614 µs, and
 1.9 ms with no year; 729 µs, and 2.8 ms with no year; and 95 µs, in 3, 2,
 2 and 1 reads: slower by its reads, but without the garbage collection of a
 loaded catalog's heap that makes JSON Lines' no-year tail. It also asks
-every kind of the fixture's wide variants, compiled: the fixture with 0.1%,
-0.3% and 1% of fitments of 50 to 500 applications, like universal parts, and
+every kind of the fixture's wide variants, in both forms: the fixture with
+0.1%, 0.3% and 1% of fitments of 50 to 500 applications, like universal
+parts, and 1% again with longer year ranges and more qualifiers; and
 candidates of such a fitment's part type (ADR 0023's Measured has them).
-Related vehicles on them miss the 50 ms p99 in both forms, a known miss in
-`fit`'s related computation that
-[#267](https://github.com/joshuasprow/nitrovin/issues/267) takes up. `release.yml`'s bench job runs them on its runner, and
+Related vehicles are their costliest request: at 1%, 25 ms compiled and
+36 ms as JSON Lines with no year (`-benchtime 10s`; at the default 1 s a p99
+is about the slowest of 85 requests), in at most 26 reads. `TestRelatedReadsSpread`
+holds their reads in CI, on a small catalog laid out as the full-scale one
+reads. `release.yml`'s bench job runs them on its runner, and
 `bench/vocab/notes` turns the output into the table the release notes end
 with, beside the budgets, which are stated for the reference machine (an
 Apple M5 Pro). Nothing gates on it: runner timings are too noisy, and a

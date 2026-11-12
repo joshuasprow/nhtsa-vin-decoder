@@ -9,6 +9,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -71,10 +72,12 @@ const (
 // applications. So candidates' and part types' bytes with the wide tail
 // stay within twice the
 // plain catalog's, the most the wide fitments' own applications add to a
-// block. Related vehicles alone read the wide fitments whole, in reads of
-// at most farSpan, so their bytes stay within reads × farSpan; their reads
-// grow with the wide fitments a vehicle has (bench/vocab's wide variants
-// record them at full scale). Reverse and a page read pages of fitments in
+// block. Related vehicles alone read more of the wide fitments: each
+// one's vehicles and years, nearby ones together, in reads of at most
+// farSpan, so their bytes stay within reads × farSpan; their reads grow
+// with the wide fitments a vehicle has, about a seventh as fast as their
+// bytes whole would (bench/vocab's wide variants record them at full
+// scale, and TestRelatedReadsSpread holds them in small). Reverse and a page read pages of fitments in
 // key order, which hold a wide fitment whole, as a reverse answer has it:
 // within pageBytes a read.
 func TestReadBudget(t *testing.T) {
@@ -109,6 +112,190 @@ func TestReadBudget(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestRelatedReadsSpread: related vehicles of a vehicle sharing many wide
+// fitments, spread across the catalog, stay within ADR 0023's read
+// budget. bench/vocab's wide variants measure related reads at full
+// scale, where a vehicle shares hundreds of wide fitments among
+// thousands; a CI catalog at TestReadBudget's scale holds too few for
+// their reads to show. This one puts what drives them in small: the
+// vehicle shares spreadHits wide fitments, each with spreadFill others
+// between it and the next, every one's applications carrying long option
+// text, so that whole they lie farther apart than a read joins. A reader
+// that read them whole again, or anything else of them that grows with
+// their bytes, would make a read for each, over the budget; their
+// vehicles and years lie together and take one read besides the
+// vehicle's block. So it holds the reads to the block and spreadWide
+// more, and the bytes beyond the block's, which part types read alone,
+// to spreadWideBytes: whole, the shared fitments are about 120 × 70 KB,
+// where their vehicles and years are about 120 × 100 bytes, so reading
+// them whole fails it whatever reads join them.
+func TestRelatedReadsSpread(t *testing.T) {
+	d := embeddedDecoder(t)
+	dir := t.TempDir()
+	vehicles, err := writeSpreadCatalog(dir, d.month)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, source, err := vocab.OpenCompile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "catalog.compiled")
+	out, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.Open(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	if _, err := vocab.Compile(out, d.month, files, src, source, vocab.DirScratch(t.TempDir()), vocab.CompileOptions{Writer: Version()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &counter{r: f}
+	cf, err := vocab.OpenCompiled(path, c, fi.Size())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := NewTranslator(d, append(files, cf)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := contract.FitFrom{Vocabulary: "budget-models", Entry: vehicles[0]}
+	for _, req := range []struct {
+		kind string
+		req  contract.FitRequest
+	}{
+		{"related", contract.FitRequest{From: from, ModelYear: contract.Value(int32(2005)), Related: true}},
+		{"related-any-year", contract.FitRequest{From: from, Related: true}},
+	} {
+		req.req.Now = time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+		// The block: what part types read.
+		blockReq := req.req
+		blockReq.Related = false
+		n, b := c.n.Load(), c.bytes.Load()
+		if _, err := tr.Fit(context.Background(), blockReq); err != nil {
+			t.Fatal(err)
+		}
+		blockReads, block := c.n.Load()-n, c.bytes.Load()-b
+		n, b = c.n.Load(), c.bytes.Load()
+		fit, err := tr.Fit(context.Background(), req.req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reads, bytes := c.n.Load()-n, c.bytes.Load()-b
+		if fit.Status != contract.FitFound || fit.Total != spreadModels-1 {
+			t.Fatalf("%s: status %s, %d related; want found, %d", req.kind, fit.Status, fit.Total, spreadModels-1)
+		}
+		if budget := readBudgets[req.kind]; reads > budget {
+			t.Errorf("%s of a vehicle sharing %d wide fitments, spread: %d reads; ADR 0023's budget is %d", req.kind, spreadHits, reads, budget)
+		}
+		if reads > blockReads+spreadWide || bytes-block > spreadWideBytes {
+			t.Errorf("%s of a vehicle sharing %d wide fitments, spread: %d reads and %d bytes besides the block's %d and %d; want at most %d and %d",
+				req.kind, spreadHits, reads-blockReads, bytes-block, blockReads, block, spreadWide, spreadWideBytes)
+		}
+		t.Logf("%s: %d reads, %d bytes; the block %d and %d", req.kind, reads, bytes, blockReads, block)
+	}
+}
+
+// The spread catalog: spreadHits wide fitments of its first vehicle, each
+// followed in key order by spreadFill of others, every one of
+// wideApplications+1 applications with spreadOptions bytes of option
+// text, so a shared fitment and the next lie about 280 KB apart whole,
+// farther than package vocab's farGap.
+const (
+	spreadHits    = 120
+	spreadFill    = 4
+	spreadApps    = 17
+	spreadOptions = 4 << 10
+	spreadModels  = 40
+	// spreadWide and spreadWideBytes are the most reads and bytes of
+	// wide a related request of the spread catalog may make.
+	spreadWide      = 2
+	spreadWideBytes = 128 << 10
+)
+
+// writeSpreadCatalog writes the spread catalog's spine, vehicle
+// vocabulary and catalog to dir, returning the vocabulary's entries.
+func writeSpreadCatalog(dir string, m vocab.Month) ([]map[string]string, error) {
+	var vehicles []map[string]string
+	var ids []int32
+	for mk, mkName := range m.Makes() {
+		for id, name := range m.Models(mk) {
+			vehicles = append(vehicles, map[string]string{"make": mkName, "model": fmt.Sprintf("%s #%d", name, len(vehicles))})
+			ids = append(ids, id)
+		}
+		if len(vehicles) >= spreadModels {
+			break
+		}
+	}
+	if len(vehicles) < spreadModels {
+		return nil, fmt.Errorf("data month %s has %d models; the catalog needs %d", m.Name(), len(vehicles), spreadModels)
+	}
+	vehicles, ids = vehicles[:spreadModels], ids[:spreadModels]
+	text := make([]string, len(vehicles))
+	for i, v := range vehicles {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		text[i] = string(b)
+	}
+	var b strings.Builder
+	b.WriteString(`{"format":1,"kind":"spine","name":"budget-types","version":"synthetic"}` + "\n")
+	b.WriteString(`{"id":"001","name":"Part type 1"}` + "\n")
+	if err := os.WriteFile(filepath.Join(dir, "types.jsonl"), []byte(b.String()), 0o644); err != nil {
+		return nil, err
+	}
+	b.Reset()
+	fmt.Fprintf(&b, `{"format":1,"kind":"vocabulary","name":"budget-models","version":"synthetic","data_month":%q,"subject":"vehicle","fields":["make","model"]}`+"\n", m.Name())
+	for i, v := range text {
+		fmt.Fprintf(&b, `{"entry":%s,"mappings":[{"model":%d}]}`+"\n", v, ids[i])
+	}
+	if err := os.WriteFile(filepath.Join(dir, "models.jsonl"), []byte(b.String()), 0o644); err != nil {
+		return nil, err
+	}
+	f, err := os.Create(filepath.Join(dir, "catalog.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	w := bufio.NewWriter(f)
+	fmt.Fprintf(w, `{"format":1,"kind":"catalog","name":"budget-catalog","version":"synthetic","release":"1.0","data_month":%q,"spine":"budget-types","vehicles":"budget-models"}`+"\n", m.Name())
+	options := strings.Repeat("x", spreadOptions)
+	for k := range spreadHits * (1 + spreadFill) {
+		fmt.Fprintf(w, `{"fitment":{"type":"001","number":"W%07d"},"applications":[`, k)
+		for j := range spreadApps {
+			if j > 0 {
+				w.WriteByte(',')
+			}
+			v := 1 + (k+j)%(spreadModels-1) // never the first vehicle
+			if j == 0 && k%(1+spreadFill) == 0 {
+				v = 0 // a shared fitment: the first vehicle's
+			}
+			fmt.Fprintf(w, `{"vehicle":%s,"first":2000,"last":2010,"options":"%s %d-%d"}`, text[v], options, k, j)
+		}
+		w.WriteString("]}\n")
+	}
+	if err := w.Flush(); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return vehicles, f.Close()
 }
 
 // budgetReads compiles the read budget's catalog with wide wide fitments,

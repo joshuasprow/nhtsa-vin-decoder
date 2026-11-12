@@ -161,3 +161,11 @@ budgets leave a wide margin and still catch regressions.
 
 [ADR 0023](0023-fitment-in-the-browser.md) adds `/ui/fit`, whose URLs are `/v1/fit`'s parameters, answered by the
 server and, for a catalog the browser holds, by its Service Worker.
+
+## Amendment (2026-11-12): related vehicles' ties
+
+Related vehicles of equal names, years and shared count, as two vPIC models of one
+name can be, come in the order the catalog first lists them among the shared
+fitments: by part type, fitment and application
+([#267](https://github.com/joshuasprow/nitrovin/issues/267)). The order among them
+was unstated, and was whatever an unstable sort left.

@@ -31,8 +31,8 @@ import (
 // from the generator writeCatalog uses, so every one is answered found and
 // no one vehicle's or key's path stays cached.
 //
-// The fixture's wide variants (wideVariants), compiled, run every kind
-// too, and candidates-wide: a vehicle's candidates of a part type and year
+// The fixture's wide variants (wideVariants), as JSON Lines and
+// compiled, run every kind too, and candidates-wide: a vehicle's candidates of a part type and year
 // of a wide fitment that applies to it. Each reports its file's size.
 func BenchmarkFit(b *testing.B) {
 	forms := append(catalogForms(b), wideForms(b)...)

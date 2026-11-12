@@ -124,20 +124,20 @@ type compiler struct {
 	// every retired number by its key, and bySuccessor by its successor's.
 	byKey, byVehicle, byRetired, bySuccessor *sorter
 	// keyed is the keyed section as written, and pages its pages; wideSec
-	// the wide section, and wide where in it each wide fitment is, by
-	// line.
+	// the wide section, and wide where each wide fitment is in keyed and
+	// in wide, by line.
 	keyed   *spill
 	pages   []keyPage
 	wideSec *spill
-	wide    map[int]span64
+	wide    map[int]wideAt
 	// heads and bodies are the vehicles' blocks as written, apart;
 	// blocks their lengths, by vehicle.
 	heads, bodies *spill
 	blocks        []block
 
-	buf, key, val, pay []byte // reused encodings
-	ids                []int32
-	qs                 []uint32
+	buf, key, val, pay, years []byte // reused encodings
+	ids                       []int32
+	qs                        []uint32
 }
 
 // close releases the scratch files still open.
@@ -528,7 +528,7 @@ func (c *compiler) mergeKeys() error {
 	if c.wideSec, err = newSpill(c.scratch); err != nil {
 		return err
 	}
-	c.wide = map[int]span64{}
+	c.wide = map[int]wideAt{}
 	pageFits := 0
 	record := func(fitment bool, k FitmentKey) {
 		if len(c.pages) == 0 || fitment && pageFits == pageFitments {
@@ -649,12 +649,25 @@ func (c *compiler) mergeKeys() error {
 			b = appendStr(b, rt.Note)
 		}
 		c.buf = b
+		at := c.keyed.size
 		if _, err := c.keyed.Write(b); err != nil {
 			return err
 		}
 		if napps > wideApplications {
-			c.wide[line] = span64{c.wideSec.size, int64(len(b))}
-			if _, err := c.wideSec.Write(b); err != nil {
+			// In wide: its line, then each application's vehicle and
+			// years.
+			s := binary.AppendUvarint(c.years[:0], uint64(line))
+			s = binary.AppendUvarint(s, uint64(napps))
+			for range napps {
+				s = binary.AppendUvarint(s, r.uint())
+				first, last := r.years()
+				s = appendYears(s, first, last)
+				r.uint()  // qualifiers
+				r.bytes() // options
+			}
+			c.years = s
+			c.wide[line] = wideAt{keyed: span64{at, int64(len(b))}, years: span64{c.wideSec.size, int64(len(s))}}
+			if _, err := c.wideSec.Write(s); err != nil {
 				return err
 			}
 		}
@@ -772,8 +785,10 @@ func (c *compiler) mergeVehicles() error {
 			if !ok {
 				return fmt.Errorf("compile: the wide fitment on line %d is not in wide", line)
 			}
-			rec = binary.AppendUvarint(slices.Clone(rec), uint64(at.off))
-			rec = binary.AppendUvarint(rec, uint64(at.n))
+			rec = binary.AppendUvarint(slices.Clone(rec), uint64(at.keyed.off))
+			rec = binary.AppendUvarint(rec, uint64(at.keyed.n))
+			rec = binary.AppendUvarint(rec, uint64(at.years.off))
+			rec = binary.AppendUvarint(rec, uint64(at.years.n))
 		}
 		if _, err := c.bodies.Write(rec); err != nil {
 			return err
@@ -798,6 +813,10 @@ func (c *compiler) mergeVehicles() error {
 	}
 	return c.bodies.done()
 }
+
+// wideAt is where a wide fitment is: its record in keyed, and its
+// vehicles and years in wide.
+type wideAt struct{ keyed, years span64 }
 
 // pendingRedirect is a redirect of the vehicle whose block is being
 // written: whether an application of its target part type to the vehicle

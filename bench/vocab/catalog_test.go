@@ -55,13 +55,24 @@ var qualifierSets = []string{`{"13":["2.4"]}`, `{"13":["3.5"]}`, `{"13":["5.7"]}
 // a share of fitments like universal parts, each of wideMin to wideMax
 // applications on vehicles and years at random, over wideTypes part
 // types. The fixture itself has none: its fitments have one to five.
+// wide-1-varied is wide-1 with other year spans and qualifiers: each
+// application spans up to 16 years, not 6, so a vehicle in a year
+// shares more of them, and three in four carry a qualifier.
 var wideVariants = []struct {
-	name     string
-	fitments int
+	name string
+	wideShape
 }{
-	{"wide-0.1", catalogFitments / 1000},
-	{"wide-0.3", catalogFitments * 3 / 1000},
-	{"wide-1", catalogFitments / 100},
+	{"wide-0.1", wideShape{fitments: catalogFitments / 1000}},
+	{"wide-0.3", wideShape{fitments: catalogFitments * 3 / 1000}},
+	{"wide-1", wideShape{fitments: catalogFitments / 100}},
+	{"wide-1-varied", wideShape{fitments: catalogFitments / 100, varied: true}},
+}
+
+// wideShape is a wide variant's: how many wide fitments, and whether
+// their year spans and qualifiers are varied's.
+type wideShape struct {
+	fitments int
+	varied   bool
 }
 
 const (
@@ -75,7 +86,7 @@ func wideTypeOf(w int) string { return fmt.Sprintf("%03d", w%wideTypes*(catalogT
 var catalogOnce struct {
 	sync.Mutex
 	vehicles []vocab.Vehicle // the catalog's, by index
-	fixtures map[int]*catalogFixture
+	fixtures map[wideShape]*catalogFixture
 }
 
 // catalogFixture is the catalog-scale fixture with wide wide fitments, written
@@ -89,10 +100,9 @@ type catalogFixture struct {
 	err    error
 }
 
-// fixtureOf writes the fixture with wide wide fitments once per run, and
-// compiles it, as `nitrovin vocab compile` does. A wide variant keeps only
-// its compiled file.
-func fixtureOf(b *testing.B, wide int) *catalogFixture {
+// fixtureOf writes the fixture with wide's wide fitments once per run,
+// and compiles it, as `nitrovin vocab compile` does.
+func fixtureOf(b *testing.B, wide wideShape) *catalogFixture {
 	catalogOnce.Lock()
 	defer catalogOnce.Unlock()
 	if f := catalogOnce.fixtures[wide]; f != nil {
@@ -103,7 +113,7 @@ func fixtureOf(b *testing.B, wide int) *catalogFixture {
 	}
 	f := &catalogFixture{}
 	if catalogOnce.fixtures == nil {
-		catalogOnce.fixtures = map[int]*catalogFixture{}
+		catalogOnce.fixtures = map[wideShape]*catalogFixture{}
 	}
 	catalogOnce.fixtures[wide] = f
 	f.err = func() error {
@@ -115,14 +125,14 @@ func fixtureOf(b *testing.B, wide int) *catalogFixture {
 		if err != nil {
 			return err
 		}
-		f.dir = filepath.Join(dir, fmt.Sprintf("catalog-%d", wide))
+		f.dir = filepath.Join(dir, fmt.Sprintf("catalog-%d-%t", wide.fitments, wide.varied))
 		if err := os.Mkdir(f.dir, 0o755); err != nil {
 			return err
 		}
 		if f.wideOf, err = writeCatalog(f.dir, d.Month(), wide); err != nil {
 			return err
 		}
-		f.compiled = filepath.Join(dir, fmt.Sprintf("catalog-%d.compiled", wide))
+		f.compiled = filepath.Join(dir, fmt.Sprintf("catalog-%d-%t.compiled", wide.fitments, wide.varied))
 		out, err := os.Create(f.compiled)
 		if err != nil {
 			return err
@@ -131,13 +141,7 @@ func fixtureOf(b *testing.B, wide int) *catalogFixture {
 			out.Close()
 			return err
 		}
-		if err := out.Close(); err != nil {
-			return err
-		}
-		if wide > 0 {
-			return os.Remove(filepath.Join(f.dir, "catalog.jsonl"))
-		}
-		return nil
+		return out.Close()
 	}()
 	if f.err != nil {
 		b.Fatal(f.err)
@@ -148,7 +152,7 @@ func fixtureOf(b *testing.B, wide int) *catalogFixture {
 // catalogDir is the catalog-scale fixture's directory: its part spine,
 // types.jsonl, its vehicle vocabulary, models.jsonl, and the catalog,
 // catalog.jsonl.
-func catalogDir(b *testing.B) string { return fixtureOf(b, 0).dir }
+func catalogDir(b *testing.B) string { return fixtureOf(b, wideShape{}).dir }
 
 // compileCatalog compiles the fixture in dir to w as `nitrovin vocab
 // compile` does: the embedded Decoder's month, vocab.OpenCompile, and
@@ -272,19 +276,21 @@ type catalogForm struct {
 // catalogForms are the fixture's catalog as JSON Lines and compiled, each
 // beside its spine and vehicle vocabulary.
 func catalogForms(b *testing.B) []catalogForm {
-	f := fixtureOf(b, 0)
+	f := fixtureOf(b, wideShape{})
 	return []catalogForm{
 		{"jsonl", []string{f.dir}, filepath.Join(f.dir, "catalog.jsonl"), f},
 		{"compiled", []string{filepath.Join(f.dir, "types.jsonl"), filepath.Join(f.dir, "models.jsonl"), f.compiled}, f.compiled, f},
 	}
 }
 
-// wideForms are the fixture's wide variants, compiled.
+// wideForms are the fixture's wide variants, as JSON Lines and compiled.
 func wideForms(b *testing.B) []catalogForm {
 	var out []catalogForm
 	for _, v := range wideVariants {
-		f := fixtureOf(b, v.fitments)
-		out = append(out, catalogForm{"compiled-" + v.name, []string{filepath.Join(f.dir, "types.jsonl"), filepath.Join(f.dir, "models.jsonl"), f.compiled}, f.compiled, f})
+		f := fixtureOf(b, v.wideShape)
+		out = append(out,
+			catalogForm{"jsonl-" + v.name, []string{f.dir}, filepath.Join(f.dir, "catalog.jsonl"), f},
+			catalogForm{"compiled-" + v.name, []string{filepath.Join(f.dir, "types.jsonl"), filepath.Join(f.dir, "models.jsonl"), f.compiled}, f.compiled, f})
 	}
 	return out
 }
@@ -294,7 +300,7 @@ func wideForms(b *testing.B) []catalogForm {
 // catalogUnmapped of them unmapped; and after its fitments, wide wide
 // fitments. It returns, by vehicle, a part type and year of a wide fitment
 // applying to it.
-func writeCatalog(dir string, m vocab.Month, wide int) (map[int][2]int, error) {
+func writeCatalog(dir string, m vocab.Month, wide wideShape) (map[int][2]int, error) {
 	var models [][2]string // make, model
 	var ids []int32
 	for mk, mkName := range m.Makes() {
@@ -390,8 +396,13 @@ func writeCatalog(dir string, m vocab.Month, wide int) (map[int][2]int, error) {
 		}
 		// Wide fitments, like universal parts: each of wideMin to wideMax
 		// applications on vehicles and years at random.
-		rng := rand.New(rand.NewPCG(uint64(wide), 262))
-		for k := range wide {
+		rng := rand.New(rand.NewPCG(uint64(wide.fitments), 262))
+		spans, qualified, sets := 6, 2, 1
+		if wide.varied {
+			rng = rand.New(rand.NewPCG(uint64(wide.fitments), 267))
+			spans, qualified, sets = 16, 4, 3
+		}
+		for k := range wide.fitments {
 			typ := wideTypeOf(k)
 			fmt.Fprintf(w, `{"fitment":{"type":"%s","number":"W%07d"},"applications":[`, typ, k)
 			for j := range wideMin + rng.IntN(wideMax-wideMin+1) {
@@ -399,9 +410,9 @@ func writeCatalog(dir string, m vocab.Month, wide int) (map[int][2]int, error) {
 					w.WriteByte(',')
 				}
 				v, first := rng.IntN(catalogModels), 1981+rng.IntN(40)
-				fmt.Fprintf(w, `{"vehicle":%s,"first":%d,"last":%d,"options":"universal, fits %d-%d"`, vehicles[v], first, first+rng.IntN(6), k, j)
-				if j%2 == 0 {
-					fmt.Fprintf(w, `,"qualifiers":%s`, qualifierSets[(k+j)%len(qualifierSets)])
+				fmt.Fprintf(w, `{"vehicle":%s,"first":%d,"last":%d,"options":"universal, fits %d-%d"`, vehicles[v], first, first+rng.IntN(spans), k, j)
+				if j%qualified != qualified-1 {
+					fmt.Fprintf(w, `,"qualifiers":%s`, qualifierSets[(k*sets+j)%len(qualifierSets)])
 				}
 				w.WriteByte('}')
 				if _, ok := wideOf[v]; !ok {

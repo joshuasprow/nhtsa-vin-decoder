@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
+	"github.com/joshuasprow/nitrovin/pkg/fitment"
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
@@ -735,4 +736,94 @@ func itemLines(lines []string) []string {
 		out = append(out, l)
 	}
 	return out
+}
+
+// withoutSharer is tr with its catalog read as a fitment.Reader alone,
+// not a fitment.Sharer: fit reads related vehicles through ByVehicle.
+func withoutSharer(tr *Translator) *Translator {
+	hidden := *tr
+	hidden.core.Catalog = struct{ fitment.Reader }{tr.core.Catalog}
+	return &hidden
+}
+
+// TestFitRelatedTies: related vehicles that tie on their count, name and
+// years, as two vPIC models of one name do, come in the order of their
+// first applications among the shared fitments, in every form, here in
+// an answer of more than a dozen rows (a sort's size at which order
+// among equals stops being kept by accident); not in the order the
+// catalog first names them, nor by id.
+func TestFitRelatedTies(t *testing.T) {
+	d := embeddedDecoder(t)
+	m := d.month
+	// Two models of one name, and models of names of their own.
+	byName := map[string][]int32{}
+	var names []string
+	for mk := range m.Makes() {
+		for id, name := range m.Models(mk) {
+			if len(byName[name]) == 0 {
+				names = append(names, name)
+			}
+			byName[name] = append(byName[name], id)
+		}
+	}
+	slices.Sort(names)
+	var twins []int32
+	var others []int32
+	for _, name := range names {
+		switch ids := byName[name]; {
+		case twins == nil && len(ids) >= 2:
+			twins = slices.Sorted(slices.Values(ids))[:2]
+		case len(ids) == 1 && len(others) < 15:
+			others = append(others, ids[0])
+		}
+	}
+	if twins == nil || len(others) < 15 {
+		t.Fatalf("data month %s lacks two models of one name and 15 of their own", m.Name())
+	}
+	from, rest := others[0], others[1:]
+	app := func(id int32) string {
+		return fmt.Sprintf(`{"vehicle":{"model":%d},"first":2010,"last":2012,"options":""}`, id)
+	}
+	// The catalog names the lower id first; the shared fitment applies to
+	// the higher first.
+	apps := []string{app(from), app(twins[1]), app(twins[0])}
+	for _, id := range rest {
+		apps = append(apps, app(id))
+	}
+	dir := t.TempDir()
+	write(t, dir, "catalog.jsonl",
+		`{"format":1,"kind":"catalog","name":"vpic-parts","version":"1","data_month":"`+m.Name()+`","spine":"part-types","vehicles":"vpic"}`,
+		`{"fitment":{"type":"engine","number":"E-0"},"applications":[`+app(twins[0])+`]}`,
+		`{"fitment":{"type":"mirror","number":"M-1"},"applications":[`+strings.Join(apps, ",")+`]}`)
+	files, err := vocab.Open("../../testdata/vocab/fitment/part-types.jsonl", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := NewTranslator(d, files...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled := compiledTwin(t, tr)
+	req := contract.FitRequest{From: contract.FitFrom{SpineRef: contract.SpineRef{Model: from}}, Related: true, Now: fitNow}
+	for _, f := range []struct {
+		name string
+		tr   *Translator
+	}{{"JSON Lines", tr}, {"compiled", compiled}, {"JSON Lines, ByVehicle", withoutSharer(tr)}, {"compiled, ByVehicle", withoutSharer(compiled)}} {
+		fit, err := f.tr.Fit(context.Background(), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fit.Total != len(rest)+2 {
+			t.Fatalf("%s: %d related; want %d", f.name, fit.Total, len(rest)+2)
+		}
+		var got []int32
+		for _, r := range fit.Related {
+			if slices.Contains(twins, r.Vehicle.Model) {
+				got = append(got, r.Vehicle.Model)
+			}
+		}
+		if want := []int32{twins[1], twins[0]}; !slices.Equal(got, want) {
+			t.Errorf("%s: models of one name in the order %v; want %v, their applications' order", f.name, got, want)
+		}
+	}
 }

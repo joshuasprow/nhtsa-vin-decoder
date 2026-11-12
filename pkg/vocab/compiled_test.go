@@ -103,6 +103,23 @@ func compiledFixture(t *testing.T) *Catalog {
 	return catalogOf(t, fixtureMonth{}, swapCatalog(t, files, compile(t, fixtureMonth{}, files)))
 }
 
+// describeShared is what Shared answers: each candidate, as Matching's,
+// and its spans.
+func describeShared(ss []Shared) string {
+	var b strings.Builder
+	for i := range ss {
+		b.WriteString(describeCandidates([]Candidate{ss[i].Candidate}))
+		for _, sp := range ss[i].Spans {
+			b.WriteString(describeSpan(sp))
+		}
+	}
+	return b.String()
+}
+
+func describeSpan(sp SharedSpan) string {
+	return fmt.Sprintf("\n\tspan %d %d-%d %b", sp.Vehicle, sp.First, sp.Last, sp.Bounds)
+}
+
 // describe is everything a fitment says, for comparing two catalogs'.
 func describe(f *Fitment) string {
 	if f == nil {
@@ -334,6 +351,24 @@ func TestCompiledAnswersAsJSONLines(t *testing.T) {
 								}
 							}
 							asked += strings.Count(want, "matched")
+							if typ == "" {
+								shared := describeShared(jl.Shared(vs, y, s))
+								if got := describeShared(cc.Shared(vs, y, s)); got != shared {
+									t.Fatalf("Shared(%d vehicles, %v, %v):\n%s\nwant\n%s", len(vs), y, s, got, shared)
+								}
+								// Of every fitment ByVehicle has, Matching's
+								// candidate and every application's span.
+								var b strings.Builder
+								for i, c := range jl.ByVehicle("", vs, y, s) {
+									b.WriteString(describeCandidates(jl.Matching("", vs, y, s)[i : i+1]))
+									for j := range c.Fitment.Applications {
+										b.WriteString(describeSpan(sharedSpan(&c.Fitment.Applications[j])))
+									}
+								}
+								if shared != b.String() {
+									t.Fatalf("Shared(%d vehicles, %v, %v):\n%s\nwant\n%s", len(vs), y, s, shared, b.String())
+								}
+							}
 						}
 						got, want := describeRedirects(cc.Redirect(typ, vs, y)), describeRedirects(jl.Redirect(typ, vs, y))
 						if got != want {
@@ -592,8 +627,8 @@ func TestCompiledRefused(t *testing.T) {
 		paths  []string
 		detail string
 	}{
-		{"a format it cannot read", []string{write(version)}, "compiled catalog format 3: this nitrovin reads format 2 only; compile the catalog again with this release"},
-		{"format 1", []string{write(format1)}, "compiled catalog format 1: this nitrovin reads format 2 only; compile the catalog again with this release"},
+		{"a format it cannot read", []string{write(version)}, "compiled catalog format 4: this nitrovin reads format 3 only; compile the catalog again with this release"},
+		{"format 1", []string{write(format1)}, "compiled catalog format 1: this nitrovin reads format 3 only; compile the catalog again with this release"},
 		{"cut short", []string{write(good[:len(good)-1])}, "it was cut short or added to"},
 		{"shorter than a header", []string{write(good[:20])}, "shorter than its header"},
 		{"no spine", []string{byName["catalog-models"].Path, path}, `/spine: spine "part-types" is not loaded`},
@@ -811,13 +846,17 @@ func TestCompiledDamagedCount(t *testing.T) {
 	}
 }
 
-// TestCompiledFarRecordOutOfRange: a far record whose place in wide runs
-// past it, its length wrapping round, ends in the reader's own panic about
-// a damaged file, not a runtime error.
+// TestCompiledFarRecordOutOfRange: a far record whose place in keyed or
+// in wide runs past it, its length wrapping round, ends in the reader's
+// own panic about a damaged file, not a runtime error.
 func TestCompiledFarRecordOutOfRange(t *testing.T) {
 	c := &compiled{path: "damaged.compiled", vehicles: []*Vehicle{{}}}
-	c.sec[secWide].n = 20
-	for _, place := range [][2]uint64{{10, math.MaxInt64 - 5}, {10, 11}, {21, 1}, {0, 0}, {math.MaxUint64, 1}} {
+	c.sec[secKeyed].n, c.sec[secWide].n = 20, 20
+	var places [][4]uint64
+	for _, bad := range [][2]uint64{{10, math.MaxInt64 - 5}, {10, 11}, {21, 1}, {0, 0}, {math.MaxUint64, 1}} {
+		places = append(places, [4]uint64{bad[0], bad[1], 0, 5}, [4]uint64{0, 5, bad[0], bad[1]})
+	}
+	for _, place := range places {
 		b := []byte{recFar, byte(SideNone)}
 		b = appendStr(b, "N-1")
 		b = binary.AppendUvarint(b, 1) // its line
@@ -825,16 +864,17 @@ func TestCompiledFarRecordOutOfRange(t *testing.T) {
 		b = binary.AppendUvarint(b, 1) // one application of its own
 		b = binary.AppendUvarint(b, 0)
 		b = appendApplication(b, &Application{}, 0)
-		b = binary.AppendUvarint(b, place[0])
-		b = binary.AppendUvarint(b, place[1])
+		for _, n := range place {
+			b = binary.AppendUvarint(b, n)
+		}
 		func() {
 			defer func() {
 				r := recover()
 				if _, ok := r.(runtime.Error); ok {
-					t.Fatalf("far record at %d, %d bytes: runtime error %v", place[0], place[1], r)
+					t.Fatalf("far record at %v: runtime error %v", place, r)
 				}
 				if e, ok := r.(error); !ok || !strings.Contains(e.Error(), "the file is damaged") {
-					t.Errorf("far record at %d, %d bytes: recovered %v; want the file is damaged", place[0], place[1], r)
+					t.Errorf("far record at %v: recovered %v; want the file is damaged", place, r)
 				}
 			}()
 			c.blockHit(&cursor{c, string(b), 0}, 0, 0, nil, nil)
@@ -857,8 +897,8 @@ func TestReadFarSpan(t *testing.T) {
 	}
 	r := &spanReader{r: bytes.NewReader(wide)}
 	c := &compiled{r: r, path: "far.compiled", types: []compiledType{{name: "pads"}}}
-	c.sec[secWide].n = int64(len(wide))
-	c.readFar(hits)
+	c.sec[secKeyed].n = int64(len(wide))
+	c.readFar(hits, secKeyed)
 	if r.reads != 2 || r.most > 1<<20 {
 		t.Errorf("%d far fitments %d KiB apart: %d reads, the longest %d bytes; want 2, none over 1 MiB", n, step>>10, r.reads, r.most)
 	}
@@ -921,6 +961,9 @@ func FuzzOpenCompiled(f *testing.F) {
 		}
 		c.ByVehicle("", vehicles, nil, nil)
 		c.ByVehicle("", vehicles[:min(1, len(vehicles))], new(2005), new(SideLeft))
+		c.Matching("", vehicles, nil, nil)
+		c.Shared(vehicles, nil, nil)
+		c.Shared(vehicles[:min(1, len(vehicles))], new(2005), new(SideLeft))
 		c.Redirect("", vehicles, nil)
 		for _, typ := range file.compiled.types {
 			c.ByVehicle(typ.name, vehicles, nil, nil)

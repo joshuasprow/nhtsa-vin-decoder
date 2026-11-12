@@ -131,7 +131,8 @@ func rowsOf(l *contract.StockList) []contract.StockRow {
 // entries, in and across years, on every side, named in a vocabulary or as
 // spine entries, a page at a time and whole; with the synthetic stock,
 // with every stock list, a shelf row under a retired number (RetiredTo)
-// among them; and list's pages of the catalog.
+// among them; and list's pages of the catalog. Related vehicles answer
+// alike through a Reader that is not a fitment.Sharer too.
 func TestFitCompiled(t *testing.T) {
 	type source struct {
 		name  string
@@ -203,7 +204,12 @@ func TestFitCompiled(t *testing.T) {
 							}
 						}
 						for _, limit := range []int{0, 1} {
-							found += sameFit(t, s.tr, compiled, contract.FitRequest{From: from, ModelYear: year, To: to, Related: true, Stock: stockYard, Limit: limit}, &retired)
+							req := contract.FitRequest{From: from, ModelYear: year, To: to, Related: true, Stock: stockYard, Limit: limit}
+							found += sameFit(t, s.tr, compiled, req, &retired)
+							// Through ByVehicle, as a Reader that is not a
+							// fitment.Sharer answers, in both forms.
+							sameFit(t, s.tr, withoutSharer(s.tr), req)
+							sameFit(t, s.tr, withoutSharer(compiled), req)
 						}
 					}
 				}
