@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"html"
 	"io"
@@ -207,8 +208,15 @@ func fitInBrowser(t *testing.T, path, base string, log *requestLog, js bool) {
 	}
 	tb.do(chromedp.Click(chromedp.CSS("button.open-dialog")))
 	tb.wait("#result-json:popover-open")
-	tb.do(chromedp.Click(chromedp.CSS("#result-json a")))
-	tb.do(chromedp.WaitReady(chromedp.CSS("body")))
+	// The click navigates: wait for the new document's load as one step
+	// with it (RunResponse). WaitReady("body") after the click matches the
+	// old document's body before navigation commits, so the next query can
+	// read the old URL or land while the page detaches ("Not attached to an
+	// active page").
+	tb.call(func(ctx context.Context) error {
+		_, err := chromedp.RunResponse(ctx, chromedp.Click(chromedp.CSS("#result-json a")))
+		return err
+	})
 	if at := tb.at(); !sameQuery(t, at, v1[0]["href"]) || eval[string](tb, `document.contentType`) != "application/json" {
 		t.Errorf("the /v1 link: at %s, %s; want %s, application/json", at, eval[string](tb, `document.contentType`), v1[0]["href"])
 	}
