@@ -170,3 +170,11 @@ What was built, where the text above leaves room:
   becomes accepted, or a person reopens the format or the budget.
 - The fitment file's schema (ADR 0017) is unchanged. The compiled form is not a
   contract document; it belongs to the release family that reads it.
+
+## Amendment (2026-11-12): format 2 and one streaming compiler
+
+[ADR 0023](0023-fitment-in-the-browser.md) (proposed until measured) replaces format 1 with compiled format 2,
+clustered by vehicle, because format 1 costs thousands of reads per part-type
+summary when read by byte range in a browser. One streaming compiler, peaking at
+256 MiB, serves the CLI and the browser. Format 1 files are refused with "recompile".
+This ADR's budgets and Measured section remain the bar format 2 must meet.

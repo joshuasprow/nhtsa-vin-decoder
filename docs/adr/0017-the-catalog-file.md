@@ -153,3 +153,8 @@ retained, 512 MiB peak, 1 s to open.
   `fitment.Reader`.
 - [The compiled fitment form](https://github.com/joshuasprow/nitrovin/issues/228)
   implements the same interface and is held to the budget above.
+
+## Amendment (2026-11-12): one catalog across a server and its browsers
+
+[ADR 0023](0023-fitment-in-the-browser.md): a browser refuses to load a catalog when its server has one, so one
+nitrovin, server and browsers together, answers from one catalog.

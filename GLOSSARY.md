@@ -288,16 +288,18 @@ _Avoid_: error (a decode's error codes are about the VIN), invalid
 **Catalog**:
 One author's statement of which parts fit which vehicles, loaded as data. It
 names the declared part spine its part types come from and the vehicle
-vocabulary its applications use; a deployment loads one.
+vocabulary its applications use. A nitrovin loads one, on its server or in a
+visitor's browser, never both.
 _Avoid_: interchange (a catalog vendor's term), parts database; "catalog" for
 `list`'s list of what is loaded (`CatalogEntry`, ADR 0012), which names
 files, not fitments: say "what is loaded" or "the list of loaded files"
 
 **Compiled catalog**:
-A catalog checked and written by `nitrovin vocab compile` into one indexed file
-that opens in milliseconds and is read in place (ADR 0021). It answers exactly as
-its JSON Lines source, which stays the published form; its drift is the drift
-measured when it was compiled.
+A catalog checked and written into one indexed file, by `nitrovin vocab compile`
+or in a visitor's browser, that opens in milliseconds and is read in place
+(ADR 0021, ADR 0023). It answers exactly as its JSON Lines source, which stays the
+published form; its drift is the drift measured when it was compiled, and a
+browser's compile measures every kind but those its spine bundle cannot.
 _Avoid_: binary catalog, catalog database, index (an index is one of its tables)
 
 **Fitment**:
