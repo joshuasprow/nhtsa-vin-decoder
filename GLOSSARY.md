@@ -309,3 +309,31 @@ _Avoid_: match, result, hit
 **Retired number**:
 A number a catalog no longer uses, pointing at the fitment that replaced it.
 _Avoid_: alias (the word is kept away from mappings and entries), old number
+
+### Stock
+
+**Stock**:
+What a business has to sell that a catalog's fitments lead to: parts on a shelf
+and whole vehicles in a self-service yard, each from a named stock source.
+_Avoid_: inventory (as the general term), availability
+
+**Stock source**:
+A named supply of stock rows, either a file or a database read at request time,
+of one kind: `shelf` (parts, numbered under one catalog) or `yard` (vehicles).
+The source decides what is available and what fields it shows.
+_Avoid_: feed, connector (that is how a live source is read)
+
+**Shelf part**:
+One part a source has on a shelf, tied to a fitment by its catalog number, or to
+a part type and an exact vehicle and year when it has none.
+_Avoid_: stock row, item
+
+**Yard vehicle**:
+A whole vehicle in a self-service yard, matched to the spine by its decoded VIN or
+by the catalog's own model, so customers can find the vehicles whose parts fit.
+_Avoid_: car, unit, stock vehicle
+
+**Orphan**:
+A shelf part whose number its catalog lacks, current or retired. It appears in no
+answer and is counted as drift.
+_Avoid_: unmatched part, missing part
