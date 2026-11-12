@@ -721,19 +721,26 @@ beside ns/op. `BenchmarkLoadCatalog` loads a catalog at the scale of ADR
 0017's budget (790,000 fitments, 1,896,000 applications, half with
 qualifiers and six in ten with option text of their own, 100,000
 redirects, 1,326 vehicles, 448 of them unmapped), written to the same
-temporary directory, and reports its file's size, the heap the load
-retains and a loading process's peak RSS, against the budget of 15 s on
-one core, 1.5 GiB peak and a 500 MB file. On the reference machine it
-measured 2.7 s on one core, 900 MB peak, 322 MB retained and a 330 MB
-file. `BenchmarkFit` asks `fit` of that catalog on one core, cycling
-through 64 vehicles and fitment keys: candidates, part types and related
-vehicles (each in a year and, the expensive path, with none) and
+temporary directory, as JSON Lines and compiled (ADR 0021), and reports
+each file's size, the heap the load retains and a loading process's peak
+RSS: against 15 s on one core, 1.5 GiB peak and a 500 MB file for JSON
+Lines, and 1 s, 512 MiB peak and 256 MiB retained for the compiled form.
+On the reference machine, on one core, JSON Lines measured 2.7 s, 900 MB
+peak, 322 MB retained and a 330 MB file; compiled, 3.1 ms, 16 MB peak,
+2.1 MB retained and a 184 MB file. `BenchmarkCompileCatalog` records how
+long `vocab compile` takes on it (3.9 s), and `BenchmarkCatalogReader`
+times `fitment.Reader`'s lookups in both forms, p50 and p99.
+`BenchmarkFit` asks `fit` of that catalog on one core, in both forms,
+cycling through 64 vehicles and fitment keys: candidates, part types and
+related vehicles (each in a year and, the expensive path, with none) and
 reverse, each reporting p50, p99 and its answers' average `total`
 (`items`), against ADR 0018's p99 budget of 5 ms, 10 ms, 50 ms and 1 ms
-per key. On the reference machine they measured 4.6 µs; 344 µs, and
-2.0 ms with no year; 385 µs, and 9.4 ms with no year; and 6.4 µs. The
-no-year tails are garbage collection of the loaded catalog's heap on one
-core, which the compiled form (ADR 0021) shrinks. `release.yml`'s bench job runs them on its runner, and
+per key. On the reference machine, p99, JSON Lines measured 12 µs; 332 µs,
+and 1.5 ms with no year; 397 µs, and 10 ms with no year; and 16 µs. The
+compiled form measured 37 µs; 2.6 ms, and 5.8 ms with no year; 1.5 ms,
+and 4.7 ms with no year; and 38 µs: slower by its reads, but without the
+garbage collection of a loaded catalog's heap that makes JSON Lines'
+no-year tail. `release.yml`'s bench job runs them on its runner, and
 `bench/vocab/notes` turns the output into the table the release notes end
 with, beside the budgets, which are stated for the reference machine (an
 Apple M5 Pro). Nothing gates on it: runner timings are too noisy, and a

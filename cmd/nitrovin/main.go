@@ -96,7 +96,7 @@ func (p *paths) Set(s string) error {
 }
 
 // vocabUsage is --vocab's line in the usage.
-const vocabUsage = "load the vocabulary, extension set or spine at `path`, a file or a directory of *.jsonl; repeatable (default $NITROVIN_VOCAB, a path list)"
+const vocabUsage = "load the vocabulary, extension set, spine or catalog at `path`: a file, a compiled catalog included, or a directory of *.jsonl; repeatable (default $NITROVIN_VOCAB, a path list)"
 
 // errFindings ends a command that has already written why it failed: exit
 // 1, nothing more on stderr.

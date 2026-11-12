@@ -38,9 +38,12 @@ type Month interface {
 // extensions named, after Normalize, like a vPIC make or like a vPIC
 // model under the same make, and of a catalog, vehicles its vehicle
 // vocabulary lacks or lists unmapped and redirects no application
-// answers. Findings come in file and line order. Drift never refuses: the
-// files are served as they are. It is what load measures; ModelDrift is
-// the rest.
+// answers. A compiled catalog is not measured again in full: its findings
+// are those its compiling stored, against its Compiled DriftMonth
+// (ADR 0021), but for its vehicles' against the loaded vehicle vocabulary,
+// measured again; Expand it to measure all of it. Findings come in file
+// and line order. Drift never refuses: the files are served as they are.
+// It is what load measures; ModelDrift is the rest.
 func Drift(m Month, files []*File) []Finding {
 	return newDrifts(m, nil).walk(files)
 }
@@ -83,6 +86,10 @@ func (d *drifts) walk(files []*File) []Finding {
 				d.extension(x)
 			}
 		case KindCatalog:
+			if c := f.compiled; c != nil {
+				d.compiled(c, byName[f.Vehicles])
+				continue
+			}
 			d.catalog(byName[f.Vehicles])
 		}
 	}

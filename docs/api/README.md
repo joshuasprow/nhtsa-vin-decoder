@@ -429,6 +429,18 @@ specifies.
   `;` on Windows); flags replace it, as `--data` replaces `NITROVIN_DATA`.
   Files load once, with the data, and never change for the life of the
   process: `serve` picks up new files on restart.
+- **Compiled catalogs.** A file named on `--vocab` that begins with the
+  compiled catalog's magic, `nvcatalg`, loads as a compiled catalog
+  (ADR 0021), which `nitrovin vocab compile` writes: it opens in
+  milliseconds, is read in place, and answers exactly as its JSON Lines
+  source. A directory loads only its `*.jsonl`, so name a compiled file
+  itself. It is refused, as a fault about the file as a whole (line 0), in
+  a compiled format this release cannot read, cut short, or when its spine
+  or vehicle vocabulary is not loaded, or is loaded without a part type or
+  vehicle the catalog was compiled with. Its drift is not measured in full
+  at load: it is the drift its compiling measured and stored, but for its
+  `vehicle` drift, measured again against the vehicle vocabulary loaded
+  (one look per vehicle).
 - **Matching.** An entry's fields match after trimming, collapsing every
   run of white space to one space and Unicode lower-casing, nothing more.
   Qualifier values match exactly.
@@ -489,18 +501,28 @@ specifies.
   the model values index, about 0.14 s and 80–100 MB of peak memory for an
   EPA-sized vocabulary, which would break load's 100 ms budget (ADR 0011)
   on every start and C handle. `vocab check` always measures it, and
-  `/v1/info` on its first request, cached after.
+  `/v1/info` on its first request, cached after. A compiled catalog's
+  drift, `model-qualifier` included, is the drift its compiling stored,
+  against the month it was compiled against, but for its `vehicle` drift,
+  measured at load against the vehicle vocabulary loaded.
 - **`/v1/info`** (and `nitrovin info`, `nitrovin_info`) lists every loaded
   file in `vocabularies`, in load order: `name`, `kind`, `version`, `blake3`
-  (hex, of the file's bytes), `path` (absolute) and `drift`, a count per
-  kind of drift the file has (`make`, `model`, `qualifier`, `extension`,
-  `model-years`, `vehicle`, `redirect`, `model-qualifier`, in that order)
-  with its first three findings as `{"line", "detail"}`; the first request
-  measures `model-qualifier`, so it may take a fraction of a second longer.
-  A catalog adds its `release`, when its
-  header gives one, and its counts of `fitments`, `applications`,
-  `redirects` and `retired` numbers; no other kind has them. It is `[]`
-  when nothing is loaded, as for every `nitrovin_open` handle.
+  (hex, of the file's bytes; a compiled catalog's is the hash its header
+  records, of its bytes with the hash's own 32 bytes zero), `path`
+  (absolute) and `drift`, a count per kind of drift the file has (`make`,
+  `model`, `qualifier`, `extension`, `model-years`, `vehicle`, `redirect`,
+  `model-qualifier`, in that order) with its first three findings as
+  `{"line", "detail"}`; the first request measures `model-qualifier`, so it
+  may take a fraction of a second longer. A catalog adds its `release`,
+  when its header gives one, and its counts of `fitments`, `applications`,
+  `redirects` and `retired` numbers; no other kind has them. A compiled
+  catalog adds `compiled`: its `format`, the `source_blake3` of the JSON
+  Lines file it was compiled from, the `writer` (the nitrovin version that
+  compiled it), the `drift_month` its drift counts were measured against,
+  `drift_month_differs`, true when that is not the loaded data month, and
+  `links_differ`, true when its spine or vehicle vocabulary as loaded is
+  not the file it was compiled against (another blake3). It is `[]` when
+  nothing is loaded, as for every `nitrovin_open` handle.
 - **`nitrovin vocab check <file|dir>…`** loads its arguments, and only
   them, beside the data (`--data` as for any command) and prints every
   finding on stdout as a JSON line,
@@ -508,7 +530,20 @@ specifies.
   when there are any, otherwise the drift. Exit 0 with no output when there
   is none, 1 when there is any. Line 0 is a file that cannot be read. A
   catalog is checked like any file, so its spine and vehicle vocabulary
-  must be among the arguments.
+  must be among the arguments. A compiled catalog is read in full, its
+  bytes checked against its header's hash, then checked line by line and
+  its drift measured again against the loaded month, as its source would
+  be; its findings name the compiled file and its source's lines.
+- **`nitrovin vocab compile -o <file> <file|dir>…`** checks its arguments
+  as `vocab check` does and, on a fault, prints the faults the same way,
+  exits 1 and writes nothing. Otherwise it writes the one catalog among
+  them, compiled, to `-o` (replacing it whole), its drift on stderr one
+  finding a line as a load writes it, `model-qualifier` included, which a
+  load does not write, and exits 0. The compiled file records its source's
+  blake3, the catalog's name, version and `release`, the spine and vehicle
+  vocabulary it was linked against, the writer, and the data month and
+  drift its check found. The same arguments, data month and nitrovin
+  version give the same bytes.
 
 ## Translation (`translate`)
 

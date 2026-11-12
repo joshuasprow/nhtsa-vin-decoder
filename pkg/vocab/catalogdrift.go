@@ -39,13 +39,7 @@ func (d *drifts) catalog(vehicles *File) {
 		u := firsts[v.id]
 		switch {
 		case vehicles != nil:
-			e, ok := vehicles.Entry(v.Entry)
-			switch {
-			case !ok:
-				d.addFile(u.line, DriftVehicle, "%s/vehicle: vocabulary %q has no entry %s%s", u.ptr(), vehicles.Name, entryText(v.Entry), u.more())
-			case len(e.Mappings) == 0:
-				d.addFile(u.line, DriftVehicle, "%s/vehicle: vocabulary %q lists %s without a mapping, so no translation reaches it%s", u.ptr(), vehicles.Name, entryText(v.Entry), u.more())
-			}
+			d.vehicleEntry(v, &u, vehicles)
 		case v.Make != 0:
 			if _, ok := d.m.Make(v.Make); !ok {
 				d.add(u.line, DriftMake, "%s/vehicle/make: vPIC make %d is not in data month %s%s", u.ptr(), v.Make, d.month, u.more())
@@ -170,6 +164,43 @@ func (d *drifts) addFile(line int, kind DriftKind, format string, a ...any) {
 		return
 	}
 	d.out = append(d.out, Finding{File: d.f.Path, Line: line, Severity: SeverityDrift, Detail: fmt.Sprintf(format, a...), Drift: kind})
+}
+
+// vehicleEntry measures catalog vehicle v, which u names first, against
+// its vehicle vocabulary: an entry it lacks, or lists without a mapping.
+// It depends on the vocabulary loaded, not the month, so a compiled
+// catalog's is measured at load (vehicleDrift).
+func (d *drifts) vehicleEntry(v *Vehicle, u *use, vehicles *File) {
+	e, ok := vehicles.Entry(v.Entry)
+	switch {
+	case !ok:
+		d.addFile(u.line, DriftVehicle, "%s/vehicle: vocabulary %q has no entry %s%s", u.ptr(), vehicles.Name, entryText(v.Entry), u.more())
+	case len(e.Mappings) == 0:
+		d.addFile(u.line, DriftVehicle, "%s/vehicle: vocabulary %q lists %s without a mapping, so no translation reaches it%s", u.ptr(), vehicles.Name, entryText(v.Entry), u.more())
+	}
+}
+
+// compiled reports a compiled catalog's drift: the drift its compiling
+// stored, against its month, model-qualifier included (Drift keeps every
+// other kind, ModelDrift that one), but its vehicle drift measured again
+// against vehicles, the vehicle vocabulary loaded now (nil when its
+// vehicles are vpic). That takes one look per vehicle, not per application, and a
+// vocabulary loaded beside it may not be the one it was compiled with.
+// Findings come as Drift's for its source: in line order, a line's
+// vehicle drift first.
+func (d *drifts) compiled(c *compiled, vehicles *File) {
+	start := len(d.out)
+	if vehicles != nil {
+		for i, v := range c.vehicles {
+			d.vehicleEntry(v, &c.uses[i], vehicles)
+		}
+	}
+	for _, f := range c.meta.Drift {
+		if f.Drift != DriftVehicle && d.keeps(f.Drift) {
+			d.out = append(d.out, f)
+		}
+	}
+	slices.SortStableFunc(d.out[start:], func(a, b Finding) int { return cmp.Compare(a.Line, b.Line) })
 }
 
 // use is where a catalog first names something, and how many times it

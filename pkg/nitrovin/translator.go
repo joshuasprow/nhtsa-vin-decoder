@@ -86,6 +86,16 @@ func NewTranslator(d *Decoder, files ...*vocab.File) (*Translator, error) {
 				v.Release = ci.Release
 				v.CatalogCounts = &contract.CatalogCounts{Fitments: ci.Fitments, Applications: ci.Applications, Redirects: ci.Redirects, Retired: ci.Retired}
 			}
+			if cc := f.Compiled(); cc != nil {
+				v.Compiled = &contract.CompiledCatalog{Format: cc.Format, SourceBlake3: hex.EncodeToString(cc.SourceHash[:]), Writer: cc.Writer,
+					DriftMonth: cc.DriftMonth, DriftMonthDiffers: cc.DriftMonth != info.DataMonth}
+				for _, l := range cc.Links {
+					j := slices.IndexFunc(files, func(g *vocab.File) bool { return g.Name == l.Name })
+					if j < 0 || files[j].Hash != l.Hash {
+						v.Compiled.LinksDiffer = true
+					}
+				}
+			}
 			info.Vocabularies[i] = v
 		}
 		return info

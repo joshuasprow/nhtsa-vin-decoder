@@ -211,42 +211,72 @@ func (r *results) table() string {
 	return b.String()
 }
 
-// fitRequests are BenchmarkFit's request kinds, with ADR 0018's budget.
+// fitRequests are BenchmarkFit's request kinds, with ADR 0018's budget;
+// each runs on every one of catalogForms.
 var fitRequests = []struct{ name, label, budget string }{
-	{"Fit/candidates", "candidates (vehicle, year, part type)", "p99 ≤ 5 ms"},
-	{"Fit/part-types", "part types (vehicle, year)", "p99 ≤ 10 ms"},
-	{"Fit/related", "related vehicles", "p99 ≤ 50 ms"},
-	{"Fit/part-types-any-year", "part types, no year", "p99 ≤ 10 ms"},
-	{"Fit/related-any-year", "related vehicles, no year", "p99 ≤ 50 ms"},
-	{"Fit/reverse", "reverse (one fitment key)", "p99 ≤ 1 ms per key"},
+	{"candidates", "candidates (vehicle, year, part type)", "p99 ≤ 5 ms"},
+	{"part-types", "part types (vehicle, year)", "p99 ≤ 10 ms"},
+	{"related", "related vehicles", "p99 ≤ 50 ms"},
+	{"part-types-any-year", "part types, no year", "p99 ≤ 10 ms"},
+	{"related-any-year", "related vehicles, no year", "p99 ≤ 50 ms"},
+	{"reverse", "reverse (one fitment key)", "p99 ≤ 1 ms per key"},
 }
 
 // fit is the fit requests' table on the catalog-scale fixture (ADR 0018),
-// "" when they did not run.
+// the catalog's forms side by side, "" when they did not run.
 func (r *results) fit() string {
 	var b strings.Builder
 	for _, q := range fitRequests {
-		m, ok := r.bench[key{q.name, 1}]
-		if !ok {
+		cells, items, any := "", 0.0, false
+		for _, f := range catalogForms {
+			m, ok := r.bench[key{"Fit/" + f.name + "/" + q.name, 1}]
+			if !ok {
+				cells += " — |"
+				continue
+			}
+			any, items = true, m["items"]
+			cells += fmt.Sprintf(" %s · %s |", quantiles(m), throughput(m["ns/op"]))
+		}
+		if !any {
 			continue
 		}
 		if b.Len() == 0 {
-			b.WriteString("\n**Fit** (the catalog-scale fixture, one core).\n\n| | p50 / p99 · throughput | items | budget |\n|---|---|---|---|\n")
+			b.WriteString("\n**Fit** (the catalog-scale fixture, one core): p50 / p99 · throughput.\n\n| |")
+			for _, f := range catalogForms {
+				b.WriteString(" " + f.label + " |")
+			}
+			b.WriteString(" items | budget |\n|---|---|---|---|---|\n")
 		}
-		fmt.Fprintf(&b, "| %s | %s · %s | %.0f | %s |\n", q.label, quantiles(m), throughput(m["ns/op"]), m["items"], q.budget)
+		fmt.Fprintf(&b, "| %s |%s %.0f | %s |\n", q.label, cells, items, q.budget)
 	}
 	return b.String()
 }
 
-// catalogBudget is ADR 0017's interim budget for a JSON Lines catalog.
-const catalogBudget = "≤ 15 s on one core, ≤ 1.5 GiB peak, file ≤ 500 MB"
+// The catalog's forms, as BenchmarkLoadCatalog and BenchmarkCatalogReader
+// name them, each with its budget: ADR 0017's interim one for JSON Lines,
+// ADR 0021's for the compiled form.
+var catalogForms = []struct{ name, label, budget string }{
+	{"jsonl", "JSON Lines", "≤ 15 s on one core, ≤ 1.5 GiB peak, file ≤ 500 MB"},
+	{"compiled", "compiled", "≤ 1 s on one core, ≤ 512 MiB peak, ≤ 256 MiB retained, file ≤ 500 MB"},
+}
 
-// catalog is the catalog load's table (ADR 0017), "" when it did not run:
-// one row per GOMAXPROCS.
+// catalogLookups are BenchmarkCatalogReader's, with ADR 0018's budget for
+// the request each serves.
+var catalogLookups = []struct{ name, label, budget string }{
+	{"by-vehicle", "by vehicle (a part type, a vehicle, a year)", "p99 ≤ 5 ms"},
+	{"summary", "by vehicle, every part type", "p99 ≤ 10 ms"},
+	{"by-number", "by number", "p99 ≤ 1 ms"},
+	{"redirect", "redirect", ""},
+	{"page", "a page of 1,000 fitments", ""},
+}
+
+// catalog is the catalog's table, both forms side by side (ADR 0017,
+// ADR 0021), "" when its load did not run: its file, its load at each
+// GOMAXPROCS, its compiling, and its lookups on one core.
 func (r *results) catalog() string {
 	var procs []int
 	for k := range r.bench {
-		if k.name == "LoadCatalog" {
+		if k.name == "LoadCatalog/"+catalogForms[0].name {
 			procs = append(procs, k.procs)
 		}
 	}
@@ -255,17 +285,53 @@ func (r *results) catalog() string {
 	}
 	slices.Sort(procs)
 	var b strings.Builder
-	m := r.bench[key{"LoadCatalog", procs[0]}]
-	fmt.Fprintf(&b, "\n**Catalog load** (synthetic, ADR 0017: %s fitments, %s applications, %s redirects, a %s file). Budget: %s.\n\n",
-		count(m["fitments"]), count(m["applications"]), count(m["redirects"]), size(m["file-MB"]), catalogBudget)
-	b.WriteString("| | load | peak | retained heap |\n|---|---|---|---|\n")
+	m := r.bench[key{"LoadCatalog/" + catalogForms[0].name, procs[0]}]
+	fmt.Fprintf(&b, "\n**Catalog** (synthetic, ADR 0017: %s fitments, %s applications, %s redirects), as JSON Lines and compiled (ADR 0021). Budgets: JSON Lines %s; compiled %s.\n\n",
+		count(m["fitments"]), count(m["applications"]), count(m["redirects"]), catalogForms[0].budget, catalogForms[1].budget)
+	b.WriteString("| |")
+	for _, f := range catalogForms {
+		b.WriteString(" " + f.label + " |")
+	}
+	b.WriteString(" budget |\n|---|---|---|---|\n")
+	row := func(label, budget string, cell func(form string) string) {
+		b.WriteString("| " + label + " |")
+		for _, f := range catalogForms {
+			b.WriteString(" " + cell(f.name) + " |")
+		}
+		b.WriteString(" " + budget + " |\n")
+	}
+	row("file", "≤ 500 MB", func(form string) string {
+		if m, ok := r.bench[key{"LoadCatalog/" + form, procs[0]}]; ok {
+			return size(m["file-MB"])
+		}
+		return "—"
+	})
 	for _, p := range procs {
-		m := r.bench[key{"LoadCatalog", p}]
 		cores := "1 core"
 		if p != 1 {
 			cores = fmt.Sprintf("%d cores", p)
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", cores, duration(m["ns/op"]), size(m["peak-RSS-MB"]), size(m["heap-MB"]))
+		row("load, "+cores+": time, peak, retained heap", "", func(form string) string {
+			m, ok := r.bench[key{"LoadCatalog/" + form, p}]
+			if !ok {
+				return "—"
+			}
+			return fmt.Sprintf("%s, %s, %s", duration(m["ns/op"]), size(m["peak-RSS-MB"]), size(m["heap-MB"]))
+		})
+	}
+	row("compile, 1 core", "recorded", func(form string) string {
+		if m, ok := r.bench[key{"CompileCatalog", 1}]; ok && form == "compiled" {
+			return duration(m["ns/op"])
+		}
+		return "—"
+	})
+	for _, l := range catalogLookups {
+		row(l.label, l.budget, func(form string) string {
+			if m, ok := r.bench[key{"CatalogReader/" + form + "/" + l.name, 1}]; ok {
+				return quantiles(m)
+			}
+			return "—"
+		})
 	}
 	return b.String()
 }

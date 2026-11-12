@@ -284,6 +284,39 @@ for _, c := range cat.ByVehicle("mirror", []vocab.Vehicle{ram}, new(2010), nil) 
 fit, retired := cat.ByNumber("brake-rotor-front", "BR-1999", vocab.SideNone) // BR-2001, through the retired number
 ```
 
+### Compiling a catalog
+
+A catalog at a parts system's scale takes seconds and hundreds of MB to load
+as JSON Lines. `nitrovin vocab compile` checks it as `vocab check` does and
+writes it as a compiled catalog (ADR 0021): one indexed file that opens in
+milliseconds with a few MB, read in place, answering exactly as its source.
+Compile at image build, with the binary that will serve it:
+
+```sh
+nitrovin vocab compile -o catalog.compiled testdata/vocab/fitment   # the catalog, its spine and vehicles
+nitrovin --vocab testdata/vocab/fitment/part-types.jsonl --vocab testdata/vocab/fitment/catalog-models.jsonl \
+  --vocab catalog.compiled info | jq -c '.vocabularies[2].compiled'
+```
+
+```json
+{"format":1,"source_blake3":"…","writer":"v…","drift_month":"2026_10","drift_month_differs":false,"links_differ":false}
+```
+
+A fault refuses the compile, and nothing is written; drift is written to
+stderr and stored in the file, `model-qualifier` included. `--vocab` recognises the file by its magic
+(name it itself: a directory loads only its `*.jsonl`) and refuses a
+compiled format the release cannot read, and a spine or vehicle vocabulary
+that is not loaded or lacks a part type or vehicle it was compiled with.
+Loading it does not measure drift again in full: `/v1/info` shows the stored
+drift, the month it was measured against, and `drift_month_differs` when
+that is not the loaded month. Its `vehicle` drift alone is measured at load,
+against the vehicle vocabulary loaded, which `links_differ` says is not the
+one it was compiled with. `nitrovin vocab check` on the compiled file reads it
+in full and checks and measures it again, as its source. JSON Lines stays
+the published, diffable form; the compiled file is a deployment's, and the
+same source, data month and nitrovin version always compile to the same
+bytes.
+
 ## Loading
 
 `--vocab <file|dir>`, before or after any command and repeatable, loads

@@ -4,18 +4,18 @@
 // compiled catalog (ADR 0021), or a connector, can stand behind them
 // without a request changing.
 //
-// The JSON Lines form is package vocab's: `--vocab` loads a catalog file
-// with the other files, vocab.Link checks it against them, and its
-// *vocab.Catalog (vocab.Set's Catalog) is a Reader. The catalog's lines
-// are vocab's types, as a vocabulary's are.
+// Both of a catalog's forms are package vocab's: `--vocab` loads a JSON
+// Lines catalog with the other files, or a compiled catalog (ADR 0021),
+// recognised by its magic; vocab.Link checks it against them, and its
+// *vocab.Catalog (vocab.Set's Catalog) is a Reader either way, answering
+// the same. The catalog's lines are vocab's types, as a vocabulary's are.
 //
 // vocab.Set.Catalog returns the concrete *vocab.Catalog, not a Reader:
 // this package imports vocab for those types, so vocab cannot name
-// Reader. That type stays. The compiled form (ADR 0021), which `--vocab`
-// recognises by its magic, becomes a second backing of *vocab.Catalog
-// inside package vocab, so Set.Catalog's type never changes; a reader
-// that is not loaded through `--vocab`, such as a connector, implements
-// Reader on its own.
+// Reader. The compiled form is a second backing of *vocab.Catalog inside
+// package vocab, so Set.Catalog's type never changed; a reader that is
+// not loaded through `--vocab`, such as a connector, implements Reader on
+// its own.
 //
 // A Reader answers in the catalog's own terms: its part types (entries of
 // its declared spine) and its vehicles (entries of its vehicle vocabulary,
@@ -65,7 +65,7 @@ type Reader interface {
 	Info() vocab.CatalogInfo
 }
 
-// The JSON Lines form.
+// Both forms, JSON Lines and compiled.
 var _ Reader = (*vocab.Catalog)(nil)
 
 // Vehicles is the seam between a request and a Reader: the catalog's own

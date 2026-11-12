@@ -762,7 +762,18 @@ func (f *File) indexCatalog(chunks []*chunk) Faults {
 		f.Retired = append(f.Retired, c.retired...)
 		c.redirects, c.retired = nil, nil
 	}
-	read := len(faults) == 0
+	faults = append(faults, f.indexLines(len(faults) == 0)...)
+	slices.SortStableFunc(faults, func(a, b Finding) int { return cmp.Compare(a.Line, b.Line) })
+	return faults
+}
+
+// indexLines indexes a catalog's Fitments, Redirects and Retired, each in
+// file order, returning the faults only the whole file shows: a repeated
+// fitment key, and a retired number that is live, repeated or, when every
+// line read, points at no fitment. Its vehicles become one Vehicle each,
+// numbered in the order of the first line naming each.
+func (f *File) indexLines(read bool) Faults {
+	var faults Faults
 	x := &catalogIndex{vehicles: map[string]int32{}}
 	f.catalog = x
 
@@ -874,7 +885,6 @@ func (f *File) indexCatalog(chunks []*chunk) Faults {
 			faults = append(faults, fault(f.Path, rt.Line, "/to: no fitment %s in the file: a retired number points at a fitment", rt.To))
 		}
 	}
-	slices.SortStableFunc(faults, func(a, b Finding) int { return cmp.Compare(a.Line, b.Line) })
 	return faults
 }
 
@@ -889,15 +899,17 @@ func (f *File) fitment(k FitmentKey) *Fitment {
 }
 
 // Catalog is a loaded catalog file (ADR 0016) as package fitment's Reader
-// reads it: by vehicle, number, redirect and page, through indexes made
-// once when the file was read. It never changes and is safe for
-// concurrent use. It is a fitment catalog, not list's catalog of what is
-// loaded (CatalogEntry).
+// reads it: by vehicle, number, redirect and page. A JSON Lines catalog
+// answers from its lines, through indexes made once when the file was
+// read; a compiled catalog (ADR 0021) from its file, read in place. Both
+// give the same answers. It never changes and is safe for concurrent use.
+// It is a fitment catalog, not list's catalog of what is loaded
+// (CatalogEntry).
 type Catalog struct{ f *File }
 
 // Catalog is f as a Catalog, nil unless f is a catalog.
 func (f *File) Catalog() *Catalog {
-	if f.Kind != KindCatalog || f.catalog == nil {
+	if f.Kind != KindCatalog || f.catalog == nil && f.compiled == nil {
 		return nil
 	}
 	return &Catalog{f}
@@ -921,6 +933,9 @@ type Candidate struct {
 // vocabulary's entry into them is a translation's work, not the
 // catalog's. Qualifiers are not checked: that takes a decode.
 func (c *Catalog) ByVehicle(partType string, vehicles []Vehicle, year *int, side *Side) []Candidate {
+	if cc := c.f.compiled; cc != nil {
+		return cc.byVehicle(c, partType, vehicles, year, side)
+	}
 	x := c.f.catalog
 	var ps []posting
 	for i := range vehicles {
@@ -964,8 +979,14 @@ func (c *Catalog) vehicleID(v *Vehicle) (int32, bool) {
 	if (v.Entry == nil) != (c.f.Vehicles == Reserved) {
 		return 0, false
 	}
+	var ids map[string]int32
+	if cc := c.f.compiled; cc != nil {
+		ids = cc.vehicleAt
+	} else {
+		ids = c.f.catalog.vehicles
+	}
 	var buf [64]byte
-	id, ok := c.f.catalog.vehicles[string(appendVehicleKey(buf[:0], v))]
+	id, ok := ids[string(appendVehicleKey(buf[:0], v))]
 	return id, ok
 }
 
@@ -974,6 +995,9 @@ func (c *Catalog) vehicleID(v *Vehicle) (int32, bool) {
 // fitment is nil when there is neither.
 func (c *Catalog) ByNumber(partType, number string, side Side) (fitment *Fitment, retired *Retired) {
 	k := FitmentKey{Type: partType, Number: number, Side: side}
+	if cc := c.f.compiled; cc != nil {
+		return cc.byNumber(k)
+	}
 	if fit := c.f.fitment(k); fit != nil {
 		return fit, nil
 	}
@@ -990,6 +1014,9 @@ func (c *Catalog) ByNumber(partType, number string, side Side) (fitment *Fitment
 // year (nil: any year), in file order, each once: each names the part
 // type the catalog lists partType under for its vehicle.
 func (c *Catalog) Redirect(partType string, vehicles []Vehicle, year *int) []*Redirect {
+	if cc := c.f.compiled; cc != nil {
+		return cc.redirect(c, partType, vehicles, year)
+	}
 	var idx []int32
 	for i := range vehicles {
 		if id, ok := c.vehicleID(&vehicles[i]); ok {
@@ -1014,6 +1041,9 @@ func (c *Catalog) Redirect(partType string, vehicles []Vehicle, year *int) []*Re
 // keys come after *after (nil: from the first), at most limit of them
 // (limit < 1: every one). The last one's key is the next page's after.
 func (c *Catalog) Fitments(partType string, after *FitmentKey, limit int) []*Fitment {
+	if cc := c.f.compiled; cc != nil {
+		return cc.page(partType, after, limit)
+	}
 	f, order := c.f, c.f.catalog.order
 	key := func(i int) FitmentKey { return f.Fitments[order[i]].Key }
 	lo, hi := 0, len(order)
@@ -1043,13 +1073,17 @@ type CatalogInfo struct {
 	// Spine is the declared spine of its part types; Vehicles the vehicle
 	// vocabulary its vehicles are entries of, or vpic.
 	Spine, Vehicles string
-	// Hash is the blake3 hash of the file's bytes.
+	// Hash is the blake3 hash of the file's bytes: of a compiled catalog,
+	// of the JSON Lines file it was compiled from.
 	Hash                                       [32]byte
 	Fitments, Applications, Redirects, Retired int
 }
 
 // Info describes the catalog.
 func (c *Catalog) Info() CatalogInfo {
+	if cc := c.f.compiled; cc != nil {
+		return cc.info
+	}
 	f := c.f
 	return CatalogInfo{
 		Name: f.Name, Version: f.Version, Release: f.Release, DataMonth: f.DataMonth,
@@ -1060,4 +1094,9 @@ func (c *Catalog) Info() CatalogInfo {
 
 // Vehicles are every vehicle the catalog's lines name, once each, in the
 // order of the first line naming each.
-func (c *Catalog) Vehicles() []*Vehicle { return c.f.catalog.vehicleList }
+func (c *Catalog) Vehicles() []*Vehicle {
+	if cc := c.f.compiled; cc != nil {
+		return cc.vehicles
+	}
+	return c.f.catalog.vehicleList
+}
