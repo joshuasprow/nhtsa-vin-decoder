@@ -349,7 +349,11 @@ stripped model, longest prefix (guarded by baseModel), baseModel,
 punctuation-insensitive, make-name prefix, slash alternatives, each named in
 its mapping's note. Every mapping holds for the years of the entry's EPA
 rows. Drive Type and Series qualifiers come from EPA's `drive` column and the
-tonnage in the name, narrowed to the values the model's VIN schemas emit.
+tonnage in the name, narrowed to the model's own model values (ADR 0015):
+a drive takes the ids that say what EPA says when the model decodes them,
+else the ones the model decodes the same drive as ("Front-Wheel Drive" is
+4x2 on a model that decodes 4x2 and no FWD), never both; Series keeps the
+spellings the model itself decodes.
 `cmd/nitrovin-epa/curated.jsonl`, built in, is the curated overrides: a
 vehicle vocabulary whose entries replace the derived ones (`origin:
 curated`), taking the EPA years and derived qualifiers where they state
@@ -366,7 +370,9 @@ go run ./cmd/nitrovin vocab check epa-vehicles.jsonl
 (`testdata/`) twice, from the CSV and from a zip, against its golden file
 (`-update` rewrites it; on another month than the one its header names, the
 build must differ in that name alone), loads it against the embedded data
-with no drift, and checks the built-in overrides for drift. Every data
+with no drift but the model-years findings it pins, checks every qualifier
+value is the mapped model's own, and checks the built-in overrides for
+drift. Every data
 month publishes the vocabulary: the monthly refresh builds it against the
 new month and its data release carries `epa-vehicles.jsonl` (below).
 

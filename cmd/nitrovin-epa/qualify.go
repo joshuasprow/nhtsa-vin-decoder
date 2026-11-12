@@ -7,69 +7,32 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/joshuasprow/nitrovin-data/pkg/artifact"
+	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
 // Elements a qualifier names (ADR 0009).
 const (
 	elementDriveType = 15 // lookup DriveType
-	elementModel     = 28
 	elementSeries    = 34 // text
 )
 
-// modelValues are, per vPIC model, the Drive Type attribute ids and Series
-// texts its VIN schemas' patterns give: the patterns of every schema with a
-// Model pattern for it. A qualifier holds only values its model's schemas
-// emit, which vary by model (2WD trucks decode 4x2, Toyota's AWD decodes
-// 4WD), so they come from here and not from one table.
-type modelValues struct {
-	drive  map[int32]map[int32]bool
-	series map[int32]map[string]bool
-}
+// modelValues are a month's per-model values (ADR 0015) for the two
+// elements a derived qualifier names. A qualifier holds only values its
+// own model decodes to, which vary by model (2WD trucks decode 4x2,
+// Toyota's AWD decodes 4WD), so they come from the model and not from one
+// table, nor from other models sharing its VIN schemas.
+type modelValues struct{ m vocab.ModelMonth }
 
-func readModelValues(a *artifact.Artifact) *modelValues {
-	p := a.Table("pattern")
-	schemas, elements, values := p.Int32s("vinschemaid"), p.Int32s("elementid"), p.Strings("attributeid")
-	schemaModels := map[int32][]int32{}
-	schemaDrive := map[int32]map[int32]bool{}
-	schemaSeries := map[int32]map[string]bool{}
-	for r, el := range elements {
-		s := schemas[r]
-		switch el {
-		case elementModel:
-			v, _ := values.At(r)
-			if id, err := strconv.Atoi(v); err == nil {
-				schemaModels[s] = append(schemaModels[s], int32(id))
-			}
-		case elementDriveType:
-			v, _ := values.At(r)
-			if id, err := strconv.Atoi(v); err == nil {
-				if schemaDrive[s] == nil {
-					schemaDrive[s] = map[int32]bool{}
-				}
-				schemaDrive[s][int32(id)] = true
-			}
-		case elementSeries:
-			if v, ok := values.At(r); ok && v != "" {
-				if schemaSeries[s] == nil {
-					schemaSeries[s] = map[string]bool{}
-				}
-				schemaSeries[s][v] = true
-			}
+// drive is the Drive Type attribute ids model decodes to.
+func (mv modelValues) drive(model int32) map[int32]bool {
+	vs, _ := mv.m.ModelValues(model, elementDriveType)
+	out := make(map[int32]bool, len(vs))
+	for _, v := range vs {
+		if id, err := strconv.Atoi(v); err == nil {
+			out[int32(id)] = true
 		}
 	}
-	mv := &modelValues{drive: map[int32]map[int32]bool{}, series: map[int32]map[string]bool{}}
-	for s, ms := range schemaModels {
-		for _, m := range ms {
-			if mv.drive[m] == nil {
-				mv.drive[m] = map[int32]bool{}
-				mv.series[m] = map[string]bool{}
-			}
-			maps.Copy(mv.drive[m], schemaDrive[s])
-			maps.Copy(mv.series[m], schemaSeries[s])
-		}
-	}
-	return mv
+	return out
 }
 
 // vPIC's Drive Type attribute ids (2026_10 lookup drivetype).
@@ -81,60 +44,74 @@ const (
 	drive4x2 = 7 // 4x2
 )
 
-// driveColumn is what each value of EPA's drive column can decode to:
-// 2WD trucks and SUVs decode 4x2, and some makers' AWD decodes 4WD.
-var driveColumn = map[string][]int32{
-	"Front-Wheel Drive":          {driveFWD, drive4x2},
-	"Rear-Wheel Drive":           {driveRWD, drive4x2},
-	"2-Wheel Drive":              {driveFWD, driveRWD, drive4x2},
-	"All-Wheel Drive":            {drive4WD, driveAWD},
-	"4-Wheel or All-Wheel Drive": {drive4WD, driveAWD},
-	"4-Wheel Drive":              {drive4WD, driveAWD},
-	"Part-time 4-Wheel Drive":    {drive4WD, driveAWD},
+// driveColumn is, for each value of EPA's drive column, the Drive Type
+// ids it can decode to, as tiers in order of preference: the ids that say
+// what EPA says first, then the ones a model decodes the same drive as
+// (2WD trucks and SUVs decode 4x2; some makers' AWD decodes 4WD). A
+// qualifier takes the first tier the model decodes any id of, and only
+// the ids of it the model decodes: "Front-Wheel Drive" is FWD on a model
+// that decodes FWD, 4x2 on one that decodes 4x2 and no FWD, and never
+// both.
+var driveColumn = map[string][][]int32{
+	"Front-Wheel Drive":          {{driveFWD}, {drive4x2}},
+	"Rear-Wheel Drive":           {{driveRWD}, {drive4x2}},
+	"2-Wheel Drive":              {{drive4x2}, {driveFWD, driveRWD}},
+	"All-Wheel Drive":            {{driveAWD}, {drive4WD}},
+	"4-Wheel or All-Wheel Drive": {{drive4WD, driveAWD}},
+	"4-Wheel Drive":              {{drive4WD}, {driveAWD}},
+	"Part-time 4-Wheel Drive":    {{drive4WD}, {driveAWD}},
 }
 
-// driveToken is the same for a drive token in the name, the fallback when
-// no row has a drive column value; the maker drive names are all 4WD or AWD.
-func driveToken(t string) []int32 {
+// driveToken is the drive column value a drive token in the name stands
+// for, the fallback when no row has one; a maker drive name stands for
+// either 4WD or AWD, whichever the model decodes.
+func driveToken(t string) string {
 	switch t {
 	case "fwd":
-		return driveColumn["Front-Wheel Drive"]
+		return "Front-Wheel Drive"
 	case "rwd":
-		return driveColumn["Rear-Wheel Drive"]
+		return "Rear-Wheel Drive"
 	case "2wd", "4x2":
-		return driveColumn["2-Wheel Drive"]
+		return "2-Wheel Drive"
+	case "awd":
+		return "All-Wheel Drive"
+	case "4wd", "4x4":
+		return "4-Wheel Drive"
 	}
-	return driveColumn["4-Wheel Drive"]
+	return "4-Wheel or All-Wheel Drive"
 }
 
 // driveQualifier is the Drive Type values an entry whose name carries a
-// drive token holds for on model: what its rows' drive column (or else
-// the token) says, narrowed to what the model's schemas emit. None when
-// the name carries no token or nothing is left.
-func (mv *modelValues) driveQualifier(e *entry, normModel string, model int32) []int32 {
+// drive token holds for on model: for each drive its rows' drive column
+// (or else the token) says, the first of driveColumn's tiers the model
+// decodes, narrowed to the ids the model decodes. None when the name
+// carries no token or the model decodes none of them.
+func (mv modelValues) driveQualifier(e *entry, normModel string, model int32) []int32 {
 	tok, ok := impliesDrive(normModel)
 	if !ok {
 		return nil
 	}
-	want := map[int32]bool{}
-	for d := range e.drives {
-		for _, v := range driveColumn[d] {
-			want[v] = true
-		}
+	drives := slices.Collect(maps.Keys(e.drives))
+	if len(drives) == 0 {
+		drives = []string{driveToken(tok)}
 	}
-	if len(want) == 0 {
-		for _, v := range driveToken(tok) {
-			want[v] = true
-		}
-	}
+	has := mv.drive(model)
 	var out []int32
-	for v := range want {
-		if mv.drive[model][v] {
-			out = append(out, v)
+	for _, d := range drives {
+		for _, tier := range driveColumn[d] {
+			n := len(out)
+			for _, v := range tier {
+				if has[v] {
+					out = append(out, v)
+				}
+			}
+			if len(out) > n {
+				break
+			}
 		}
 	}
 	slices.Sort(out)
-	return out
+	return slices.Compact(out)
 }
 
 // seriesMakes are the EPA makes whose model names carry a tonnage or GM
@@ -187,9 +164,9 @@ func seriesClass(text, c string) bool {
 }
 
 // seriesQualifier is the Series texts an entry naming a tonnage holds for
-// on model: every spelling of that tonnage the model's schemas emit. None
-// for other makes, other names, or when the model emits none.
-func (mv *modelValues) seriesQualifier(e *entry, normModel string, model int32) []string {
+// on model: every spelling of that tonnage the model itself decodes to.
+// None for other makes, other names, or when the model decodes none.
+func (mv modelValues) seriesQualifier(e *entry, normModel string, model int32) []string {
 	if !slices.Contains(seriesMakes, e.makeKey) {
 		return nil
 	}
@@ -198,7 +175,8 @@ func (mv *modelValues) seriesQualifier(e *entry, normModel string, model int32) 
 		return nil
 	}
 	var out []string
-	for v := range mv.series[model] {
+	vs, _ := mv.m.ModelValues(model, elementSeries)
+	for _, v := range vs {
 		if seriesClass(v, c) {
 			out = append(out, v)
 		}

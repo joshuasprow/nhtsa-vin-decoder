@@ -70,9 +70,11 @@ type tally struct{ entries, rows int }
 
 func (t *tally) add(e *entry) { t.entries++; t.rows += e.rows }
 
-// build writes the vocabulary of f against month m, its model values mv
-// and the curated overrides cur to w, and says what it covered.
-func build(w io.Writer, f *epaFile, m vocab.Month, mv *modelValues, cur *vocab.File) (*coverage, error) {
+// build writes the vocabulary of f against month m, whose model values
+// give the qualifiers, and the curated overrides cur to w, and says what
+// it covered.
+func build(w io.Writer, f *epaFile, m vocab.ModelMonth, cur *vocab.File) (*coverage, error) {
+	mv := modelValues{m}
 	curated := map[string]*vocab.Entry{}
 	if cur != nil {
 		if !slices.Equal(cur.Fields, []string{"make", "model"}) || cur.Subject != vocab.SubjectVehicle {
@@ -211,7 +213,7 @@ func build(w io.Writer, f *epaFile, m vocab.Month, mv *modelValues, cur *vocab.F
 
 // qualifiers are a model mapping's derived qualifiers: Drive Type when
 // the name carries a drive token, Series when it names a tonnage.
-func qualifiers(mv *modelValues, e *entry, normModel string, model int32) map[string][]any {
+func qualifiers(mv modelValues, e *entry, normModel string, model int32) map[string][]any {
 	q := map[string][]any{}
 	if vs := mv.driveQualifier(e, normModel, model); len(vs) > 0 {
 		for _, v := range vs {
@@ -233,7 +235,7 @@ func qualifiers(mv *modelValues, e *entry, normModel string, model int32) map[st
 // derived ones: origin curated; years, when the line gives none, the EPA
 // rows'; qualifiers, when the line gives none, derived as for a derived
 // mapping to the same model.
-func curatedMappings(ce *vocab.Entry, e *entry, normModel string, mv *modelValues) ([]mapping, error) {
+func curatedMappings(ce *vocab.Entry, e *entry, normModel string, mv modelValues) ([]mapping, error) {
 	out := []mapping{}
 	for _, cm := range ce.Mappings {
 		if cm.Make == 0 && cm.Model == 0 {

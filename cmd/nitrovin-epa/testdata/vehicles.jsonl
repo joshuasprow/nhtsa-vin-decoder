@@ -1,12 +1,12 @@
 {"format":1,"kind":"vocabulary","name":"epa-vehicles","version":"2026-06-09+2026_10","data_month":"2026_10","subject":"vehicle","fields":["make","model"]}
 {"entry":{"make":"Acura","model":"2.2CL/3.0CL"},"mappings":[{"model":5145,"first":1997,"last":1997,"origin":"derived","note":"rule: baseModel"}]}
 {"entry":{"make":"Acura","model":"2.3CL/3.0CL"},"mappings":[{"model":5145,"first":1998,"last":1998,"origin":"derived","note":"rule: baseModel"}]}
-{"entry":{"make":"Acura","model":"ADX AWD"},"mappings":[{"model":35664,"first":2025,"last":2026,"qualifiers":{"15":[2,3]},"origin":"derived","note":"rule: stripped model"}]}
+{"entry":{"make":"Acura","model":"ADX AWD"},"mappings":[{"model":35664,"first":2025,"last":2026,"qualifiers":{"15":[3]},"origin":"derived","note":"rule: stripped model"}]}
 {"entry":{"make":"Acura","model":"ADX FWD"},"mappings":[{"model":35664,"first":2025,"last":2026,"qualifiers":{"15":[7]},"origin":"derived","note":"rule: stripped model"}]}
 {"entry":{"make":"Acura","model":"ILX"},"mappings":[{"model":2150,"first":2013,"last":2014,"origin":"derived","note":"rule: exact"}]}
 {"entry":{"make":"Acura","model":"Integra"},"mappings":[{"model":5063,"first":1994,"last":1994,"origin":"derived","note":"rule: exact"}]}
 {"entry":{"make":"Acura","model":"Integra A-Spec"},"mappings":[{"model":5063,"first":2023,"last":2024,"origin":"derived","note":"rule: longest prefix"}]}
-{"entry":{"make":"Acura","model":"MDX AWD A-SPEC"},"mappings":[{"model":2147,"first":2019,"last":2020,"qualifiers":{"15":[2,3]},"origin":"derived","note":"rule: longest prefix"}]}
+{"entry":{"make":"Acura","model":"MDX AWD A-SPEC"},"mappings":[{"model":2147,"first":2019,"last":2020,"qualifiers":{"15":[3]},"origin":"derived","note":"rule: longest prefix"}]}
 {"entry":{"make":"Alfa Romeo","model":"GT V6 2.5"},"mappings":[{"model":14330,"first":1984,"last":1985,"origin":"derived","note":"rule: punctuation-insensitive"}]}
 {"entry":{"make":"AM General","model":"DJ Po Vehicle 2WD"},"mappings":[{"make":606,"first":1983,"last":1984,"origin":"curated","note":"a postal Jeep DJ"}]}
 {"entry":{"make":"AM General","model":"FJ8c Post Office"},"mappings":[],"note":"a postal van vPIC has no model for"}
@@ -16,13 +16,13 @@
 {"entry":{"make":"Aston Martin","model":"Virage/Volante"},"mappings":[{"model":1697,"first":1993,"last":1993,"origin":"derived","note":"rule: slash alternatives"}]}
 {"entry":{"make":"Audi","model":"80/90"},"mappings":[{"model":14342,"first":1988,"last":1988,"origin":"derived","note":"rule: slash alternatives"},{"model":8056,"first":1988,"last":1988,"origin":"derived","note":"rule: slash alternatives"}]}
 {"entry":{"make":"Aurora Cars Ltd","model":"Aurora"},"mappings":[],"note":"vPIC has no make named \"Aurora Cars Ltd\""}
-{"entry":{"make":"Chevrolet","model":"Avalanche 1500 2WD"},"mappings":[{"model":3876,"first":2002,"last":2003,"qualifiers":{"15":[7],"34":["1/2 Ton","1/2 ton","1500","1500 (1/2 Ton)","1500 (1/2 Ton) Luxury","1500 (1/2 ton)","1500 (1/2 ton) Luxury","1500 Cargo","1500 Conversion","1500 Passenger"]},"origin":"derived","note":"rule: longest prefix"}]}
-{"entry":{"make":"Chevrolet","model":"Avalanche 1500 4WD"},"mappings":[{"model":3876,"first":2002,"last":2003,"qualifiers":{"15":[2,3],"34":["1/2 Ton","1/2 ton","1500","1500 (1/2 Ton)","1500 (1/2 Ton) Luxury","1500 (1/2 ton)","1500 (1/2 ton) Luxury","1500 Cargo","1500 Conversion","1500 Passenger"]},"origin":"derived","note":"rule: longest prefix"}]}
+{"entry":{"make":"Chevrolet","model":"Avalanche 1500 2WD"},"mappings":[{"model":3876,"first":2002,"last":2003,"qualifiers":{"15":[7],"34":["1/2 Ton","1/2 ton","1500 (1/2 Ton)","1500 (1/2 Ton) Luxury","1500 (1/2 ton)","1500 (1/2 ton) Luxury"]},"origin":"derived","note":"rule: longest prefix"}]}
+{"entry":{"make":"Chevrolet","model":"Avalanche 1500 4WD"},"mappings":[{"model":3876,"first":2002,"last":2003,"qualifiers":{"15":[2],"34":["1/2 Ton","1/2 ton","1500 (1/2 Ton)","1500 (1/2 Ton) Luxury","1500 (1/2 ton)","1500 (1/2 ton) Luxury"]},"origin":"derived","note":"rule: longest prefix"}]}
 {"entry":{"make":"Chevrolet","model":"Postal Cab Chassis 2WD"},"mappings":[],"note":"no rule matched a vPIC model under Chevrolet"}
 {"entry":{"make":"Consulier Industries Inc","model":"Consulier GTP"},"mappings":[{"model":14356,"first":1990,"last":1992,"origin":"derived","note":"rule: make-name prefix"}]}
 {"entry":{"make":"GMC","model":"Safari 2WD (passenger)"},"mappings":[{"model":8879,"first":1985,"last":2000,"qualifiers":{"15":[7]},"origin":"derived","note":"rule: stripped model"}]}
 {"entry":{"make":"GMC","model":"Sierra LTD K15 4WD"},"mappings":[{"model":24910,"first":2019,"last":2019,"qualifiers":{"15":[2],"34":["1500"]},"origin":"curated","note":"vPIC names it Sierra Limited"}]}
-{"entry":{"make":"GMC","model":"Vandura G35 2WD"},"mappings":[{"model":14479,"first":1993,"last":1994,"origin":"derived","note":"rule: longest prefix"}]}
+{"entry":{"make":"GMC","model":"Vandura G35 2WD"},"mappings":[{"model":14479,"first":1993,"last":1994,"qualifiers":{"15":[7]},"origin":"derived","note":"rule: longest prefix"}]}
 {"entry":{"make":"Jaguar","model":"XJ8 4.2 Litre"},"mappings":[],"note":"for curation: the longest vPIC model prefix and baseModel name different models"}
 {"entry":{"make":"MINI","model":"Cooper Clubman All4"},"mappings":[{"model":1765,"first":2017,"last":2018,"qualifiers":{"15":[3]},"origin":"curated"}]}
 {"entry":{"make":"Nissan","model":"ARIYA ENGAGE+/EVOLVE+ e-4ORCE 87kWh"},"mappings":[{"model":30884,"first":2024,"last":2024,"origin":"curated"},{"model":36667,"first":2025,"last":2025,"origin":"curated"}]}

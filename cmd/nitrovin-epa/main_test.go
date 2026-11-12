@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -196,7 +197,7 @@ func TestEntry(t *testing.T) {
 		make, model string
 		want        string // mappings, as model:first-last[qualifiers]origin
 	}{
-		{"Acura", "ADX AWD", "35664:2025-2026[15:2,3]derived"},
+		{"Acura", "ADX AWD", "35664:2025-2026[15:3]derived"},
 		{"Acura", "ADX FWD", "35664:2025-2026[15:7]derived"},
 		{"Audi", "80/90", "14342:1988-1988[]derived 8056:1988-1988[]derived"},
 		{"GMC", "Sierra LTD K15 4WD", "24910:2019-2019[15:2 34:1500]curated"},
@@ -211,6 +212,51 @@ func TestEntry(t *testing.T) {
 			t.Errorf("%s / %s: %s; want %s", c.make, c.model, got, c.want)
 		}
 	}
+}
+
+// TestQualifiersAreTheModels: every Drive Type and Series value the build
+// qualifies a model mapping with is one of that model's own model values
+// in the month it was built from (ADR 0015), not one another model sharing
+// its VIN schemas decodes to.
+func TestQualifiersAreTheModels(t *testing.T) {
+	d := embeddedDecoder(t)
+	out, _ := runBuild(t, "-curated", "testdata/curated.jsonl", "testdata/vehicles.csv")
+	f, err := vocab.Read("vehicles.jsonl", bytes.NewReader(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bad := qualifierMismatches(d.Month().(vocab.ModelMonth), f); len(bad) > 0 {
+		t.Errorf("%d qualifier values not the model's own: %v", len(bad), bad)
+	}
+}
+
+// qualifierMismatches are f's model mappings' Drive Type and Series
+// qualifier values that are not the mapping's model's model values in m.
+func qualifierMismatches(m vocab.ModelMonth, f *vocab.File) []string {
+	var bad []string
+	for _, e := range f.Entries {
+		for _, mp := range e.Mappings {
+			if mp.Model == 0 {
+				continue
+			}
+			for _, q := range mp.Qualifiers {
+				if q.Element != elementDriveType && q.Element != elementSeries {
+					continue
+				}
+				own, _ := m.ModelValues(mp.Model, q.Element)
+				for _, v := range q.Values {
+					s := v.Text
+					if !v.IsText {
+						s = itoa(int(v.Attribute))
+					}
+					if !slices.Contains(own, s) {
+						bad = append(bad, fmt.Sprintf("line %d model %d %d:%s", e.Line, mp.Model, q.Element, s))
+					}
+				}
+			}
+		}
+	}
+	return bad
 }
 
 // describe is an entry's mappings in TestEntry's notation.
