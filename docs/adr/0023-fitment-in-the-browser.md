@@ -24,10 +24,12 @@ format half is measured in Go on the catalog-scale fixture. The browser half is
 measured in current stable Chrome, Safari and Firefox. If either half misses, the
 work stops and a person decides whether to change the design or the budget.
 The format half is met on the catalog-scale fixture (2026-11-12,
-[#262](https://github.com/joshuasprow/nitrovin/issues/262); see Measured); with
-a share of fitments of hundreds of applications, related vehicles miss ADR
-0018's p99, as they do as JSON Lines, and that waits on a person's decision. The
-browser half waits on its own ticket.
+[#262](https://github.com/joshuasprow/nitrovin/issues/262); see Measured). One
+known miss is not the format's: with a share of fitments of hundreds of
+applications, `fit`'s related vehicles miss ADR 0018's p99 in both forms. This
+ADR stays proposed until [#267](https://github.com/joshuasprow/nitrovin/issues/267),
+which takes up that computation, and the browser half's ticket,
+[#263](https://github.com/joshuasprow/nitrovin/issues/263), land.
 
 ## Who it is for
 
@@ -187,17 +189,29 @@ core): p99, reads p99 / most, and the most bytes a request read.
 | related vehicles | 8.9 ms · 14 / 14 · 2.0 MB | 20 ms · 33 / 33 · 4.4 MB | **56 ms** · 93 / 94 · 10.6 MB | 50 ms |
 | related vehicles, no year | **56 ms** · 9 / 10 · 6.9 MB | **100 ms** · 22 / 23 · 20 MB | **208 ms** · 69 / 70 · 66 MB | 50 ms |
 | reverse | 90 µs · 1 / 1 · 15 KB | 88 µs · 1 / 1 · 15 KB | 84 µs · 1 / 1 · 15 KB | 1 ms |
-| File | 367 MB | 418 MB | **595 MB** | 500 MB |
+| File | 367 MB | 418 MB | 595 MB | 500 MB at the fixture's scale |
+| Bytes per application | about 174 | about 164 | about 146 | about 180 at the fixture |
 
 Every read budget holds. Part types, candidates and reverse do not move: they
 read the vehicle's block, which holds what answers for it of every fitment.
-Related vehicles miss ADR 0018's p99 as JSON Lines does on the same catalogs
-(18 ms and 90 ms with no year at 0.1%, 36 and 168 ms at 0.3%, 85 and 220 ms at
-1%): their answer runs to 43,000–59,000 vehicles and year ranges, and computing
-it is `fit`'s cost, not the format's. The 1% variant holds 4.1 million
-applications, twice the fixture's, and its file passes 500 MB. Format 1 on the
-same fixture: 33 reads for candidates, 5,625 for part types and 11,620 with no
-year, 3,366 and 7,650 for related vehicles, and 29 for reverse.
+
+**A known miss, in `fit`'s related computation, not the format.** Related
+vehicles miss ADR 0018's p99 as JSON Lines does on the same catalogs (18 ms and
+90 ms with no year at 0.1%, 36 and 168 ms at 0.3%, 85 and 220 ms at 1%), and the
+compiled form is the faster of the two at p99 every time. The answer runs to
+43,000–59,000 vehicles and year ranges, and building it is `fit`'s cost, not
+the format's reads (at most 94 of 100). It is taken up by
+[#267](https://github.com/joshuasprow/nitrovin/issues/267); this ADR stays
+proposed until that and #263 land.
+
+**The file budget is per application.** ADR 0021's 500 MB is set at the
+catalog scale ADR 0017 defines, the fixture's 1.9 million applications: about
+180 bytes an application, and the figure to watch as catalogs grow. The 1%
+variant's 595 MB holds 4.1 million applications, twice the fixture's, at about
+146 bytes each, so it is within that rule.
+
+Format 1 on the same fixture: 33 reads for candidates, 5,625 for part types and
+11,620 with no year, 3,366 and 7,650 for related vehicles, and 29 for reverse.
 
 What was built, where the text above leaves room:
 

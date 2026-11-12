@@ -785,7 +785,9 @@ RSS: against 15 s on one core, 1.5 GiB peak and a 500 MB file for JSON
 Lines, and 1 s, 512 MiB peak and 256 MiB retained for the compiled form.
 On the reference machine, on one core, JSON Lines measured 2.7 s, 910 MB
 peak, 324 MB retained and a 330 MB file; compiled (format 2), 4.5 ms,
-19 MB peak, 2.7 MB retained and a 342 MB file. `BenchmarkCompileCatalog`
+19 MB peak, 2.7 MB retained and a 342 MB file, about 180 bytes an
+application: the 500 MB budget is set at this scale, so bytes per
+application is the figure to watch (ADR 0021). `BenchmarkCompileCatalog`
 records how long `vocab compile` takes on it (3.7 s) and the peak RSS of a
 process compiling it (168 MB; `/usr/bin/time -l nitrovin vocab compile`
 measures the CLI at 172 MB on one core and 202 MB on 18, against ADR 0023's
@@ -806,7 +808,10 @@ with no year; and 25 µs. The compiled form measured 147 µs; 614 µs, and
 loaded catalog's heap that makes JSON Lines' no-year tail. It also asks
 every kind of the fixture's wide variants, compiled: the fixture with 0.1%,
 0.3% and 1% of fitments of 50 to 500 applications, like universal parts, and
-candidates of such a fitment's part type (ADR 0023's Measured has them). `release.yml`'s bench job runs them on its runner, and
+candidates of such a fitment's part type (ADR 0023's Measured has them).
+Related vehicles on them miss the 50 ms p99 in both forms, a known miss in
+`fit`'s related computation that
+[#267](https://github.com/joshuasprow/nitrovin/issues/267) takes up. `release.yml`'s bench job runs them on its runner, and
 `bench/vocab/notes` turns the output into the table the release notes end
 with, beside the budgets, which are stated for the reference machine (an
 Apple M5 Pro). Nothing gates on it: runner timings are too noisy, and a

@@ -198,5 +198,10 @@ Whole `fit` requests, p99, against ADR 0018's budgets: candidates 147 µs (5 ms)
 part types 614 µs and 1.9 ms with no year (10 ms), related vehicles 729 µs and
 2.8 ms with no year (50 ms), and reverse 95 µs (1 ms). Each is one to three reads
 of the file; ADR 0023's Measured has them. The file is larger because each
-vehicle's block holds a copy of its fitments; it stays inside the budget. The
-compiler streams, so it no longer loads the catalog as JSON Lines first.
+vehicle's block holds a copy of its fitments; it stays inside the budget, at
+about 180 bytes an application. The budget's 500 MB is set at ADR 0017's
+catalog scale, 1.9 million applications, so bytes per application is the
+figure to watch: a catalog of more applications may pass 500 MB at the same
+rate, as ADR 0023's wide variants do (595 MB for 4.1 million, about 146 bytes
+each). The compiler streams, so it no longer loads the catalog as JSON Lines
+first.
