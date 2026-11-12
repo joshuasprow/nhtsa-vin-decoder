@@ -156,3 +156,8 @@ budgets leave a wide margin and still catch regressions.
   candidates and to related vehicles. That ticket decides how.
 - [#239](https://github.com/joshuasprow/nitrovin/issues/239) builds the reader, and a
   request ticket builds `fit` on it.
+
+## Amendment (2026-11-12): the fit page
+
+[ADR 0023](0023-fitment-in-the-browser.md) adds `/ui/fit`, whose URLs are `/v1/fit`'s parameters, answered by the
+server and, for a catalog the browser holds, by its Service Worker.

@@ -179,3 +179,10 @@ version beside the brand (`nitrovin v0.3.4`, or what `/v1/info`'s
 `decoder_version` says, such as `(devel)`), linked to its GitHub release
 when it is a tagged release. The server and the worker draw it from the
 same template, so their pages agree.
+
+## Amendment (2026-11-12): catalogs and stock in the browser
+
+[ADR 0023](0023-fitment-in-the-browser.md) lets a visitor load a catalog (compiled in a dedicated worker the
+page starts) and stock files into the browser, and adds a fit page the worker
+answers when the browser holds the catalog. A browser refuses a catalog when its
+server has one. The rest of this ADR holds.
