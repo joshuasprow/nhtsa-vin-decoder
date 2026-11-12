@@ -186,8 +186,9 @@ contract, not in `openapi.yaml`, and may change.
   (`/from/entry/model`) included.
 - `GET /v1/vocabularies` is the catalog (`list` with no `of`), and takes no
   parameter. `GET /v1/vocabularies/{name}/entries` is `list` with `of` the
-  name (`vpic` included): `where.<field>` per field (`where.make=476`),
-  `limit`, `after`.
+  name (`vpic` included): `where.<field>` per field (`where.make=476`;
+  `where.model=1850&where.element=34` for a model's values), `limit`,
+  `after`.
 - Every parameter but `to` is given at most once, and an unknown one is
   refused, as on `GET /v1/decode/{vin}`.
 
@@ -359,7 +360,7 @@ the Go module marshals it. A trailing `\r` is dropped, and blank lines
 | Argument or flag | Request field |
 | --- | --- |
 | `[of]`, at most one | `of`; none asks for the catalog |
-| `--where field=value` | `where`, repeatable, a field once (`--where make=476` for `vpic`) |
+| `--where field=value` | `where`, repeatable, a field once (`--where make=476`, or `--where model=1850 --where element=34`, for `vpic`) |
 | `--limit N` | `limit`, 1 to 1,000 |
 | `--after <cursor>` | `after`, the previous page's `next` |
 
@@ -496,7 +497,7 @@ MCP and C surfaces carry the same object.
 | Field | Type | Default | Rule |
 | --- | --- | --- | --- |
 | `of` | string | none | `vpic` or a loaded file's name. None asks for the catalog |
-| `where` | object | none | Fields matched exactly after the fixed normalization: a vocabulary's fields; for `vpic` only `make`, a make id, which lists that make's models, and with it `year`, one model year. Spines and extension sets take none |
+| `where` | object | none | Fields matched exactly after the fixed normalization: a vocabulary's fields; for `vpic`, `make`, a make id, which lists that make's models, and with it `year`, one model year; or `model` and `element` together, a model id and a public element id, which list the model's values for the element. Spines and extension sets take none |
 | `limit` | int | 100 | 1 to 1,000 entries a page |
 | `after` | string | none | The previous page's `next` |
 
@@ -519,6 +520,34 @@ MCP and C surfaces carry the same object.
   open range including every later year, and the models with unknown
   years: a superset of what the make built that year. A spine's entries and an extension set's extensions
   are `SpineEntry` values ordered by id.
+- **Model values** ([ADR 0015](../adr/0015-model-values-for-an-element.md)).
+  `vpic` with `where.model` and `where.element` lists a model's values for
+  the element: every value a decode with a model year gives the element for
+  a VIN of the model, except a value a formula pattern computes from the
+  VIN's characters; it may list values no VIN of the model ends up with.
+  Each is a `ModelValueEntry`: `value`, the attribute id of a lookup
+  element or the exact text of a text one, and for a lookup element its
+  attribute's `name`. Text values are ordered by normalized then exact
+  value, so case variants ("3/4 Ton", "3/4 ton") are each listed;
+  attribute ids ascending. A value counts when it comes from a pattern
+  whose key could match one VIN together with one of the model's Model
+  (28) pattern keys, in the same VIN schema or one its WMI code reaches in
+  an overlapping year band; from an engine model row through such an
+  Engine Model (18) pattern; from a vehicle spec naming the model whose
+  make and vehicle type the model's WMIs carry; from a default value for a
+  vehicle type they have; or from a conversion of one of the model's
+  values of the conversion's from element (Displacement CC, CI and L).
+  Make (26) is the model's makes, Manufacturer Name (27) and Vehicle Type
+  (39) its WMIs', Model (28) the model. An unknown model id lists nothing.
+  These are `#invalid-request`: `model` or `element` alone, either beside
+  `make` or `year`, an element that is not public, and one decoded from the
+  VIN itself rather than a pattern (Model Year, 29, and the Corrections
+  elements 142, 143, 144, 156, 191, 196), refused at `/where/element`. The
+  index behind it is built per element on its first ask and kept: 0.14-0.16
+  s for Series and Drive Type together on an M5 Pro, 60-90 ms of it a join
+  every element shares, which keeps about 31 MB, and about 1.5 MB per
+  element after it. Displacement CC, CI and L, which convert one another's
+  values, take about 0.4 s and keep about 17 MB together.
 - **Paging.** The order is stable for a given set of loaded files. `next`
   is an opaque cursor, present when more entries follow; passing it as
   `after` continues after the last entry returned, so paging end to end

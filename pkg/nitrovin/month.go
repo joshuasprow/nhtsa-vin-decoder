@@ -34,6 +34,14 @@ type month struct {
 	// values holds, per element asked about, every attribute id (as text)
 	// or text value the month's rows can give it.
 	values map[int32]map[string]bool
+	// modelValues holds, per element asked about, its model values index
+	// (ModelValues), built by its first call.
+	modelValues map[modelIndexKey]func() map[int32][]string
+	// modelBase is what every element's index shares, built on first use.
+	modelBase func() *modelBase
+
+	lookupOnce sync.Once
+	lookups    map[int32][2]int // lookupTables
 }
 
 var _ vocab.BundleSource = (*month)(nil)
@@ -56,11 +64,13 @@ func newMonth(a *artifact.Artifact, elements contract.Elements) *month {
 	tables := t.Strings("table")
 	mm := a.Table("make_model")
 	m := &month{a: a, elements: elements, ids: t.Int32s("id"), names: t.Strings("name"),
-		modelIDs: mm.Int32s("modelid"), modelMake: mm.Int32s("makeid"), values: map[int32]map[string]bool{}}
+		modelIDs: mm.Int32s("modelid"), modelMake: mm.Int32s("makeid"), values: map[int32]map[string]bool{},
+		modelValues: map[modelIndexKey]func() map[int32][]string{}}
 	m.makes[0], m.makes[1] = tables.EqualRange(0, t.Rows(), "make")
 	m.models[0], m.models[1] = tables.EqualRange(0, t.Rows(), "model")
 	m.byMake = sync.OnceValue(m.modelsByMake)
 	m.years = sync.OnceValue(m.modelYears)
+	m.modelBase = sync.OnceValue(m.buildModelBase)
 	return m
 }
 

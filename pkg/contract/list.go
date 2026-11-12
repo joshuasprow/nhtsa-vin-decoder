@@ -24,7 +24,9 @@ const (
 type ListRequest struct {
 	Of string
 	// Where filters by fields, matched after the fixed normalization: a
-	// vocabulary's fields, or vPIC's "make", a make id, to list its models.
+	// vocabulary's fields; or vPIC's "make", a make id, to list its models,
+	// or "model" and "element" together, a model id and a public element
+	// id, to list the model's values for the element (ADR 0015).
 	Where map[string]string
 	// Limit is the page size, 1 to MaxListLimit; 0 means DefaultListLimit.
 	Limit int
@@ -142,8 +144,9 @@ type List struct {
 	// Of is the request's; absent for the catalog.
 	Of string `json:"of,omitempty"`
 	// Entries are CatalogEntry values for the catalog, VocabularyEntry
-	// values for a vocabulary, and SpineEntry values for vPIC, a declared
-	// spine or an extension set.
+	// values for a vocabulary, ModelValueEntry values for a vPIC model's
+	// values, and SpineEntry values for the rest of vPIC, a declared spine
+	// or an extension set.
 	Entries []ListEntry `json:"entries"`
 	// Next is the After of the next page; absent on the last.
 	Next string `json:"next,omitempty"`
@@ -154,14 +157,15 @@ type List struct {
 	DecoderVersion string        `json:"decoder_version"`
 }
 
-// ListEntry is one entry of a List: a CatalogEntry, a VocabularyEntry or a
-// SpineEntry.
+// ListEntry is one entry of a List: a CatalogEntry, a VocabularyEntry, a
+// ModelValueEntry or a SpineEntry.
 type ListEntry interface {
 	listEntry()
 }
 
 func (CatalogEntry) listEntry()    {}
 func (VocabularyEntry) listEntry() {}
+func (ModelValueEntry) listEntry() {}
 func (SpineEntry) listEntry()      {}
 
 // CatalogEntry is one thing a request can name: vPIC, or a loaded
@@ -219,4 +223,12 @@ func (v QualifierValue) MarshalJSON() ([]byte, error) {
 		return json.Marshal(v.Text)
 	}
 	return strconv.AppendInt(nil, int64(v.Attribute), 10), nil
+}
+
+// ModelValueEntry is one value a VIN of a vPIC model can decode an element
+// to (ADR 0015): for a lookup element an attribute id and its name, for a
+// text element the exact text and no name.
+type ModelValueEntry struct {
+	Value QualifierValue `json:"value"`
+	Name  string         `json:"name,omitempty"`
 }

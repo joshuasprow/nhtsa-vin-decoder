@@ -102,6 +102,22 @@ nitrovin list vpic --where make=476 --limit 3 | jq -c '.entries[]'
 {"model":14415,"name":"ARIES","under":{"make":476}}
 ```
 
+A qualifier's values come from its model's own: `list` with a model and an
+element gives every value a VIN of that model can decode the element to
+([ADR 0015](adr/0015-model-values-for-an-element.md)), not every value of
+the VIN schemas it shares with other models:
+
+```sh
+nitrovin list vpic --where model=1938 --where element=34 --limit 4 | jq -c '.entries[]'
+```
+
+```json
+{"value":"1500"}
+{"value":"2500"}
+{"value":"3500"}
+{"value":"3500W"}
+```
+
 ### Extension sets
 
 vPIC lacks vehicles from before 1981 and some marques. An extension set

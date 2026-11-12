@@ -760,6 +760,7 @@ func vocabCases(t *testing.T, svc decodeService) []apiCase {
 	}
 	makes := contract.ListRequest{Of: "vpic", Where: map[string]string{"make": "476"}, Limit: 2}
 	parts := contract.ListRequest{Of: "parts", Limit: 2}
+	series := contract.ListRequest{Of: "vpic", Where: map[string]string{"model": "1850", "element": "34"}, Limit: 2}
 	return append(cases,
 		list(opCatalog, "/v1/vocabularies", contract.ListRequest{}),
 		list(opCatalog, "/v1/vocabularies?limit=5", contract.ListRequest{Limit: 5}),
@@ -771,12 +772,17 @@ func vocabCases(t *testing.T, svc decodeService) []apiCase {
 		list(opEntries, "/v1/vocabularies/vpic/entries?where.make=476&limit=2&after="+url.QueryEscape(page(makes)),
 			contract.ListRequest{Of: "vpic", Where: map[string]string{"make": "476"}, Limit: 2, After: page(makes)}),
 		list(opEntries, "/v1/vocabularies/parts/entries?limit=2&after="+url.QueryEscape(page(parts)), contract.ListRequest{Of: "parts", Limit: 2, After: page(parts)}),
+		list(opEntries, "/v1/vocabularies/vpic/entries?where.model=1850&where.element=15", contract.ListRequest{Of: "vpic", Where: map[string]string{"model": "1850", "element": "15"}}),
+		list(opEntries, "/v1/vocabularies/vpic/entries?where.model=1850&where.element=34&limit=2&after="+url.QueryEscape(page(series)),
+			contract.ListRequest{Of: "vpic", Where: map[string]string{"model": "1850", "element": "34"}, Limit: 2, After: page(series)}),
 		list(opEntries, "/v1/vocabularies/classics/entries", contract.ListRequest{Of: "classics"}),
 		list(opEntries, "/v1/vocabularies/listing/entries", contract.ListRequest{Of: "listing"}),
 		list(opEntries, "/v1/vocabularies/nope/entries", contract.ListRequest{Of: "nope"}),
 		list(opEntries, "/v1/vocabularies/yard/entries?where.trim=SLT", contract.ListRequest{Of: "yard", Where: map[string]string{"trim": "SLT"}}),
 		list(opEntries, "/v1/vocabularies/yard/entries?after=zzz", contract.ListRequest{Of: "yard", After: "zzz"}),
 		list(opEntries, "/v1/vocabularies/parts/entries?where.id=300", contract.ListRequest{Of: "parts", Where: map[string]string{"id": "300"}}),
+		list(opEntries, "/v1/vocabularies/vpic/entries?where.model=1850", contract.ListRequest{Of: "vpic", Where: map[string]string{"model": "1850"}}),
+		list(opEntries, "/v1/vocabularies/vpic/entries?where.make=467&where.model=1850&where.element=34", contract.ListRequest{Of: "vpic", Where: map[string]string{"make": "467", "model": "1850", "element": "34"}}),
 	)
 }
 

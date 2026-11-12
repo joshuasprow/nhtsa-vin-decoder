@@ -206,10 +206,12 @@ paths:
       operationId: listEntries
       summary: Page through vPIC or one loaded file.
       description: |
-        One page of what `name` lists: vPIC's makes (`vpic`), or one make's
-        models (`vpic` with `where.make`); a vocabulary's entries with their
-        mappings; a declared spine's entries; an extension set's extensions.
-        `where.<field>` matches a field exactly after the fixed
+        One page of what `name` lists: vPIC's makes (`vpic`), one make's
+        models (`vpic` with `where.make`), or one model's values for an
+        element (`vpic` with `where.model` and `where.element` together, as
+        `ModelValueEntry` values; ADR 0015); a vocabulary's entries with
+        their mappings; a declared spine's entries; an extension set's
+        extensions. `where.<field>` matches a field exactly after the fixed
         normalization, once per field (`where.make=Dodge`). For `vpic`,
         `where.year` (only with `where.make`) keeps the models whose
         `years` include that model year, or are unknown (ADR 0022). Every parameter

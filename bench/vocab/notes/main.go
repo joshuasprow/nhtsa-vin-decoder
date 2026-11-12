@@ -123,6 +123,7 @@ var requests = []struct{ name, label, budget string }{
 	{"List/%s/next", "list, next page (cursor)", "p99 < 1 ms at 1M"},
 	{"List/%s/where", "list, where first field", "p99 < 1 ms at 1M"},
 	{"List/%s/vpic-make", "list `vpic` where make", "p99 < 1 ms at 1M"},
+	{"List/%s/vpic-model", "list `vpic` where model and element", "none set"},
 }
 
 const loadBudget = "< 100 ms up to EPA scale; < 2 s and < 1 GB peak at 1M"
@@ -155,6 +156,9 @@ func (r *results) table() string {
 
 	if m, ok := r.bench[key{"Decode", 1}]; ok {
 		fmt.Fprintf(&b, "**Decode alone** (`1HGCM82633A004352`): %s · %s. Budget: ≥ 20k VIN/s and < 1 ms.\n\n", quantiles(m), throughput(m["ns/op"]))
+	}
+	if m, ok := r.bench[key{"ModelValuesFirst", 1}]; ok {
+		fmt.Fprintf(&b, "**Model values, first ask** (Series and Drive Type on a Decoder just loaded, ADR 0015): %s. No budget; ADR 0015 measured 0.14-0.16 s.\n\n", duration(m["ns/op"]))
 	}
 
 	b.WriteString("| |")

@@ -292,6 +292,34 @@ func BenchmarkDecode(b *testing.B) {
 	})
 }
 
+// BenchmarkModelValuesFirst is the first ask of a model's values for
+// Series (34) and Drive Type (15) on a Decoder just loaded: what building
+// the two elements' indexes from the artifact costs (ADR 0015, 0.14-0.16
+// s). The load itself is not timed.
+func BenchmarkModelValuesFirst(b *testing.B) {
+	for b.Loop() {
+		b.StopTimer()
+		d, err := nitrovin.Embedded()
+		if err != nil {
+			b.Fatal(err)
+		}
+		tr, err := nitrovin.NewTranslator(d)
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.StartTimer()
+		for _, element := range []string{"34", "15"} {
+			l, err := tr.List(contract.ListRequest{Of: "vpic", Where: map[string]string{"model": "1850", "element": element}})
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(l.Entries) == 0 {
+				b.Fatalf("Silverado (1850) lists no values of element %s", element)
+			}
+		}
+	}
+}
+
 func BenchmarkLoad(b *testing.B) {
 	for _, s := range sets {
 		b.Run(s.name, func(b *testing.B) {
@@ -413,6 +441,13 @@ func BenchmarkList(b *testing.B) {
 			})
 			b.Run("vpic-make", func(b *testing.B) {
 				where := map[string]string{"make": "474"}
+				measure(b, func() error {
+					_, err := tr.List(contract.ListRequest{Of: "vpic", Where: where})
+					return err
+				})
+			})
+			b.Run("vpic-model", func(b *testing.B) {
+				where := map[string]string{"model": "1850", "element": "34"}
 				measure(b, func() error {
 					_, err := tr.List(contract.ListRequest{Of: "vpic", Where: where})
 					return err

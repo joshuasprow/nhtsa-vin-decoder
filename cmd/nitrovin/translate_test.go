@@ -218,6 +218,7 @@ func TestList(t *testing.T) {
 		{[]string{"yard", "--where", "make=  DODGE "}, contract.ListRequest{Of: "yard", Where: map[string]string{"make": "  DODGE "}}},
 		{[]string{"vpic", "--where", "make=476", "--limit", "3"}, contract.ListRequest{Of: "vpic", Where: map[string]string{"make": "476"}, Limit: 3}},
 		{[]string{"vpic"}, contract.ListRequest{Of: "vpic"}},
+		{[]string{"vpic", "--where", "model=1850", "--where", "element=15"}, contract.ListRequest{Of: "vpic", Where: map[string]string{"model": "1850", "element": "15"}}},
 		{[]string{"parts"}, contract.ListRequest{Of: "parts"}},
 		{[]string{"classics"}, contract.ListRequest{Of: "classics"}},
 	} {
@@ -240,6 +241,7 @@ func TestListRefused(t *testing.T) {
 		{[]string{"yard", "--where", "colour=red"}, "/where/colour"},
 		{[]string{"parts", "--where", "id=brake-pads"}, "/where/id"},
 		{[]string{"vpic", "--where", "make=dodge"}, "/where/make"},
+		{[]string{"vpic", "--where", "element=34"}, "/where/element"},
 		{[]string{"--limit", "5"}, "/limit"},
 		{[]string{"yard", "--after", "bogus"}, "/after"},
 	} {

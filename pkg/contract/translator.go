@@ -145,11 +145,12 @@ func (t Translator) TranslateBatch(reqs []TranslateRequest) ([]Translation, erro
 }
 
 // List answers one list request: the catalog without Of, else one page of
-// vPIC's makes or a make's models, a vocabulary's entries with their
-// mappings, a declared spine's entries or an extension set's extensions.
-// The error is a *Problem, an InvalidRequest for an Of nothing loaded has,
-// a where field the listing lacks, a limit out of range or an after it
-// never gave.
+// vPIC's makes, a make's models or a model's values for an element, a
+// vocabulary's entries with their mappings, a declared spine's entries or
+// an extension set's extensions. The error is a *Problem, an
+// InvalidRequest for an Of nothing loaded has, a where field the listing
+// lacks or a vPIC where it refuses (ADR 0015), a limit out of range or an
+// after it never gave.
 func (t Translator) List(req ListRequest) (List, error) {
 	l, err := t.Set.List(vocab.ListQuery{Of: req.Of, Where: req.Where, Limit: req.Limit, After: req.After})
 	if err != nil {
@@ -179,6 +180,14 @@ func (t Translator) List(req ListRequest) (List, error) {
 	}
 	for _, it := range l.Spine {
 		out.Entries = append(out.Entries, spineEntry(it))
+	}
+	for _, v := range l.ModelValues {
+		e := ModelValueEntry{Value: QualifierValue{IsText: !v.Lookup, Text: v.Value}, Name: v.Name}
+		if v.Lookup {
+			id, _ := strconv.ParseInt(v.Value, 10, 32) // vocab lists decimal ids only
+			e.Value = QualifierValue{Attribute: int32(id)}
+		}
+		out.Entries = append(out.Entries, e)
 	}
 	return out, nil
 }

@@ -31,6 +31,16 @@ import (
 // the dump is declined; the oracle key checks every Postgres keyword.
 var errConversionUnsupported = errors.New("decoder: conversion formula or operand outside the evaluated subset")
 
+// Convert is the conversion stage's evaluation of one vpic.conversion
+// formula on one attribute: what a decode stores for formula with '#x#'
+// replaced by value. ok is false for a NULL result. A formula Postgres
+// raises on (a division by zero, an overflow) gives "0", as the stage
+// stores. err is set for a formula or operand outside what the decoder
+// evaluates, where a decode fails rather than guess.
+func Convert(formula, value string) (result string, ok bool, err error) {
+	return convert(formula, value)
+}
+
 // convert returns what the cursor stores for formula with '#x#' replaced by
 // value: the text, NULL (ok false) for a NULL result, "0" when Postgres
 // raises.
