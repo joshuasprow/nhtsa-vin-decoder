@@ -302,6 +302,13 @@ published form; its drift is the drift measured when it was compiled, and a
 browser's compile measures every kind but those its spine bundle cannot.
 _Avoid_: binary catalog, catalog database, index (an index is one of its tables)
 
+**Browser's catalog**:
+The one compiled catalog a visitor's browser holds, compiled there from JSON
+Lines they picked, in a dedicated worker the page starts, and kept in
+IndexedDB (ADR 0023). The Service Worker answers the fit page from it; a
+browser holds none while its server has a catalog.
+_Avoid_: uploaded catalog (nothing is uploaded), local catalog
+
 **Scratch storage**:
 Where compiling a catalog sorts what memory does not hold, and assembles the
 compiled file before writing it (ADR 0023): a temporary directory for
