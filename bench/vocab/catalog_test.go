@@ -315,7 +315,7 @@ const catalogQueries = 4096
 //   - redirect: a part type, a vehicle and a year;
 //   - page: 1,000 fitments of a part type after a key, a list page.
 func BenchmarkCatalogReader(b *testing.B) {
-	vehicles := func(i int) []vocab.Vehicle { return []vocab.Vehicle{catalogOnce.vehicles[vehicleOf(i, 0)]} }
+	vehicles := func(i int) []vocab.Vehicle { return []vocab.Vehicle{catalogOnce.vehicles[catalogVehicleOf(i, 0)]} }
 	at := func(k int) int { return k * 7919 % catalogFitments } // the fitment question k is about
 	for _, form := range catalogForms(b) {
 		b.Run(form.name, func(b *testing.B) {
@@ -337,21 +337,21 @@ func BenchmarkCatalogReader(b *testing.B) {
 			}
 			b.Run("by-vehicle", func(b *testing.B) {
 				measure(b, cycle(func(i int) int {
-					return len(cat.ByVehicle(typeOf(i), vehicles(i), new(firstOf(i, 0)), nil))
+					return len(cat.ByVehicle(catalogTypeOf(i), vehicles(i), new(catalogFirstOf(i, 0)), nil))
 				}))
 			})
 			b.Run("summary", func(b *testing.B) {
 				measure(b, cycle(func(i int) int {
 					n := 0
 					for t := range catalogTypes {
-						n += len(cat.ByVehicle(fmt.Sprintf("%03d", t+1), vehicles(i), new(firstOf(i, 0)), nil))
+						n += len(cat.ByVehicle(fmt.Sprintf("%03d", t+1), vehicles(i), new(catalogFirstOf(i, 0)), nil))
 					}
 					return n
 				}))
 			})
 			b.Run("by-number", func(b *testing.B) {
 				measure(b, cycle(func(i int) int {
-					fit, _ := cat.ByNumber(typeOf(i), numberOf(i), sideAt(i))
+					fit, _ := cat.ByNumber(catalogTypeOf(i), catalogNumberOf(i), catalogSideAt(i))
 					if fit == nil {
 						return 0
 					}
@@ -363,53 +363,24 @@ func BenchmarkCatalogReader(b *testing.B) {
 				measure(b, cycle(func(i int) int {
 					r := i % catalogRedirects
 					j := r * 7 % catalogFitments
-					return len(cat.Redirect(redirectFrom(j), vehicles(j), new(firstOf(j, 0))))
+					return len(cat.Redirect(redirectFrom(j), vehicles(j), new(catalogFirstOf(j, 0))))
 				}))
 			})
 			b.Run("page", func(b *testing.B) {
 				measure(b, cycle(func(i int) int {
-					after := vocab.FitmentKey{Type: typeOf(i), Number: numberOf(i), Side: sideAt(i)}
-					return len(cat.Fitments(typeOf(i), &after, 1000)) + 1 // the last of a type has none after it
+					after := vocab.FitmentKey{Type: catalogTypeOf(i), Number: catalogNumberOf(i), Side: catalogSideAt(i)}
+					return len(cat.Fitments(catalogTypeOf(i), &after, 1000)) + 1 // the last of a type has none after it
 				}))
 			})
 		})
 	}
 }
 
-// The fixture: fitment i's part type, number and side, and its
-// application j's vehicle and years, functions of i and j so redirects,
-// retired numbers and lookups can point at them. One fitment in three is
-// one of a left and right pair: one part type, one number.
-func typeOf(i int) string { return fmt.Sprintf("%03d", i/2%catalogTypes+1) }
-
-func numberOf(i int) string {
-	if i%6 < 2 {
-		return fmt.Sprintf("N%07d", i-i%2)
-	}
-	return fmt.Sprintf("N%07d", i)
+// catalogSideAt is fitment i's side as a Reader takes it.
+func catalogSideAt(i int) vocab.Side {
+	s, _ := vocab.ParseSide(catalogSideOf(i))
+	return s
 }
-
-func sideAt(i int) vocab.Side {
-	switch i % 6 {
-	case 0:
-		return vocab.SideLeft
-	case 1:
-		return vocab.SideRight
-	}
-	return vocab.SideNone
-}
-
-// sideOf is fitment i's side as its key's JSON writes it.
-func sideOf(i int) string {
-	if s := sideAt(i); s != vocab.SideNone {
-		return `,"side":"` + s.String() + `"`
-	}
-	return ""
-}
-
-func vehicleOf(i, j int) int { return (i*31 + j*977) % catalogModels }
-func firstOf(i, j int) int   { return 1981 + (i+j*7)%40 }
-func lastOf(i, j int) int    { return firstOf(i, j) + (i+j)%6 }
 
 // redirectFrom is the part type a redirect about fitment i redirects from.
 func redirectFrom(i int) string { return fmt.Sprintf("%03d", (i+101)%catalogTypes+1) }

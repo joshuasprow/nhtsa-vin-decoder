@@ -211,29 +211,43 @@ func (r *results) table() string {
 	return b.String()
 }
 
-// fitRequests are BenchmarkFit's request kinds, with ADR 0018's budget.
+// fitRequests are BenchmarkFit's request kinds, with ADR 0018's budget;
+// each runs on every one of catalogForms.
 var fitRequests = []struct{ name, label, budget string }{
-	{"Fit/candidates", "candidates (vehicle, year, part type)", "p99 ≤ 5 ms"},
-	{"Fit/part-types", "part types (vehicle, year)", "p99 ≤ 10 ms"},
-	{"Fit/related", "related vehicles", "p99 ≤ 50 ms"},
-	{"Fit/part-types-any-year", "part types, no year", "p99 ≤ 10 ms"},
-	{"Fit/related-any-year", "related vehicles, no year", "p99 ≤ 50 ms"},
-	{"Fit/reverse", "reverse (one fitment key)", "p99 ≤ 1 ms per key"},
+	{"candidates", "candidates (vehicle, year, part type)", "p99 ≤ 5 ms"},
+	{"part-types", "part types (vehicle, year)", "p99 ≤ 10 ms"},
+	{"related", "related vehicles", "p99 ≤ 50 ms"},
+	{"part-types-any-year", "part types, no year", "p99 ≤ 10 ms"},
+	{"related-any-year", "related vehicles, no year", "p99 ≤ 50 ms"},
+	{"reverse", "reverse (one fitment key)", "p99 ≤ 1 ms per key"},
 }
 
 // fit is the fit requests' table on the catalog-scale fixture (ADR 0018),
-// "" when they did not run.
+// the catalog's forms side by side, "" when they did not run.
 func (r *results) fit() string {
 	var b strings.Builder
 	for _, q := range fitRequests {
-		m, ok := r.bench[key{q.name, 1}]
-		if !ok {
+		cells, items, any := "", 0.0, false
+		for _, f := range catalogForms {
+			m, ok := r.bench[key{"Fit/" + f.name + "/" + q.name, 1}]
+			if !ok {
+				cells += " — |"
+				continue
+			}
+			any, items = true, m["items"]
+			cells += fmt.Sprintf(" %s · %s |", quantiles(m), throughput(m["ns/op"]))
+		}
+		if !any {
 			continue
 		}
 		if b.Len() == 0 {
-			b.WriteString("\n**Fit** (the catalog-scale fixture, one core).\n\n| | p50 / p99 · throughput | items | budget |\n|---|---|---|---|\n")
+			b.WriteString("\n**Fit** (the catalog-scale fixture, one core): p50 / p99 · throughput.\n\n| |")
+			for _, f := range catalogForms {
+				b.WriteString(" " + f.label + " |")
+			}
+			b.WriteString(" items | budget |\n|---|---|---|---|---|\n")
 		}
-		fmt.Fprintf(&b, "| %s | %s · %s | %.0f | %s |\n", q.label, quantiles(m), throughput(m["ns/op"]), m["items"], q.budget)
+		fmt.Fprintf(&b, "| %s |%s %.0f | %s |\n", q.label, cells, items, q.budget)
 	}
 	return b.String()
 }

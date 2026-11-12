@@ -109,7 +109,9 @@ catalog. `fitment.Reader`'s lookups, p99, against ADR 0018's request budgets: on
 part type for a vehicle and year 17 µs (5 ms), all 205 part types for one vehicle
 1.8 ms (10 ms), a number 25 µs (1 ms), a redirect 15 µs, and a 1,000-fitment page
 0.7 ms. That is 5–60× slower than the in-memory JSON Lines reader, and at least 50×
-inside every budget.
+inside every budget. Whole `fit` requests (`BenchmarkFit`), p99 on the compiled
+form: candidates 37 µs (5 ms), part types 2.6 ms and 5.8 ms with no year (10 ms),
+related vehicles 1.5 ms and 4.7 ms with no year (50 ms), and reverse 38 µs (1 ms).
 
 What was built, where the text above leaves room:
 

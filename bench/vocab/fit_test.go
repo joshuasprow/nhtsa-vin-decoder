@@ -11,7 +11,7 @@ import (
 )
 
 // BenchmarkFit times fit on the catalog-scale fixture (ADR 0017), loaded
-// once: candidates for a vehicle, a year and a part type; a vehicle's
+// once as JSON Lines and once compiled (ADR 0021): candidates for a vehicle, a year and a part type; a vehicle's
 // part-type summary and its related vehicles, in a year and with none
 // (every year's fitments, the expensive path); and reverse, one fitment
 // key to its vehicles. ADR 0018's budget, all p99 on the reference machine: at
@@ -25,12 +25,8 @@ import (
 // from the generator writeCatalog uses, so every one is answered found and
 // no one vehicle's or key's path stays cached.
 func BenchmarkFit(b *testing.B) {
-	paths := catalogPaths(b)
+	forms := catalogForms(b)
 	d, err := nitrovin.Embedded()
-	if err != nil {
-		b.Fatal(err)
-	}
-	tr, err := loadTranslator(paths)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -51,18 +47,26 @@ func BenchmarkFit(b *testing.B) {
 		key := &contract.FitmentKey{Type: catalogTypeOf(i), Number: catalogNumberOf(i), Side: catalogSideOf(i)}
 		reverse = append(reverse, contract.FitRequest{From: contract.FitFrom{Fitment: key}, Now: now})
 	}
-	for _, k := range []struct {
-		name string
-		reqs []contract.FitRequest
-	}{
-		{"candidates", candidates},
-		{"part-types", partTypes},
-		{"related", related},
-		{"part-types-any-year", partTypesAnyYear},
-		{"related-any-year", relatedAnyYear},
-		{"reverse", reverse},
-	} {
-		b.Run(k.name, func(b *testing.B) { measureFit(b, tr, k.reqs) })
+	for _, form := range forms {
+		b.Run(form.name, func(b *testing.B) {
+			tr, err := loadTranslator(form.paths)
+			if err != nil {
+				b.Fatal(err)
+			}
+			for _, k := range []struct {
+				name string
+				reqs []contract.FitRequest
+			}{
+				{"candidates", candidates},
+				{"part-types", partTypes},
+				{"related", related},
+				{"part-types-any-year", partTypesAnyYear},
+				{"related-any-year", relatedAnyYear},
+				{"reverse", reverse},
+			} {
+				b.Run(k.name, func(b *testing.B) { measureFit(b, tr, k.reqs) })
+			}
+		})
 	}
 }
 

@@ -408,6 +408,13 @@ func TestVocabCompile(t *testing.T) {
 		t.Errorf("info with the compiled catalog and no spine: exit %d, problem %+v", r.exit, p)
 	}
 
+	// fit answers from the compiled catalog as from its source.
+	fitArgs := []string{"fit", "--part", "part-types:mirror", "--now", now, "1D7RV1GT5AS123456"}
+	fromJSONL := cli(t, nil, "", append([]string{"--vocab", fitmentFixture}, fitArgs...)...)
+	fromCompiled := cli(t, nil, "", append([]string{"--vocab", spine, "--vocab", models, "--vocab", out}, fitArgs...)...)
+	if fromCompiled.exit != 0 || fromJSONL.exit != 0 || fromCompiled.stdout != fromJSONL.stdout || !strings.Contains(fromCompiled.stdout, `"MR-1001"`) {
+		t.Errorf("fit with the compiled catalog: exit %d, stdout %q, stderr %q; want exit 0 and %q", fromCompiled.exit, fromCompiled.stdout, fromCompiled.stderr, fromJSONL.stdout)
+	}
 	if r := cli(t, nil, "", "vocab", "check", spine, models, out); r.exit != 0 || r.stdout != "" || r.stderr != "" {
 		t.Errorf("vocab check on the compiled catalog: exit %d, stdout %q, stderr %q; want exit 0 and nothing", r.exit, r.stdout, r.stderr)
 	}

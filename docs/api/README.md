@@ -537,8 +537,9 @@ specifies.
 - **`nitrovin vocab compile -o <file> <file|dir>…`** checks its arguments
   as `vocab check` does and, on a fault, prints the faults the same way,
   exits 1 and writes nothing. Otherwise it writes the one catalog among
-  them, compiled, to `-o` (replacing it whole), its drift on stderr as a
-  load writes it, and exits 0. The compiled file records its source's
+  them, compiled, to `-o` (replacing it whole), its drift on stderr one
+  finding a line as a load writes it, `model-qualifier` included, which a
+  load does not write, and exits 0. The compiled file records its source's
   blake3, the catalog's name, version and `release`, the spine and vehicle
   vocabulary it was linked against, the writer, and the data month and
   drift its check found. The same arguments, data month and nitrovin
