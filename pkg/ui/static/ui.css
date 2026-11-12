@@ -7,18 +7,23 @@
 body { font: 15px/1.5 system-ui, sans-serif; max-width: 62rem; margin: 1rem auto; padding: 0 1rem; color: var(--fg); background: var(--bg); }
 a { color: var(--link); }
 /* The header: the brand and the running release's version, small and
-   muted, and the vocabularies' button at the other end. */
+   muted, and the navigation at the other end: translate, fit, the
+   vocabularies' button and the API's documentation, the page shown in
+   the text's color and underlined. A narrow window wraps it below. */
 header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; margin: .5rem 0 1rem; padding-bottom: .5rem; border-bottom: 1px solid var(--line); }
 header a.brand { font-weight: 700; color: var(--fg); text-decoration: none; }
 header .version, header .version a { font-size: 13px; color: var(--muted); }
 header button { padding: .25rem 1rem; }
+nav.site ul { list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1.25rem; margin: 0; padding: 0; }
+nav.site a { display: inline-block; padding: .25rem 0; min-height: 24px; }
+nav.site a[aria-current=page] { color: var(--fg); font-weight: 600; text-decoration-thickness: 2px; text-underline-offset: 4px; }
 h1 { font-size: 1.4rem; margin: .5rem 0; }
 h2 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; }
 h3 { font-size: 1rem; margin: 1.25rem 0 .4rem; }
 h4 { font-size: .95rem; margin: 1rem 0 .3rem; }
 #ui-error:empty { display: none; }
 #ui-error { color: var(--bad); border-left: 4px solid var(--bad); padding-left: .6rem; margin: 0 0 1rem; }
-a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible, pre:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible, pre:focus-visible, .wide:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 code, pre, .mono { font-family: ui-monospace, monospace; }
 p code { overflow-wrap: anywhere; }
 .hint { color: var(--muted); font-weight: 400; }
@@ -193,3 +198,19 @@ form.filter label { flex-basis: 100%; }
   .map .node .meta { white-space: normal; overflow-wrap: anywhere; }
   .map .node .rel { position: static; width: auto; height: auto; overflow: visible; clip-path: none; white-space: normal; font-size: 13px; line-height: 18px; }
 }
+
+/* The fit page (fit.html): the answer's status in a sentence, its lists
+   as tables that scroll sideways, each candidate a box of its own with
+   its stock below, and the pages of a list. A stock row's fields are as
+   its source wrote them, and may break anywhere. */
+.status-sentence { font-size: 1.05rem; font-weight: 600; margin: .5rem 0; }
+ul.models { margin: .25rem 0; padding-left: 1.1rem; }
+.unchecked { color: var(--warn); }
+article.candidate { border: 1px solid var(--line); border-radius: 6px; padding: .25rem .9rem .75rem; margin: .75rem 0; }
+article.candidate h3 { margin-top: .75rem; }
+div.stock h3, div.stock h4 { margin-top: .75rem; }
+code.fields { overflow-wrap: anywhere; font-size: 12px; }
+table.fit .nowrap { white-space: nowrap; }
+ul.sources { margin: .25rem 0; padding-left: 1.1rem; font-size: 13px; }
+p.pages { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: baseline; }
+nav.answers ul { margin: .5rem 0; padding-left: 1.1rem; }

@@ -1,0 +1,191 @@
+{{/* The fit page (fit.go): fit is GET /ui/fit, the controls and below
+them the answer, or before one whether a catalog is loaded. The forms ask
+the page itself, as a page without JavaScript; with it, htmx fills the
+layout's main with the answer and pushes its URL, and the tabs, the
+examples and the answer's links are boosted the same way. */}}
+{{define "fit" -}}
+<h1>Fit parts</h1>
+<p>Give a vehicle to see the part types the loaded catalog fits it with, then a part type's candidates, or a fitment's number to see the vehicles it fits. This page's query is <code>/v1/fit</code>'s, so a link to it and the API call say the same thing.</p>
+{{template "fit-controls" .Controls}}
+{{with .Result}}{{template "fit-result" .}}{{else}}{{with .NoCatalog}}<p class="status-sentence" id="fit-status">{{.}}</p>{{end}}{{end}}
+{{template "page-footer" .}}
+{{- end}}
+
+{{/* fit-controls is the box at the top of the page: a tab for each thing
+to fit from, each a link to the page with its form, then the current
+tab's form, a refusal that names none of its fields above it, and
+examples to try. */}}
+{{define "fit-controls" -}}
+<section id="fit-controls" class="controls" aria-label="What to fit">
+<nav class="tabs" aria-label="Fit from" hx-boost="true" hx-target="#ui-main">
+{{range .Tabs}}<a id="fit-tab-{{.Key}}" href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a>
+{{end}}</nav>
+{{with index .Errors ""}}<p class="error" role="alert">{{.}}</p>{{end}}
+<form method="get" action="/ui/fit" hx-get="/ui/fit" hx-target="#ui-main" hx-swap="innerHTML show:window:top" hx-push-url="true" aria-labelledby="fit-tab-{{.Tab}}">
+{{if eq .Tab "vin"}}{{template "fit-field" (.Field "from.vin" "fit-vin" "VIN" "" .VIN)}}
+{{else if eq .Tab "entry"}}{{$c := .}}<div>
+<label for="fit-vocabulary">Vocabulary</label>
+<select id="fit-vocabulary" name="from.vocabulary" hx-get="/ui/fit" hx-trigger="change" hx-target="#ui-main" hx-push-url="true"{{with index .Errors "from.vocabulary"}} aria-invalid="true" aria-describedby="fit-vocabulary-error"{{end}}>
+{{range .Vocabularies}}<option value="{{.Name}}"{{if eq .Name $c.From.Name}} selected{{end}}>{{.Name}}</option>
+{{end}}</select>
+{{with index .Errors "from.vocabulary"}}<p class="error" id="fit-vocabulary-error">{{.}}</p>{{end}}
+</div>
+{{range .Fields}}{{template "fit-field" ($c.Field (print "from.entry." .Name) (print "fit-entry-" .Name) .Name "" .Value)}}
+{{end}}{{else if eq .Tab "id"}}<p class="hint">One of the two: an id from <a href="/ui/vocabularies/vpic">vPIC's makes and their models</a>{{if .ShowExt}}, or an extension{{end}}.</p>
+{{template "fit-field" (.Field "from.make" "fit-make" "vPIC make id" "" .Make)}}
+{{template "fit-field" (.Field "from.model" "fit-model" "vPIC model id" "" .Model)}}
+{{if .ShowExt}}{{template "fit-field" (.Field "from.ext" "fit-ext" "Extension" "(ext:<set>/<id>)" .Ext)}}{{end}}
+{{else}}{{template "fit-field" (.Field "from.fitment.type" "fit-fitment-type" "Part type" "(an entry of the catalog's part spine)" .FitmentType)}}
+{{template "fit-field" (.Field "from.fitment.number" "fit-fitment-number" "Number" "" .FitmentNumber)}}
+{{template "fit-side" (.SideField "from.fitment.side" "fit-fitment-side" "Its side" .FitmentSide)}}
+{{range .Stock}}<input type="hidden" name="stock" value="{{.}}">
+{{end}}{{end}}{{template "fit-field" (.Field "model_year" "fit-model-year" "Model year" .ModelYearHint .ModelYear)}}
+{{if ne .Tab "fitment"}}{{template "fit-side" (.SideField "side" "fit-side" "Side" .Side)}}{{end}}
+{{template "fit-targets" .Targets}}
+<button type="submit">Fit</button>
+</form>
+{{if .Examples}}<p class="try">Try one:</p>
+<ul class="examples" hx-boost="true" hx-target="#ui-main">
+{{range .Examples}}<li><a class="example" href="{{.Href}}">{{.Label}}</a> <span class="hint">{{.Hint}}</span></li>
+{{end}}</ul>{{end}}
+</section>
+{{- end}}
+
+{{/* fit-field is one text field of a fit form, its refusal beside it. */}}
+{{define "fit-field" -}}
+<div>
+<label for="{{.ID}}">{{.Label}}{{with .Hint}} <span class="hint">{{.}}</span>{{end}}</label>
+<input type="text" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}" autocomplete="off" spellcheck="false"{{if .Numeric}} inputmode="numeric"{{end}}{{with .Error}} aria-invalid="true" aria-describedby="{{$.ID}}-error"{{end}}>
+{{with .Error}}<p class="error" id="{{$.ID}}-error">{{.}}</p>{{end}}
+</div>
+{{- end}}
+
+{{/* fit-side is a side to choose, or none. */}}
+{{define "fit-side" -}}
+<div>
+<label for="{{.ID}}">{{.Label}}</label>
+<select id="{{.ID}}" name="{{.Name}}"{{with .Error}} aria-invalid="true" aria-describedby="{{$.ID}}-error"{{end}}>
+{{range .Options}}<option value="{{.}}"{{if eq . $.Value}} selected{{end}}>{{if .}}{{.}}{{else}}any{{end}}</option>
+{{end}}</select>
+{{with .Error}}<p class="error" id="{{$.ID}}-error">{{.}}</p>{{end}}
+</div>
+{{- end}}
+
+{{/* fit-targets are the vehicle vocabularies vehicles may be named in. */}}
+{{define "fit-targets" -}}
+{{if .List}}<fieldset>
+<legend>Name vehicles in</legend>
+{{range .List}}<label><input type="checkbox" name="to" value="{{.Name}}"{{if .Checked}} checked{{end}}> {{.Name}}</label>
+{{end}}</fieldset>{{end}}
+{{- end}}
+
+{{/* fit-result is the answer: what was asked, its status as a sentence,
+the vehicle the catalog reached, the list the inputs ask for, its pages,
+the ways to the vehicle's other answers and the JSON. data-kind is the
+answer's kind. */}}
+{{define "fit-result" -}}
+<section id="result" aria-labelledby="result-h" data-kind="{{.Kind}}" hx-boost="true" hx-target="#ui-main" hx-swap="innerHTML show:window:top">
+<h2 id="result-h">{{.Heading}}</h2>
+<p class="status-sentence" id="fit-status" data-status="{{.Status}}">{{.Sentence}}</p>
+{{with .Catalog}}<p class="hint">From the catalog {{.}}.</p>{{end}}
+{{with .Vehicle}}<p>{{.}}</p>{{end}}
+{{if .Models}}<h3>In the catalog</h3>
+<ul class="models">
+{{range .Models}}<li>{{.Name}}{{range .Via}}<br><span class="hint">{{.}}</span>{{end}}{{with .Unconfirmed}}<br><span class="unchecked">{{.}}</span>{{end}}</li>
+{{end}}</ul>{{end}}
+{{if eq .Kind "part-types"}}{{template "fit-part-types" .}}
+{{else if eq .Kind "candidates"}}{{template "fit-candidates" .}}
+{{else if eq .Kind "vehicles"}}{{template "fit-vehicles" .}}
+{{else}}{{template "fit-related" .}}{{end}}
+{{template "fit-pages" .}}
+{{if or .PartTypesHref .RelatedHref}}<nav class="answers" aria-label="This vehicle's other answers">
+<ul>
+{{with .PartTypesHref}}<li><a href="{{.}}">Every part type of this vehicle</a></li>{{end}}
+{{with .RelatedHref}}<li><a href="{{.}}">Related vehicles: those that share fitments with this one</a></li>{{end}}
+</ul>
+</nav>{{end}}
+{{template "json" .}}
+</section>
+{{- end}}
+
+{{/* fit-pages says how much of the list the page shows, and leads to the
+next page and back to the first, with the API's cursor (after). */}}
+{{define "fit-pages" -}}
+{{if or .Showing .Next .First}}<p class="pages">{{.Showing}}{{with .First}} <a href="{{.}}">First page</a>{{end}}{{with .Next}} <a href="{{.}}" rel="next">Next page</a>{{end}}</p>{{end}}
+{{- end}}
+
+{{define "fit-part-types" -}}
+{{if .PartTypes}}<div class="wide" tabindex="0" role="group" aria-label="Part types"><table class="fit">
+<caption class="visually-hidden">Part types and their counts of fitments</caption>
+<thead><tr><th scope="col">Part type</th><th scope="col">Fitments</th><th scope="col">Reached</th></tr></thead>
+<tbody>
+{{range .PartTypes}}<tr><th scope="row"><a href="{{.Href}}">{{if .Name}}{{.Name}}{{else}}{{.Type}}{{end}}</a>{{if .Name}} <span class="hint mono">{{.Type}}</span>{{end}}</th><td>{{.Count}}</td><td>{{if .Reached}}{{.Reached}}{{else}}directly{{end}}</td></tr>
+{{end}}</tbody>
+</table></div>{{end}}
+{{- end}}
+
+{{/* fit-candidates are the candidates, each its fitment, its number a
+link to its vehicles, how it was reached, its applications that matched
+and its stock; then the shelf's rows with no number for the vehicle. */}}
+{{define "fit-candidates" -}}
+{{range $i, $c := .Candidates}}<article class="candidate" aria-labelledby="candidate-{{$i}}">
+<h3 id="candidate-{{$i}}"><span class="hint">{{.Fitment.Type}}</span> <a href="{{.Fitment.Href}}">{{.Fitment.Label}}</a><span class="visually-hidden">: its vehicles</span></h3>
+{{with .Fitment.Note}}<p>{{.}}</p>{{end}}
+{{with .Reached}}<p>{{.}}</p>{{end}}
+<div class="wide" tabindex="0" role="group" aria-label="The applications of {{.Fitment.Label}} that matched"><table class="fit">
+<caption class="visually-hidden">The applications of {{.Fitment.Label}} that matched</caption>
+<thead><tr><th scope="col">Vehicle</th><th scope="col">Years</th><th scope="col">Options</th><th scope="col">Reached through (via)</th><th scope="col">Not checked (unconfirmed)</th></tr></thead>
+<tbody>
+{{range .Applications}}<tr><td>{{.Vehicle}}</td><td>{{.Years}}</td><td>{{.Options}}</td><td>{{range $i, $v := .Via}}{{if $i}}<br>{{end}}{{$v}}{{else}}the vehicle itself{{end}}</td><td>{{with .Unconfirmed}}<span class="unchecked">{{.}}</span>{{else}}everything checked{{end}}</td></tr>
+{{end}}</tbody>
+</table></div>
+{{with .Shelf}}{{template "fit-stock" .}}{{end}}
+{{with .Yard}}{{template "fit-stock" .}}{{end}}
+</article>
+{{end}}{{with .ShelfByVehicle}}{{template "fit-stock" .}}{{end}}
+{{- end}}
+
+{{/* fit-vehicles are a fitment's vehicles, each a link to its part types,
+and the fitment's stock, paged with them. */}}
+{{define "fit-vehicles" -}}
+{{with .Fitment}}<p><strong>{{.Type}} {{.Label}}</strong>{{with .Note}}: {{.}}{{end}}</p>{{end}}
+{{with .Reached}}<p>{{.}}</p>{{end}}
+{{if .Vehicles}}<div class="wide" tabindex="0" role="group" aria-label="The fitment's applications"><table class="fit">
+<caption class="visually-hidden">The fitment's applications</caption>
+<thead><tr><th scope="col">Vehicle</th><th scope="col">Years</th><th scope="col">Options</th><th scope="col">Named</th></tr></thead>
+<tbody>
+{{range .Vehicles}}<tr><td><a href="{{.Href}}">{{.Vehicle}}</a></td><td>{{.Years}}</td><td>{{.Options}}</td><td>{{.Names}}</td></tr>
+{{end}}</tbody>
+</table></div>{{end}}
+{{with .Shelf}}{{template "fit-stock" .}}{{end}}
+{{with .Yard}}{{template "fit-stock" .}}{{end}}
+{{- end}}
+
+{{/* fit-related is the related vehicles section: each vehicle, a link to
+its part types, its years, how many fitments it shares and of which part
+types, its names and its count in the yard. */}}
+{{define "fit-related" -}}
+{{if .Related}}<div class="wide" tabindex="0" role="group" aria-label="Vehicles that share fitments"><table class="fit">
+<caption class="visually-hidden">Vehicles that share fitments</caption>
+<thead><tr><th scope="col">Vehicle</th><th scope="col">Years</th><th scope="col">Shared fitments</th><th scope="col">Of part types</th><th scope="col">Named</th>{{if (index .Related 0).Yard}}<th scope="col">Yard</th>{{end}}</tr></thead>
+<tbody>
+{{range .Related}}<tr><td><a href="{{.Href}}">{{.Vehicle}}</a></td><td>{{.Years}}</td><td>{{.Shared}}</td><td>{{.PartTypes}}</td><td>{{.Names}}</td>{{with .Yard}}<td>{{.}}</td>{{end}}</tr>
+{{end}}</tbody>
+</table></div>{{end}}
+{{- end}}
+
+{{/* fit-stock is one stock list: its rows, each with its fields as its
+source wrote them, its sources, and a link to the whole list. */}}
+{{define "fit-stock" -}}
+<div class="stock">
+{{if eq .Level 3}}<h3>{{.Title}} <span class="hint">({{.Total}})</span></h3>{{else}}<h4>{{.Title}} <span class="hint">({{.Total}})</span></h4>{{end}}
+{{if .Rows}}<div class="wide" tabindex="0" role="group" aria-label="{{.Title}}"><table class="fit">
+<thead><tr><th scope="col">Id</th><th scope="col">Source</th><th scope="col">Location</th><th scope="col">Matched</th><th scope="col">Fields</th></tr></thead>
+<tbody>
+{{range .Rows}}<tr><td class="mono nowrap">{{.ID}}</td><td class="nowrap">{{.Source}}{{with .AsOf}}<br><span class="hint">as of {{.}}</span>{{end}}</td><td>{{.Location}}</td><td>{{.Matched}}</td><td><code class="fields">{{.Fields}}</code></td></tr>
+{{end}}</tbody>
+</table></div>{{else}}<p>None.</p>{{end}}
+{{with .More}}<p><a href="{{.}}">Every row of this list</a></p>{{end}}
+{{if .Sources}}<ul class="sources hint">{{range .Sources}}<li>{{.}}</li>{{end}}</ul>{{end}}
+</div>
+{{- end}}

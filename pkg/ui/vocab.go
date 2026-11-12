@@ -59,10 +59,12 @@ const workerCSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; con
 const needsBrowser = "Files you load are kept in your browser (IndexedDB) and read there by WebAssembly in a Service Worker, so they are never uploaded: " +
 	"this page needs JavaScript, and a page the Service Worker controls. This server holds none of them. Open / and its Vocabularies to load files."
 
-// pageRoutes are the routes: the page, the worker's panel and its remove,
-// and the pages that moved to the page. The entry lists are ServeHTTP's.
+// pageRoutes are the routes: the page, the fit page, the worker's panel
+// and its remove, and the pages that moved to the page. The entry lists
+// are ServeHTTP's.
 func (h *Handler) pageRoutes() {
 	h.routes[homePath] = h.home
+	h.routes[fitPath] = h.fit
 	h.routes[filesPath] = h.files
 	h.posts[removePath] = h.remove
 	for _, old := range []string{decodePath, translatePath, vocabPath, vocabulariesPath} {

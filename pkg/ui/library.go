@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -472,6 +473,12 @@ func (l *Library) translate(req contract.TranslateRequest, dec *contract.VINDeco
 // List answers as /v1/vocabularies does.
 func (l *Library) List(req contract.ListRequest) (contract.List, error) {
 	return l.translator(l.state.Load()).List(req)
+}
+
+// Fit answers as /v1/fit does. The browser holds no catalog, so every
+// fit answers no-catalog.
+func (l *Library) Fit(ctx context.Context, req contract.FitRequest) (contract.Fit, error) {
+	return contract.Fitter{Translator: l.translator(l.state.Load())}.Fit(ctx, req)
 }
 
 // ask is a GET of path on the server, which answers something of vin's

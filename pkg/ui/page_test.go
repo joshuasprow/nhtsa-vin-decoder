@@ -32,7 +32,13 @@ func TestPage(t *testing.T) {
 		`<form method="get" action="/" hx-get="/" hx-target="#ui-main" hx-swap="innerHTML show:window:top" hx-push-url="true" aria-labelledby="tab-vin">`,
 		`<a class="example" href="/?from.vin=1HGCM82633A004352"`,
 		`<h2 id="install">Install</h2>`,
-		`<header>` + "\n" + `<div class="title"><a class="brand" href="/">nitrovin</a> <small class="version">v0.1.9-0.20261110120000-0123456789ab&#43;dirty</small></div>` + "\n" + `<button type="button" class="open-vocabularies" popovertarget="vocabularies">Vocabularies</button>` + "\n" + `</header>`,
+		`<header>` + "\n" + `<div class="title"><a class="brand" href="/">nitrovin</a> <small class="version">v0.1.9-0.20261110120000-0123456789ab&#43;dirty</small></div>` + "\n" +
+			`<nav class="site" aria-label="Pages">` + "\n" + `<ul>` + "\n" +
+			`<li><a href="/" aria-current="page">Translate</a></li>` + "\n" +
+			`<li><a href="/ui/fit">Fit</a></li>` + "\n" +
+			`<li><button type="button" class="open-vocabularies" popovertarget="vocabularies">Vocabularies</button></li>` + "\n" +
+			`<li><a href="https://github.com/joshuasprow/nitrovin/blob/main/docs/api/README.md">API docs</a></li>` + "\n" +
+			`</ul>` + "\n" + `</nav>` + "\n" + `</header>`,
 		`<dialog id="vocabularies" popover aria-labelledby="browser-h">`,
 		testAssetsAttr + `/vocab.js" defer></script>`,
 	} {

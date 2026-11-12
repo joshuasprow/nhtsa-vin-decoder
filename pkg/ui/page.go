@@ -526,7 +526,7 @@ func (h *Handler) moved(r *http.Request) (view, error) {
 func (h *Handler) home(r *http.Request) (view, error) {
 	info := h.info()
 	page := &homePage{DataMonth: info.DataMonth, DecoderVersion: info.DecoderVersion, Links: h.links(info)}
-	v := view{title: homeTitle, template: "home", data: page, target: mainTarget, vocabDialog: true}
+	v := view{title: homeTitle, template: "home", data: page, target: mainTarget, vocabDialog: true, current: navTranslate}
 	raw, malformed := url.ParseQuery(r.URL.RawQuery)
 	if malformed != nil {
 		raw = url.Values{}

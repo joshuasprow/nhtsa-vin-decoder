@@ -179,8 +179,13 @@ then its elements in vPIC's groups (empty values hidden
 in the `vpic` shape until asked), its error codes in NHTSA's words, a
 suggested VIN with the differing positions marked, a link to the same VIN
 on NHTSA's decoder, and the page's URL, `curl` and
-`nitrovin decode` equivalents to copy. The header's Vocabularies button
-lists what is loaded. Everything works without
+`nitrovin decode` equivalents to copy. `/ui/fit` reads a loaded catalog
+the same way: a vehicle's part types with their counts, a part type's
+candidates (how each application was reached, and what a decode could
+not confirm), a fitment's vehicles, related vehicles and stock, every
+list paged; its URL is `GET /v1/fit`'s query. The header leads to every
+page: Translate, Fit, the Vocabularies button, which lists what is
+loaded, and the API docs. Everything works without
 JavaScript; with it, [htmx](https://htmx.org) swaps each answer into the
 page, back and forward ask the server again, and copy buttons appear.
 The pages are not part of the API: they are
