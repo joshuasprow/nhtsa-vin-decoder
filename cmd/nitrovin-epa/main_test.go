@@ -98,8 +98,25 @@ func TestBuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if drift := tr.Drift(); len(drift) > 0 {
-		t.Errorf("the build drifts from %s: %v", embedded.Month, drift)
+	// EPA's years and vPIC's model years disagree on these entries (ADR
+	// 0022). A partial overlap is a loose end year; a wholly outside one is
+	// a rule picking a model of other years: line 13's prefix rule and line
+	// 15's slash alternatives. Any other model-years finding is a rule that
+	// changed what it picks, and any other drift a build fault.
+	var years []string
+	for _, f := range tr.Drift() {
+		if f.Drift != vocab.DriftModelYears {
+			t.Errorf("the build drifts from %s: %v", embedded.Month, f)
+			continue
+		}
+		how := "partly"
+		if strings.Contains(f.Detail, " wholly ") {
+			how = "wholly"
+		}
+		years = append(years, strconv.Itoa(f.Line)+" "+how)
+	}
+	if want := []string{"13 wholly", "15 wholly", "22 partly", "32 partly"}; !slices.Equal(years, want) {
+		t.Errorf("model-years drift on lines %v; want %v", years, want)
 	}
 
 	notes := map[string]bool{}

@@ -149,6 +149,9 @@ type Reached struct {
 	Drift bool
 	// Under is the make a vPIC or extension model sits under.
 	Under *Ref
+	// Years are a vPIC model's in a list of vPIC (ADR 0022); nil when
+	// unknown, and elsewhere.
+	Years []YearRange
 	// Via are the from entry's mappings that reached this spine entry;
 	// none when a VIN or the spine entry itself is the from.
 	Via []Via

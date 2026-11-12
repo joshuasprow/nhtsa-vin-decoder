@@ -210,7 +210,9 @@ paths:
         models (`vpic` with `where.make`); a vocabulary's entries with their
         mappings; a declared spine's entries; an extension set's extensions.
         `where.<field>` matches a field exactly after the fixed
-        normalization, once per field (`where.make=Dodge`). Every parameter
+        normalization, once per field (`where.make=Dodge`). For `vpic`,
+        `where.year` (only with `where.make`) keeps the models whose
+        `years` include that model year, or are unknown (ADR 0022). Every parameter
         is given at most once, and an unknown one is refused.
       parameters:
         - name: name

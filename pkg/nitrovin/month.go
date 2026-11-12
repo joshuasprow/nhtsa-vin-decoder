@@ -27,6 +27,8 @@ type month struct {
 	modelIDs, modelMake []int32 // make_model's, sorted by model then make
 	// byMake is each make's model ids, ascending.
 	byMake func() map[int32][]int32
+	// years is each model's years (modelYears), built on first use.
+	years func() map[int32][]vocab.YearRange
 
 	mu sync.Mutex
 	// values holds, per element asked about, every attribute id (as text)
@@ -58,6 +60,7 @@ func newMonth(a *artifact.Artifact, elements contract.Elements) *month {
 	m.makes[0], m.makes[1] = tables.EqualRange(0, t.Rows(), "make")
 	m.models[0], m.models[1] = tables.EqualRange(0, t.Rows(), "model")
 	m.byMake = sync.OnceValue(m.modelsByMake)
+	m.years = sync.OnceValue(m.modelYears)
 	return m
 }
 

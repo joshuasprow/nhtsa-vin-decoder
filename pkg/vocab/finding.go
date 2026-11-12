@@ -32,6 +32,9 @@ const (
 	// DriftExtension: an extension named like a vPIC entry under the same
 	// make.
 	DriftExtension DriftKind = "extension"
+	// DriftModelYears: a mapping to a vPIC model whose model years fall
+	// partly or wholly outside the model's (ADR 0022).
+	DriftModelYears DriftKind = "model-years"
 )
 
 // Finding is one fault or drift, about one line of one file: a line of

@@ -109,7 +109,9 @@ func (s *Set) models(mk int32) []row {
 	under := &Ref{Target: Target{Make: mk}}
 	var rows []row
 	for id, name := range s.month.Models(mk) {
-		rows = append(rows, vpicRow(Ref{Target: Target{Model: id}}, id, name, under))
+		r := vpicRow(Ref{Target: Target{Model: id}}, id, name, under)
+		r.spine.Years = modelYears(s.month, id)
+		rows = append(rows, r)
 	}
 	if rows == nil {
 		return nil

@@ -814,6 +814,14 @@
                 "$ref": "#/$defs/SpineRef",
                 "description": "The make a vPIC or extension model sits under."
               },
+              "years": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/YearRange"
+                },
+                "description": "In a list of vpic, a model's model years: the year bands of every VIN schema with a Model pattern naming it, merged into ranges, ascending, gaps kept (ADR 0022). Absent when unknown: no VIN schema with a Model pattern naming it has a year band."
+              },
               "via": {
                 "type": "array",
                 "minItems": 1,
@@ -1092,6 +1100,22 @@
               }
             },
             "additionalProperties": false
+          },
+          "YearRange": {
+            "description": "A run of model years, inclusive. No last: still running.",
+            "type": "object",
+            "required": [
+              "first"
+            ],
+            "properties": {
+              "first": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
           }
         }
       },
@@ -1105,7 +1129,7 @@
     {
       "name": "list",
       "title": "List vocabularies",
-      "description": "List what this server has loaded, or page through one part of it, offline.\n\nCall it with no arguments first: the catalog names vPIC and every loaded vocabulary, spine and extension set, with each vocabulary's fields and the spine it translates through. What is loaded differs from server to server, so never guess a name.\n\n- of: \"vpic\" for vPIC's makes, or a name from the catalog for its entries.\n- where: exact field matches after normalization: a vocabulary's fields; for vpic only make, a make id, to list that make's models.\n- limit: entries a page, 1-1000 (default 100).\n- after: the previous page's next, to continue. No next means the last page.",
+      "description": "List what this server has loaded, or page through one part of it, offline.\n\nCall it with no arguments first: the catalog names vPIC and every loaded vocabulary, spine and extension set, with each vocabulary's fields and the spine it translates through. What is loaded differs from server to server, so never guess a name.\n\n- of: \"vpic\" for vPIC's makes, or a name from the catalog for its entries.\n- where: exact field matches after normalization: a vocabulary's fields; for vpic only make, a make id, to list that make's models, and with it year, one model year: the models whose years include it, or are unknown. A vpic model's years are on its entry.\n- limit: entries a page, 1-1000 (default 100).\n- after: the previous page's next, to continue. No next means the last page.",
       "inputSchema": {
         "type": "object",
         "$ref": "#/$defs/ListRequest",
@@ -1131,7 +1155,7 @@
                     "integer"
                   ]
                 },
-                "description": "Fields to match after the fixed normalization: a vocabulary's fields, or for vpic only make, a vPIC make id, to list its models."
+                "description": "Fields to match after the fixed normalization: a vocabulary's fields, or for vpic only make, a vPIC make id, to list its models, and with make year, one model year, keeping the models whose years include it or are unknown (ADR 0022)."
               },
               "limit": {
                 "type": "integer",
@@ -1375,6 +1399,14 @@
                 "$ref": "#/$defs/SpineRef",
                 "description": "The make a vPIC or extension model sits under."
               },
+              "years": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/YearRange"
+                },
+                "description": "In a list of vpic, a model's model years: the year bands of every VIN schema with a Model pattern naming it, merged into ranges, ascending, gaps kept (ADR 0022). Absent when unknown: no VIN schema with a Model pattern naming it has a year band."
+              },
               "via": {
                 "type": "array",
                 "minItems": 1,
@@ -1597,6 +1629,22 @@
               "version": {
                 "type": "string",
                 "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "YearRange": {
+            "description": "A run of model years, inclusive. No last: still running.",
+            "type": "object",
+            "required": [
+              "first"
+            ],
+            "properties": {
+              "first": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
               }
             },
             "additionalProperties": false

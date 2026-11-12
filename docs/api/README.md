@@ -406,14 +406,18 @@ entry, each as [`vocabulary.schema.json`](vocabulary.schema.json) specifies.
   Manufacturer Name and Vehicle Type its WMI tables, produce; values a
   formula pattern computes from a VIN are not known); an extension named,
   after normalization, like a vPIC make, or like a vPIC model under the same
-  make. Each finding is one line on stderr at load,
+  make; a mapping to a vPIC model whose `first`–`last` fall partly or
+  wholly outside the model's years (`model-years`, ADR 0022: the finding
+  says which and gives the model's ranges; a model with unknown years, and
+  a mapping with neither bound, is never flagged, and an absent bound is
+  the model's own). Each finding is one line on stderr at load,
   `{"file", "line", "severity": "drift", "detail"}`, and the files are
   served as written.
 - **`/v1/info`** (and `nitrovin info`, `nitrovin_info`) lists every loaded
   file in `vocabularies`, in load order: `name`, `kind`, `version`, `blake3`
   (hex, of the file's bytes), `path` (absolute) and `drift`, a count per
   kind of drift the file has (`make`, `model`, `qualifier`, `extension`,
-  in that order) with its first three findings as `{"line", "detail"}`. It
+  `model-years`, in that order) with its first three findings as `{"line", "detail"}`. It
   is `[]` when nothing is loaded, as for every `nitrovin_open` handle.
 - **`nitrovin vocab check <file|dir>…`** loads its arguments, and only
   them, beside the data (`--data` as for any command) and prints every
@@ -492,7 +496,7 @@ MCP and C surfaces carry the same object.
 | Field | Type | Default | Rule |
 | --- | --- | --- | --- |
 | `of` | string | none | `vpic` or a loaded file's name. None asks for the catalog |
-| `where` | object | none | Fields matched exactly after the fixed normalization: a vocabulary's fields; for `vpic` only `make`, a make id, which lists that make's models. Spines and extension sets take none |
+| `where` | object | none | Fields matched exactly after the fixed normalization: a vocabulary's fields; for `vpic` only `make`, a make id, which lists that make's models, and with it `year`, one model year. Spines and extension sets take none |
 | `limit` | int | 100 | 1 to 1,000 entries a page |
 | `after` | string | none | The previous page's `next` |
 
@@ -504,8 +508,16 @@ MCP and C surfaces carry the same object.
 - **Entries.** A vocabulary's are `VocabularyEntry` values, its entries
   with their mappings as the file has them, ordered by normalized fields.
   vPIC's makes, or one make's models, are `SpineEntry` values ordered by
-  normalized name, then id; vPIC records no year span per model, so there
-  is no year filter. A spine's entries and an extension set's extensions
+  normalized name, then id. A model's entry carries `years`, the model
+  years its VIN schemas cover (ADR 0022): the union of the year bands of
+  every VIN schema with a Model pattern naming it, across all its WMIs,
+  merged into ranges, `[{"first": 1999, "last": 2006}, {"first": 2009}]`.
+  Gaps are kept, a range with no `last` is still running, and when no VIN
+  schema with a Model pattern naming a model has a year band, the model has
+  no `years`: unknown, not empty. `where.year` (only
+  with `where.make`) keeps the models whose ranges include the year, an
+  open range including every later year, and the models with unknown
+  years: a superset of what the make built that year. A spine's entries and an extension set's extensions
   are `SpineEntry` values ordered by id.
 - **Paging.** The order is stable for a given set of loaded files. `next`
   is an opaque cursor, present when more entries follow; passing it as

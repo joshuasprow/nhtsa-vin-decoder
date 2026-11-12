@@ -535,12 +535,22 @@ type SpineEntry struct {
 	Drift bool `json:"drift,omitempty"`
 	// Under is the make a vPIC or extension model sits under.
 	Under *SpineRef `json:"under,omitempty"`
+	// Years are a vPIC model's model years in a list of vPIC, ascending,
+	// gaps kept (ADR 0022); absent when unknown, and in a translation.
+	Years []YearRange `json:"years,omitempty"`
 	// Via are the from entry's mappings that reached it, in a
 	// translation from a vocabulary entry.
 	Via []Via `json:"via,omitempty"`
 	// Unconfirmed is what no Via could check; absent when one checked
 	// everything.
 	Unconfirmed Unconfirmed `json:"unconfirmed,omitzero"`
+}
+
+// YearRange is a run of model years, inclusive; Last absent is open:
+// still running.
+type YearRange struct {
+	First int32       `json:"first"`
+	Last  Null[int32] `json:"last,omitzero"`
 }
 
 // Via is one mapping that held on a route: the spine entry it names, its
