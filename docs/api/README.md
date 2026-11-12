@@ -546,7 +546,8 @@ MCP and C surfaces carry the same object.
   index behind it is built per element on its first ask and kept: 0.14-0.16
   s for Series and Drive Type together on an M5 Pro, 60-90 ms of it a join
   every element shares, which keeps about 31 MB, and about 1.5 MB per
-  element after it.
+  element after it. Displacement CC, CI and L, which convert one another's
+  values, take about 0.4 s and keep about 17 MB together.
 - **Paging.** The order is stable for a given set of loaded files. `next`
   is an opaque cursor, present when more entries follow; passing it as
   `after` continues after the last entry returned, so paging end to end

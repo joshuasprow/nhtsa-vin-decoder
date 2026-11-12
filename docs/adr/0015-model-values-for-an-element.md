@@ -87,7 +87,8 @@ The index is built from the open artifact on the first request for an element, t
   and keep about 3 MB for the two elements; specs and defaults take about 5 ms.
 - Displacement CC, CI and L together take about 0.4 s and keep about 17 MB more: each
   converts the others' values.
-- Every element at once would cost far more, which is why nothing is built until asked.
+- Every element that can be asked for (134 on 2026_10) would take about 2.1 s and keep
+  about 200 MB, which is why nothing is built until asked.
 - Opening stays under 1 ms.
 - The artifact format does not change, so no data major or decoder major is bumped
   (ADR 0007).
