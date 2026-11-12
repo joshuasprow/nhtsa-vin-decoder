@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unsafe"
 
 	"github.com/zeebo/blake3"
 )
@@ -429,16 +430,22 @@ func (c *compiled) damaged(format string, a ...any) {
 	panic(fmt.Errorf("compiled catalog %s: %s: the file is damaged", c.path, fmt.Sprintf(format, a...)))
 }
 
-// read reads n bytes of section sec from off, as one string.
+// read reads n bytes of section sec from off, as one string. The string
+// shares the bytes read, which nothing else holds or writes: one
+// allocation per read, not two, which a browser's collector sees on
+// every request (ADR 0023).
 func (c *compiled) read(sec int, off, n int64) string {
 	if off < 0 || n < 0 || off > c.sec[sec].n || n > c.sec[sec].n-off {
 		c.damaged("bytes %d to %d of section %d are out of range", off, off+n, sec)
+	}
+	if n == 0 {
+		return ""
 	}
 	b := make([]byte, n)
 	if got, err := c.r.ReadAt(b, c.sec[sec].off+off); got < len(b) {
 		c.damaged("%v", err)
 	}
-	return string(b)
+	return unsafe.String(&b[0], len(b))
 }
 
 // cursor reads records from bytes read: uvarints, varints, bytes and

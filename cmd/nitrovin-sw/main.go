@@ -31,9 +31,12 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"runtime/debug"
+	"runtime/metrics"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall/js"
 	"time"
 
@@ -50,10 +53,17 @@ func main() {
 		logger.Fatalf("reading the worker's config: %v", err)
 	}
 	w := &worker{config: c}
+	toServe()
 	js.Global().Set("nitrovin", js.ValueOf(map[string]any{
 		"serve": js.FuncOf(func(_ js.Value, a []js.Value) any {
 			method, url, hx, restore, body := a[0].String(), a[1].String(), a[2].String(), a[3].String(), a[4].String()
-			return promise(func() (any, error) { return w.serve(method, url, hx, restore, body), nil })
+			return promise(func() (any, error) {
+				serving++
+				res := w.serve(method, url, hx, restore, body)
+				serving--
+				collectBetween()
+				return res, nil
+			})
 		}),
 		"load": js.FuncOf(func(_ js.Value, a []js.Value) any {
 			files, progress := a[0], a[1]
@@ -122,6 +132,9 @@ func (w *worker) open() (*ui.Handler, error) {
 // serve answers one request through the pages.
 func (w *worker) serve(method, url, hx, restore, body string) map[string]any {
 	start := time.Now()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	reads, waited := blobReads.Load(), blobWaited.Load()
 	rec := &recorder{h: http.Header{}}
 	h, err := w.open()
 	if err != nil {
@@ -152,8 +165,12 @@ func (w *worker) serve(method, url, hx, restore, body string) map[string]any {
 		// memory it has taken from the browser, which never shrinks.
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
-		timing := w.lib.Opened() + fmt.Sprintf(", serve;dur=%.1f, heap;desc=%d, memory;desc=%d",
-			float64(time.Since(start).Microseconds())/1000, m.HeapInuse, m.Sys)
+		// And what this request cost besides: the collections it ran and
+		// their pauses, what it allocated, and the reads it awaited.
+		timing := w.lib.Opened() + fmt.Sprintf(", serve;dur=%.1f, heap;desc=%d, memory;desc=%d, gc;desc=%d, gcpause;dur=%.2f, alloc;desc=%d, reads;desc=%d, readwait;dur=%.2f",
+			float64(time.Since(start).Microseconds())/1000, m.HeapInuse, m.Sys,
+			m.NumGC-before.NumGC, float64(m.PauseTotalNs-before.PauseTotalNs)/1e6, m.TotalAlloc-before.TotalAlloc,
+			blobReads.Load()-reads, float64(blobWaited.Load()-waited)/1e6)
 		if d := w.lib.FitTook(); d > 0 {
 			timing += fmt.Sprintf(", fit;dur=%.2f", float64(d.Microseconds())/1000)
 		}
@@ -207,6 +224,8 @@ func (w *worker) compile(file js.Value, progress func(string)) (string, error) {
 	if _, err := call("clearParts"); err != nil {
 		return "", fmt.Errorf("clearing what an earlier compile left: %w", err)
 	}
+	toCompile()
+	defer toServe()
 	start := time.Now()
 	size := int64(file.Get("size").Float())
 	name := file.Get("name").String()
@@ -221,12 +240,88 @@ func (w *worker) compile(file js.Value, progress func(string)) (string, error) {
 	return msg, nil
 }
 
+// The module's collector. WebAssembly runs Go on one thread, so a
+// collection marks the whole heap (about 25 MiB of vocabularies, most of
+// it the spine and the vehicles') on the thread answering: some 7 ms
+// that landed inside one request in twenty, and made ADR 0023's p99. So
+// while serving, the collector never starts on its own: it runs between
+// requests, once one has allocated idleBytes since the last collection,
+// and the memory limit is only a backstop. Memory taken from the
+// browser never shrinks, so the limit keeps it within the budget.
+//
+// The compile runs in a worker of its own (compile.js) and allocates
+// its batches without pause: there Go's own pacing stands, under the
+// compile's limit.
+const (
+	idleBytes     = 4 << 20
+	servingLimit  = 56 << 20
+	compilesLimit = 224 << 20
+)
+
+// toServe sets the collector for answering requests.
+func toServe() {
+	debug.SetGCPercent(-1)
+	debug.SetMemoryLimit(servingLimit)
+	runtime.GC()
+	collected = heapAlloc()
+}
+
+// toCompile sets it for a compile.
+func toCompile() {
+	debug.SetGCPercent(100)
+	debug.SetMemoryLimit(compilesLimit)
+}
+
+// serving counts the requests being answered; collected is the heap
+// allocated just after the last collection between requests; collecting
+// says one is due. Go runs on one thread here, so they need no lock.
+var (
+	serving    int
+	collected  uint64
+	collecting bool
+)
+
+// collectBetween asks for a collection once the request answered, if
+// idleBytes have been allocated since the last: in a task after this
+// one, so the answer goes back first. A request that started meanwhile
+// (one awaiting a read gives the thread back) puts it off to its end.
+func collectBetween() {
+	if serving > 0 || collecting || heapAlloc() < collected+idleBytes {
+		return
+	}
+	collecting = true
+	var f js.Func
+	f = js.FuncOf(func(js.Value, []js.Value) any {
+		f.Release()
+		go func() {
+			if serving == 0 {
+				runtime.GC()
+				collected = heapAlloc()
+			}
+			collecting = false
+		}()
+		return nil
+	})
+	js.Global().Call("setTimeout", f, 0)
+}
+
+// heapAlloc is the heap's objects, live or not yet collected.
+func heapAlloc() uint64 {
+	s := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
+	metrics.Read(s)
+	return s[0].Value.Uint64()
+}
+
 // readBytes is how much of a picked catalog is read at a time, and
 // partBytes the parts IndexedDB keeps a file being written in.
 const (
 	readBytes = 4 << 20
 	partBytes = 1 << 20
 )
+
+// blobReads and blobWaited count the reads of a blob and the time spent
+// awaiting them, for Server-Timing.
+var blobReads, blobWaited atomic.Int64
 
 // blob is a Blob of size bytes (a picked File, or a file IndexedDB keeps
 // in parts), read by range: each read awaits a slice().arrayBuffer(). Read
@@ -241,7 +336,10 @@ func (b *blob) ReadAt(p []byte, off int64) (int, error) {
 		return 0, io.EOF
 	}
 	n := min(int64(len(p)), b.size-off)
+	start := time.Now()
 	v, err := call("read", b.v, off, off+n)
+	blobReads.Add(1)
+	blobWaited.Add(int64(time.Since(start)))
 	if err != nil {
 		return 0, err
 	}

@@ -27,10 +27,12 @@ The format half is met on the catalog-scale fixture (2026-11-12,
 [#262](https://github.com/joshuasprow/nitrovin/issues/262); see Measured), and
 with a share of fitments of hundreds of applications too, related vehicles
 included, since [#267](https://github.com/joshuasprow/nitrovin/issues/267)
-(2026-11-12). The browser half was measured on 2026-11-12 and missed in
-Firefox, WebKit and Chromium (see The browser half). This ADR stays proposed
-until the browser half's ticket,
-[#263](https://github.com/joshuasprow/nitrovin/issues/263), lands.
+(2026-11-12). The browser half, measured again on format 3 after a
+rework of the module's collector (2026-11-12), meets every budget in
+WebKit and Chromium, and misses reverse's 1 ms p99 in Chrome (1.7 ms) and
+Firefox (2 ms); see The browser half. A person decides. This ADR stays
+proposed until then, until Safari is measured, and until the browser half's
+ticket, [#263](https://github.com/joshuasprow/nitrovin/issues/263), lands.
 
 ## Who it is for
 
@@ -71,10 +73,11 @@ The reads come from the layout:
 
 ## The decision
 
-- **Compiled format 2, clustered by vehicle.** Measured, it shipped as format
-  3: format 2 with its wide section holding only what related vehicles read of
-  each fitment ([#267](https://github.com/joshuasprow/nitrovin/issues/267)),
-  so a format 2 file, never released, is refused with "recompile".
+- **Compiled format 2, clustered by vehicle.** Measured, it became format
+  3 before any release: format 2 with its wide section holding only what
+  related vehicles read of each fitment
+  ([#267](https://github.com/joshuasprow/nitrovin/issues/267)), so a format 2
+  file is refused with "recompile".
   - A vehicle's part types and counts, its postings, and enough of each fitment to
     answer are stored together, so a request costs a few reads, not thousands.
   - Related vehicles may be a table per vehicle, computed when compiling.
@@ -316,12 +319,13 @@ What was built, where the text above leaves room:
 
 ### The browser half
 
-Measured on the catalog-scale fixture (2026-11-12,
+Measured on the catalog-scale fixture in compiled format 3 (2026-11-12,
 [#263](https://github.com/joshuasprow/nitrovin/issues/263)) on an Apple M5 Pro,
 each browser in a fresh persistent profile: the catalog picked in the
 Vocabularies dialog and compiled there, the page reloaded, then BenchmarkFit's
-64 fitments asked of the fit page through the Service Worker, each kind three
-times (192 answers a kind), and [recorded on #260](https://github.com/joshuasprow/nitrovin/issues/260).
+64 fitments asked of the fit page through the Service Worker, one request at a
+time, 16 rounds (1,024 answers a kind; every round after the first in an order
+of its own), and [recorded on #260](https://github.com/joshuasprow/nitrovin/issues/260).
 `fit` is the module's own time for the request (`Server-Timing: fit`), the
 page drawn around it apart; Firefox and WebKit give WebAssembly a clock of a
 millisecond, so their times are whole milliseconds and "≤ 1" is below it.
@@ -331,48 +335,72 @@ the server's link to the same request on `/v1`, which only the server answers.
 
 `fit` p99 by kind (p50 in brackets), against ADR 0018's budgets; **bold** misses:
 
-| Request | Chrome 157 | Firefox 160 | WebKit (for Safari) | Chromium (Playwright) | ADR 0018 |
+| Request | Chrome 157 | Firefox 160 | WebKit 26.5 (for Safari) | Chromium 151 (Playwright) | ADR 0018 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| candidates | 1.3 ms (0.8) | 2 ms (1) | 4 ms (1) | 1.6 ms (0.7) | 5 ms |
-| part types | 1.8 ms (1.2) | 3 ms (2) | 3 ms (1) | 2.5 ms (1.1) | 10 ms |
-| part types, no year | 3.5 ms (2.5) | **15 ms** (3) | **11 ms** (2) | **11.4 ms** (2.3) | 10 ms |
-| related vehicles | 2.7 ms (1.3) | 4 ms (2) | 3 ms (1) | 2.3 ms (1.2) | 50 ms |
-| related vehicles, no year | 7.1 ms (3.2) | 10 ms (4) | 6 ms (3) | 6.6 ms (3.0) | 50 ms |
-| reverse, one key | 0.9 ms (0.4) | **11 ms** (1) | **7 ms** (1) | **8.4 ms** (0.4) | 1 ms |
+| candidates | 2.1 ms (0.5) | 2 ms (1) | 2 ms (1) | 1.6 ms (0.5) | 5 ms |
+| part types | 2.4 ms (0.9) | 2 ms (1) | 2 ms (1) | 2.1 ms (0.9) | 10 ms |
+| part types, no year | 3.6 ms (2.0) | 4 ms (3) | 3 ms (2) | 3.2 ms (2.0) | 10 ms |
+| related vehicles | 2.0 ms (0.8) | 2 ms (1) | 1 ms (1) | 1.8 ms (0.8) | 50 ms |
+| related vehicles, no year | 3.8 ms (2.6) | 4 ms (3) | 3 ms (2) | 3.4 ms (2.6) | 50 ms |
+| reverse, one key | **1.7 ms** (0.3) | **2 ms** (0) | 1 ms (0) | 1.0 ms (0.3) | 1 ms |
 
 | | Chrome 157 | Firefox 160 | WebKit | Chromium | Budget |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Catalog open (in place) | 16 ms | 21 ms | 131 ms | 14 ms | |
-| Retained: Go heap / WebAssembly memory | 30 / 63.1 MiB | 30 / **64.6 MiB** | 30 / 63.1 MiB | 30 / **64.6 MiB** | 64 MiB |
-| Compile (330 MB source) | 15.5 s | 21.0 s | 15.7 s | 14.4 s | recorded |
-| Compile peak (WebAssembly memory) | 189 MiB | 191 MiB | 191 MiB | 191 MiB | 256 MiB |
-| Quota: kept / peak while compiling | 396 / 988 MB | 1,114 / 1,124 MB | not counted | 396 / 783 MB | |
+| Catalog open (in place) | 13 ms | 15 ms | 26 ms | 12 ms | |
+| Retained: Go heap / WebAssembly memory | 25.4 / 59.6 MiB | 25.5 / 60.1 MiB | 25.4 / 60.1 MiB | 25.4 / 60.1 MiB | 64 MiB |
+| Compile (330 MB source) | 12.9 s | 15.7 s | 13.1 s | 13.1 s | recorded |
+| Compile peak (WebAssembly memory) | 167 MiB | 177 MiB | 172 MiB | 179 MiB | 256 MiB |
+| Quota: kept / peak while compiling | 397 / 1,024 MB | 693 / 900 MB | not counted | 396 / 781 MB | |
 
-**The browser half misses, and the work stops here for a person to decide.**
-The medians are a millisecond or two, and the slow answers are single:
-the p99 of part types with no year and of reverse is one or two answers in
-192 taking 7–15 ms, in every browser but Chrome, consistent with a
-stop-the-world collection of Go's heap, which in WebAssembly has one thread.
-Retained WebAssembly memory is 63.1–64.6 MiB, at the budget's edge: the module
-holds a 30 MiB heap, and Go's collector grows its memory to about twice that.
+**Reverse misses in Chrome and Firefox, and the work stops here for a person
+to decide.** Every other budget is met in every engine, with room: the worst
+p99 is 4 ms of part types' 10, and retained memory is 60 MiB.
 
-- **Open:** the module starts in 45–65 ms; the stored catalog opens in place in
-  13–29 ms (its dictionary, one read of a few MB); the cold open of everything,
-  spine bundle and the server's files included, is under 0.4 s.
-- **Retained:** after the 1,152 answers, the Go heap in use is 30 MiB and the
-  WebAssembly memory the module took 63.1–64.6 MiB.
-- **Compile:** 14–21 s for the 330 MB source, its peak the WebAssembly memory
-  the compile worker took, 189–191 MiB, within 256 MiB.
+- **Before:** measured on format 2 with 192 answers a kind, part types with
+  no year took 11–15 ms at p99 in Firefox, WebKit and Chromium, reverse
+  7–11 ms, and retained WebAssembly memory was 63.1–64.6 MiB.
+- **That tail was Go's collector.** `Server-Timing` now carries each
+  request's collections, allocation and reads (`gc`, `alloc`, `reads`,
+  `readwait`). With Go's own pacing, one request in 17 ran a collection
+  (367 of 6,144 in Chromium), and 52 of the 62 slowest did. WebAssembly
+  gives Go one thread, so a collection marks the whole 23–30 MiB heap (most
+  of it the spine and the vehicles') on the thread answering: about 7 ms,
+  spent while the request awaited its read.
+- **What changed:** the module's collector never starts on its own while
+  serving. It runs between requests, in a task after the answer, once
+  4 MiB have been allocated since the last, and never while a request is
+  under way; a 56 MiB memory limit is the backstop. The compile keeps Go's
+  pacing under a 224 MiB limit. A compiled read allocates once, not twice
+  (the bytes read become the string). After it, no measured request ran a
+  collection (0 of 6,144 in each engine), and the heap retained fell to
+  25 MiB.
+- **What still misses: the read after a collection.** Reverse is one read
+  of a few KB. A read that starts just after a collection between requests
+  takes 1–2 ms in Chrome and Chromium, against 0.2–0.6 ms otherwise:
+  reverse's p99 is 2 ms after a collection and 0.6 ms without, in Chrome.
+  In these runs a collection comes before about a third of requests, since
+  the requests follow each other with no pause. It is the collection, not
+  the thread being busy: a 7 ms busy loop in its place left the next read
+  at 0.2–0.4 ms. It is not Go returning memory: a full scavenge
+  (`debug.FreeOSMemory`) in its place changed nothing. Firefox's 2 ms is
+  20 answers in 1,024 over a millisecond on a clock of a millisecond, with
+  or without a collection before them, so below its resolution it can't
+  be split further. WebKit has 1 answer in 1,024 over a millisecond.
+- **Open:** the module starts in 45–65 ms; the stored catalog opens in place
+  in 12–26 ms (its dictionary, one read of a few MB).
+- **Compile:** 12.9–15.7 s for the 330 MB source, its peak the WebAssembly
+  memory the compile worker took, 167–179 MiB, within 256 MiB.
 - **Quota:** the compiled file keeps 342.5 MB, about 396 MB of the site's
   storage with the rest; while it compiles, its scratch storage takes as much
   again and more, about 1 GB at the peak in Chrome. Firefox's estimate stays
-  at its peak until it compacts, and WebKit's counts no Blobs at all.
+  above it until it compacts, and WebKit's counts no Blobs at all.
 - **Safari is unmeasured.** Safari 27.2 would not start a WebDriver session
   on the reference machine (it timed out connecting, with remote automation
   allowed and `safaridriver --enable` run), so WebKit (Playwright 1.62's)
-  stands in for it. WebKit stores no Blob in IndexedDB in an ephemeral
-  profile, as Safari's private browsing is: a compile there fails in words,
-  storing nothing.
+  stands in for it, and an in-page harness waits for a person to run it in
+  Safari. WebKit stores no Blob in IndexedDB in an ephemeral profile, as
+  Safari's private browsing is: a compile there fails in words, storing
+  nothing.
 
 ### A Service Worker's lifetime
 
@@ -398,6 +426,13 @@ page starts, as decided, and a Service Worker's events stay short.
   half way leaves parts no record keeps, which the next compile drops. A
   refused quota aborts it, and the parts written go.
 - **One compile at a time:** a Web Lock; another tab's is refused in words.
+- **The collector runs between requests.** While serving, `sw.wasm` turns
+  Go's pacing off (`debug.SetGCPercent(-1)`) and collects in a task after an
+  answer, once 4 MiB have been allocated since the last collection and no
+  request is under way, under a 56 MiB memory limit (`debug.SetMemoryLimit`)
+  as the backstop. A compile restores Go's pacing under a 224 MiB limit.
+  `Server-Timing` says what each request cost: `gc`, `gcpause`, `alloc`,
+  `reads` and `readwait`, beside `fit`, `heap` and `memory`.
 - **Stale is more than unopenable.** A stored catalog whose spine or vehicle
   vocabulary as loaded is another file than the one it was compiled against
   (its blake3) is left out with the reason, though Link would accept it: the
