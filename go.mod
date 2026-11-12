@@ -15,7 +15,7 @@ require (
 	// driver. pgpassfile, pgservicefile and puddle below are its own, and
 	// it raised x/sync and x/text.
 	github.com/jackc/pgx/v5 v5.13.0
-	github.com/joshuasprow/nitrovin-data v1.202610.2
+	github.com/joshuasprow/nitrovin-data v1.202610.3
 	// The official MCP SDK serves `nitrovin mcp` (ADR 0005): it carries every
 	// protocol revision (2024-11-05 through 2026-07-28, initialize and
 	// server/discover) so nitrovin never ports MCP itself. Only cmd/nitrovin
