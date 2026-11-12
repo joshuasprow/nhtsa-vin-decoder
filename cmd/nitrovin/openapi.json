@@ -358,7 +358,7 @@
       "get": {
         "operationId": "listEntries",
         "summary": "Page through vPIC or one loaded file.",
-        "description": "One page of what `name` lists: vPIC's makes (`vpic`), or one make's\nmodels (`vpic` with `where.make`); a vocabulary's entries with their\nmappings; a declared spine's entries; an extension set's extensions.\n`where.<field>` matches a field exactly after the fixed\nnormalization, once per field (`where.make=Dodge`). For `vpic`,\n`where.year` (only with `where.make`) keeps the models whose\n`years` include that model year, or are unknown (ADR 0022). Every parameter\nis given at most once, and an unknown one is refused.\n",
+        "description": "One page of what `name` lists: vPIC's makes (`vpic`), one make's\nmodels (`vpic` with `where.make`), or one model's values for an\nelement (`vpic` with `where.model` and `where.element` together, as\n`ModelValueEntry` values; ADR 0015); a vocabulary's entries with\ntheir mappings; a declared spine's entries; an extension set's\nextensions. `where.<field>` matches a field exactly after the fixed\nnormalization, once per field (`where.make=Dodge`). For `vpic`,\n`where.year` (only with `where.make`) keeps the models whose\n`years` include that model year, or are unknown (ADR 0022). Every parameter\nis given at most once, and an unknown one is refused.\n",
         "parameters": [
           {
             "name": "name",
@@ -1957,7 +1957,7 @@
                 "integer"
               ]
             },
-            "description": "Fields to match after the fixed normalization: a vocabulary's fields, or for vpic only make, a vPIC make id, to list its models, and with make year, one model year, keeping the models whose years include it or are unknown (ADR 0022)."
+            "description": "Fields to match after the fixed normalization: a vocabulary's fields; for vpic, make, a vPIC make id, to list its models, and with make year, one model year, keeping the models whose years include it or are unknown (ADR 0022); or model and element together, a vPIC model id and a public element id, to list the model's values for the element (ADR 0015). Model or element alone, or either with make or year, is refused."
           },
           "limit": {
             "type": "integer",
@@ -2002,10 +2002,13 @@
                 },
                 {
                   "$ref": "#/components/schemas/SpineEntry"
+                },
+                {
+                  "$ref": "#/components/schemas/ModelValueEntry"
                 }
               ]
             },
-            "description": "CatalogEntry for the catalog; VocabularyEntry for a vocabulary; SpineEntry for vpic, a declared spine or an extension set."
+            "description": "CatalogEntry for the catalog; VocabularyEntry for a vocabulary; ModelValueEntry for vpic with where.model and where.element; SpineEntry for the rest of vpic, a declared spine or an extension set."
           },
           "next": {
             "type": "string",
@@ -2026,6 +2029,27 @@
           "decoder_version": {
             "type": "string",
             "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "ModelValueEntry": {
+        "type": "object",
+        "description": "One value a VIN of the vPIC model can decode the element to (ADR 0015). The list may hold a value no VIN of the model ends up with, but never leaves one out. Text values come by normalized then exact value, attribute ids ascending.",
+        "required": [
+          "value"
+        ],
+        "properties": {
+          "value": {
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The attribute id for a lookup element; the exact text for a text element."
+          },
+          "name": {
+            "type": "string",
+            "description": "The attribute's name, for a lookup element only."
           }
         },
         "additionalProperties": false

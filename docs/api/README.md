@@ -538,8 +538,8 @@ MCP and C surfaces carry the same object.
   from another element are not listed. The list is an upper bound: it may
   hold a value no VIN of the model ends up with, but leaves none out that
   a VIN with a model year decodes to. An unknown model id lists nothing.
-  `model` or `element` alone, either beside `make`, or an element that is
-  not public, is `#invalid-request`. The index behind it is built per
+  `model` or `element` alone, either beside `make` or `year`, or an element
+  that is not public, is `#invalid-request`. The index behind it is built per
   element on its first ask, about 0.2 s, and kept.
 - **Paging.** The order is stable for a given set of loaded files. `next`
   is an opaque cursor, present when more entries follow; passing it as
