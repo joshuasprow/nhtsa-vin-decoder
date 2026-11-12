@@ -623,12 +623,6 @@ func (l *Library) fitter(s *shelf) contract.Fitter {
 	return f
 }
 
-// Fit answers as /v1/fit does: no-catalog, until #263 gives the browser
-// its catalog and replaces this.
-func (l *Library) Fit(ctx context.Context, req contract.FitRequest) (contract.Fit, error) {
-	return contract.Fitter{Translator: l.translator(l.state.Load())}.Fit(ctx, req)
-}
-
 // ask is a GET of path on the server, which answers something of vin's
 // decode: its body, the server's refusal, or in words why it gave none.
 func (l *Library) ask(path, vin string) ([]byte, error) {

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -22,7 +23,7 @@ import (
 // (in a dedicated worker), which is listed with the drift kinds it could
 // not measure, survives a reload, and downloads as a compiled catalog that
 // opens. The fit page is the server's until the browser holds the catalog,
-// and the worker's after.
+// and the worker's after, drawing what the server draws on the same files.
 func TestWorkerCatalog(t *testing.T) {
 	path := chromePath()
 	if path == "" {
@@ -87,6 +88,31 @@ func TestWorkerCatalog(t *testing.T) {
 	eval[int](tb, `fetch(`+jsString(again)+`).then(r => r.status)`)
 	if slices.ContainsFunc(wire.all()[since:], func(r wireRequest) bool { return r.target == again }) {
 		t.Errorf("%s with the browser's catalog: the server answered it; want the worker", again)
+	}
+
+	// The worker's fit page is the server's on the same files, the catalog
+	// as JSON Lines there, but for the server's link to the same request on
+	// /v1, which only the server answers.
+	same := vocabServer(t, nil, filepath.Join(fitment, "part-types.jsonl"), filepath.Join(fitment, "part-codes.jsonl"),
+		filepath.Join(fitment, "catalog-models.jsonl"), catalog)
+	v1 := regexp.MustCompile(`<p class="hint"><a href="/v1/fit[^"]*"[^>]*>The same request on /v1</a></p>`)
+	for _, q := range []string{
+		"from.model=1938&model_year=2010",
+		"from.vin=1D7RV1GT5AS123456",
+		"from.vocabulary=catalog-models&from.entry.make=Dodge&from.entry.model=Ram+1500&model_year=2010&part.spine=part-types&part.id=mirror&side=left",
+		"from.vocabulary=catalog-models&from.entry.make=Chevrolet&from.entry.model=Silverado+1500&part.vocabulary=part-codes&part.entry.code=ROT&to=catalog-models",
+		"from.model=1938&related=true",
+		"from.fitment.type=brake-rotor-front&from.fitment.number=BR-1999",
+	} {
+		target := "/ui/fit?" + q + pinned
+		got := eval[[]string](tb, `fetch(`+jsString(target)+`, {headers: {"HX-Request": "true"}}).then(async r => [String(r.status), await r.text()])`)
+		want := mainOf(t, same, srv.URL, target, true)
+		if !v1.MatchString(want) {
+			t.Errorf("%s: the server's page has no link to /v1", target)
+		}
+		if got[0] != "200" || got[1] != v1.ReplaceAllString(want, "") {
+			t.Errorf("%s: the worker's fit page differs from the server's\nworker: %s %s\nserver: %s", target, got[0], got[1], want)
+		}
 	}
 
 	// The compiled file downloads, and opens.
