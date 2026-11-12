@@ -396,7 +396,7 @@ func TestTranslate(t *testing.T) {
 		{name: "vin both as from and as context", req: `{"from":"` + ram2010 + `","vin":"` + ram2015 + `"}`, ptr: "/vin"},
 		{name: "a VIN to a part vocabulary", req: `{"from":"` + ram2010 + `","to":["listing"]}`, ptr: "/to/0"},
 		{name: "a part entry to a vehicle vocabulary", req: `{"from":{"vocabulary":"listing","entry":{"category":"Fenders"}},"to":["yard"]}`, ptr: "/to/0"},
-		{name: "unknown spine", req: `{"from":{"spine":"hollander","id":"300"}}`, ptr: "/from/spine"},
+		{name: "unknown spine", req: `{"from":{"spine":"catalog","id":"300"}}`, ptr: "/from/spine"},
 		{name: "unknown extension set", req: `{"from":{"ext":"ext:snyder/42"}}`, ptr: "/from/ext"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
