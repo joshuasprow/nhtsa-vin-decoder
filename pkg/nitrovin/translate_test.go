@@ -603,7 +603,7 @@ func TestList(t *testing.T) {
 			req:  `{"of":"yard","where":{"make":"DODGE"}}`,
 			want: []string{
 				`{"entry":{"make":"Dodge","model":"Other"},"mappings":[{"make":476}],"note":"any Dodge"}`,
-				`{"entry":{"make":"Dodge","model":"Ram 1500"},"mappings":[{"model":1938,"last":2012,"qualifiers":{"34":["1500","1500 (1/2 Ton)","DS (1500)"]},"origin":"curated"},{"model":13620,"first":2013,"origin":"curated","note":"Ram is its own make from 2013"}]}`,
+				`{"entry":{"make":"Dodge","model":"Ram 1500"},"mappings":[{"model":1938,"last":2012,"qualifiers":{"34":["1500","DS (1500)"]},"origin":"curated"},{"model":13620,"first":2013,"origin":"curated","note":"Ram is its own make from 2013"}]}`,
 				`{"entry":{"make":"Dodge","model":"Ram 1500 4x4"},"mappings":[{"model":1938,"last":2012,"qualifiers":{"15":[2],"34":["1500","DS (1500)"]}},{"model":13620,"first":2013,"qualifiers":{"15":[2]}}]}`,
 			},
 		},

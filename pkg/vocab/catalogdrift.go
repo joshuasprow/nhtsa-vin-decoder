@@ -105,9 +105,18 @@ func (d *drifts) catalog(vehicles *File) {
 
 	// Each qualifier drift once, at the first application with it. A
 	// reader shares one slice among the applications that write the same
-	// qualifiers, so most are measured once.
-	type drifted struct{ at, detail string } // at: the pointer into the qualifiers
-	measured := map[*Qualifier][]drifted{}
+	// qualifiers, so most are measured once per vehicle model: an
+	// application whose vehicle is a vPIC model the month has is also
+	// tested against the model's values (ModelDrift only, ADR 0015).
+	type drifted struct {
+		kind       DriftKind
+		at, detail string // at: the pointer into the qualifiers
+	}
+	type qualifiersOf struct {
+		qs    *Qualifier
+		model int32
+	}
+	measured := map[qualifiersOf][]drifted{}
 	type qualifierUse struct {
 		use
 		drifted
@@ -117,14 +126,19 @@ func (d *drifts) catalog(vehicles *File) {
 	for i := range f.Fitments {
 		fit := &f.Fitments[i]
 		for j := range fit.Applications {
-			qs := fit.Applications[j].Qualifiers
+			a := &fit.Applications[j]
+			qs := a.Qualifiers
 			if len(qs) == 0 {
 				continue
 			}
-			ds, ok := measured[&qs[0]]
+			k := qualifiersOf{qs: &qs[0]}
+			if known[a.Vehicle.id] {
+				k.model = a.Vehicle.Model
+			}
+			ds, ok := measured[k]
 			if !ok {
-				d.qualifiers(qs, func(ptr, detail string) { ds = append(ds, drifted{ptr, detail}) })
-				measured[&qs[0]] = ds
+				d.qualifiers(qs, k.model, func(kind DriftKind, ptr, detail string) { ds = append(ds, drifted{kind, ptr, detail}) })
+				measured[k] = ds
 			}
 			for _, dr := range ds {
 				q := byDetail[dr.detail]
@@ -138,7 +152,7 @@ func (d *drifts) catalog(vehicles *File) {
 		}
 	}
 	for _, q := range uses {
-		d.add(q.line, DriftQualifier, "%s/qualifiers%s: %s%s", q.ptr(), q.at, q.detail, q.more())
+		d.add(q.line, q.kind, "%s/qualifiers%s: %s%s", q.ptr(), q.at, q.detail, q.more())
 	}
 
 	for i := range f.Redirects {
@@ -152,6 +166,9 @@ func (d *drifts) catalog(vehicles *File) {
 // addFile adds a finding about the file and the files loaded with it,
 // whatever the data month.
 func (d *drifts) addFile(line int, kind DriftKind, format string, a ...any) {
+	if !d.keeps(kind) {
+		return
+	}
 	d.out = append(d.out, Finding{File: d.f.Path, Line: line, Severity: SeverityDrift, Detail: fmt.Sprintf(format, a...), Drift: kind})
 }
 

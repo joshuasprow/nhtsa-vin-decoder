@@ -42,6 +42,9 @@ const (
 	// DriftRedirect: a catalog's redirect whose target part type has no
 	// application for its vehicle and years (ADR 0017).
 	DriftRedirect DriftKind = "redirect"
+	// DriftModelQualifier: a qualifier value, on a mapping to a vPIC
+	// model, that the month decodes but the model never does (ADR 0015).
+	DriftModelQualifier DriftKind = "model-qualifier"
 )
 
 // Finding is one fault or drift, about one line of one file: a line of

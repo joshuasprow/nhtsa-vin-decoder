@@ -423,24 +423,38 @@ specifies.
   wholly outside the model's years (`model-years`, ADR 0022: the finding
   says which and gives the model's ranges; a model with unknown years, and
   a mapping with neither bound, is never flagged, and an absent bound is
-  the model's own). A catalog adds, against the files loaded with it: a
+  the model's own); a qualifier value on a mapping to a vPIC model that the
+  month decodes but the model never does (`model-qualifier`, ADR 0015:
+  tested against the model's values as `list vpic` with `where.model` and
+  `where.element` gives them; years are not tested; mappings to a make or
+  an extension, and qualifiers on Model Year and the Corrections elements,
+  which have no model values, keep only the month-wide test; the browser,
+  whose spine bundle has no model values, reports none). A catalog adds,
+  against the files loaded with it: a
   vehicle its vehicle vocabulary lacks or lists without a mapping
   (`vehicle`), and a redirect whose `to` part type has no application for
-  its vehicle in overlapping years (`redirect`); its vPIC id, qualifier and
-  `model-years` drift is measured as a mapping's, the last on applications
+  its vehicle in overlapping years (`redirect`); its vPIC id, qualifier,
+  `model-years` and `model-qualifier` drift is measured as a mapping's, the
+  last two on applications
   whose vehicle is a vPIC model (`vehicles: "vpic"`). A catalog's drift is
   one finding per vehicle, vPIC id, qualifier value or model-year range, at
   the first line naming it, its detail ending `(and N more)` when other
   applications or redirects name it too, and one per redirect. Each
-  finding is one line on stderr at load,
+  finding but `model-qualifier` is one line on stderr at load,
   `{"file", "line", "severity": "drift", "detail"}`, and the files are
-  served as written.
+  served as written. `model-qualifier` is not measured at load: it builds
+  the model values index, about 0.14 s and 80–100 MB of peak memory for an
+  EPA-sized vocabulary, which would break load's 100 ms budget (ADR 0011)
+  on every start and C handle. `vocab check` always measures it, and
+  `/v1/info` on its first request, cached after.
 - **`/v1/info`** (and `nitrovin info`, `nitrovin_info`) lists every loaded
   file in `vocabularies`, in load order: `name`, `kind`, `version`, `blake3`
   (hex, of the file's bytes), `path` (absolute) and `drift`, a count per
   kind of drift the file has (`make`, `model`, `qualifier`, `extension`,
-  `model-years`, `vehicle`, `redirect`, in that order) with its first three
-  findings as `{"line", "detail"}`. A catalog adds its `release`, when its
+  `model-years`, `vehicle`, `redirect`, `model-qualifier`, in that order)
+  with its first three findings as `{"line", "detail"}`; the first request
+  measures `model-qualifier`, so it may take a fraction of a second longer.
+  A catalog adds its `release`, when its
   header gives one, and its counts of `fitments`, `applications`,
   `redirects` and `retired` numbers; no other kind has them. It is `[]`
   when nothing is loaded, as for every `nitrovin_open` handle.

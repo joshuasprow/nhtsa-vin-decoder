@@ -45,7 +45,7 @@ func vocabSetup(*flag.FlagSet) func(*env, []string) error {
 		} else if err != nil {
 			return err
 		} else {
-			findings = t.Drift()
+			findings = t.AllDrift()
 		}
 		for _, f := range findings {
 			if err := writeFinding(e.stdout, f); err != nil {

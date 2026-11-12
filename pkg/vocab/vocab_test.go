@@ -335,3 +335,77 @@ func TestDrift(t *testing.T) {
 		t.Errorf("drift:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+// modelMonth is month knowing model values: Ram (1938) decodes lookup
+// element 15 to attribute 2 and Series (34) to "1500"; Ram Van (1939)
+// has no values at all; Model Year (29), public here, is refused, as a
+// decode writes it from the VIN itself.
+type modelMonth struct{ month }
+
+func (modelMonth) Model(id int32) (int32, string, bool) {
+	switch id {
+	case 1938:
+		return 476, "Ram", true
+	case 1939:
+		return 476, "Ram Van", true
+	}
+	return 0, "", false
+}
+func (modelMonth) Element(id int32) (bool, bool) {
+	switch id {
+	case 15:
+		return true, true
+	case 29, 34:
+		return false, true
+	}
+	return false, false
+}
+func (modelMonth) Attribute(element, id int32) bool     { return element == 15 }
+func (modelMonth) Text(element int32, text string) bool { return true }
+func (modelMonth) ModelValues(model, element int32) ([]string, bool) {
+	switch {
+	case element == 29:
+		return nil, false
+	case model != 1938:
+		return nil, true
+	case element == 15:
+		return []string{"2"}, true
+	case element == 34:
+		return []string{"1500"}, true
+	}
+	return nil, true
+}
+func (modelMonth) AttributeName(element, id int32) (string, bool) { return "", false }
+
+// TestModelDrift: qualifiers on a model mapping are tested against the
+// model's values, lookup ones as decimal attribute ids; a model with none
+// flags every value; a refused element and a make target are not tested;
+// and Drift, what load runs, reports none of it.
+func TestModelDrift(t *testing.T) {
+	yard, err := Read("yard", strings.NewReader(strings.Join(lines(
+		vehicleHeader,
+		`{"entry":{"make":"Dodge","model":"Ram"},"mappings":[{"model":1938,"qualifiers":{"15":[2,3],"29":["2020"],"34":["1500","2500"]}}]}`,
+		`{"entry":{"make":"Dodge","model":"Ram Van"},"mappings":[{"model":1939,"qualifiers":{"34":["1500"]}},{"model":1939,"qualifiers":{"34":["1500"]}}]}`,
+		`{"entry":{"make":"Dodge","model":"Any"},"mappings":[{"make":476,"qualifiers":{"34":["2500"]}}]}`,
+	), "\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := []*File{yard}
+	if d := Drift(modelMonth{}, files); len(d) > 0 {
+		t.Errorf("Drift reports %v; want nothing, model values are ModelDrift's", d)
+	}
+	var got []string
+	for _, f := range ModelDrift(modelMonth{}, files) {
+		got = append(got, string(f.Drift)+" "+f.String())
+	}
+	want := []string{
+		`model-qualifier yard:2: /mappings/0/qualifiers/15/1: vPIC model 1938 never decodes element 15 to attribute id 3 in data month 2026_10`,
+		`model-qualifier yard:2: /mappings/0/qualifiers/34/1: vPIC model 1938 never decodes element 34 to "2500" in data month 2026_10`,
+		`model-qualifier yard:3: /mappings/0/qualifiers/34/0: vPIC model 1939 never decodes element 34 to "1500" in data month 2026_10`,
+		`model-qualifier yard:3: /mappings/1/qualifiers/34/0: vPIC model 1939 never decodes element 34 to "1500" in data month 2026_10`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("model drift:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

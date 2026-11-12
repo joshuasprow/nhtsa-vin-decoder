@@ -620,7 +620,10 @@ func TestBrowserDrift(t *testing.T) {
 	for _, f := range l.Files() {
 		byName[f.Name] = f
 	}
-	if c := byName["yard"].Drift; len(c) != 3 || c[0].Kind != "make" || c[0].Count != 1 || c[1].Kind != "model" || c[1].Count != 1 || c[2].Kind != "qualifier" || c[2].Count != 2 {
+	// The browser tests qualifiers month-wide only (its spine bundle has
+	// no model values, ADR 0015), and this test's month lacks lines 8 and
+	// 9's Series: four qualifier findings, no model-qualifier kind.
+	if c := byName["yard"].Drift; len(c) != 3 || c[0].Kind != "make" || c[0].Count != 1 || c[1].Kind != "model" || c[1].Count != 1 || c[2].Kind != "qualifier" || c[2].Count != 4 {
 		t.Errorf("yard's drift: %+v", c)
 	}
 	if c := byName["classics"].Drift; len(c) != 1 || c[0].Kind != "extension" || c[0].Examples[0].Line != 2 {
@@ -631,7 +634,7 @@ func TestBrowserDrift(t *testing.T) {
 	h := NewInBrowser(open(t, s, d), BrowserConfig{}, log.New(io.Discard, "", 0))
 	_, _, body := response(t, h, "GET", "/ui/files", htmx)
 	for _, want := range []string{
-		"<details><summary>Drift: 1 make, 1 model, 2 qualifier</summary><ul><li>line 4: /mappings/0/make: vPIC make 99999 is not in data month 2026_10</li><li>line 5: /mappings/0/model: vPIC model 99999 is not in data month 2026_10</li><li>line 2: ",
+		"<details><summary>Drift: 1 make, 1 model, 4 qualifier</summary><ul><li>line 4: /mappings/0/make: vPIC make 99999 is not in data month 2026_10</li><li>line 5: /mappings/0/model: vPIC model 99999 is not in data month 2026_10</li><li>line 2: ",
 		"<details><summary>Drift: 1 extension</summary>",
 		`<tr data-where="browser"><th scope="row">broken</th>`,
 		`<span class="error">Left out: broken.jsonl:1: `,

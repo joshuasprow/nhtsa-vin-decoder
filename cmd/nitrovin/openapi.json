@@ -1352,7 +1352,7 @@
                 },
                 "drift": {
                   "type": "array",
-                  "description": "The file's drift against the data month and the files loaded with it, by kind, only the kinds it has, in the order make, model, qualifier, extension, model-years, vehicle, redirect; empty when it agrees. Drift is served, never refused. A catalog's drift is one finding per vehicle, vPIC id, qualifier value or model-year range, at the first line naming it, and one per redirect.",
+                  "description": "The file's drift against the data month and the files loaded with it, by kind, only the kinds it has, in the order make, model, qualifier, extension, model-years, vehicle, redirect, model-qualifier; empty when it agrees. Drift is served, never refused. A catalog's drift is one finding per vehicle, vPIC id, qualifier value or model-year range, at the first line naming it, and one per redirect.",
                   "items": {
                     "type": "object",
                     "required": [
@@ -1369,9 +1369,10 @@
                           "extension",
                           "model-years",
                           "vehicle",
-                          "redirect"
+                          "redirect",
+                          "model-qualifier"
                         ],
-                        "description": "make, model: a vPIC id the month lacks. qualifier: an element the month lacks, a value of the wrong type for it, or a value its decode never produces. extension: an extension named like a vPIC make, or a vPIC model under the same make. model-years: a mapping's, or a vpic catalog application's, first–last partly or wholly outside its vPIC model's model years. vehicle: a catalog's vehicle its vehicle vocabulary lacks, or lists without a mapping. redirect: a catalog's redirect whose target part type has no application for its vehicle and years."
+                        "description": "make, model: a vPIC id the month lacks. qualifier: an element the month lacks, a value of the wrong type for it, or a value its decode never produces. extension: an extension named like a vPIC make, or a vPIC model under the same make. model-years: a mapping's, or a vpic catalog application's, first–last partly or wholly outside its vPIC model's model years. vehicle: a catalog's vehicle its vehicle vocabulary lacks, or lists without a mapping. redirect: a catalog's redirect whose target part type has no application for its vehicle and years. model-qualifier: a qualifier value, on a mapping to a vPIC model or a vpic catalog application, that the month decodes but the model never does (ADR 0015)."
                       },
                       "count": {
                         "type": "integer",

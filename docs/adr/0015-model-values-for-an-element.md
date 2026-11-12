@@ -122,23 +122,38 @@ MCP and Go. The contract documents change in the same PR as the code.
 
 ## Drift against the mapping's model
 
-Load and `nitrovin vocab check` gain a drift class, `model-qualifier`: a qualifier value the
-mapping's own model never decodes to.
+`nitrovin vocab check` and `/v1/info` gain a drift class, `model-qualifier`: a qualifier value
+the mapping's own model never decodes to.
 
 - It applies only to mappings whose target is a `model`. Make and extension targets keep the
   month-wide check.
 - Like all drift, it is reported and never refused.
 - A mapping's years are not tested against the patterns' year bands. That waits on #222.
+- Elements that have no model values (Model Year 29 and the Corrections elements 142–144,
+  156, 191, 196) cannot be tested per model, so they are skipped.
+
+**Not at load (amended, #234).** Testing it builds the model values index for every element a
+model mapping qualifies on. On 2026_10 with EPA's vocabulary that costs about 0.14 s and
+80–100 MB of peak memory. Running it at load would put load over ADR 0011's 100 ms budget for
+an EPA-sized vocabulary, on every process start and every C handle. So:
+
+- `nitrovin vocab check` always runs it.
+- Load does not run it, so it prints no `model-qualifier` warnings on stderr.
+- `/v1/info`'s drift counts and examples include it. They are computed on the first info
+  request and cached, so a server pays the cost only if someone asks. The server's HTML pages
+  read the same info, so the first page served pays it too.
 
 The browser keeps the month-wide check: the spine bundle carries no per-model values. Adding
 Series and Drive Type to it would add about 693 KB raw, so it waits for a measurement against
 ADR 0013's 1 MB brotli budget.
 
-EPA's vocabulary for 2026_10 would show 388 Drive Type and 273 Series `model-qualifier`
-findings. Most come from the builder itself:
+As built (#233's partner schemas), EPA's vocabulary for 2026_10 shows 335 Drive Type and 273
+Series `model-qualifier` findings. The 388 Drive Type first estimated came before partner
+schemas, which account for all 53 between; no conversion gives Drive Type, and default values
+change nothing. Most findings come from the builder itself:
 
 - It widens a drive column to two ids where the model decodes one: "Front-Wheel Drive" to
-  FWD and 4x2.
+  FWD and 4x2, or a 4WD to AWD.
 - It takes Series spellings from other models' patterns.
 
 The builder moves onto this index and drops `readModelValues` and the widening, so the file it

@@ -45,5 +45,5 @@ func (t *Translator) decode(vin string, modelYear contract.Null[int32], now time
 	if err != nil {
 		return contract.VINDecode{}, err
 	}
-	return contract.VINDecode{Projection: p, DataMonth: t.info.DataMonth, DecoderVersion: t.info.DecoderVersion}, nil
+	return contract.VINDecode{Projection: p, DataMonth: t.core.DataMonth, DecoderVersion: t.core.DecoderVersion}, nil
 }
