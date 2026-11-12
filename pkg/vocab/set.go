@@ -141,6 +141,10 @@ func (s *Set) Files() []*File { return s.files }
 // vehicle vocabulary through the Set, then asks the Catalog.
 func (s *Set) Catalog() *Catalog { return s.fitments }
 
+// File is the loaded file named name, the catalog included, nil when
+// nothing loaded has that name.
+func (s *Set) File(name string) *File { return s.byName[name] }
+
 // normalized is values, each normalized.
 func normalized(values []string) []string {
 	out := make([]string, len(values))

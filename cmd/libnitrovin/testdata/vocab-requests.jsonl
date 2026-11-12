@@ -23,3 +23,10 @@
 {"id":18,"op":"list","of":"nowhere"}
 {"id":19,"op":"list","of":"vpic","vin":"1HGCM82633A004352"}
 {"id":20,"op":"translate","from":
+{"id":21,"op":"fit","from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010,"now":"2026-11-01"}
+{"id":22,"op":"fit","from":"1D7RV1GT5AS123456","part":{"spine":"part-types","id":"mirror"},"side":"left","now":"2026-11-01"}
+{"id":23,"op":"fit","from":{"vocabulary":"catalog-models","entry":{"make":"Chevrolet","model":"Silverado 1500"}},"model_year":2010,"part":{"spine":"part-types","id":"brake-rotor-rear"},"now":"2026-11-01"}
+{"id":24,"op":"fit","from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}},"to":["yard"],"now":"2026-11-01"}
+{"id":25,"op":"fit","from":"1D7RV1GT5AS123456","related":true,"now":"2026-11-01"}
+{"id":26,"op":"list","of":"parts-catalog","where":{"type":"mirror"}}
+{"id":27,"op":"fit","from":{"model":1938},"part":{"spine":"parts","id":"brake-rotor"},"now":"2026-11-01"}

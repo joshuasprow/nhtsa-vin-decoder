@@ -22,6 +22,11 @@ type Query struct {
 	To []string
 	// ModelYear is the model year when Decoded gives none.
 	ModelYear *int
+	// First and Last bound the model years when neither ModelYear nor
+	// Decoded gives one (nil: unbounded), as for a catalog application's
+	// vehicle (ADR 0018): a mapping holds when its years overlap them, and
+	// its model year is confirmed only when they all fall in its years.
+	First, Last *int
 	// Decoded is the decode of the request's VIN, given as From or as
 	// context; nil without one. It alone can check a qualifier.
 	Decoded *Decoded
@@ -222,26 +227,39 @@ func unconfirmedOf(vias []Via) Unconfirmed {
 }
 
 // conditions checks mappings against what a translation knows: the model
-// year, and the decode for qualifiers.
+// year, else the years it falls in (first and last, nil unbounded), and
+// the decode for qualifiers.
 type conditions struct {
-	year    *int
-	decoded *Decoded
+	year        *int
+	first, last *int
+	decoded     *Decoded
 }
 
 // check is whether mp holds (ADR 0009): a known model year outside its
 // range, or a decoded value outside a qualifier's set, rules it out. What
 // could not be checked keeps it, and is returned.
 func (c conditions) check(mp *Mapping) (Unconfirmed, bool) {
+	return c.applies(mp.First, mp.Last, mp.Qualifiers)
+}
+
+// applies is whether model years first to last and qualifiers hold, as
+// check says for a mapping's.
+func (c conditions) applies(first, last *int, qualifiers []Qualifier) (Unconfirmed, bool) {
 	var u Unconfirmed
-	if mp.First != nil || mp.Last != nil {
+	if first != nil || last != nil {
 		switch y := c.year; {
 		case y == nil:
-			u.ModelYear = true
-		case mp.First != nil && *y < *mp.First, mp.Last != nil && *y > *mp.Last:
+			// Years first to last against the years the vehicle falls in:
+			// none in common rules it out, some but not all is unchecked.
+			if first != nil && c.last != nil && *c.last < *first || last != nil && c.first != nil && *c.first > *last {
+				return Unconfirmed{}, false
+			}
+			u.ModelYear = first != nil && (c.first == nil || *c.first < *first) || last != nil && (c.last == nil || *c.last > *last)
+		case first != nil && *y < *first, last != nil && *y > *last:
 			return Unconfirmed{}, false
 		}
 	}
-	for _, q := range mp.Qualifiers {
+	for _, q := range qualifiers {
 		var got []Value
 		if c.decoded != nil {
 			got = c.decoded.Values[q.Element]
@@ -257,6 +275,15 @@ func (c conditions) check(mp *Mapping) (Unconfirmed, bool) {
 	return u, true
 }
 
+// Check is whether a catalog's application holds for a vehicle (ADR 0016,
+// ADR 0018), as a mapping does in a translation: a known model year
+// outside its years, or a decoded value outside a qualifier's set, rules
+// it out; what year (nil: unknown) and d (nil: no decode) cannot check
+// keeps it, and is returned.
+func (a *Application) Check(year *int, d *Decoded) (Unconfirmed, bool) {
+	return conditions{year: year, decoded: d}.applies(a.First, a.Last, a.Qualifiers)
+}
+
 // Translate answers q (ADR 0012) through exactly one spine: vPIC's for a
 // VIN, a vPIC id, an extension or a vehicle vocabulary, a declared spine's
 // for its ids and its part vocabularies. Year scope and qualifiers are
@@ -266,7 +293,7 @@ func (c conditions) check(mp *Mapping) (Unconfirmed, bool) {
 // loaded has, entry fields other than the vocabulary's, or a target
 // vocabulary on another spine.
 func (s *Set) Translate(q Query) (*Translation, error) {
-	c := conditions{year: q.ModelYear, decoded: q.Decoded}
+	c := conditions{year: q.ModelYear, first: q.First, last: q.Last, decoded: q.Decoded}
 	if q.Decoded != nil && q.Decoded.ModelYear != nil {
 		c.year = q.Decoded.ModelYear
 	}

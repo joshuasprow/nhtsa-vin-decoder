@@ -21,7 +21,7 @@ func init() {
 	register(command{
 		name:     "mcp",
 		synopsis: "[flags]",
-		summary:  "Serve the decode_vin, translate and list tools to an MCP client over stdin and stdout.",
+		summary:  "Serve the decode_vin, translate, list and fit tools to an MCP client over stdin and stdout.",
 		setup:    mcpSetup,
 	})
 }
@@ -95,7 +95,8 @@ type nopWriteCloser struct{ io.Writer }
 func (nopWriteCloser) Close() error { return nil }
 
 // newMCPServer returns the MCP server of docs/api/README.md's MCP section:
-// the tools decode_vin, translate and list, answering with d, on every protocol revision the SDK serves. The SDK's diagnostics
+// the tools decode_vin, translate, list and fit, answering with d, on every
+// protocol revision the SDK serves. The SDK's diagnostics
 // go to stderr. `nitrovin mcp` serves it over stdio, `nitrovin serve` over
 // Streamable HTTP at /mcp.
 func newMCPServer(d decodeService, stderr io.Writer) (*mcp.Server, error) {
@@ -107,9 +108,10 @@ func newMCPServer(d decodeService, stderr io.Writer) (*mcp.Server, error) {
 		"decode_vin": func(args []byte) ([]byte, error) { return decodeJSON(d, args) },
 		"translate":  func(args []byte) ([]byte, error) { return translateJSON(d, args) },
 		"list":       func(args []byte) ([]byte, error) { return listJSON(d, args) },
+		"fit":        func(args []byte) ([]byte, error) { return fitJSON(d, args) },
 	}
 	if len(tools) != len(handlers) {
-		return nil, errors.New("mcp-tools.json: want the tools decode_vin, translate and list")
+		return nil, errors.New("mcp-tools.json: want the tools decode_vin, translate, list and fit")
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "nitrovin", Version: nitrovin.Version()}, &mcp.ServerOptions{
 		Logger: slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
@@ -245,4 +247,18 @@ func listJSON(t decodeService, args []byte) ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(l)
+}
+
+// fitJSON answers one fit request object, args, with the fit's compact
+// JSON. The error is a *contract.Problem.
+func fitJSON(t decodeService, args []byte) ([]byte, error) {
+	r, err := contract.ParseFitRequest(args)
+	if err != nil {
+		return nil, err
+	}
+	f, err := t.Fit(r)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(f)
 }

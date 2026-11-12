@@ -5,6 +5,8 @@
 //	{"id":1,"decode":{"vin":"1HGCM82633A004352",…}}
 //	{"id": 2, "op": "translate", "from": {"make": 476}, "to": ["yard"]}
 //	{"id":2,"translation":{"from":{…},…}}
+//	{"id": 3, "op": "fit", "from": "1D7RV1GT5AS123456", "part": {"spine": "part-types", "id": "mirror"}}
+//	{"id":3,"fit":{"status":"found",…}}
 //
 // Reply answers one line; it is also what the C library's nitrovin_decode
 // returns, so the two surfaces give the same bytes. Serve runs a session.
@@ -21,19 +23,21 @@ import (
 )
 
 // reply is a StdioReply: the request's id, when it had one or one could be
-// read from a refused line, then exactly one of decode, translation, list
-// and error.
+// read from a refused line, then exactly one of decode, translation, list,
+// fit and error.
 type reply struct {
 	ID          json.RawMessage       `json:"id,omitempty"`
 	Decode      *contract.Decode      `json:"decode,omitempty"`
 	Translation *contract.Translation `json:"translation,omitempty"`
 	List        *contract.List        `json:"list,omitempty"`
+	Fit         *contract.Fit         `json:"fit,omitempty"`
 	Error       *contract.Problem     `json:"error,omitempty"`
 }
 
 // Reply answers one input line, a StdioRequest without its newline, with
 // one StdioReply of compact JSON without a newline, keyed by the line's op:
-// {"id":…,"decode":{…}}, {"id":…,"translation":{…}} or {"id":…,"list":{…}},
+// {"id":…,"decode":{…}}, {"id":…,"translation":{…}}, {"id":…,"list":{…}} or
+// {"id":…,"fit":{…}},
 // or {"id":…,"error":<problem>} for a line that is not JSON, a refused
 // request, or a fault in nitrovin. The answer is the bytes json.Marshal
 // gives for it. A request without now reads the clock once. The id is
@@ -52,6 +56,11 @@ func Reply(t *nitrovin.Translator, line []byte) []byte {
 			var l contract.List
 			if l, err = t.List(req.List); err == nil {
 				r.List = &l
+			}
+		case contract.OpFit:
+			var f contract.Fit
+			if f, err = t.Fit(req.Fit); err == nil {
+				r.Fit = &f
 			}
 		default:
 			var dec contract.Decode

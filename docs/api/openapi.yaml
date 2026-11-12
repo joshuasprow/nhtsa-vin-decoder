@@ -184,6 +184,141 @@ paths:
         '405': { $ref: '#/components/responses/MethodNotAllowed' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '500': { $ref: '#/components/responses/Internal' }
+  /v1/fit:
+    get:
+      operationId: fitOne
+      summary: Fit one vehicle or fitment against the loaded catalog.
+      description: |
+        One fit request as query parameters, each the request's path with
+        dots: `from` is `from.vin`; or `from.vocabulary` with one
+        `from.entry.<field>` per field of the vocabulary; or one of
+        `from.make`, `from.model`, `from.ext`; or `from.fitment.type` with
+        `from.fitment.number` and, for a sided fitment, `from.fitment.side`.
+        `part` is `part.spine` with `part.id`, or `part.vocabulary` with one
+        `part.entry.<field>` per field. `to` is repeated, once per vehicle
+        vocabulary. Every parameter but `to` is given at most once, and an
+        unknown one is refused. The answer, and any refusal with its
+        `pointer`, is the one the same request gets as a `POST /v1/fit`
+        item. Nothing to fit is never an error: it answers with its
+        `status`, `no-catalog` when no catalog is loaded, and an empty list.
+      parameters:
+        - name: from.vin
+          in: query
+          description: A VIN to fit from, as a decode's `vin`.
+          schema: { type: string, minLength: 1 }
+          example: 1D7RV1GT5AS123456
+        - name: from.vocabulary
+          in: query
+          description: |
+            A loaded vehicle vocabulary to fit an entry of, its fields given
+            as `from.entry.<field>`, exactly the vocabulary's fields.
+          schema: { $ref: 'decode.schema.json#/$defs/VocabularyEntryRef/properties/vocabulary' }
+        - name: from.make
+          in: query
+          description: A vPIC make id to fit from.
+          schema: { $ref: 'decode.schema.json#/$defs/SpineRefFields/properties/make' }
+        - name: from.model
+          in: query
+          description: A vPIC model id to fit from.
+          schema: { $ref: 'decode.schema.json#/$defs/SpineRefFields/properties/model' }
+        - name: from.ext
+          in: query
+          description: An extension to fit from.
+          schema: { $ref: 'decode.schema.json#/$defs/SpineRefFields/properties/ext' }
+        - name: from.fitment.type
+          in: query
+          description: A fitment's part type, beside `from.fitment.number`; asks for the fitment's vehicles.
+          schema: { $ref: 'decode.schema.json#/$defs/FitmentKey/properties/type' }
+        - name: from.fitment.number
+          in: query
+          description: A fitment's number, or a retired number.
+          schema: { $ref: 'decode.schema.json#/$defs/FitmentKey/properties/number' }
+        - name: from.fitment.side
+          in: query
+          description: A fitment's side; absent for a fitment that has none.
+          schema: { $ref: 'decode.schema.json#/$defs/FitmentKey/properties/side' }
+        - name: part.spine
+          in: query
+          description: The catalog's part spine, beside `part.id`; asks for candidates.
+          schema: { type: string, minLength: 1 }
+        - name: part.id
+          in: query
+          description: A part type, an entry id of the part spine.
+          schema: { type: string, minLength: 1 }
+        - name: part.vocabulary
+          in: query
+          description: A loaded part vocabulary, its fields given as `part.entry.<field>`.
+          schema: { $ref: 'decode.schema.json#/$defs/VocabularyEntryRef/properties/vocabulary' }
+        - name: side
+          in: query
+          description: Keep the fitments that can go on this side.
+          schema: { $ref: 'decode.schema.json#/$defs/FitRequestFields/properties/side' }
+        - name: to
+          in: query
+          description: A vehicle vocabulary to name the catalog's vehicles in; repeated for several. None names them as spine entries.
+          schema: { $ref: 'decode.schema.json#/$defs/FitRequestFields/properties/to' }
+          style: form
+          explode: true
+        - name: model_year
+          in: query
+          description: The model year when no VIN gives one, and the VIN's decode hint; with a fitment, keeps the applications whose years hold it.
+          schema: { type: integer, minimum: -2147483648, maximum: 2147483647 }
+        - name: related
+          in: query
+          description: '`true` asks for the vehicles that share fitments with `from`.'
+          schema: { type: string, enum: ['true', 'false'], default: 'false' }
+        - name: limit
+          in: query
+          description: List items a page.
+          schema: { $ref: 'decode.schema.json#/$defs/FitRequestFields/properties/limit' }
+        - name: after
+          in: query
+          description: The previous page's `next`.
+          schema: { $ref: 'decode.schema.json#/$defs/FitRequestFields/properties/after' }
+        - $ref: '#/components/parameters/now'
+      responses:
+        '200':
+          description: The fit.
+          content:
+            application/json:
+              schema: { $ref: 'decode.schema.json#/$defs/Fit' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '500': { $ref: '#/components/responses/Internal' }
+    post:
+      operationId: fitBatch
+      summary: Fit up to 1,000 requests.
+      description: |
+        A JSON array of fit requests in, a JSON array of fits out, same
+        length and order. The wall clock is read once for the whole
+        request; an item's `now` overrides it for that item. Any refused
+        item refuses the whole request with 400, its `pointer` naming the
+        item (`/3/part`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              minItems: 1
+              maxItems: 1000
+              items: { $ref: 'decode.schema.json#/$defs/FitRequest' }
+            example:
+              - { from: { vocabulary: catalog-models, entry: { make: Dodge, model: Ram 1500 } }, model_year: 2010 }
+              - { from: 1D7RV1GT5AS123456, part: { spine: part-types, id: mirror }, side: left }
+              - { from: { fitment: { type: brake-rotor-front, number: BR-2001 } }, to: [yard] }
+      responses:
+        '200':
+          description: One fit per request item, in order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: 'decode.schema.json#/$defs/Fit' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '500': { $ref: '#/components/responses/Internal' }
   /v1/vocabularies:
     get:
       operationId: listCatalog
@@ -214,7 +349,9 @@ paths:
         extensions. `where.<field>` matches a field exactly after the fixed
         normalization, once per field (`where.make=Dodge`). For `vpic`,
         `where.year` (only with `where.make`) keeps the models whose
-        `years` include that model year, or are unknown (ADR 0022). Every parameter
+        `years` include that model year, or are unknown (ADR 0022). With the
+        loaded catalog's name, its fitment lines in key order, `where.type`
+        (a part type) the only field. Every parameter
         is given at most once, and an unknown one is refused.
       parameters:
         - name: name
@@ -286,8 +423,8 @@ paths:
       operationId: mcp
       summary: MCP over Streamable HTTP; the messages are opaque here.
       description: |
-        `nitrovin mcp`'s server, its tools `decode_vin`, `translate` and
-        `list` as `mcp-tools.json` defines them, over MCP's Streamable HTTP transport.
+        `nitrovin mcp`'s server, its tools `decode_vin`, `translate`, `list`
+        and `fit` as `mcp-tools.json` defines them, over MCP's Streamable HTTP transport.
         Stateless: every POST is a session of its own, with no
         `Mcp-Session-Id`, and every response is `application/json`, never an
         event stream, so `GET` and `DELETE` are 405. A POST carries one
@@ -343,9 +480,10 @@ components:
         The request cannot be answered as asked: malformed JSON, a field of
         the wrong type, an unknown field or query parameter, an empty or
         over-17-character VIN, a bad `model_year`, `full`, `shape` or `now`.
-        For translate and list, also what the loaded files refuse: a name
+        For translate, list and fit, also what the loaded files refuse: a name
         nothing loaded has, entry or `where` fields the vocabulary lacks, a
-        target on another spine, an `after` that is not a cursor.
+        target on another spine, a part spine other than the catalog's, an
+        `after` that is not a cursor.
       content:
         application/problem+json:
           schema: { $ref: 'decode.schema.json#/$defs/Problem' }

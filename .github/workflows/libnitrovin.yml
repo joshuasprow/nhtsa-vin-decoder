@@ -5,9 +5,10 @@
 # must answer every line of cmd/libnitrovin/testdata/requests.jsonl with
 # exactly the reply `nitrovin stdio` gave on the same artifact, in order and
 # from eight threads on one handle (cmd/libnitrovin/testdata/smoke.py). It
-# then opens the artifact with the testdata/vocab fixture through
-# nitrovin_open_vocab, and must answer vocab-requests.jsonl's decodes,
-# translations and lists as `nitrovin --vocab testdata/vocab stdio` did.
+# then opens the artifact with the testdata/vocab fixture and the synthetic
+# catalog in testdata/vocab/fitment through nitrovin_open_vocab, and must
+# answer vocab-requests.jsonl's decodes, translations, lists and fits as
+# `nitrovin --vocab testdata/vocab --vocab testdata/vocab/fitment stdio` did.
 # The artifact is the one go.mod pins (nitrovin-data's pkg/embedded, from the
 # module cache): no dump, no Postgres.
 #
@@ -27,6 +28,7 @@ on:
       - pkg/decoder/**
       - pkg/vocab/**
       - testdata/vocab/*.jsonl
+      - testdata/vocab/fitment/*.jsonl
       - go.mod
       - mise.toml
       - mise.lock
@@ -135,7 +137,7 @@ jobs:
           go build -buildvcs=false -o "$RUNNER_TEMP/nitrovin" ./cmd/nitrovin
           "$RUNNER_TEMP/nitrovin" stdio --data smoke/nitrovin.artifact \
             <cmd/libnitrovin/testdata/requests.jsonl >smoke/replies.jsonl
-          "$RUNNER_TEMP/nitrovin" --vocab testdata/vocab stdio --data smoke/nitrovin.artifact \
+          "$RUNNER_TEMP/nitrovin" --vocab testdata/vocab --vocab testdata/vocab/fitment stdio --data smoke/nitrovin.artifact \
             <cmd/libnitrovin/testdata/vocab-requests.jsonl >smoke/vocab-replies.jsonl
 
       - uses: actions/upload-artifact@v7
@@ -177,4 +179,4 @@ jobs:
           python -c 'import platform, struct; print(platform.platform(), platform.machine(), struct.calcsize("P") * 8, "bit")'
           python cmd/libnitrovin/testdata/smoke.py "dist/${{ matrix.target }}/${{ matrix.lib }}" \
             smoke/nitrovin.artifact cmd/libnitrovin/testdata/requests.jsonl smoke/replies.jsonl \
-            cmd/libnitrovin/testdata/vocab-requests.jsonl smoke/vocab-replies.jsonl testdata/vocab/*.jsonl
+            cmd/libnitrovin/testdata/vocab-requests.jsonl smoke/vocab-replies.jsonl testdata/vocab/*.jsonl testdata/vocab/fitment/*.jsonl

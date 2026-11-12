@@ -207,6 +207,32 @@ func (r *results) table() string {
 		fmt.Fprintf(&b, " %s |\n", q.budget)
 	}
 	b.WriteString(r.catalog())
+	b.WriteString(r.fit())
+	return b.String()
+}
+
+// fitRequests are BenchmarkFit's request kinds, with ADR 0018's budget.
+var fitRequests = []struct{ name, label, budget string }{
+	{"Fit/candidates", "candidates (vehicle, year, part type)", "p99 ≤ 5 ms"},
+	{"Fit/part-types", "part types (vehicle, year)", "p99 ≤ 10 ms"},
+	{"Fit/related", "related vehicles", "p99 ≤ 50 ms"},
+	{"Fit/reverse", "reverse (one fitment key)", "p99 ≤ 1 ms per key"},
+}
+
+// fit is the fit requests' table on the catalog-scale fixture (ADR 0018),
+// "" when they did not run.
+func (r *results) fit() string {
+	var b strings.Builder
+	for _, q := range fitRequests {
+		m, ok := r.bench[key{q.name, 1}]
+		if !ok {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString("\n**Fit** (the catalog-scale fixture, one core).\n\n| | p50 / p99 · throughput | items | budget |\n|---|---|---|---|\n")
+		}
+		fmt.Fprintf(&b, "| %s | %s · %s | %.0f | %s |\n", q.label, quantiles(m), throughput(m["ns/op"]), m["items"], q.budget)
+	}
 	return b.String()
 }
 

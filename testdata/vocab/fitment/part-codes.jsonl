@@ -1,0 +1,4 @@
+{"format":1,"kind":"vocabulary","name":"part-codes","version":"2026.11","data_month":"2026_10","subject":"part","fields":["code"],"spine":"part-types"}
+{"entry":{"code":"MIR"},"mappings":[{"id":"mirror"}],"note":"door mirrors, either side"}
+{"entry":{"code":"ROT"},"mappings":[{"id":"brake-rotor-front"},{"id":"brake-rotor-rear"}],"note":"a parts system files every brake rotor under one code"}
+{"entry":{"code":"SEAT"},"mappings":[]}

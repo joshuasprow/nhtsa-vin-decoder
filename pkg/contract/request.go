@@ -175,15 +175,17 @@ const (
 	OpDecode    Op = "decode"
 	OpTranslate Op = "translate"
 	OpList      Op = "list"
+	OpFit       Op = "fit"
 )
 
 // StdioRequest is one line of `nitrovin stdio`, and the request_json of
-// nitrovin_decode: its op and that op's request, the other two zero.
+// nitrovin_decode: its op and that op's request, the others zero.
 type StdioRequest struct {
 	Op        Op
 	Decode    Request
 	Translate TranslateRequest
 	List      ListRequest
+	Fit       FitRequest
 }
 
 // ParseStdio parses one line of `nitrovin stdio`, a StdioRequest: an
@@ -205,8 +207,8 @@ func ParseStdio(line []byte) (id json.RawMessage, r StdioRequest, err error) {
 	if raw, ok := fields["op"]; ok {
 		delete(fields, "op")
 		var s string
-		if !jsonString(raw, &s) || (Op(s) != OpDecode && Op(s) != OpTranslate && Op(s) != OpList) {
-			return id, StdioRequest{}, NewProblem(InvalidRequest, "/op", fmt.Sprintf("op must be %q, %q or %q", OpDecode, OpTranslate, OpList))
+		if !jsonString(raw, &s) || !slices.Contains([]Op{OpDecode, OpTranslate, OpList, OpFit}, Op(s)) {
+			return id, StdioRequest{}, NewProblem(InvalidRequest, "/op", fmt.Sprintf("op must be %q, %q, %q or %q", OpDecode, OpTranslate, OpList, OpFit))
 		}
 		r.Op = Op(s)
 	}
@@ -218,6 +220,10 @@ func ParseStdio(line []byte) (id json.RawMessage, r StdioRequest, err error) {
 	case OpList:
 		if p = unknownField(fields, "", listFields); p == nil {
 			r.List, p = readList(fields)
+		}
+	case OpFit:
+		if p = unknownField(fields, "", fitFields); p == nil {
+			r.Fit, p = readFit(fields, "")
 		}
 	default:
 		if p = unknownField(fields, "", requestFields); p == nil {
