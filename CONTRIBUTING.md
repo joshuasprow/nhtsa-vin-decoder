@@ -471,7 +471,7 @@ which `serve` hands those paths to (and `/sw.js`) and the
 browser's Service Worker runs too, so it reaches its data through
 interfaces (`ui.Pages`, the server's `ui.Backend`) and builds for
 `js/wasm`. Each route answers a fragment of its templates (`ui.html`,
-`page.html`, `decode.html`, `vocab.html`) for a request with `HX-Request`, its page's title first, and
+`page.html`, `decode.html`, `vocab.html`, `fit.html`) for a request with `HX-Request`, its page's title first, and
 the same fragment in the one layout for any other, with
 `Vary: HX-Request` and the CSP (`ui.CSP`, `script-src 'self'`). Every error
 has its real status: the one error page, or the error fragment that the
@@ -483,8 +483,15 @@ main (`hx-history-elt`), and htmx keeps no snapshot of it
 again, so a page put back never carries what a script or an extension
 left on it, which CSP would refuse. The header shows the running
 release's version beside the brand, linked to its GitHub release when it
-is a tagged one, and its Vocabularies button; the button's dialog sits
-beside the main, and both are the whole page's. Every response names its
+is a tagged one, and the navigation (`ui.html`'s `nav`), one template on
+the server and in the worker: Translate (`/`), Fit (`/ui/fit`), the
+Vocabularies button and API docs (`docs/api/README.md` at the release's
+tag, else on `main`), the page shown marked `aria-current`. Its links
+are page loads, never htmx's, so the mark is always the page's. The
+Vocabularies button's dialog sits beside the main, and both are the
+whole page's; every page draws them but an error page, whose dialog
+would read the drift an unknown path must never cost
+(`TestPagesReadLoadInfo`). Every response names its
 release in the `Nitrovin-Release` header (`ui.ReleaseHeader`). The layout
 loads its stylesheet,
 htmx, `copy.js` (copy buttons) and `map.js` (the translation map's
@@ -525,6 +532,33 @@ Both dialogs, the JSON's and the vocabularies', are popovers, so they
 open without a script; the vocabularies' is on each entry list too. Old
 links (`/?vin=…`, `/ui/decode`, `/ui/translate`, `/vocab`,
 `/ui/vocabularies`) move to the page with a `301`.
+
+The fit page (`fit.go`, `fit.html`: `/ui/fit`,
+[ADR 0023](docs/adr/0023-fitment-in-the-browser.md)) answers a fit from
+the catalog loaded where it is answered. Its query is `GET /v1/fit`'s, so
+a page link and an API call say the same thing: a form's empty fields,
+which `/v1/fit` refuses, move (`303`) to the same query without them. Its
+JSON dialog holds the fit and, on the server, links the same request on
+`/v1`, a document of its own that htmx never boosts. Its controls are
+the translate page's inputs as tabs (VIN; Year, make and model, the
+vehicle vocabularies' entries; vPIC id) and a fitment's key, each with
+its year, side and the vocabularies to name vehicles in. A vehicle's
+answer is its part types with their counts, each a link to its
+candidates; a candidate shows each application's `via` and
+`unconfirmed`, and its number links to the fitment's vehicles; related
+vehicles are a section of their own, which each vehicle's answer links.
+Every status is a sentence (`statusText`), `no-catalog` included; every
+list pages with the API's `after` and `next`. The links the page draws to
+candidates, a fitment's vehicles and related vehicles ask for every kind
+of stock loaded that each takes (`stock`), so stock lists show whenever
+stock is loaded; a list with an unavailable source says its stock is
+unknown, never empty. The examples on the empty page ask no stock source. The server and the Service Worker answer it through the
+same `Handler`, over `ui.Pages`' `Fit`. `go test ./pkg/ui` walks every
+kind of answer, the statuses, paging, refusals and the header on the
+synthetic catalog; `TestFitPageServer` holds every documented fit example
+to `/v1/fit`'s answer, `TestFitPageUnavailableStock` serves the
+connectors with no DSN, and `TestFitPageBrowser` runs the page in a browser
+with and without JavaScript under axe.
 
 The map (`map.go`) is from, the spine and the targets as three columns of
 cards, each mapping a line, each card a link to the page from it, the

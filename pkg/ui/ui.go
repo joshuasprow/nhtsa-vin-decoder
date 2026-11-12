@@ -35,6 +35,7 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"errors"
 	"fmt"
@@ -120,14 +121,15 @@ var static = func() map[string]asset {
 	}
 }()
 
-// Pages is what the vocabulary pages answer from, on the server and in the
-// browser's Service Worker alike. Info is GET /v1/info's answer, whose
-// release names the assets' URLs; Translate and List answer as
-// /v1/translate and /v1/vocabularies do.
+// Pages is what the pages answer from, on the server and in the browser's
+// Service Worker alike. Info is GET /v1/info's answer, whose release
+// names the assets' URLs; Translate, List and Fit answer as
+// /v1/translate, /v1/vocabularies and /v1/fit do.
 type Pages interface {
 	Info() contract.Info
 	Translate(contract.TranslateRequest) (contract.Translation, error)
 	List(contract.ListRequest) (contract.List, error)
+	Fit(context.Context, contract.FitRequest) (contract.Fit, error)
 }
 
 // loadInfoer is a Pages whose Info measures drift on its first call, which
@@ -266,6 +268,9 @@ type view struct {
 	// main, when the page is whole.
 	vocabDialog bool
 	dialog      *vocabDialog
+	// current is the header's link to this page (navTranslate, navFit),
+	// "" for a page the header does not link.
+	current string
 }
 
 // New is the server's handler of /, /sw.js and /ui answering from b. A
@@ -499,7 +504,9 @@ func (h *Handler) pageError(err error) *pageError {
 }
 
 // fail answers e: the error fragment, or the error page. info is the
-// release answering, nil when it is not known.
+// release answering, nil when it is not known. An error page draws no
+// Vocabularies dialog: its catalog reads Info, whose drift an unknown
+// path must never cost (loadInfoer). Its header's other links stand.
 func (h *Handler) fail(w http.ResponseWriter, frag bool, info *contract.Info, e *pageError) {
 	name := "error-page"
 	if frag {
@@ -520,11 +527,43 @@ type layout struct {
 	// shows beside the brand ("" when it is not known), and VersionURL its
 	// release on GitHub, "" for a build that is no tagged release.
 	Version, VersionURL string
-	Body                template.HTML
+	// Nav is the header's navigation, the same on every page.
+	Nav  nav
+	Body template.HTML
 	// VocabDialog is the Vocabularies dialog behind its button, beside the
 	// page's main, "" for a page without it; with it the page loads
 	// vocab.js, the browser files' script.
 	VocabDialog template.HTML
+}
+
+// The pages the header's navigation links (nav), each a view's current.
+const (
+	navTranslate = "translate"
+	navFit       = "fit"
+)
+
+// nav is the header's navigation, from one template on the server and in
+// the Service Worker: translate (/), fit (/ui/fit), the Vocabularies
+// dialog's button, when the page draws the dialog, and the API's
+// documentation. Current is the page it marks as the one shown
+// (aria-current), "" for none; APIDocs is docs/api/README.md at the
+// running release's tag, or on main for a build that is no release.
+type nav struct {
+	Current      string
+	Vocabularies bool
+	APIDocs      string
+}
+
+// apiDocs is the API's documentation for the build that answers info: at
+// its release's tag, else on main.
+func apiDocs(info *contract.Info) string {
+	ref := "main"
+	if info != nil {
+		if tag := releaseTagOf(info.DecoderVersion); tag != "" {
+			ref = tag
+		}
+	}
+	return repoURL + "/blob/" + ref + "/docs/api/README.md"
 }
 
 // render writes v: its fragment alone, or the page around it. A fragment
@@ -554,7 +593,8 @@ func (h *Handler) render(w http.ResponseWriter, frag bool, info *contract.Info, 
 	}
 	if !frag {
 		out = new(bytes.Buffer)
-		page := layout{Title: v.title, HTMXConfig: htmxConfig, Body: template.HTML(body.String())}
+		page := layout{Title: v.title, HTMXConfig: htmxConfig, Body: template.HTML(body.String()),
+			Nav: nav{Current: v.current, Vocabularies: v.dialog != nil, APIDocs: apiDocs(info)}}
 		if info != nil {
 			page.Assets, page.Version = assetsPath(Release(*info)), info.DecoderVersion
 			if tag := releaseTagOf(info.DecoderVersion); tag != "" {

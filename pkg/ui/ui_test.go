@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -52,6 +53,11 @@ func (backend) Translate(req contract.TranslateRequest) (contract.Translation, e
 
 func (backend) List(contract.ListRequest) (contract.List, error) {
 	return contract.List{Entries: []contract.ListEntry{contract.CatalogEntry{Name: "vpic", Kind: "spine", Version: "2026_10", Subject: "vehicle"}}}, nil
+}
+
+// Fit answers from no catalog, as contract.Fitter does without one.
+func (backend) Fit(ctx context.Context, req contract.FitRequest) (contract.Fit, error) {
+	return contract.Fitter{}.Fit(ctx, req)
 }
 
 func (b backend) SpineBundle() ([]byte, error) {
