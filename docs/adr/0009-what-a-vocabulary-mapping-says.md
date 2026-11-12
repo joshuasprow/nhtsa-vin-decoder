@@ -39,8 +39,8 @@ it; the author re-points the mappings and drops it. Extension mappings take no
 qualifiers, since no decode lands on an extension.
 
 An entry is named by the fields its vocabulary declares, an ordered list of
-strings (`make`, `model`; Hollander's `mfr_name`, `model_nm`; a catalog's
-`code`), each matched exactly after one fixed normalization of case and
+strings (`make`, `model`; a parts catalog's `mfr_name`, `model_nm`; a
+parts system's `code`), each matched exactly after one fixed normalization of case and
 spaces. A model year is never one of them; eBay's and EPA's year columns
 become the mapping's scope. A vocabulary may list unmapped entries, so an
 answer can tell a known but unplaced entry from a name the vocabulary lacks.
@@ -51,8 +51,8 @@ with the author.
 
 ## Considered options
 
-- One opaque string per entry: simpler, but composite keys (Hollander's two
-  fields, eBay's four) get an invented delimiter.
+- One opaque string per entry: simpler, but composite keys (a parts catalog's
+  two fields, eBay's four) get an invented delimiter.
 - A fixed make and model pair: doesn't fit a catalog keyed by its own code.
 - Model ids only, as in Snyder's tables: a make vocabulary (NHTSA's recall
   file spells Mercedes-Benz three ways) could not be mapped.
