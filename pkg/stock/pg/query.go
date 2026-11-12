@@ -106,14 +106,22 @@ func (s *Source) queries(asOf string) *queries {
 	// vehicleIs matches a relation row's vehicle to the vehicle columns
 	// of key k, c_v0…: a vocabulary's every field, or vpic's make, model
 	// and ext as a whole, as a file's vehicle key does, so a row matches
-	// at most one of a list's keys.
+	// at most one of a list's keys. A vpic key sets one of the three: the
+	// row equals it there and is null in the other two, one branch per
+	// column, each an equality and IS NULLs an index can serve.
 	vehicleIs := func(k string) string {
 		if q.vpic {
-			var b []string
+			branches := make([]string, len(vehicle))
 			for i, c := range vehicle {
-				b = append(b, col(c)+" IS NOT DISTINCT FROM "+k+".v"+strconv.Itoa(i))
+				b := []string{col(c) + " = " + k + ".v" + strconv.Itoa(i)}
+				for j, other := range vehicle {
+					if j != i {
+						b = append(b, col(other)+" IS NULL")
+					}
+				}
+				branches[i] = "(" + strings.Join(b, " AND ") + ")"
 			}
-			return "(" + strings.Join(b, " AND ") + ")"
+			return "(" + strings.Join(branches, " OR ") + ")"
 		}
 		var b []string
 		for i, c := range vehicle {

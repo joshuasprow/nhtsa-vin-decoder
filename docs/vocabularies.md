@@ -474,6 +474,10 @@ relation's tables these indexes:
 - yard, by vPIC model: `(decoded_model, decoded_year)`;
 - yard, by catalog vehicle: `(vehicle_<fields>, year)`.
 
+Under a vpic catalog, `vehicle_<fields>` is `vehicle_make, vehicle_model,
+vehicle_ext`: a lookup asks for the one column its vehicle sets, by
+equality, and the other two `IS NULL`, which the same index serves.
+
 **A worked view.** `testdata/vocab/stock/live/views.sql` is a synthetic
 parts system's table and a yard system's, the views the connectors read,
 and a role that reads only the views; CI loads the synthetic rows into it

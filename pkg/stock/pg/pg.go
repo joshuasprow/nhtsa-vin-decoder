@@ -138,14 +138,18 @@ func (s *Source) Health() stock.Health {
 
 // Close closes the source's connections and stops its pool's background
 // work; a lookup after it is unavailable. It is safe to call more than
-// once.
+// once. It waits for lookups under way to give their connections back
+// (each is bounded by its timeouts), so it holds no lock meanwhile: a
+// lookup that fails takes the lock to say so before it returns its
+// connection.
 func (s *Source) Close() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.closed, s.q = true, nil
 	s.health = stock.Health{Checked: true, Down: &stock.Unavailable{Reason: reasonClosed}}
-	if s.pool != nil {
-		s.pool.Close()
+	pool := s.pool
+	s.mu.Unlock()
+	if pool != nil {
+		pool.Close()
 	}
 }
 

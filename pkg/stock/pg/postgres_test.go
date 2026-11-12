@@ -558,41 +558,115 @@ func TestRowsPostgres(t *testing.T) {
 
 // TestSlowPostgres: a query that outlives the caller's deadline stops
 // there, unavailable, and the database stops running it; one that outlives
-// the statement timeout says so; a fit's list of a slow source answers
-// unavailable while the rest of the answer stands; and when every
-// connection is busy, a lookup waits only its own bound.
+// the statement timeout says so; Close with a slow query under way waits
+// for it without holding up the lookup or Health; a fit's list of a slow
+// source answers unavailable while the rest of the answer stands; and when
+// every connection is busy, a lookup waits only its own bound.
 func TestSlowPostgres(t *testing.T) {
 	conn, u := testDB(t)
 	exec(t, conn, nvtest)
 	t.Cleanup(func() { exec(t, conn, `DROP SCHEMA IF EXISTS nvtest CASCADE`) })
 	ctx := context.Background()
+	// running is how many queries on nvtest.slow the database runs, as
+	// the connector writes the relation, quoted; it waits up to 2 s for
+	// want.
+	running := func(want int) int {
+		t.Helper()
+		var n int
+		for range 40 {
+			if err := conn.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND query LIKE '%"nvtest"."slow"%' AND pid <> pg_backend_pid()`).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n == want {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		return n
+	}
+	// slowLookup starts a lookup of s under ctx, its reason on the
+	// channel, once the database runs its query.
+	slowLookup := func(ctx context.Context, s *Source) chan string {
+		t.Helper()
+		out := make(chan string, 1)
+		go func() {
+			_, _, err := s.ShelfByFitment(ctx, mirrorKey, stock.Page{Limit: 10})
+			u, _ := errors.AsType[*stock.Unavailable](err)
+			if u == nil {
+				out <- fmt.Sprint("not unavailable: ", err)
+				return
+			}
+			out <- u.Reason
+		}()
+		if n := running(1); n != 1 {
+			t.Fatalf("%d queries on nvtest.slow run; want the lookup's", n)
+		}
+		return out
+	}
 
 	t.Run("deadline", func(t *testing.T) {
 		s := connector(t, "nvtest.slow", u.String(), `,"statement_timeout_ms":10000`)
 		if _, _, err := s.ready(ctx); err != nil {
 			t.Fatal(err)
 		}
-		dctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+		dctx, cancel := context.WithCancel(ctx)
 		defer cancel()
+		got := slowLookup(dctx, s)
 		start := time.Now()
-		if got := reason(t, dctx, s); got != reasonCancelled {
-			t.Errorf("reason %q, want %q", got, reasonCancelled)
-		}
-		if took := time.Since(start); took > 2*time.Second {
-			t.Errorf("the lookup took %v past a 200 ms deadline", took)
-		}
-		var running int
-		for range 20 {
-			if err := conn.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND query LIKE '%nvtest.slow%' AND pid <> pg_backend_pid()`).Scan(&running); err != nil {
-				t.Fatal(err)
+		cancel()
+		select {
+		case r := <-got:
+			if r != reasonCancelled {
+				t.Errorf("reason %q, want %q", r, reasonCancelled)
 			}
-			if running == 0 {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
+		case <-time.After(2 * time.Second):
+			t.Fatal("the lookup ran on 2 s after its context ended")
 		}
-		if running != 0 {
-			t.Errorf("%d queries on nvtest.slow still run after the deadline", running)
+		if took := time.Since(start); took > time.Second {
+			t.Errorf("the lookup took %v past its context", took)
+		}
+		if n := running(0); n != 0 {
+			t.Errorf("%d queries on nvtest.slow still run after the context ended", n)
+		}
+	})
+
+	t.Run("close", func(t *testing.T) {
+		s := connector(t, "nvtest.slow", u.String(), `,"statement_timeout_ms":10000`)
+		if _, _, err := s.ready(ctx); err != nil {
+			t.Fatal(err)
+		}
+		got := slowLookup(ctx, s)
+		closed := make(chan struct{})
+		go func() {
+			s.Close() // waits for the lookup's connection
+			close(closed)
+		}()
+		time.Sleep(100 * time.Millisecond)
+		healthy := make(chan stock.Health, 1)
+		go func() { healthy <- s.Health() }()
+		select {
+		case h := <-healthy:
+			if h.Down == nil || h.Down.Reason != reasonClosed {
+				t.Errorf("Health while closing %+v", h)
+			}
+		case <-time.After(time.Second):
+			t.Error("Health waits on Close")
+		}
+		// The database ends the backend: the lookup fails on a dead
+		// connection, which it gives back for Close to finish.
+		exec(t, conn, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE query LIKE '%"nvtest"."slow"%' AND pid <> pg_backend_pid()`)
+		select {
+		case <-closed:
+		case <-time.After(3 * time.Second):
+			t.Fatal("Close did not return 3 s after the lookup's backend ended")
+		}
+		select {
+		case r := <-got:
+			if r == "" || strings.HasPrefix(r, "not unavailable") {
+				t.Errorf("the lookup: %q", r)
+			}
+		case <-time.After(time.Second):
+			t.Error("the lookup did not return")
 		}
 	})
 
@@ -699,7 +773,8 @@ INSERT INTO nvtest.shelf VALUES
   ('V-1', 'north', NULL, NULL, NULL, 'mirror', NULL, 1938, NULL, 2010, '{}'),
   ('V-2', 'north', NULL, NULL, NULL, 'mirror', 476, NULL, NULL, 2010, '{}'),
   ('V-3', 'north', NULL, NULL, NULL, 'mirror', NULL, NULL, 'ext:classics/corvair', 2010, '{}'),
-  ('V-4', 'north', NULL, NULL, NULL, 'mirror', 476, 1938, NULL, 2010, '{}')`)
+  ('V-4', 'north', NULL, NULL, NULL, 'mirror', 476, 1938, NULL, 2010, '{}');
+CREATE INDEX shelf_by_vehicle ON nvtest.shelf (part_type, vehicle_make, vehicle_model, vehicle_ext, year)`)
 	t.Cleanup(func() { exec(t, conn, `DROP SCHEMA IF EXISTS nvtest CASCADE`) })
 	dir := t.TempDir()
 	catalog := `{"format":1,"kind":"catalog","name":"vpic-catalog","version":"1","spine":"part-types","vehicles":"vpic"}
@@ -740,6 +815,29 @@ INSERT INTO nvtest.shelf VALUES
 	}
 	if want := []string{"V-1:0/1938/", "V-2:476/0/ V-3:0/0/ext:classics/corvair", "V-1:0/1938/ V-2:476/0/"}; !slices.Equal(got, want) || rs[2].Total != 2 {
 		t.Errorf("rows %q, want %q", got, want)
+	}
+
+	// The documented index serves every vehicle column of the match: the
+	// plan, with sequential scans priced out, reads it, never the table.
+	ctx := context.Background()
+	exec(t, conn, `SET enable_seqscan = off`)
+	t.Cleanup(func() { exec(t, conn, `RESET enable_seqscan`) })
+	rows, err := conn.Query(ctx, "EXPLAIN "+s.q.byVehicle, int32(1), []string{}, int64(0), int64(10),
+		[]int32{0}, []string{"mirror"}, []*int32{new(int32(2010))}, []*int32{nil}, []*int32{new(int32(1938))}, []*string{nil})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan []string
+	var line string
+	if _, err := pgx.ForEachRow(rows, []any{&line}, func() error { plan = append(plan, line); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join(plan, "\n")
+	if !strings.Contains(text, "shelf_by_vehicle") || strings.Contains(text, "Seq Scan on shelf") {
+		t.Errorf("the vpic match does not read shelf_by_vehicle:\n%s", text)
+	}
+	if !strings.Contains(text, "vehicle_model = ") || !strings.Contains(text, "vehicle_make IS NULL") {
+		t.Errorf("the index conditions are not the key's column and IS NULLs:\n%s", text)
 	}
 }
 
