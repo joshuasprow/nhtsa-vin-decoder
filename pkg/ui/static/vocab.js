@@ -3,7 +3,9 @@
 // swaps the worker's panel (the merged catalog, with the browser's files)
 // over the server's catalog in the dialog, and hands the files the visitor
 // picks or drops, and EPA's vocabulary on a click, to the worker by
-// postMessage, and the targets the visitor ticks too. Without this script
+// postMessage, and the targets the visitor ticks too. A catalog picked on
+// its own is compiled in a dedicated worker it starts (compile.js,
+// ADR 0023), the File handed over and read in place. Without this script
 // the dialog says that loading files needs JavaScript; everything else
 // works.
 //
@@ -257,14 +259,19 @@
   });
 
   // usage says, below the panel, how much this site keeps in the browser
-  // and whether the browser may clear it.
+  // and whether the browser may clear it; and what a compile not finished
+  // keeps, which the worker drops (left) whenever no compile runs: one
+  // running in another tab, or this one, holds it until it is done.
   const usage = async () => {
     const line = document.getElementById('storage-usage');
     if (!line || !navigator.storage || !navigator.storage.estimate) return;
+    const left = ready() && !compiling ? await ask({ op: 'left' }, 5000) : null;
     const { usage: used, quota } = await navigator.storage.estimate();
     const kept = navigator.storage.persisted && await navigator.storage.persisted();
     line.textContent = 'This site keeps ' + (used / 1e6).toFixed(1) + ' MB in this browser, of the ' + Math.round(quota / 1e6).toLocaleString('en') +
-      ' MB the browser allows it' + (kept ? '; the browser keeps it until you remove it.' : '; the browser may clear it when it runs short of space.');
+      ' MB the browser allows it' + (kept ? '; the browser keeps it until you remove it.' : '; the browser may clear it when it runs short of space.') +
+      (left && left.bytes > 0 ? ' A compile not finished keeps ' + (left.bytes / 1e6).toFixed(1) + ' MB of it, dropped once no compile runs.' : '');
+    section.dataset.leftBytes = left ? String(left.bytes) : '';
   };
   document.addEventListener('htmx:afterSettle', () => { usage().catch(() => {}); });
 
@@ -305,8 +312,65 @@
     name: f.name,
     read: () => f.arrayBuffer().catch((err) => { throw new Error(f.name + ' could not be read (' + err.message + ').'); }),
   });
+  // kindOf is the kind f's header, its first line that is not blank,
+  // says, read from f's first bytes alone: a catalog may be hundreds of
+  // MB, never read into the page.
+  const kindOf = async (f) => {
+    const line = (await f.slice(0, 1 << 16).text()).split('\n').find((l) => l.trim() !== '');
+    try {
+      return (line && JSON.parse(line).kind) || '';
+    } catch {
+      return '';
+    }
+  };
+
+  // compiling is true while a catalog compiles in this page: leaving it
+  // stops the compile, so the browser asks first (stay).
+  let compiling = false;
+  const stay = (e) => e.preventDefault();
+
+  // compile compiles file, a catalog's JSON Lines, as this browser's
+  // catalog (ADR 0023), in a dedicated worker this page starts
+  // (compile.js), which reads the File in place: the page says how far it
+  // is and that the tab must stay open. Once it is stored the Service
+  // Worker opens the files again.
+  const compile = async (file) => {
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    const keep = ' Keep this tab open until it is done.';
+    tell('Compiling ' + file.name + '…' + keep);
+    const c = await ask({ op: 'compiler' }, 5000);
+    if (!c || c.refused) {
+      tell('Nothing was compiled: ' + (c ? c.refused : 'the translator in this browser did not answer. Reload the page, then try again.'));
+      return;
+    }
+    compiling = true;
+    window.addEventListener('beforeunload', stay);
+    const worker = new Worker(c.config.assets + '/compile.js');
+    let done;
+    try {
+      done = await new Promise((resolve) => {
+        worker.onmessage = (e) => {
+          if (e.data.done) resolve(e.data);
+          else tell(e.data.progress + keep);
+        };
+        worker.onerror = (e) => resolve({ ok: false, message: 'the compiler in this browser stopped: ' + (e.message || 'an error') + '.' });
+        worker.postMessage({ op: 'compile', config: c.config, file });
+      });
+    } finally {
+      compiling = false;
+      window.removeEventListener('beforeunload', stay);
+      worker.terminate();
+    }
+    section.dataset.compileMemory = done.memory || '';
+    if (done.ok) await ask({ op: 'catalog' }, 5000);
+    if (ready()) await showFiles();
+    tell(done.ok ? done.message : 'Nothing was compiled: ' + done.message);
+    if (done.ok) await redraw();
+  };
+
   // loadFiles loads the files of list in the dialog, where a load is
-  // told, once the worker is ready.
+  // told, once the worker is ready. A catalog picked on its own is
+  // compiled instead.
   const loadFiles = async (list) => {
     const picked = [...list];
     if (picked.length === 0) return;
@@ -316,7 +380,22 @@
       tell('Nothing was loaded: ' + why());
       return;
     }
-    await load(picked.map((f) => f.name).join(', '), picked.map(fromDisk));
+    if (compiling) {
+      tell('Nothing was loaded: a catalog is compiling in this tab. Wait until it is done, then load them again.');
+      return;
+    }
+    const what = picked.map((f) => f.name).join(', ');
+    tell('Reading ' + what + '…');
+    const kinds = await Promise.all(picked.map(kindOf));
+    if (kinds.includes('catalog')) {
+      if (picked.length > 1) {
+        tell('Nothing was loaded: ' + picked[kinds.indexOf('catalog')].name + ' is a catalog. Pick it on its own: a catalog is compiled, not loaded with other files.');
+        return;
+      }
+      await compile(picked[0]);
+      return;
+    }
+    await load(what, picked.map(fromDisk));
   };
 
   document.addEventListener('change', (e) => {
@@ -349,6 +428,29 @@
     over = 0;
     section.classList.remove('dropping');
     loadFiles(e.dataTransfer.files).catch(failed);
+  });
+
+  // Download: the compiled catalog is the worker's, from IndexedDB, as a
+  // Blob (handed over by reference, never copied), saved from a blob URL.
+  // A browser may send a link's download to the server without asking
+  // the worker; the link stays for a page without this script.
+  document.addEventListener('click', async (e) => {
+    const a = e.target.closest && e.target.closest('a[href="/ui/files/catalog"]');
+    if (!a || !ready()) return;
+    e.preventDefault();
+    const got = await ask({ op: 'download' }, 10000);
+    if (!got || !got.blob) {
+      tell('The catalog could not be downloaded: ' + (got && got.message ? got.message : 'the translator in this browser did not answer. Reload the page, then try again.'));
+      return;
+    }
+    const url = URL.createObjectURL(got.blob);
+    const save = document.createElement('a');
+    save.href = url;
+    save.download = got.name;
+    document.body.append(save);
+    save.click();
+    save.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   });
 
   // EPA's vocabulary, from this release's assets: one click.

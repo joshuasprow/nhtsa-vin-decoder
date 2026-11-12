@@ -602,6 +602,27 @@ removed no longer) are plain Go, tested with an in-memory `ui.Disk`
 Library asks the server's `GET /v1/decode/{vin}` once, with the decode's
 own query alone (no file's name goes with it), lays it out as the server
 does and translates the same decode; no route under `/ui` answers JSON.
+The browser may also hold one catalog
+([ADR 0023](docs/adr/0023-fitment-in-the-browser.md)), compiled from its
+JSON Lines by `Library.Compile` with the same streaming compiler as
+`nitrovin vocab compile`, in a dedicated worker the page starts
+(`pkg/ui/static/compile.js`, the same `sw.wasm`): it reads the picked `File`
+in place, sorts in IndexedDB and streams the compiled file there in parts of
+a MiB (`pkg/ui/static/disk.js`, database `nitrovin-catalog`), committed in one
+transaction once it opens and links. The Service Worker reads it back by
+range (`vocab.OpenCompiled` over a `ReaderAt` that awaits
+`slice().arrayBuffer()`), answers `/ui/fit` only while the browser holds it,
+and serves it as a download at `/ui/files/catalog`. One catalog per
+nitrovin: a server's (named in `/sw.js`'s config, never published) or one the
+browser holds refuses another; a stored catalog that no longer opens, or
+whose spine or vehicle vocabulary changed, is listed with the reason and
+"pick the source again to recompile". `catalog_test.go` holds a browser
+catalog's `fit` to the server's on the same files (the embedded decoder,
+the fixture catalog as JSON Lines), every kind of request, before and after
+a reload, and its refusals, quota and staleness. The worker's
+`Server-Timing` adds `fit` (the last `Fit`'s own time), `heap` and `memory`
+(the module's Go heap and WebAssembly memory), which the browser half of
+ADR 0023's budget is measured by.
 `cmd/nitrovin-sw` is the module: `ui.NewInBrowser`
 over a `Library`, given IndexedDB and `fetch` by `pkg/ui/static/worker.js`,
 the worker script that `/sw.js` (its release and the server's files, never
@@ -732,6 +753,13 @@ alone, and that a `shelf` entry translates to a ticked `listing`; with it,
 that a batch loaded is ticked on each spine and the selection survives a
 tick, a reload, a cold start, a translation and a removal. axe audits both
 runs.
+
+`TestWorkerCatalog` (`workercatalog_test.go`) picks the fixture's
+catalog in the dialog: a server that has a catalog refuses it; one with its
+spine compiles it, after the browser loads its vehicle vocabulary, says
+which drift kinds it could not check, keeps it over a reload, answers
+`/ui/fit` from the worker only once it holds it, and downloads it as a
+compiled catalog that opens.
 
 `cmd/libnitrovin` is the C library (`-buildmode=c-shared`, no data).
 `scripts/libnitrovin.sh <dir> [<goos>/<goarch>…]` builds it for all six

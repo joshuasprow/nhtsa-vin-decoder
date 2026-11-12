@@ -42,10 +42,17 @@ const (
 	// them: old links to them move to it (moved).
 	vocabPath     = "/vocab"
 	translatePath = "/ui/translate"
+	// catalogPath is the browser's compiled catalog, as a download: the
+	// worker's alone (worker.js answers it from IndexedDB).
+	catalogPath = "/ui/files/catalog"
 	// moduleName and execName are the worker's module and Go's
-	// wasm_exec.js among a release's assets.
-	moduleName = "sw.wasm"
-	execName   = "wasm_exec.js"
+	// wasm_exec.js among a release's assets; diskName the worker's
+	// IndexedDB, which compilerName, the catalog compiler's dedicated
+	// worker, opens too.
+	moduleName   = "sw.wasm"
+	execName     = "wasm_exec.js"
+	diskName     = "disk.js"
+	compilerName = "compile.js"
 	// filesTarget is the browser files' panel in the page's dialog.
 	filesTarget = "#browser-files"
 )
@@ -66,6 +73,7 @@ func (h *Handler) pageRoutes() {
 	h.routes[homePath] = h.home
 	h.routes[fitPath] = h.fit
 	h.routes[filesPath] = h.files
+	h.routes[catalogPath] = h.download
 	h.posts[removePath] = h.remove
 	for _, old := range []string{decodePath, translatePath, vocabPath, vocabulariesPath} {
 		h.routes[old] = h.moved
@@ -499,6 +507,9 @@ type filesPanel struct {
 	DataMonth string
 	Release   string
 	Refusal   *removeRefusal
+	// ServerCatalog is the server's catalog, "" for none: while it has
+	// one, the browser compiles none.
+	ServerCatalog string
 }
 
 // NoneStored reports whether the browser keeps no file.
@@ -520,7 +531,7 @@ func (h *Handler) panel() (filesPanel, error) {
 	if err != nil {
 		return filesPanel{}, err
 	}
-	p := filesPanel{Catalog: catalogTable{Rows: h.rows(cat), Manage: true}, DataMonth: h.lib.Month(), Release: Release(h.lib.Info())}
+	p := filesPanel{Catalog: catalogTable{Rows: h.rows(cat), Manage: true}, DataMonth: h.lib.Month(), Release: Release(h.lib.Info()), ServerCatalog: h.lib.ServerCatalog()}
 	if o := h.offered(); o != nil {
 		p.Offer = &offerView{Offer: o}
 		for _, f := range h.lib.Files() {
@@ -542,6 +553,15 @@ func (h *Handler) files(*http.Request) (view, error) {
 		return view{}, err
 	}
 	return view{title: "Your files", template: "files", data: p}, nil
+}
+
+// download is the browser's compiled catalog, which worker.js answers
+// from IndexedDB: the server, and a module asked for it, hold none.
+func (h *Handler) download(*http.Request) (view, error) {
+	if h.lib == nil {
+		return view{}, &pageError{Status: http.StatusNotFound, Message: needsBrowser}
+	}
+	return view{}, &pageError{Status: http.StatusNotFound, Message: "This browser holds no compiled catalog to download."}
 }
 
 // remove drops the browser's files the form names (name, repeated),
@@ -635,7 +655,10 @@ type workerConfig struct {
 	DataMonth      string       `json:"data_month"`
 	ArtifactHash   string       `json:"artifact_hash"`
 	Files          []workerFile `json:"files"`
-	EPA            *Offer       `json:"epa,omitempty"`
+	// Catalog is the server's catalog, nil for none: it is not published,
+	// but while the server has one the browser compiles none (ADR 0023).
+	Catalog *workerFile `json:"catalog,omitempty"`
+	EPA     *Offer      `json:"epa,omitempty"`
 	// Elements are the data month's public elements, which the worker
 	// lays a VIN's decode out by and names a translation's unchecked
 	// qualifiers by; ErrorTexts its error codes' texts, by code.
@@ -652,7 +675,7 @@ type workerFile struct {
 	Kind    string `json:"kind"`
 	Version string `json:"version"`
 	Blake3  string `json:"blake3"`
-	URL     string `json:"url"`
+	URL     string `json:"url,omitempty"`
 }
 
 // BrowserConfig is what the server gives the browser's pages
@@ -668,7 +691,9 @@ type BrowserConfig struct {
 	ErrorTexts  map[int]string
 }
 
-// ReadWorkerConfig reads a worker's config, /sw.js's.
+// ReadWorkerConfig reads a worker's config, /sw.js's. The server's
+// catalog, which it does not publish, is among Info's vocabularies, of
+// kind catalog.
 func ReadWorkerConfig(config []byte) (BrowserConfig, error) {
 	var c workerConfig
 	if err := json.Unmarshal(config, &c); err != nil {
@@ -677,6 +702,9 @@ func ReadWorkerConfig(config []byte) (BrowserConfig, error) {
 	info := contract.Info{DecoderVersion: c.DecoderVersion, DataMonth: c.DataMonth, ArtifactHash: c.ArtifactHash, Elements: c.Elements, Vocabularies: []contract.VocabularyFile{}}
 	for _, f := range c.Files {
 		info.Vocabularies = append(info.Vocabularies, contract.VocabularyFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3})
+	}
+	if f := c.Catalog; f != nil {
+		info.Vocabularies = append(info.Vocabularies, contract.VocabularyFile{Name: f.Name, Kind: string(vocab.KindCatalog), Version: f.Version, Blake3: f.Blake3})
 	}
 	return BrowserConfig{Info: info, Offer: c.EPA, DataRelease: c.DataRelease, ErrorTexts: c.ErrorTexts}, nil
 }
@@ -694,8 +722,13 @@ func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info) error
 		Files: []workerFile{}, EPA: h.offered(), Elements: info.Elements, ErrorTexts: h.errorTexts, DataRelease: h.links(info).DataRelease,
 	}
 	for _, f := range info.Vocabularies {
-		if f.Kind == string(vocab.KindCatalog) || f.Kind == string(vocab.KindStock) {
-			continue // a catalog and stock load on the server only: the browser has no fitment yet
+		if f.Kind == string(vocab.KindCatalog) {
+			// Not published: the browser only needs to know there is one.
+			c.Catalog = &workerFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3}
+			continue
+		}
+		if f.Kind == string(vocab.KindStock) {
+			continue // stock loads on the server only
 		}
 		c.Files = append(c.Files, workerFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3, URL: FilePath(info, f)})
 	}
@@ -703,7 +736,7 @@ func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info) error
 	if err != nil {
 		panic(err)
 	}
-	imports, err := json.Marshal([]string{base + "/" + execName, base + "/worker.js"})
+	imports, err := json.Marshal([]string{base + "/" + execName, base + "/" + diskName, base + "/worker.js"})
 	if err != nil {
 		panic(err)
 	}

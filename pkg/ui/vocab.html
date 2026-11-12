@@ -11,14 +11,17 @@ Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 <thead><tr><th scope="col">Name</th><th scope="col">What it is</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
 <tbody>
 {{range .Rows}}<tr data-where="{{.Where}}"><th scope="row">{{if .Fault}}{{.Name}}{{else}}<a href="/ui/vocabularies/{{.Name}}">{{.Name}}</a>{{end}}</th>
-<td>{{.What}}{{with .File}}{{if .Lines}}, {{.Lines}} lines{{end}}{{end}}{{if .Fault}}<br><span class="error">Left out: {{.Fault}}</span>{{end}}
+<td>{{.What}}{{with .File}}{{if .Catalog}}{{if .Fitments}}, {{.FitmentsText}} fitments, compiled in this browser{{end}}{{else if .Lines}}, {{.Lines}} lines{{end}}{{end}}{{if .Fault}}<br><span class="error">Left out: {{.Fault}}</span>{{end}}
 <details class="row-details"><summary>Details<span class="visually-hidden"> of {{.Name}}</span></summary><dl>
 <dt>Version</dt><dd class="version">{{.Version}}</dd>
 <dt>Kept in</dt><dd>{{.WhereText}}{{with .File}}: {{.FileName}}, {{.SizeText}}, stored {{.Stored.Format "2006-01-02 15:04"}} UTC{{end}}</dd>
 <dt>Status</dt><dd>{{if .Fault}}left out{{else if eq .Where "vpic"}}the data month{{else if .Drift}}<details><summary>Drift: {{.DriftText}}</summary><ul>{{range .DriftExamples}}<li>{{.}}</li>{{end}}</ul></details>{{else}}linked, no drift{{end}}</dd>
+{{- with .File}}{{if .Skipped}}
+<dt>Not checked</dt><dd class="skipped">{{.SkippedText}} drift: this browser has no vPIC model years or model values to measure it against. <code>nitrovin vocab check</code> on a server runs every check.</dd>{{end}}{{end}}
 </dl></details></td>
 <td><div class="actions">{{if and (not .Fault) (eq .Kind "vocabulary")}}<a href="/?from.vocabulary={{.Name}}">Translate<span class="visually-hidden"> from {{.Name}}</span></a>{{end}}
-{{- if and $.Manage .File}}
+{{- if and $.Manage .File}}{{if and .File.Catalog (not .Fault)}}
+<a href="/ui/files/catalog" download="{{.Name}}.compiled">Download<span class="visually-hidden"> {{.Name}}</span> compiled</a>{{end}}
 <form method="post" action="/ui/files/remove" hx-post="/ui/files/remove" hx-target="#browser-files" class="inline">
 <input type="hidden" name="name" value="{{.Name}}"><button type="submit">Remove<span class="visually-hidden"> {{.Name}}</span></button>
 </form>{{end}}</div></td></tr>
@@ -61,7 +64,9 @@ replaces. */}}
 <div class="load dropzone">
 <label for="vocab-files">Drop your vocabulary files here, or choose them</label>
 <input type="file" id="vocab-files" multiple accept=".jsonl,application/jsonl" aria-describedby="vocab-files-hint">
-<p id="vocab-files-hint" class="hint">Files loaded together are linked as one batch. A file with the same name as one you have replaces it. They stay in this browser.</p>
+<p id="vocab-files-hint" class="hint">Files loaded together are linked as one batch. A file with the same name as one you have replaces it. They stay in this browser.
+{{- if .ServerCatalog}} This server has a catalog, {{.ServerCatalog}}; one catalog per nitrovin, so this browser compiles none.
+{{- else}} A catalog picked on its own is compiled here, read in place and never stored as you picked it; keep the tab open while it compiles.{{end}}</p>
 </div>
 {{with .Offer}}<div class="offer">
 {{if .Held}}<p>EPA's vocabulary, {{.Name}} {{.Version}}, is kept in this browser.</p>

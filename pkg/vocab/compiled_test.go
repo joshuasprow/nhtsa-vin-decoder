@@ -103,14 +103,38 @@ func compiledFixture(t *testing.T) *Catalog {
 	return catalogOf(t, fixtureMonth{}, swapCatalog(t, files, compile(t, fixtureMonth{}, files)))
 }
 
-// describeShared is what Shared answers: each candidate, as Matching's,
-// and its spans.
-func describeShared(ss []Shared) string {
+// describeShared is what Shared answers, keeping every other candidate:
+// each candidate passed to keep, as Matching's, and the spans of each
+// kept, through two calls of Spans, which must agree.
+func describeShared(c *Catalog, vs []Vehicle, y *int, s *Side) string {
+	var cands []string
+	sh := c.Shared(vs, y, s, func(cand *Candidate) bool {
+		cands = append(cands, describeCandidates([]Candidate{*cand}))
+		return len(cands)%2 == 1
+	})
+	if sh.Len() != (len(cands)+1)/2 {
+		return fmt.Sprintf("%d kept of %d", sh.Len(), len(cands))
+	}
+	pass := func() []string {
+		spans := make([]string, sh.Len())
+		sh.Spans(func(k int, ss []SharedSpan) {
+			var b strings.Builder
+			for _, sp := range ss {
+				b.WriteString(describeSpan(sp))
+			}
+			spans[k] += b.String()
+		})
+		return spans
+	}
+	first, again := pass(), pass()
 	var b strings.Builder
-	for i := range ss {
-		b.WriteString(describeCandidates([]Candidate{ss[i].Candidate}))
-		for _, sp := range ss[i].Spans {
-			b.WriteString(describeSpan(sp))
+	for i, cand := range cands {
+		b.WriteString(cand)
+		if i%2 == 0 {
+			if first[i/2] != again[i/2] {
+				return fmt.Sprintf("candidate %d's spans read again:%s\nfirst:%s", i, again[i/2], first[i/2])
+			}
+			b.WriteString(first[i/2])
 		}
 	}
 	return b.String()
@@ -352,15 +376,19 @@ func TestCompiledAnswersAsJSONLines(t *testing.T) {
 							}
 							asked += strings.Count(want, "matched")
 							if typ == "" {
-								shared := describeShared(jl.Shared(vs, y, s))
-								if got := describeShared(cc.Shared(vs, y, s)); got != shared {
+								shared := describeShared(jl, vs, y, s)
+								if got := describeShared(cc, vs, y, s); got != shared {
 									t.Fatalf("Shared(%d vehicles, %v, %v):\n%s\nwant\n%s", len(vs), y, s, got, shared)
 								}
 								// Of every fitment ByVehicle has, Matching's
-								// candidate and every application's span.
+								// candidate, and every other one's every
+								// application's span.
 								var b strings.Builder
 								for i, c := range jl.ByVehicle("", vs, y, s) {
 									b.WriteString(describeCandidates(jl.Matching("", vs, y, s)[i : i+1]))
+									if i%2 == 1 {
+										continue
+									}
 									for j := range c.Fitment.Applications {
 										b.WriteString(describeSpan(sharedSpan(&c.Fitment.Applications[j])))
 									}
@@ -898,7 +926,7 @@ func TestReadFarSpan(t *testing.T) {
 	r := &spanReader{r: bytes.NewReader(wide)}
 	c := &compiled{r: r, path: "far.compiled", types: []compiledType{{name: "pads"}}}
 	c.sec[secKeyed].n = int64(len(wide))
-	c.readFar(hits, secKeyed)
+	c.readFar(hits)
 	if r.reads != 2 || r.most > 1<<20 {
 		t.Errorf("%d far fitments %d KiB apart: %d reads, the longest %d bytes; want 2, none over 1 MiB", n, step>>10, r.reads, r.most)
 	}
@@ -962,8 +990,9 @@ func FuzzOpenCompiled(f *testing.F) {
 		c.ByVehicle("", vehicles, nil, nil)
 		c.ByVehicle("", vehicles[:min(1, len(vehicles))], new(2005), new(SideLeft))
 		c.Matching("", vehicles, nil, nil)
-		c.Shared(vehicles, nil, nil)
-		c.Shared(vehicles[:min(1, len(vehicles))], new(2005), new(SideLeft))
+		all := func(*Candidate) bool { return true }
+		c.Shared(vehicles, nil, nil, all).Spans(func(int, []SharedSpan) {})
+		c.Shared(vehicles[:min(1, len(vehicles))], new(2005), new(SideLeft), all).Spans(func(int, []SharedSpan) {})
 		c.Redirect("", vehicles, nil)
 		for _, typ := range file.compiled.types {
 			c.ByVehicle(typ.name, vehicles, nil, nil)

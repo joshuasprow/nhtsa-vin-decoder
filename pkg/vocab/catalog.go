@@ -1068,41 +1068,67 @@ func sharedSpan(a *Application) SharedSpan {
 	return sp
 }
 
-// Shared is a candidate as related vehicles read it: Matching's, and
-// every application of its fitment as a SharedSpan, in file order.
+// Shared is a vehicle's fitments as related vehicles read them
+// (Catalog.Shared): the candidates kept, and where each one's
+// applications lie, which Spans reads.
 type Shared struct {
-	Candidate
-	Spans []SharedSpan
+	n     int
+	spans []SharedSpan // each call of Spans' storage
+	// whole is, of a JSON Lines catalog, each kept candidate's fitment.
+	whole []*Fitment
+	// Of a compiled catalog: the kept near records and far ones, these
+	// in wide's order, and the buffer Spans reads the far ones into.
+	c    *compiled
+	near []nearShare
+	far  []farShare
+	buf  []byte
 }
 
-// Shared is Matching of every part type, each candidate with every
-// application of its fitment as a SharedSpan: what related vehicles read
-// of a vehicle's fitments, their other applications' vehicles and years,
-// and nothing more. A compiled catalog reads that much of a wide fitment,
-// not the fitment whole (ADR 0023).
-func (c *Catalog) Shared(vehicles []Vehicle, year *int, side *Side) []Shared {
-	if cc := c.f.compiled; cc != nil {
-		return cc.shared(c, vehicles, year, side)
+// Len is how many candidates were kept.
+func (s *Shared) Len() int { return s.n }
+
+// Spans calls each with every application of each kept candidate's
+// fitment as a SharedSpan, in file order: k is the candidate's index
+// among those kept, in key order, and spans are valid only until each
+// returns. Candidates come in no particular order, each once. It may be
+// called again, and answers alike: a compiled catalog reads the wide
+// fitments' vehicles and years again then, through one buffer.
+func (s *Shared) Spans(each func(k int, spans []SharedSpan)) {
+	if s.c != nil {
+		s.compiledSpans(each)
+		return
 	}
-	cs := c.ByVehicle("", vehicles, year, side)
-	n := 0
-	for i := range cs {
-		n += len(cs[i].Fitment.Applications)
-	}
-	spans := make([]SharedSpan, 0, n)
-	out := make([]Shared, len(cs))
-	for i := range cs {
-		at := len(spans)
-		for j := range cs[i].Fitment.Applications {
-			spans = append(spans, sharedSpan(&cs[i].Fitment.Applications[j]))
+	for k, fit := range s.whole {
+		s.spans = s.spans[:0]
+		for j := range fit.Applications {
+			s.spans = append(s.spans, sharedSpan(&fit.Applications[j]))
 		}
-		out[i].Spans = spans[at:len(spans):len(spans)]
+		each(k, s.spans)
 	}
-	matching(cs)
+}
+
+// Shared is Matching of every part type, each candidate, in key order,
+// passed to keep, and of those it keeps, every application of its
+// fitment as a SharedSpan, through Spans: what related vehicles read of a
+// vehicle's fitments, their other applications' vehicles and years, and
+// nothing more. keep's candidate is valid only until it returns. A
+// compiled catalog reads that much of a wide fitment, not the fitment
+// whole, and holds one read's bytes of it at a time (ADR 0023).
+func (c *Catalog) Shared(vehicles []Vehicle, year *int, side *Side, keep func(*Candidate) bool) *Shared {
+	if cc := c.f.compiled; cc != nil {
+		return cc.shared(c, vehicles, year, side, keep)
+	}
+	s := &Shared{}
+	cs := c.ByVehicle("", vehicles, year, side)
 	for i := range cs {
-		out[i].Candidate = cs[i]
+		whole := cs[i].Fitment
+		matching(cs[i : i+1])
+		if keep(&cs[i]) {
+			s.whole = append(s.whole, whole)
+		}
 	}
-	return out
+	s.n = len(s.whole)
+	return s
 }
 
 // holds reports whether year falls within first and last, nil being
