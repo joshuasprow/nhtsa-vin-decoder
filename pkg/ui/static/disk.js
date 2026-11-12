@@ -21,6 +21,9 @@
 'use strict';
 
 // opener opens database name once per script, upgrade making its stores.
+// A page that deletes or upgrades the database closes this connection
+// (versionchange) instead of waiting on it, and the next use opens it
+// again.
 function opener(name, upgrade) {
   let opening = null;
   return () => {
@@ -28,7 +31,14 @@ function opener(name, upgrade) {
       opening = new Promise((resolve, reject) => {
         const r = indexedDB.open(name, 1);
         r.onupgradeneeded = () => upgrade(r.result);
-        r.onsuccess = () => resolve(r.result);
+        r.onsuccess = () => {
+          const d = r.result;
+          d.onversionchange = () => {
+            d.close();
+            opening = null;
+          };
+          resolve(d);
+        };
         r.onerror = () => reject(r.error);
       });
       opening.catch(() => { opening = null; });
@@ -65,6 +75,15 @@ const request = (r) => new Promise((resolve, reject) => {
   r.onsuccess = () => resolve(r.result);
   r.onerror = () => reject(r.error);
 });
+
+// COMPILE_LOCK is the Web Lock a compile holds (compile.js): one at a
+// time, and what it writes is not left over while it runs.
+const COMPILE_LOCK = 'nitrovin-compile';
+
+// READ_TIMEOUT is how long a read of a stored file may take: one that
+// never settles would hold every request behind it (the module answers
+// one at a time).
+const READ_TIMEOUT = 10000;
 
 const indexKey = (blake3) => self.nitrovinConfig.release + '\n' + blake3;
 const bytes = (v) => (v === undefined ? null : new Uint8Array(v));
@@ -134,8 +153,15 @@ self.nitrovinDisk = {
     await tx(['state'], 'readwrite', (t) => request(t.objectStore('state').put(selection, 'selection')), stateDB);
   },
 
-  // read is bytes [start, end) of blob, a File or a Blob IndexedDB keeps.
-  read: async (blob, start, end) => new Uint8Array(await blob.slice(start, end).arrayBuffer()),
+  // read is bytes [start, end) of blob, a File or a Blob IndexedDB keeps;
+  // after READ_TIMEOUT it fails with a ReadTimeout.
+  read: (blob, start, end) => {
+    let timer;
+    const late = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('ReadTimeout: this browser did not read its stored file in ' + READ_TIMEOUT / 1000 + ' s')), READ_TIMEOUT);
+    });
+    return Promise.race([blob.slice(start, end).arrayBuffer().then((b) => new Uint8Array(b)), late]).finally(() => clearTimeout(timer));
+  },
   // putPart keeps part n of file key.
   putPart: (key, n, part) => tx(['parts'], 'readwrite', (t) => request(t.objectStore('parts').put(new Blob([part]), [key, n])), catalogDB),
   // parts is file key, its parts as one Blob.
@@ -148,6 +174,16 @@ self.nitrovinDisk = {
     for (const key of new Set((await request(parts.getAllKeys())).map(([k]) => k))) {
       if (!c || key !== c.parts) await request(parts.delete(partsOf(key)));
     }
+  }, catalogDB),
+  // leftBytes is the size of the parts the stored catalog does not keep.
+  leftBytes: () => tx(['catalog', 'parts'], 'readonly', async (t) => {
+    const c = await request(t.objectStore('catalog').get('catalog'));
+    const parts = t.objectStore('parts');
+    const keys = await request(parts.getAllKeys());
+    const left = keys.filter(([k]) => !c || k !== c.parts);
+    if (left.length === 0) return 0;
+    const all = await request(parts.getAll());
+    return all.filter((_, i) => !c || keys[i][0] !== c.parts).reduce((n, b) => n + b.size, 0);
   }, catalogDB),
   // catalog is the stored catalog, {record, blob}, or null.
   catalog: () => tx(['catalog', 'parts'], 'readonly', async (t) => {

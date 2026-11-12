@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -106,6 +108,18 @@ func (s *decoderServer) Get(path string) (int, []byte, error) {
 	return http.StatusOK, b, err
 }
 
+// serve has s serve data as its file name.
+func (s *decoderServer) serve(t *testing.T, name string, data []byte) {
+	t.Helper()
+	f, err := vocab.Read(name+".jsonl", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := contract.VocabularyFile{Name: name, Kind: string(f.Kind), Blake3: hex.EncodeToString(f.Hash[:])}
+	s.info.Vocabularies = append(s.info.Vocabularies, v)
+	s.files[FilePath(s.info, v)] = data
+}
+
 // serverTranslator is the server with the fitment fixture loaded,
 // catalog.jsonl as JSON Lines among it: the answers a browser's catalog
 // must give.
@@ -198,6 +212,15 @@ func TestLibraryCatalogFit(t *testing.T) {
 	if n := sameFits(t, srv, again); n != found {
 		t.Errorf("after a reload %d answers found; before, %d", n, found)
 	}
+
+	// Kept in parts, as IndexedDB keeps it in a browser, of a size that
+	// cuts records and sections: read across them, it answers the same.
+	disk.partBytes = 97
+	parted := openWith(t, s, disk)
+	if n := sameFits(t, srv, parted); n != found || disk.spanning == 0 {
+		t.Errorf("in parts %d answers found, %d reads across parts; before, %d", n, disk.spanning, found)
+	}
+	t.Logf("in parts: %d reads across parts", disk.spanning)
 }
 
 // openWith opens a Library on s, as open does on a fakeServer.
@@ -355,6 +378,49 @@ func TestLibraryCatalogRefusals(t *testing.T) {
 	if _, err := l.Load([]Picked{{FileName: "codes.jsonl", Data: []byte(renamed)}}, quiet); err == nil || !strings.Contains(err.Error(), "like the catalog this browser holds") {
 		t.Errorf("a vocabulary named like the catalog: %v", err)
 	}
+
+	// The server gains a catalog since: the browser's is left out, listed
+	// with the reason and no "recompile", and goes on Remove; fit answers
+	// no catalog in the browser (the worker sends it to the server).
+	s.info.Vocabularies = append(s.info.Vocabularies, contract.VocabularyFile{Name: "their-catalog", Kind: "catalog", Blake3: "ab12"})
+	l = openWith(t, s, disk)
+	got := stored(l)
+	if len(got) != 1 || got[0] != "parts-catalog: this server has a catalog now, their-catalog; one catalog per nitrovin, so fit answers from the server's. Remove this browser's." {
+		t.Errorf("the server gained a catalog: %q", got)
+	}
+	if f, err := l.Fit(context.Background(), contract.FitRequest{From: contract.FitFrom{SpineRef: contract.SpineRef{Model: 1938}}, Now: fitNow}); err != nil || f.Status != contract.FitNoCatalog {
+		t.Errorf("fit beside the server's catalog: %v, %s", err, f.Status)
+	}
+	if err := l.Remove([]string{"parts-catalog"}, false); err != nil || disk.catalog != nil {
+		t.Errorf("removing it: %v, %v", err, disk.catalog)
+	}
+}
+
+// TestBrowserFitServerCatalog: while the server has the catalog, a fit
+// link naming one of the browser's files, which the worker never sends to
+// the server, is refused in the browser in words.
+func TestBrowserFitServerCatalog(t *testing.T) {
+	d := embedded(t)
+	s := newDecoderServer(t, d, "part-types", "catalog-models")
+	s.info.Vocabularies = append(s.info.Vocabularies, contract.VocabularyFile{Name: "their-catalog", Kind: "catalog", Blake3: "ab12"})
+	l := openWith(t, s, newDisk())
+	if _, err := l.Load([]Picked{{FileName: "part-codes.jsonl", Data: fitmentFile(t, "part-codes")}}, quiet); err != nil {
+		t.Fatal(err)
+	}
+	h := NewInBrowser(l, BrowserConfig{}, log.New(io.Discard, "", 0))
+	status, _, body := response(t, h, "GET", "/ui/fit?from.vocabulary=catalog-models&from.entry.make=Dodge&from.entry.model=Ram+1500&model_year=2010&part.vocabulary=part-codes&part.entry.code=ROT", htmx)
+	if status != http.StatusConflict || !strings.Contains(body, "This link names part-codes, a file of this browser&#39;s. This server&#39;s catalog, their-catalog, answers fit") {
+		t.Errorf("a fit naming the browser's file:\n%s", body)
+	}
+}
+
+// TestCatalogPrivateWindow: a browser that stores no Blob in IndexedDB, as
+// in a private window, says so in words.
+func TestCatalogPrivateWindow(t *testing.T) {
+	err := storageError("catalog.jsonl", errors.New("a sorted run read 0 of 104 bytes: UnknownError: Error preparing Blob/File data to be stored in object store"))
+	if e, ok := errors.AsType[*pageError](err); !ok || !strings.HasPrefix(e.Message, "This browser keeps no files in a private window, so catalog.jsonl was not compiled and nothing was stored.") {
+		t.Errorf("a private window: %v", err)
+	}
 }
 
 // TestLibraryCatalogStale: a stored catalog this release cannot open, or
@@ -391,6 +457,28 @@ func TestLibraryCatalogStale(t *testing.T) {
 			t.Errorf("stale vehicles: %q", got)
 		}
 		noCatalog(l)
+	}
+
+	// Picking the source again replaces it, stored over the stale one.
+	if _, err := compileFixture(t, l, fitmentFile(t, "catalog")); err != nil {
+		t.Fatalf("compiling a stale catalog again: %v", err)
+	}
+	for _, l := range []*Library{l, openWith(t, s, disk)} {
+		if got := stored(l); !slices.Equal(got, []string{"catalog-models", "parts-catalog"}) {
+			t.Errorf("compiled again: %q", got)
+		}
+	}
+	if disk.writing != 0 {
+		t.Errorf("compiled again: %d writing", disk.writing)
+	}
+
+	// Its spine changes: the server's part-types, another version.
+	types := strings.Replace(string(fitmentFile(t, "part-types")), `"version":"2026.11"`, `"version":"2026.12"`, 1)
+	s2 := newDecoderServer(t, d)
+	s2.serve(t, "part-types", []byte(types))
+	got := stored(openWith(t, s2, disk))
+	if len(got) != 2 || !strings.HasPrefix(got[1], `parts-catalog: its spine "part-types" changed since it was compiled (version 2026.11 then, 2026.12 now`) || !strings.HasSuffix(got[1], recompile) {
+		t.Errorf("stale spine: %q", got)
 	}
 
 	// A file this release cannot open: another compiled format.

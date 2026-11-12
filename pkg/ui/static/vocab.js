@@ -259,14 +259,19 @@
   });
 
   // usage says, below the panel, how much this site keeps in the browser
-  // and whether the browser may clear it.
+  // and whether the browser may clear it; and what a compile not finished
+  // keeps, which the worker drops (left) whenever no compile runs: one
+  // running in another tab, or this one, holds it until it is done.
   const usage = async () => {
     const line = document.getElementById('storage-usage');
     if (!line || !navigator.storage || !navigator.storage.estimate) return;
+    const left = ready() && !compiling ? await ask({ op: 'left' }, 5000) : null;
     const { usage: used, quota } = await navigator.storage.estimate();
     const kept = navigator.storage.persisted && await navigator.storage.persisted();
     line.textContent = 'This site keeps ' + (used / 1e6).toFixed(1) + ' MB in this browser, of the ' + Math.round(quota / 1e6).toLocaleString('en') +
-      ' MB the browser allows it' + (kept ? '; the browser keeps it until you remove it.' : '; the browser may clear it when it runs short of space.');
+      ' MB the browser allows it' + (kept ? '; the browser keeps it until you remove it.' : '; the browser may clear it when it runs short of space.') +
+      (left && left.bytes > 0 ? ' A compile not finished keeps ' + (left.bytes / 1e6).toFixed(1) + ' MB of it, dropped once no compile runs.' : '');
+    section.dataset.leftBytes = left ? String(left.bytes) : '';
   };
   document.addEventListener('htmx:afterSettle', () => { usage().catch(() => {}); });
 
@@ -423,6 +428,29 @@
     over = 0;
     section.classList.remove('dropping');
     loadFiles(e.dataTransfer.files).catch(failed);
+  });
+
+  // Download: the compiled catalog is the worker's, from IndexedDB, as a
+  // Blob (handed over by reference, never copied), saved from a blob URL.
+  // A browser may send a link's download to the server without asking
+  // the worker; the link stays for a page without this script.
+  document.addEventListener('click', async (e) => {
+    const a = e.target.closest && e.target.closest('a[href="/ui/files/catalog"]');
+    if (!a || !ready()) return;
+    e.preventDefault();
+    const got = await ask({ op: 'download' }, 10000);
+    if (!got || !got.blob) {
+      tell('The catalog could not be downloaded: ' + (got && got.message ? got.message : 'the translator in this browser did not answer. Reload the page, then try again.'));
+      return;
+    }
+    const url = URL.createObjectURL(got.blob);
+    const save = document.createElement('a');
+    save.href = url;
+    save.download = got.name;
+    document.body.append(save);
+    save.click();
+    save.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   });
 
   // EPA's vocabulary, from this release's assets: one click.

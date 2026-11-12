@@ -390,6 +390,9 @@ func (h *Handler) fit(r *http.Request) (view, error) {
 	if err := h.notHere(fitNamed(q), cat); err != nil {
 		return refuse(err)
 	}
+	if err := h.serverFits(fitNamed(q)); err != nil {
+		return refuse(err)
+	}
 	req, err := contract.ParseFitQuery(q)
 	if err != nil {
 		return refuse(err)
@@ -434,6 +437,23 @@ func stockLoaded(info contract.Info) []string {
 		}
 	}
 	return out
+}
+
+// serverFits refuses, in a browser, a fit naming one of the browser's
+// files while the server has the catalog: the server's catalog answers
+// fit, and the browser's files never leave it (ADR 0013, ADR 0023). The
+// worker sends every other fit to the server then.
+func (h *Handler) serverFits(names []string) error {
+	if h.lib == nil || h.lib.ServerCatalog() == "" {
+		return nil
+	}
+	for _, f := range h.lib.Files() {
+		if slices.Contains(names, f.Name) {
+			return &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
+				"This link names %s, a file of this browser's. This server's catalog, %s, answers fit, and this browser's files never leave it, so it can't fit this here: pick one of the server's files instead.", f.Name, h.lib.ServerCatalog())}
+		}
+	}
+	return nil
 }
 
 // fitNamed is what a fit names of the loaded files: the from's and the

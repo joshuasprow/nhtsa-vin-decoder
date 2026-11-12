@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: proposed
 ---
 
 # Fitment in the browser: a compiled format clustered by vehicle, compiled and read there
@@ -19,24 +19,26 @@ It amends four ADRs:
 - **ADR 0021:** compiled format 2 replaces format 1, and one streaming compiler
   replaces the in-memory one.
 
-**Status: accepted (2026-11-12): both halves are met.** A prototype had to
-meet the budgets below: the format half measured in Go on the catalog-scale
-fixture, the browser half in current stable Chrome, Safari and Firefox, and a
-miss stopped the work for a person to decide whether to change the design or
-the budget.
+**Status: proposed until the browser half is met on the wide variants.** A
+prototype must meet the budgets below: the format half measured in Go on the
+catalog-scale fixture and its wide variants, the browser half in current
+stable Chrome, Safari and Firefox. A miss stops the work for a person to
+decide whether to change the design or the budget.
 
 - **The format half** is met on the catalog-scale fixture (2026-11-12,
   [#262](https://github.com/joshuasprow/nitrovin/issues/262); see Measured),
   and with a share of fitments of hundreds of applications too, related
   vehicles included, since
   [#267](https://github.com/joshuasprow/nitrovin/issues/267) (2026-11-12).
-- **The browser half** is met in Chrome, Safari, Firefox, WebKit and Chromium
-  on format 3 (2026-11-12,
+- **The browser half** is met on the catalog-scale fixture in Chrome, Safari,
+  Firefox, WebKit and Chromium on format 3 (2026-11-12,
   [#263](https://github.com/joshuasprow/nitrovin/issues/263); see The
   browser half), after two decisions on its misses. The design changed: the
   module's collector runs between requests, and the module answers one
   request at a time. And the budget changed for one kind: reverse's p99 in a
-  browser is 3 ms per key, the server's still 1 ms (see Budget).
+  browser is 3 ms per key, the server's still 1 ms (see Budget). On the 1%
+  wide variant it missed related vehicles with no year (123 ms p99) and
+  retained memory (114 MiB); see The browser half.
 
 ## Who it is for
 
@@ -232,8 +234,11 @@ A related request allocates about 1–11 MB as JSON Lines and 3–43 MB compiled
 at these shares, most of it the reader's answer (compiled, the bytes it read),
 where it allocated up to 408 MB and 578 MB before; part types, candidates and
 reverse allocate as before. A related request no longer allocates in
-proportion to the catalog's vehicles: what it keeps per vehicle is kept between
-requests.
+proportion to the catalog's vehicles. Since
+[#263](https://github.com/joshuasprow/nitrovin/issues/263) it streams the
+shared spans instead (see the next section's related vehicles): compiled, a
+related request allocates 2–4 MiB at these shares, and 5.6 MiB with no year at
+1%, where it allocated 93 MiB.
 
 Before #267, related vehicles missed both budgets. Wide held the fitments
 whole, so their reads were 93 / 94 at 1%, and 109 / 116 on the review's 1%
@@ -283,9 +288,14 @@ What was built, where the text above leaves room:
   applications by vehicle, cuts each vehicle's years in one sweep, and keeps
   each row as a vehicle, years and count; it sorts only the rows of the counts
   the page reaches, and counts each row's part types only once it is on the
-  page. Its storage is kept between requests, so a request sharing hundreds
-  of wide fitments allocates little beyond what the reader answers: a
-  browser's garbage collection shows in its p99. `total`, cursors and each
+  page. Since [#263](https://github.com/joshuasprow/nitrovin/issues/263) it
+  holds nothing whole: `Shared` streams each fitment's spans through one
+  reused buffer, far records read run by run into it, and `fit` keeps per
+  vehicle found a cell a year (where its set of fitments changes, and by how
+  much), and a log of about 4 bytes a span for the page's part-type counts,
+  so wide is read once. A request sharing hundreds of wide fitments
+  allocates a few MiB, not the 93 MiB it did, and a browser's garbage
+  collection stays out of its p99. `total`, cursors and each
   page's rows are as building every row gave, and rows that tie on count, name
   and years come in the order the catalog first lists their vehicles among the
   shared fitments ([#267](https://github.com/joshuasprow/nitrovin/issues/267)).
@@ -371,9 +381,10 @@ reverse's in a browser, decided after this measurement; see Budget):
 types' 10, and retained memory is 60 MiB. Reverse met ADR 0018's 1 ms in
 Safari, WebKit and Chromium, and missed it in Chrome (1.7 ms) and Firefox
 (2 ms); a person decided a browser's reverse budget is 3 ms, for the cause
-below (see Budget). Safari's numbers were taken at the commit before the
-module answered one request at a time, which changes nothing for requests
-asked one after another: Chromium on both measured within a few tenths of
+below (see Budget). Chrome, Safari, Firefox and WebKit were measured at
+`dc58fa5`, before the module answered one request at a time; Chromium at
+`accf15a`, after it. That changes nothing for requests asked one after
+another: Chromium on both measured within a few tenths of
 a millisecond by kind, reverse 1.0 and 1.4 ms at p99, with nothing
 collected in the middle of a request and 60.1 MiB retained.
 
@@ -463,6 +474,23 @@ page starts, as decided, and a Service Worker's events stay short.
   half way leaves parts no record keeps, which the next compile drops. A
   refused quota aborts it, and the parts written go.
 - **One compile at a time:** a Web Lock; another tab's is refused in words.
+- **What a stopped compile left goes when none runs.** A tab closed while
+  compiling leaves its parts; the worker drops them when it activates and
+  whenever the panel is drawn, if no compile holds the lock, and the panel
+  says how much a compile not finished keeps until then.
+- **A stale catalog doesn't block its recompile.** Picking the source again
+  replaces a catalog left out; one that links is still refused.
+- **A server that gains a catalog wins.** The browser's is left out with
+  the reason and offered for removal, and the worker sends the fit page to
+  the server, but for a fit naming one of the browser's files, which never
+  leaves the browser: the module refuses it in words (ADR 0013).
+- **The download is the page's.** Chrome and WebKit send a link's download
+  past the Service Worker to the server, so `vocab.js` asks the worker for
+  the stored Blob (handed over by reference) and saves it from a blob URL;
+  the link stays for a page without scripts.
+- **A read gives up after 10 s.** A read IndexedDB never answers would hold
+  every request behind it, so `disk.js` fails it after 10 s and the module
+  answers 503, "Reload the page to try again", and takes the next request.
 - **One request at a time, and the collector between them.** `sw.wasm`
   answers one request at a time. While serving it turns Go's pacing off
   (`debug.SetGCPercent(-1)`) and, once 4 MiB have been allocated since the

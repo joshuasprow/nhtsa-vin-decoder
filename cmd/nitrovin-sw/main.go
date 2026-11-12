@@ -87,8 +87,10 @@ func main() {
 				return map[string]any{"ok": true, "message": msg}, nil
 			})
 		}),
+		// reset waits for a request opening the Library, whose awaits
+		// need the event loop this callback holds: in a goroutine.
 		"reset": js.FuncOf(func(js.Value, []js.Value) any {
-			w.reset()
+			go w.reset()
 			return nil
 		}),
 	}))
@@ -153,7 +155,15 @@ func (w *worker) serve(method, url, hx, restore, body string) map[string]any {
 			if restore != "" {
 				req.Header.Set("HX-History-Restore-Request", restore)
 			}
+			readTimedOut = false
 			h.ServeHTTP(rec, req)
+			if readTimedOut {
+				rec = &recorder{h: http.Header{}}
+				rec.h.Set("Content-Type", "text/plain; charset=utf-8")
+				rec.h.Set("Retry-After", "5")
+				rec.WriteHeader(http.StatusServiceUnavailable)
+				fmt.Fprint(rec, readTimeoutText)
+			}
 		}
 	}
 	if w.lib != nil {
@@ -313,6 +323,14 @@ const (
 	partBytes = 1 << 20
 )
 
+// readTimedOut says a read of the request being answered timed out
+// (disk.js's read gives up after 10 s), so serve answers readTimeoutText
+// whatever the pages made of the error: requests are answered one at a
+// time, so the one waiting behind it goes next.
+var readTimedOut bool
+
+const readTimeoutText = "This browser's storage did not answer a read of its files in 10 s. Reload the page to try again."
+
 // blobReads and blobWaited count the reads of a blob and the time spent
 // awaiting them, for Server-Timing.
 var blobReads, blobWaited atomic.Int64
@@ -329,12 +347,19 @@ func (b *blob) ReadAt(p []byte, off int64) (int, error) {
 	if off >= b.size {
 		return 0, io.EOF
 	}
+	if readTimedOut {
+		// The request gives up on the first: none of its reads waits again.
+		return 0, errors.New("ReadTimeout: an earlier read of this request timed out")
+	}
 	n := min(int64(len(p)), b.size-off)
 	start := time.Now()
 	v, err := call("read", b.v, off, off+n)
 	blobReads.Add(1)
 	blobWaited.Add(int64(time.Since(start)))
 	if err != nil {
+		if strings.Contains(err.Error(), "ReadTimeout") {
+			readTimedOut = true
+		}
 		return 0, err
 	}
 	js.CopyBytesToGo(p[:n], v)

@@ -95,8 +95,11 @@ func changedLinks(f *vocab.File, files []*vocab.File) string {
 // held; the compile sorts in scratch, and the compiled file streams into
 // the Disk's CatalogWriter, committed only once it opens and links.
 //
-// It refuses while the server has a catalog or the browser holds one: one
-// catalog per nitrovin, counting the server and its browsers together. A
+// It refuses while the server has a catalog or the browser holds one that
+// links: one catalog per nitrovin, counting the server and its browsers
+// together. A stored catalog left out (stale, or one that no longer
+// opens) is what "pick the source again" replaces: the compile takes its
+// place, and its parts go once the new one is stored. A
 // catalog with faults, one that does not link, and storage the browser
 // refuses store nothing; the error says why in words. progress is told
 // each step and how far along it is. It returns the stored catalog as the
@@ -109,10 +112,13 @@ func (l *Library) Compile(src io.Reader, fileName string, size int64, scratch vo
 		return StoredFile{}, &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
 			"This server has a catalog, %s; one catalog per nitrovin, so this browser compiles none. Fit on this nitrovin answers from the server's catalog.", l.serverCatalog)}
 	}
-	if i := slices.IndexFunc(cur.browser, func(h *held) bool { return h.catalog }); i >= 0 {
+	if i := slices.IndexFunc(cur.browser, func(h *held) bool { return h.catalog && h.linked() }); i >= 0 {
 		return StoredFile{}, &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
 			"This browser holds a catalog already, %s; one catalog per nitrovin. Remove it to compile %s.", cur.browser[i].name, fileName)}
 	}
+	// A catalog left out is replaced: it is no longer among the browser's
+	// files from here on.
+	kept := slices.DeleteFunc(slices.Clone(cur.browser), func(h *held) bool { return h.catalog })
 	var files []*vocab.File
 	for _, h := range cur.all() {
 		if h.linked() {
@@ -123,7 +129,7 @@ func (l *Library) Compile(src io.Reader, fileName string, size int64, scratch vo
 	if err != nil {
 		return StoredFile{}, storageError(fileName, err)
 	}
-	h, err := l.compile(out, src, fileName, size, files, scratch, progress)
+	h, err := l.compile(out, src, fileName, size, files, append(slices.Clone(cur.server), kept...), scratch, progress)
 	if err != nil {
 		if aerr := out.Abort(); aerr != nil {
 			err = fmt.Errorf("%w; and what was written could not be dropped: %v", err, aerr)
@@ -131,11 +137,11 @@ func (l *Library) Compile(src io.Reader, fileName string, size int64, scratch vo
 		return StoredFile{}, err
 	}
 	progress("Linking " + h.name + "…")
-	next := &shelf{server: cur.server, browser: append(slices.Clone(cur.browser), h)}
+	next := &shelf{server: cur.server, browser: append(kept, h)}
 	slices.SortFunc(next.browser, func(a, b *held) int { return strings.Compare(a.name, b.name) })
 	set, dropped, err := l.link(next.all(), append(cur.linkedServer(), h))
-	if err == nil && breaks(cur.browser, dropped) != "" {
-		err = &pageError{Status: http.StatusConflict, Message: "It would leave stored files unable to link: " + breaks(cur.browser, dropped)}
+	if err == nil && breaks(kept, dropped) != "" {
+		err = &pageError{Status: http.StatusConflict, Message: "It would leave stored files unable to link: " + breaks(kept, dropped)}
 	}
 	if err == nil {
 		progress("Storing " + h.name + "…")
@@ -160,8 +166,8 @@ func (l *Library) Compile(src io.Reader, fileName string, size int64, scratch vo
 }
 
 // compile compiles src into out, and opens what it wrote: the catalog,
-// not yet linked or committed.
-func (l *Library) compile(out CatalogWriter, src io.Reader, fileName string, size int64, files []*vocab.File, scratch vocab.Scratch, progress func(string)) (*held, error) {
+// not yet linked or committed. Its name must be none of others'.
+func (l *Library) compile(out CatalogWriter, src io.Reader, fileName string, size int64, files []*vocab.File, others []*held, scratch vocab.Scratch, progress func(string)) (*held, error) {
 	r := &readProgress{r: src, size: size, name: fileName, progress: progress}
 	w := &writeProgress{w: out, name: fileName, progress: progress}
 	progress("Reading " + fileName + "…")
@@ -182,8 +188,7 @@ func (l *Library) compile(out CatalogWriter, src io.Reader, fileName string, siz
 	if err != nil {
 		return nil, fmt.Errorf("the compiled %s does not open: %s", fileName, faultText(err))
 	}
-	cur := l.state.Load()
-	if slices.ContainsFunc(cur.all(), func(h *held) bool { return h.name == f.Name }) {
+	if slices.ContainsFunc(others, func(h *held) bool { return h.name == f.Name }) {
 		return nil, &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
 			"%s is named %q, like a file loaded already: one name is one file (ADR 0011), so rename it in its header to compile it here.", fileName, f.Name)}
 	}
@@ -193,8 +198,13 @@ func (l *Library) compile(out CatalogWriter, src io.Reader, fileName string, siz
 }
 
 // storageError is err, met compiling or storing fileName, in words: a
-// quota the browser refused says so.
+// quota the browser refused says so, and so does a private window, where
+// some browsers (Safari's private browsing) store no Blob in IndexedDB.
 func storageError(fileName string, err error) error {
+	if strings.Contains(err.Error(), "Error preparing Blob") {
+		return &pageError{Status: http.StatusInsufficientStorage, Message: fmt.Sprintf(
+			"This browser keeps no files in a private window, so %s was not compiled and nothing was stored. Open nitrovin in a normal window to compile a catalog.", fileName)}
+	}
 	if strings.Contains(err.Error(), "QuotaExceeded") {
 		return &pageError{Status: http.StatusInsufficientStorage, Message: fmt.Sprintf(
 			"This browser refused the storage compiling %s needs (%v), so nothing was stored. Free some space for this site, or compile it on a server with nitrovin vocab compile.", fileName, err)}

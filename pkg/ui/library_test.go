@@ -100,6 +100,12 @@ type memDisk struct {
 	catalogData []byte
 	writing     int
 	quota       int
+	// partBytes, when not 0, keeps the catalog in parts of that many bytes
+	// and reads it across them, as IndexedDB keeps it in a browser
+	// (cmd/nitrovin-sw's parts); spanning counts the reads of more than
+	// one part.
+	partBytes int
+	spanning  int
 }
 
 func newDisk() *memDisk {
@@ -178,7 +184,53 @@ func (d *memDisk) Catalog() (Record, io.ReaderAt, bool, error) {
 	if d.catalog == nil {
 		return Record{}, nil, false, nil
 	}
+	if d.partBytes > 0 {
+		return *d.catalog, &partedReader{d: d, parts: split(d.catalogData, d.partBytes)}, true, nil
+	}
 	return *d.catalog, bytes.NewReader(d.catalogData), true, nil
+}
+
+// split is b in parts of n bytes, the last one shorter.
+func split(b []byte, n int) [][]byte {
+	var out [][]byte
+	for len(b) > n {
+		out, b = append(out, slices.Clone(b[:n])), b[n:]
+	}
+	return append(out, slices.Clone(b))
+}
+
+// partedReader reads a file kept in parts of d.partBytes, a read of a
+// range across parts joining them.
+type partedReader struct {
+	d     *memDisk
+	parts [][]byte
+}
+
+func (r *partedReader) ReadAt(p []byte, off int64) (int, error) {
+	n, size := r.d.partBytes, 0
+	for _, part := range r.parts {
+		size += len(part)
+	}
+	if off >= int64(size) {
+		return 0, io.EOF
+	}
+	got, first := 0, int(off)/n
+	for i := first; got < len(p) && i < len(r.parts); i++ {
+		at := 0
+		if i == first {
+			at = int(off) - i*n
+		}
+		got += copy(p[got:], r.parts[i][at:])
+	}
+	if int(off)/n != (int(off)+got-1)/n {
+		r.d.mu.Lock()
+		r.d.spanning++
+		r.d.mu.Unlock()
+	}
+	if got < len(p) {
+		return got, io.EOF
+	}
+	return got, nil
 }
 
 func (d *memDisk) NewCatalog() (CatalogWriter, error) {
@@ -210,7 +262,12 @@ func (c *memCatalog) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func (c *memCatalog) Written() (io.ReaderAt, error) { return bytes.NewReader(c.data), nil }
+func (c *memCatalog) Written() (io.ReaderAt, error) {
+	if c.d.partBytes > 0 {
+		return &partedReader{d: c.d, parts: split(c.data, c.d.partBytes)}, nil
+	}
+	return bytes.NewReader(c.data), nil
+}
 
 func (c *memCatalog) Commit(rec Record) error {
 	c.d.mu.Lock()

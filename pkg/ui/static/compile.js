@@ -39,7 +39,7 @@ self.addEventListener('message', async (e) => {
     await ready;
     const compile = () => self.nitrovin.compile(file, (text) => say({ progress: text }));
     const r = navigator.locks
-      ? await navigator.locks.request('nitrovin-compile', { ifAvailable: true }, (lock) => (lock ? compile()
+      ? await navigator.locks.request(COMPILE_LOCK, { ifAvailable: true }, (lock) => (lock ? compile()
         : { ok: false, message: 'a catalog is compiling in another tab of this browser: wait until it is done, then try again.' }))
       : await compile();
     say({ done: true, ok: r.ok, message: r.message, memory: instance.exports.mem.buffer.byteLength });

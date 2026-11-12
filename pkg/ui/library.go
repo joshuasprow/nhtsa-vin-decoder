@@ -273,7 +273,13 @@ func OpenLibrary(info contract.Info, remote Remote, disk Disk) (*Library, error)
 		return nil, fmt.Errorf("reading the stored catalog: %w", err)
 	}
 	if ok {
-		s.browser = append(s.browser, openCatalog(rec, r))
+		h := openCatalog(rec, r)
+		// A server that gained a catalog since answers fit: one catalog
+		// per nitrovin, and one answer to one link (ADR 0023).
+		if l.serverCatalog != "" {
+			h.file, h.fault = nil, fmt.Sprintf("this server has a catalog now, %s; one catalog per nitrovin, so fit answers from the server's. Remove this browser's.", l.serverCatalog)
+		}
+		s.browser = append(s.browser, h)
 		slices.SortFunc(s.browser, func(a, b *held) int { return strings.Compare(a.name, b.name) })
 	}
 	took("catalog")
@@ -523,7 +529,7 @@ func (l *Library) list(s *shelf, hs []*held) []StoredFile {
 				}
 			}
 		}
-		if h.catalog && h.fault != "" {
+		if h.catalog && h.fault != "" && l.serverCatalog == "" {
 			out[i].Fault += " " + recompile
 		}
 		if h.linked() {

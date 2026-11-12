@@ -9,8 +9,9 @@
 //   browser holds (its from or a target: named), the page without a
 //   lookup once it holds one (its forms over the browser's files too), an
 //   entry list (/ui/vocabularies/<name>) of a file it holds, and
-//   /ui/files, the fit page (/ui/fit) while it holds the catalog
-//   (ADR 0023) and that catalog's download (/ui/files/catalog);
+//   /ui/files, the fit page (/ui/fit) while it holds the catalog and the
+//   server has none (ADR 0023), or when it names a file this browser
+//   holds, and that catalog's download (/ui/files/catalog);
 //   everything else goes to the server unchanged, a lookup
 //   naming no target included, so one URL means one thing with
 //   JavaScript on or off, and in every browser.
@@ -132,11 +133,20 @@ self.addEventListener('activate', (e) => {
       if (key.startsWith('nitrovin ') && key !== CACHE) await caches.delete(key);
     }
     await dropStaleIndexes();
+    await clearLeftParts();
     await self.clients.claim();
   })());
 });
 
 // IndexedDB is disk.js's, imported before this script.
+
+// clearLeftParts drops what a compile that stopped half way left (its tab
+// closed), when no compile runs: one holds the lock while it writes. A
+// browser without Web Locks leaves them to its next compile.
+function clearLeftParts() {
+  if (!self.navigator.locks) return Promise.resolve();
+  return navigator.locks.request(COMPILE_LOCK, { ifAvailable: true }, (lock) => lock && self.nitrovinDisk.clearParts()).catch(() => {});
+}
 
 // dropStaleIndexes drops the indexes of other releases, and of files
 // neither stored nor the server's.
@@ -192,8 +202,13 @@ const MOVED = '/ui/translate';
 const FIT = '/ui/fit';
 const DOWNLOAD = '/ui/files/catalog';
 
+// fileName is the name a downloaded catalog is saved as.
+const fileName = (c) => c.record.name.replace(/[^A-Za-z0-9._-]/g, '_') + '.compiled';
+
 // download answers with the compiled catalog this browser holds, read from
-// IndexedDB as it streams to the visitor's disk.
+// IndexedDB as it streams to the visitor's disk. vocab.js saves it from a
+// blob URL instead ({op: "download"}): a browser may send a link's
+// download to the server without asking the worker.
 async function download() {
   const c = await self.nitrovinDisk.catalog();
   if (!c) {
@@ -203,7 +218,7 @@ async function download() {
     headers: {
       'Content-Type': 'application/octet-stream',
       'Content-Length': String(c.blob.size),
-      'Content-Disposition': 'attachment; filename="' + c.record.name.replace(/[^A-Za-z0-9._-]/g, '_') + '.compiled"',
+      'Content-Disposition': 'attachment; filename="' + fileName(c) + '"',
     },
   });
 }
@@ -217,6 +232,10 @@ function named(q) {
   if (ext && ext.startsWith('ext:')) out.push(ext.slice(4).split('/')[0]);
   return out.filter(Boolean);
 }
+
+// fitNamed is what a fit names (pkg/ui, fitNamed): named, and the part's
+// vocabulary and spine.
+const fitNamed = (q) => named(q).concat([q.get('part.vocabulary'), q.get('part.spine')].filter(Boolean));
 
 // asks reports whether q asks a lookup: a from beside a vocabulary's
 // name, a form's choice.
@@ -239,10 +258,18 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(own(e.request, download));
     return;
   }
-  // The fit page is the module's while this browser holds the catalog,
-  // else the server's (ADR 0023): one catalog per nitrovin.
+  // The fit page is the module's while this browser holds the catalog and
+  // the server has none, else the server's (ADR 0023): one catalog per
+  // nitrovin. A fit naming a file of this browser's never goes to the
+  // server: the module answers it, or refuses it in words.
   if (url.pathname === FIT) {
-    e.respondWith(heldCatalog().then((name) => (name ? own(e.request, () => serve(e.request)) : network(e.request))));
+    const q = url.searchParams;
+    e.respondWith(Promise.all([heldCatalog(), storedNames()]).then(([name, stored]) => {
+      const mine = name && !config.catalog;
+      const names = fitNamed(q);
+      if (mine || names.some((n) => stored.has(n) || n === name)) return own(e.request, () => serve(e.request));
+      return network(e.request);
+    }));
     return;
   }
   // An old link may name a file of this browser's: it moves here, as the
@@ -317,12 +344,27 @@ async function serve(req) {
 // event. {op: "compiler"} on a MessageChannel answers with what it needs,
 // {config}, or {refused} in words when this worker is outdated; {op:
 // "catalog"} after it stored one opens the files again, answered on a
-// MessageChannel once done.
+// MessageChannel once done. {op: "download"} answers with the stored
+// catalog, {blob, name}, or {message}; {op: "left"} drops what a compile
+// not running left and answers with what is left, {bytes}: a compile's
+// running.
 self.addEventListener('message', (e) => {
   const op = e.data && e.data.op;
   if (op === 'compiler' && e.ports[0]) {
     const port = e.ports[0];
     e.waitUntil(current().then((ok) => port.postMessage(ok ? { config } : { refused: stale() })));
+    return;
+  }
+  if (op === 'download' && e.ports[0]) {
+    const port = e.ports[0];
+    e.waitUntil(self.nitrovinDisk.catalog().then(
+      (c) => port.postMessage(c ? { blob: c.blob, name: fileName(c) } : { message: 'this browser holds no compiled catalog.' }),
+      (err) => port.postMessage({ message: String(err) })));
+    return;
+  }
+  if (op === 'left' && e.ports[0]) {
+    const port = e.ports[0];
+    e.waitUntil(clearLeftParts().then(() => self.nitrovinDisk.leftBytes()).then((bytes) => port.postMessage({ bytes }), () => port.postMessage({ bytes: 0 })));
     return;
   }
   if (op === 'catalog') {
