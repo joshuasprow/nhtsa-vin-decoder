@@ -53,14 +53,23 @@ for target in "${targets[@]}"; do
   case "$goos" in
     linux) triple="$arch-linux-gnu.2.17" ext=so ldflags="-Wl,-soname,libnitrovin.so" ;;
     darwin) triple="$arch-macos.11.0" ext=dylib ldflags="-L$stubs -Wl,-install_name,@rpath/libnitrovin.dylib" ;;
-    windows) triple="$arch-windows-gnu" ext=dll ldflags= ;;
+    # -Brepro: the PE timestamp is a hash of the content, not the time of
+    # the link, so a rebuild writes the same bytes.
+    windows) triple="$arch-windows-gnu" ext=dll ldflags=-Wl,-Brepro ;;
     *) echo "libnitrovin.sh: no such target $target" >&2; exit 2 ;;
   esac
   out="$dir/$goos-$goarch"
   mkdir -p "$out"
   start=$SECONDS
+  # -buildid= leaves out Go's build ID, a hash of the build's inputs rather
+  # than of the library: it would carry the stub's temporary path (in
+  # CGO_LDFLAGS) and, on windows, runtime/cgo's objects, whose CodeView names
+  # the temporary files zig and Go compiled them through. A release retry
+  # (.github/workflows/release.yml) requires a rebuild of the tag, from any
+  # checkout and a cold build cache, to write the same bytes. Nothing reads a
+  # library's build ID; go version -m reads its build info, which stays.
   CGO_ENABLED=1 GOOS="$goos" GOARCH="$goarch" CC="zig cc -target $triple" CGO_LDFLAGS="$ldflags" \
-    go build -trimpath -ldflags='-s -w' -buildmode=c-shared \
+    go build -trimpath -ldflags='-s -w -buildid=' -buildmode=c-shared \
     -o "$out/libnitrovin.$ext" ./cmd/libnitrovin
   mv "$out/libnitrovin.h" "$out/nitrovin.h"
   echo "$out/libnitrovin.$ext: $(wc -c <"$out/libnitrovin.$ext" | tr -d ' ') bytes, $((SECONDS - start)) s ($triple)"

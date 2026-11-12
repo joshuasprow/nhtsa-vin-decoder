@@ -7,7 +7,11 @@
 # release that release.yml (goreleaser) ships through every channel. Red
 # publishes nothing: no data release, the pinned month stays, and the report
 # goes to an issue named "Refresh <month> is red" (a comment there on each
-# red run; the next green run closes it).
+# red run; the next green run closes it). A release.yml run that fails after
+# publishing part of the release is retried once, in parts: release.yml
+# dispatched from the tag, skipping what it published (scripts/release.sh
+# wait); a second failure is red with both runs linked. The data release and
+# the go.mod bump are never retried or rolled back.
 #
 # Credentials, beside this run's GITHUB_TOKEN:
 #   NITROVIN_DATA_DEPLOY_KEY  write deploy key of joshuasprow/nitrovin-data: pushes
@@ -546,12 +550,14 @@ jobs:
   release:
     needs: [detect, publish-data, bump]
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # The tag's run, and a retry.
+    timeout-minutes: 120
     permissions:
       contents: read
-      actions: read
+      actions: write # dispatches release.yml's retry
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+      runs: ${{ steps.wait.outputs.runs }}
     env:
       MONTH: ${{ needs.detect.outputs.month }}
       DATA_TAG: ${{ needs.publish-data.outputs.tag }}
@@ -586,18 +592,12 @@ jobs:
             git push "git@github.com:$GITHUB_REPOSITORY.git" "refs/tags/$tag"
           echo "tag=$tag" | tee -a "$GITHUB_OUTPUT"
 
+      # Red after publishing part of the release: one retry of the rest.
       - name: Wait for release.yml
+        id: wait
         env:
           TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          for _ in $(seq 40); do
-            id=$(gh run list --workflow release.yml --event push --branch "$TAG" -L 1 --json databaseId --jq '.[0].databaseId // ""')
-            [ -n "$id" ] && break
-            sleep 15
-          done
-          [ -n "$id" ] || { echo "refresh: release.yml did not start on $TAG" >&2; exit 1; }
-          gh run watch "$id" --exit-status --interval 30
-          gh release view "$TAG"
+        run: scripts/release.sh wait "$TAG" | tee -a "$GITHUB_OUTPUT"
 
   # Red anywhere after detect: comment the report on the month's issue,
   # opening it if need be. Green: close it.
@@ -636,6 +636,7 @@ jobs:
           DATA_TAG: ${{ needs.publish-data.outputs.tag }}
           TAG: ${{ needs.release.outputs.tag }}
           PR: ${{ needs.bump.outputs.pr }}
+          RELEASE_RUNS: ${{ needs.release.outputs.runs }}
         run: |
           # Red is any result but success or skipped: failure, cancelled, and
           # jobs Actions never ran (an incident leaves them "abandoned").
@@ -646,6 +647,12 @@ jobs:
           if [ -n "$failed" ]; then
             {
               echo "The [refresh run]($RUN_URL)$([ "$DRY_RUN" = true ] && echo ', a dry run,') failed in: $failed."
+              # The tag's release.yml run, and its retry when there was one.
+              if [ -n "$RELEASE_RUNS" ] && [[ $failed == *release* ]]; then
+                read -ra runs <<<"$RELEASE_RUNS"
+                echo
+                echo "release.yml on $TAG: [the tag's run](${runs[0]})${runs[1]:+, then [the retry](${runs[1]}), red too}."
+              fi
               echo
               cat "$RUNNER_TEMP/report/report.md" 2>/dev/null || echo 'No report: the run failed before the gates.'
             } | awk -v max=60000 '{ n += length($0) + 1 } n > max { print "\n(Cut at 60,000 characters: the run summary has the rest.)"; exit } { print }' >"$RUNNER_TEMP/body.md"

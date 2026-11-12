@@ -13,11 +13,28 @@
 # gate: runner timings are too noisy to hold, so a failed bench job fails
 # only itself and the release goes out without the table.
 #
-# On a pull request that touches the release, and on dispatch, the same
-# build as a snapshot: no signing, no publishing, the images built per
-# platform and loaded, the amd64 packages installed and removed in Debian,
-# Fedora and Alpine, and server.json validated by the registry and run as it
-# says; and the benchmarks, whose table is the bench job's summary.
+# On a pull request that touches the release, and on dispatch without a tag,
+# the same build as a snapshot: no signing, no publishing, the images built
+# per platform and loaded, the amd64 packages installed and removed in
+# Debian, Fedora and Alpine, and server.json validated by the registry and run
+# as it says; the benchmarks, whose table is the bench job's summary; and the
+# tests of scripts/release.sh.
+#
+# Dispatched with a tag, from that tag (so its signatures are the tag's
+# identity), the release job completes the tag's existing release in parts
+# (CONTRIBUTING.md, "When a release is red"): skip names the publishers that
+# already published, and those whose channel already has the version are
+# skipped too (scripts/release.sh). It rebuilds the tag and requires the
+# release's checksums.txt before anything is published, keeps the bundles
+# when every asset has one (resign makes them again), re-attaches to the
+# release (assets replaced by name, the same bytes), runs the steps after
+# goreleaser, each idempotent, and adds a line to the notes. A release still
+# a draft (goreleaser publishes only once every upload is up) is deleted
+# after the comparison, keeping the tag, and made again whole. With dry-run
+# it stops after the rebuild, the comparison and the verification of the
+# release's bundles, publishing nothing; a dry run may run from a branch.
+# The tag push refuses a tag that already has a release or a draft, so a
+# re-run cannot publish twice.
 name: Release
 
 on:
@@ -29,6 +46,8 @@ on:
       - Dockerfile
       - scripts/libnitrovin.sh
       - scripts/mcp-server-json.sh
+      - scripts/release.sh
+      - scripts/release_test.go
       - scripts/epa.sh
       - docs/api/mcp-tools.json
       - mise.toml
@@ -37,12 +56,30 @@ on:
       - .github/workflows/release.yml
       - bench/vocab/**
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Complete the release of this existing tag (run from the tag itself); empty builds a snapshot
+        type: string
+        default: ""
+      skip:
+        description: "With a tag: publishers already done, comma-separated: docker, homebrew, scoop, winget, sign"
+        type: string
+        default: ""
+      resign:
+        description: "With a tag: sign every asset again, though each has its bundle"
+        type: boolean
+        default: false
+      dry-run:
+        description: "With a tag: rebuild, compare with the release and verify its bundles; publish nothing"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# By tag: a retry waits for the tag push's run, and the other way round.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
 
 defaults:
   run:
@@ -51,6 +88,8 @@ defaults:
 
 jobs:
   bench:
+    # Not on a retry: the release's notes keep their table.
+    if: ${{ !inputs.tag }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     continue-on-error: true
@@ -86,7 +125,7 @@ jobs:
             ${{ runner.temp }}/bench.md
 
   snapshot:
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && !inputs.tag
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -95,8 +134,11 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/mise
         with:
-          tools: go zig goreleaser jq github:modelcontextprotocol/registry
+          tools: go zig goreleaser jq yq github:modelcontextprotocol/registry
       - uses: docker/setup-buildx-action@v4
+
+      - name: Test the retry helper
+        run: go test -count=1 ./scripts
 
       - name: Read the embedded data month
         run: echo "DATA_MONTH=$(go run ./cmd/nitrovin info | jq -r .data_month)" | tee -a "$GITHUB_ENV"
@@ -192,23 +234,57 @@ jobs:
           echo "$image ${args[*]}: tools/list names decode_vin"
 
   release:
-    # After the benchmarks, for their table; whatever their result.
+    # After the benchmarks, for their table; whatever their result. A retry
+    # runs none.
     needs: bench
-    if: ${{ !cancelled() && github.event_name == 'push' }}
+    if: ${{ !cancelled() && (github.event_name == 'push' || inputs.tag != '') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # A retry builds twice.
+    timeout-minutes: 45
     permissions:
       contents: write # the release
       packages: write # ghcr.io/joshuasprow/nitrovin
       id-token: write # cosign keyless: the OIDC token Fulcio certifies
     env:
-      TAG: ${{ github.ref_name }}
-      IDENTITY: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+      RETRY: ${{ inputs.tag != '' }}
+      DRY_RUN: ${{ inputs.dry-run == true }}
+      # The tag's identity: the tag push's, and a retry's, which runs from the
+      # tag (a dry run, which signs nothing, may run from a branch).
+      IDENTITY: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/release.yml@refs/tags/${{ inputs.tag || github.ref_name }}
       ISSUER: https://token.actions.githubusercontent.com
       IMAGE: ghcr.io/joshuasprow/nitrovin
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
     steps:
+      # A tag push publishes a release that does not exist yet, so a re-run
+      # after a partial publish cannot publish twice (nor make a second
+      # release beside a failed upload's draft). A retry completes the
+      # release of a tag that has one, published or a draft, from the tag.
+      - name: Check the tag
+        run: |
+          die() { echo "release: $*" >&2; exit 1; }
+          if [[ $RETRY != true ]]; then
+            # gh finds a draft too: what an upload that failed leaves.
+            if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+              [[ $draft != true ]] || die "$TAG already has a draft release, left by an upload that failed: running again would make a second release beside it. Complete it in parts: dispatch release.yml from $TAG with tag $TAG and skip (CONTRIBUTING.md, \"When a release is red\")"
+              die "$TAG already has a release: running again would publish it twice. Complete it in parts: dispatch release.yml from $TAG with tag $TAG and skip (CONTRIBUTING.md, \"When a release is red\")"
+            fi
+            exit 0
+          fi
+          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || die "$TAG is not a release tag (vX.Y.Z or vX.Y.Z-<prerelease>)"
+          gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .ref >/dev/null 2>&1 || die "no tag $TAG: a retry completes a tag's release, it never makes one"
+          gh release view "$TAG" --json tagName >/dev/null 2>&1 ||
+            die "$TAG has no release, so nothing was published to complete: re-run the tag's failed jobs instead"
+          if [[ $GITHUB_REF != "refs/tags/$TAG" ]]; then
+            [[ $DRY_RUN == true ]] ||
+              die "run the retry from $TAG (Use workflow from: $TAG, or gh workflow run release.yml --ref $TAG), not $GITHUB_REF, so that its signatures are $IDENTITY"
+            echo "::notice::a dry run from $GITHUB_REF, of $TAG's tree; it signs and publishes nothing"
+          fi
+
       - uses: actions/checkout@v7
         with:
+          ref: refs/tags/${{ env.TAG }}
           fetch-depth: 0
       - uses: ./.github/actions/mise
         with:
@@ -232,19 +308,124 @@ jobs:
         run: echo "DATA_MONTH=$(go run ./cmd/nitrovin info | jq -r .data_month)" | tee -a "$GITHUB_ENV"
 
       - uses: actions/download-artifact@v8
+        if: env.RETRY != 'true'
         continue-on-error: true
         with:
           name: bench
           path: ${{ runner.temp }}/bench
 
+      # What the retry publishes (scripts/release.sh plan): every publisher
+      # but those skip names and those whose channel already has the
+      # version. Signing is skipped when every asset already has its bundle,
+      # unless resign; never for a draft, which is deleted and made again.
+      - name: Plan the retry
+        id: plan
+        if: env.RETRY == 'true'
+        env:
+          SKIP: ${{ inputs.skip }}
+          RESIGN: ${{ inputs.resign }}
+        run: |
+          # The helper from this workflow's own commit, which is the tag's,
+          # or a dry run's branch (a tag from before the retry has none),
+          # reading the tag's channels.
+          mkdir -p "$RUNNER_TEMP/retry/scripts"
+          git show "$GITHUB_SHA:scripts/release.sh" >"$RUNNER_TEMP/retry/scripts/release.sh"
+          chmod +x "$RUNNER_TEMP/retry/scripts/release.sh"
+          cp .goreleaser.yaml "$RUNNER_TEMP/retry/"
+          helper=$RUNNER_TEMP/retry/scripts/release.sh
+          echo "HELPER=$helper" >>"$GITHUB_ENV"
+
+          opts=()
+          [[ $RESIGN != true ]] || opts+=(--resign)
+          plan=$("$helper" plan "${opts[@]}" "$TAG" "$SKIP" "$RUNNER_TEMP/published")
+          echo "$plan" >>"$GITHUB_OUTPUT"
+          get() { sed -n "s/^$1=//p" <<<"$plan"; }
+          release=$(get release) ran=$(get ran) skipped=$(get skipped) already=$(get already)
+          {
+            echo "Retry of $TAG$([[ $DRY_RUN == true ]] && echo ', a dry run: publishes nothing')"
+            if [[ $release == draft ]]; then
+              echo "- the release is a draft, left by an upload that failed: once the rebuild matches it, it is deleted (the tag stays) and goreleaser makes the release whole"
+            fi
+            echo "- runs: ${ran//,/ } (release: the assets, replaced by name with the same bytes)"
+            echo "- skips: ${skipped:-nothing} (asked: ${SKIP:-nothing}; already in their channel: ${already:-none})"
+            echo "- then, each idempotent: the server.json bundle, verification, the image's signature, the MCP Registry"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Before anything is published: the tag rebuilt must be the release's
+      # bytes (.goreleaser.yaml and scripts/libnitrovin.sh build them
+      # reproducibly), and the release's bundles must verify against them. A
+      # difference means the tree or the toolchain changed, and a version
+      # never ships other bytes.
+      - name: Rebuild and compare with the release
+        if: env.RETRY == 'true'
+        env:
+          # Read by the publishers' templates; nothing is published.
+          HOMEBREW_TAP_DEPLOY_KEY: unused
+          SCOOP_BUCKET_DEPLOY_KEY: unused
+        run: |
+          die() { echo "release: $*" >&2; exit 1; }
+          pub=$RUNNER_TEMP/published
+          goreleaser release --clean --skip=publish,sign
+          cp build/server.json dist/server.json
+          if [[ -f $pub/checksums.txt ]]; then
+            diff "$pub/checksums.txt" dist/checksums.txt ||
+              die "the rebuild of $TAG differs from its release's checksums.txt (above): nothing is published"
+            echo "the rebuild of $TAG is the release's checksums.txt"
+          else
+            # The upload stopped before checksums.txt: each asset it made
+            # must be the rebuilt bytes.
+            while read -r sum asset; do
+              grep -qxF "$asset" "$pub/assets.txt" || continue
+              "$HELPER" download "$TAG" "$pub" "$asset"
+              echo "$sum  $pub/$asset" | sha256sum --check ||
+                die "the release's $asset differs from the rebuild of $TAG: nothing is published"
+            done <dist/checksums.txt
+          fi
+          n=0
+          for bundle in "$pub"/*.sigstore.json; do
+            [[ -e $bundle ]] || continue
+            cosign verify-blob --bundle "$bundle" --certificate-identity "$IDENTITY" \
+              --certificate-oidc-issuer "$ISSUER" "dist/$(basename "$bundle" .sigstore.json)"
+            n=$((n + 1))
+          done
+          echo "$n of the release's bundles verify against the rebuild"
+
+      # goreleaser finds a release by its tag, which never answers with a
+      # draft, so it would make a second release beside one. The draft an
+      # upload left goes, now that its bytes are known to be the rebuild's;
+      # goreleaser makes the release again and publishes it.
+      - name: Delete the draft release
+        if: env.RETRY == 'true' && env.DRY_RUN != 'true' && steps.plan.outputs.release == 'draft'
+        run: |
+          "$HELPER" clear-draft "$TAG"
+
+      # goreleaser reuses a winget branch that exists; one a failed attempt
+      # left goes, unless a pull request has it.
+      - name: Clear the winget branch
+        if: env.RETRY == 'true' && env.DRY_RUN != 'true' && !contains(steps.plan.outputs.flag, 'winget') && vars.WINGET_SUBMIT == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+        run: |
+          [[ -n $GH_TOKEN ]] || { echo "no WINGET_GITHUB_TOKEN: winget submits nothing"; exit 0; }
+          "$HELPER" clear-winget "$TAG"
+
       - name: goreleaser
+        if: env.DRY_RUN != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
           SCOOP_BUCKET_DEPLOY_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
           WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
           WINGET_SUBMIT: ${{ vars.WINGET_SUBMIT }}
+          SKIP_FLAG: ${{ steps.plan.outputs.flag }}
         run: |
+          if [[ $RETRY == true ]]; then
+            # Into the existing release (release.replace_existing_artifacts:
+            # the bytes compared above); its notes stay. A draft's was
+            # deleted: goreleaser makes the release afresh.
+            goreleaser release --clean ${SKIP_FLAG:+"$SKIP_FLAG"}
+            exit 0
+          fi
           # The benchmarks' table follows the changelog in the release notes.
           footer=()
           if [[ -s $RUNNER_TEMP/bench/bench.md ]]; then
@@ -255,16 +436,24 @@ jobs:
           goreleaser release --clean "${footer[@]}"
 
       # goreleaser checksummed and uploaded server.json but signs only what it
-      # built.
+      # built. A retry that skips signing keeps the release's bundles, which
+      # the next step verifies.
       - name: Sign server.json
+        if: env.DRY_RUN != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          SKIP_FLAG: ${{ steps.plan.outputs.flag }}
         run: |
           cp build/server.json dist/server.json
+          if [[ ,${SKIP_FLAG#--skip=}, == *,sign,* ]]; then
+            cp "$RUNNER_TEMP"/published/*.sigstore.json dist/
+            echo "every asset keeps the release's bundle"
+            exit 0
+          fi
           cosign sign-blob --yes --bundle dist/server.json.sigstore.json dist/server.json
-          gh release upload "$TAG" dist/server.json.sigstore.json
+          gh release upload "$TAG" dist/server.json.sigstore.json --clobber
 
       - name: Verify the assets
+        if: env.DRY_RUN != 'true'
         working-directory: dist
         run: |
           # Every asset in checksums.txt, and checksums.txt, has a bundle.
@@ -279,6 +468,10 @@ jobs:
           for asset in nitrovin_"${TAG#v}"_linux_{amd64,arm64}.{deb,rpm,apk} server.json; do
             grep -q " $asset\$" checksums.txt || { echo "release: $asset is not in checksums.txt" >&2; exit 1; }
           done
+          # A retry uploaded the bytes it compared before publishing.
+          if [[ $RETRY == true && -f $RUNNER_TEMP/published/checksums.txt ]]; then
+            diff "$RUNNER_TEMP/published/checksums.txt" checksums.txt
+          fi
           # Every binary and library reports the tag itself (not +dirty).
           cd ..
           for f in dist/nitrovin_*/nitrovin* build/libnitrovin/*/libnitrovin.*; do
@@ -286,19 +479,45 @@ jobs:
             [[ $v == "$TAG" ]] || { echo "release: $f reports $v, not $TAG" >&2; exit 1; }
           done
 
+      # Once, by digest: a retry that skipped docker signs the image the tag
+      # push pushed, unless that run signed it already.
       - name: Sign the image
+        if: env.DRY_RUN != 'true'
         run: |
           digest=$(jq -r --arg tag "$IMAGE:$TAG" 'map(select(.type == "Docker Image" and .name == $tag))[0].extra.Digest' dist/artifacts.json)
+          if [[ $digest != sha256:* && $RETRY == true ]]; then
+            digest=$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{json .Manifest}}' | jq -r .digest)
+          fi
           [[ $digest == sha256:* ]] || { echo "release: no digest for $IMAGE:$TAG" >&2; exit 1; }
+          if cosign verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" "$IMAGE@$digest" >/dev/null 2>&1; then
+            echo "$IMAGE@$digest is signed already"
+            exit 0
+          fi
           cosign sign --yes "$IMAGE@$digest"
           cosign verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" "$IMAGE@$digest" >/dev/null
           echo "signed $IMAGE@$digest"
 
       # Last, so that a registry outage fails only this step, after everything
-      # else is published and signed. To publish after such a failure without
-      # rerunning the release: download the release's server.json, then
-      # `mcp-publisher login github` and `mcp-publisher publish server.json`.
+      # else is published and signed; a retry (skipping every publisher)
+      # publishes it. A version the registry has is left alone.
       - name: Publish to the MCP Registry
+        if: env.DRY_RUN != 'true'
         run: |
+          name=$(jq -r .name dist/server.json)
+          version=$(jq -r .version dist/server.json)
+          if curl -fsS -o /dev/null "https://registry.modelcontextprotocol.io/v0/servers/$(jq -rn --arg n "$name" '$n | @uri')/versions/$version"; then
+            echo "$name $version is in the MCP Registry already"
+            exit 0
+          fi
           mcp-publisher login github-oidc
           mcp-publisher publish dist/server.json
+
+      # The release page says it was completed in two attempts.
+      - name: Note the retry in the release notes
+        if: env.RETRY == 'true' && env.DRY_RUN != 'true'
+        env:
+          RAN: ${{ steps.plan.outputs.ran }}
+        run: |
+          gh release view "$TAG" --json body --jq .body >"$RUNNER_TEMP/notes.md"
+          printf '\nPublishers retried on %s: %s.\n' "$(date -u +%F)" "${RAN//,/, }" >>"$RUNNER_TEMP/notes.md"
+          gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
