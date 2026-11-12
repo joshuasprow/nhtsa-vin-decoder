@@ -320,11 +320,9 @@
   };
 
   // compiling is true while a catalog compiles in this page: leaving it
-  // stops the compile.
+  // stops the compile, so the browser asks first (stay).
   let compiling = false;
-  window.addEventListener('beforeunload', (e) => {
-    if (compiling) e.preventDefault();
-  });
+  const stay = (e) => e.preventDefault();
 
   // compile compiles file, a catalog's JSON Lines, as this browser's
   // catalog (ADR 0023), in a dedicated worker this page starts
@@ -341,6 +339,7 @@
       return;
     }
     compiling = true;
+    window.addEventListener('beforeunload', stay);
     const worker = new Worker(c.config.assets + '/compile.js');
     let done;
     try {
@@ -354,6 +353,7 @@
       });
     } finally {
       compiling = false;
+      window.removeEventListener('beforeunload', stay);
       worker.terminate();
     }
     section.dataset.compileMemory = done.memory || '';
@@ -379,6 +379,8 @@
       tell('Nothing was loaded: a catalog is compiling in this tab. Wait until it is done, then load them again.');
       return;
     }
+    const what = picked.map((f) => f.name).join(', ');
+    tell('Reading ' + what + '…');
     const kinds = await Promise.all(picked.map(kindOf));
     if (kinds.includes('catalog')) {
       if (picked.length > 1) {
@@ -388,7 +390,7 @@
       await compile(picked[0]);
       return;
     }
-    await load(picked.map((f) => f.name).join(', '), picked.map(fromDisk));
+    await load(what, picked.map(fromDisk));
   };
 
   document.addEventListener('change', (e) => {

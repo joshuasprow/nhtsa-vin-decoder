@@ -30,6 +30,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -146,7 +147,13 @@ func (w *worker) serve(method, url, hx, restore, body string) map[string]any {
 		}
 	}
 	if w.lib != nil {
-		rec.h.Set("Server-Timing", w.lib.Opened()+fmt.Sprintf(", serve;dur=%.1f", float64(time.Since(start).Microseconds())/1000))
+		// What the module holds after answering, for the browser's half of
+		// ADR 0023's budget: the Go heap in use, and the WebAssembly
+		// memory it has taken from the browser, which never shrinks.
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		rec.h.Set("Server-Timing", w.lib.Opened()+fmt.Sprintf(", serve;dur=%.1f, heap;desc=%d, memory;desc=%d",
+			float64(time.Since(start).Microseconds())/1000, m.HeapInuse, m.Sys))
 	}
 	headers := map[string]any{}
 	for k := range rec.h {
