@@ -106,10 +106,8 @@ func TestBuild(t *testing.T) {
 	// 15's slash alternatives. Any other model-years finding is a rule that
 	// changed what it picks, and any other drift a build fault.
 	//
-	// The Avalanche 1500 (lines 19, 20) takes Series spellings from the
-	// van line its VIN schemas share, and the 4WD widens its drive to AWD
-	// too (ADR 0015): model-qualifier findings until the builder moves onto
-	// the model values index (#235), which removes them.
+	// Every qualifier is the mapped model's own (ADR 0015): AllDrift, which
+	// also runs the model-qualifier check load skips, finds none.
 	var years, qualifiers []string
 	for _, f := range tr.AllDrift() {
 		switch f.Drift {
@@ -129,18 +127,8 @@ func TestBuild(t *testing.T) {
 	if want := []string{"13 wholly", "15 wholly", "23 partly", "34 partly"}; !slices.Equal(years, want) {
 		t.Errorf("model-years drift on lines %v; want %v", years, want)
 	}
-	if want := []string{
-		"19 /mappings/0/qualifiers/34/2", // "1500"
-		"19 /mappings/0/qualifiers/34/7", // "1500 Cargo"
-		"19 /mappings/0/qualifiers/34/8", // "1500 Conversion"
-		"19 /mappings/0/qualifiers/34/9", // "1500 Passenger"
-		"20 /mappings/0/qualifiers/15/1", // 3, AWD
-		"20 /mappings/0/qualifiers/34/2",
-		"20 /mappings/0/qualifiers/34/7",
-		"20 /mappings/0/qualifiers/34/8",
-		"20 /mappings/0/qualifiers/34/9",
-	}; !slices.Equal(qualifiers, want) {
-		t.Errorf("model-qualifier drift %v; want %v", qualifiers, want)
+	if len(qualifiers) > 0 {
+		t.Errorf("model-qualifier drift %v; want none", qualifiers)
 	}
 
 	notes := map[string]bool{}
