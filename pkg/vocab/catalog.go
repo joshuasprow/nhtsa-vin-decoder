@@ -1021,7 +1021,12 @@ func (c *Catalog) Matching(partType string, vehicles []Vehicle, year *int, side 
 	if cc := c.f.compiled; cc != nil {
 		return cc.byVehicle(c, partType, vehicles, year, side, false)
 	}
-	cs := c.ByVehicle(partType, vehicles, year, side)
+	return matching(c.ByVehicle(partType, vehicles, year, side))
+}
+
+// matching turns ByVehicle's candidates of a JSON Lines catalog into
+// Matching's, in place.
+func matching(cs []Candidate) []Candidate {
 	for i := range cs {
 		cand := &cs[i]
 		fit := &Fitment{Line: cand.Fitment.Line, Key: cand.Fitment.Key, Note: cand.Fitment.Note, Applications: make([]Application, len(cand.Applications))}
@@ -1032,6 +1037,59 @@ func (c *Catalog) Matching(partType string, vehicles []Vehicle, year *int, side 
 		cand.Fitment = fit
 	}
 	return cs
+}
+
+// VehicleYears is an application as related vehicles read it: its
+// vehicle, by its index in Catalog.Vehicles, and its years, First
+// math.MinInt and Last math.MaxInt where unbounded.
+type VehicleYears struct {
+	Vehicle     int32
+	First, Last int
+}
+
+// Shared is a candidate as related vehicles read it: Matching's, and
+// every application of its fitment as its VehicleYears, in file order.
+type Shared struct {
+	Candidate
+	Years []VehicleYears
+}
+
+// Shared is Matching of every part type, each candidate with every
+// application of its fitment as its VehicleYears: what related vehicles
+// read of a vehicle's fitments, their other applications' vehicles and
+// years, and nothing more. A compiled catalog reads that much of a wide
+// fitment, not the fitment whole (ADR 0023).
+func (c *Catalog) Shared(vehicles []Vehicle, year *int, side *Side) []Shared {
+	if cc := c.f.compiled; cc != nil {
+		return cc.shared(c, vehicles, year, side)
+	}
+	cs := c.ByVehicle("", vehicles, year, side)
+	n := 0
+	for i := range cs {
+		n += len(cs[i].Fitment.Applications)
+	}
+	years := make([]VehicleYears, 0, n)
+	out := make([]Shared, len(cs))
+	for i := range cs {
+		at := len(years)
+		for j := range cs[i].Fitment.Applications {
+			a := &cs[i].Fitment.Applications[j]
+			vy := VehicleYears{Vehicle: a.Vehicle.id, First: math.MinInt, Last: math.MaxInt}
+			if a.First != nil {
+				vy.First = *a.First
+			}
+			if a.Last != nil {
+				vy.Last = *a.Last
+			}
+			years = append(years, vy)
+		}
+		out[i].Years = years[at:len(years):len(years)]
+	}
+	matching(cs)
+	for i := range cs {
+		out[i].Candidate = cs[i]
+	}
+	return out
 }
 
 // holds reports whether year falls within first and last, nil being

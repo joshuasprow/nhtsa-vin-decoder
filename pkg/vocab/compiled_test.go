@@ -811,13 +811,17 @@ func TestCompiledDamagedCount(t *testing.T) {
 	}
 }
 
-// TestCompiledFarRecordOutOfRange: a far record whose place in wide runs
-// past it, its length wrapping round, ends in the reader's own panic about
-// a damaged file, not a runtime error.
+// TestCompiledFarRecordOutOfRange: a far record whose place in keyed or
+// in wide runs past it, its length wrapping round, ends in the reader's
+// own panic about a damaged file, not a runtime error.
 func TestCompiledFarRecordOutOfRange(t *testing.T) {
 	c := &compiled{path: "damaged.compiled", vehicles: []*Vehicle{{}}}
-	c.sec[secWide].n = 20
-	for _, place := range [][2]uint64{{10, math.MaxInt64 - 5}, {10, 11}, {21, 1}, {0, 0}, {math.MaxUint64, 1}} {
+	c.sec[secKeyed].n, c.sec[secWide].n = 20, 20
+	var places [][4]uint64
+	for _, bad := range [][2]uint64{{10, math.MaxInt64 - 5}, {10, 11}, {21, 1}, {0, 0}, {math.MaxUint64, 1}} {
+		places = append(places, [4]uint64{bad[0], bad[1], 0, 5}, [4]uint64{0, 5, bad[0], bad[1]})
+	}
+	for _, place := range places {
 		b := []byte{recFar, byte(SideNone)}
 		b = appendStr(b, "N-1")
 		b = binary.AppendUvarint(b, 1) // its line
@@ -825,16 +829,17 @@ func TestCompiledFarRecordOutOfRange(t *testing.T) {
 		b = binary.AppendUvarint(b, 1) // one application of its own
 		b = binary.AppendUvarint(b, 0)
 		b = appendApplication(b, &Application{}, 0)
-		b = binary.AppendUvarint(b, place[0])
-		b = binary.AppendUvarint(b, place[1])
+		for _, n := range place {
+			b = binary.AppendUvarint(b, n)
+		}
 		func() {
 			defer func() {
 				r := recover()
 				if _, ok := r.(runtime.Error); ok {
-					t.Fatalf("far record at %d, %d bytes: runtime error %v", place[0], place[1], r)
+					t.Fatalf("far record at %v: runtime error %v", place, r)
 				}
 				if e, ok := r.(error); !ok || !strings.Contains(e.Error(), "the file is damaged") {
-					t.Errorf("far record at %d, %d bytes: recovered %v; want the file is damaged", place[0], place[1], r)
+					t.Errorf("far record at %v: recovered %v; want the file is damaged", place, r)
 				}
 			}()
 			c.blockHit(&cursor{c, string(b), 0}, 0, 0, nil, nil)
@@ -857,8 +862,8 @@ func TestReadFarSpan(t *testing.T) {
 	}
 	r := &spanReader{r: bytes.NewReader(wide)}
 	c := &compiled{r: r, path: "far.compiled", types: []compiledType{{name: "pads"}}}
-	c.sec[secWide].n = int64(len(wide))
-	c.readFar(hits)
+	c.sec[secKeyed].n = int64(len(wide))
+	c.readFar(hits, secKeyed)
 	if r.reads != 2 || r.most > 1<<20 {
 		t.Errorf("%d far fitments %d KiB apart: %d reads, the longest %d bytes; want 2, none over 1 MiB", n, step>>10, r.reads, r.most)
 	}

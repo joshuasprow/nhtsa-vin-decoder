@@ -319,6 +319,13 @@ One vehicle and model-year range a fitment fits, with the catalog's option text
 for it and, optionally, qualifiers.
 _Avoid_: fit, usage, vehicle row
 
+**Wide fitment**:
+A fitment of more than 16 applications, as a universal part has. A compiled
+catalog stores it whole once, and in each of its vehicles' blocks only what
+answers for that vehicle, so the file grows with its applications, not their
+square; related vehicles read its vehicles and years apart (ADR 0023).
+_Avoid_: universal fitment (not every wide one is universal), big fitment
+
 **Option text**:
 A catalog's own words for the conditions under which an application holds
 ("w/o sunroof"), passed through verbatim for a person to settle.

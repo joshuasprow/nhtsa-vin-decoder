@@ -42,15 +42,16 @@ type Reader interface {
 	// (the catalog's own; see Vehicles) whose years hold year, nil for any
 	// year, and whose side is *side, nil for any side, with those
 	// applications. They come ordered by part type, side, then number. A
-	// request about every part type of a vehicle, its part types or its
-	// related vehicles, asks once with "", which a compiled catalog
-	// answers from one read of the vehicle's block (ADR 0023).
+	// request about every part type of a vehicle asks once with "", which
+	// a compiled catalog answers from one read of the vehicle's block
+	// (ADR 0023).
 	ByVehicle(partType string, vehicles []vocab.Vehicle, year *int, side *vocab.Side) []vocab.Candidate
 	// Matching is ByVehicle answering with only the applications that
 	// matched: each candidate's Fitment holds the fitment's key, line and
 	// note and only those applications, in file order, which Applications
 	// points at. Part types and candidates need nothing more; related
-	// vehicles need ByVehicle's whole fitments. A compiled catalog answers
+	// vehicles need every application's vehicle and years (Sharer). A
+	// compiled catalog answers
 	// Matching from the vehicle's block alone, never reading the rest of a
 	// fitment of many applications (ADR 0023).
 	Matching(partType string, vehicles []vocab.Vehicle, year *int, side *vocab.Side) []vocab.Candidate
@@ -80,8 +81,25 @@ type Reader interface {
 	Info() vocab.CatalogInfo
 }
 
+// Sharer is a Reader that reads related vehicles' fitments itself: of
+// every part type, Matching's candidates, each with every application of
+// its fitment as its vocab.VehicleYears, its vehicle an index in Vehicles. Related
+// vehicles need no more of a fitment's other applications, and a compiled
+// catalog reads that much of a wide fitment, not all of it (ADR 0023).
+// fit reads related vehicles through Shared when its Reader is a Sharer,
+// and through ByVehicle otherwise.
+type Sharer interface {
+	Shared(vehicles []vocab.Vehicle, year *int, side *vocab.Side) []vocab.Shared
+	// Vehicles are every vehicle the catalog names, once each: a VehicleYears'
+	// Vehicle is its index here.
+	Vehicles() []*vocab.Vehicle
+}
+
 // Both forms, JSON Lines and compiled.
-var _ Reader = (*vocab.Catalog)(nil)
+var (
+	_ Reader = (*vocab.Catalog)(nil)
+	_ Sharer = (*vocab.Catalog)(nil)
+)
 
 // Vehicles is the seam between a request and a Reader: the catalog's own
 // vehicles a translation reached, which ByVehicle and Redirect take.

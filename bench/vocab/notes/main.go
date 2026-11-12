@@ -261,6 +261,7 @@ var wideVariants = []struct{ name, label string }{
 	{"wide-0.1", "0.1% wide"},
 	{"wide-0.3", "0.3% wide"},
 	{"wide-1", "1% wide"},
+	{"wide-1-varied", "1% wide, other years and qualifiers"},
 }
 
 // wide is the fit requests' table on the fixture's wide variants
@@ -292,7 +293,7 @@ func (r *results) wide() string {
 				}
 				b.WriteString(" " + v.label + " (" + file + ") |")
 			}
-			b.WriteString(" budget | read budget |\n|---|---|---|---|---|---|\n")
+			b.WriteString(" budget | read budget |\n|---|" + strings.Repeat("---|", len(wideVariants)+2) + "\n")
 		}
 		fmt.Fprintf(&b, "| %s |%s %s | %s |\n", q.label, cells, q.budget, q.reads)
 	}
