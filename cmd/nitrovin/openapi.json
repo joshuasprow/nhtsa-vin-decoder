@@ -1576,7 +1576,7 @@
           },
           "vocabularies": {
             "type": "array",
-            "description": "The vocabularies, extension sets, declared spines and catalog loaded beside the data (--vocab, NITROVIN_VOCAB), in load order; empty when none are. Decisions: ADR 0011, ADR 0012, ADR 0017.",
+            "description": "The vocabularies, extension sets, declared spines and catalog loaded beside the data (--vocab, NITROVIN_VOCAB), in load order; empty when none are. Decisions: ADR 0011, ADR 0012, ADR 0017, ADR 0021.",
             "items": {
               "type": "object",
               "required": [
@@ -1612,7 +1612,7 @@
                 "blake3": {
                   "type": "string",
                   "pattern": "^[0-9a-f]{64}$",
-                  "description": "The hex blake3 hash of the file's bytes."
+                  "description": "The hex blake3 hash of the file's bytes. A compiled catalog's is the hash its header records: of its bytes with that hash's own 32 bytes zero (ADR 0021)."
                 },
                 "path": {
                   "type": "string",
@@ -1638,6 +1638,49 @@
                   "type": "integer",
                   "minimum": 0,
                   "description": "A catalog's retired numbers; absent for every other kind."
+                },
+                "compiled": {
+                  "type": "object",
+                  "description": "A compiled catalog's record of its compiling (ADR 0021); absent for a JSON Lines file. Its drift is the drift its compiling stored, but for its vehicle drift, measured at load against the vehicle vocabulary loaded.",
+                  "required": [
+                    "format",
+                    "source_blake3",
+                    "writer",
+                    "drift_month",
+                    "drift_month_differs",
+                    "links_differ"
+                  ],
+                  "properties": {
+                    "format": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Its compiled format version."
+                    },
+                    "source_blake3": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$",
+                      "description": "The hex blake3 hash of the JSON Lines catalog it was compiled from."
+                    },
+                    "writer": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The nitrovin version that compiled it."
+                    },
+                    "drift_month": {
+                      "type": "string",
+                      "pattern": "^[0-9]{4}_(0[1-9]|1[0-2])$",
+                      "description": "The data month its drift counts were measured against when it was compiled; its vehicle drift is measured at load, against the vehicle vocabulary loaded."
+                    },
+                    "drift_month_differs": {
+                      "type": "boolean",
+                      "description": "True when drift_month is not the loaded data month: the drift counts may be out of date, and nitrovin vocab check measures them again."
+                    },
+                    "links_differ": {
+                      "type": "boolean",
+                      "description": "True when its spine or vehicle vocabulary, as loaded, is not the file it was compiled against (another blake3). Its vehicle drift is measured at load against the vehicle vocabulary loaded; nitrovin vocab check checks the rest again."
+                    }
+                  },
+                  "additionalProperties": false
                 },
                 "drift": {
                   "type": "array",
@@ -1737,6 +1780,11 @@
                     {
                       "required": [
                         "retired"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "compiled"
                       ]
                     }
                   ]

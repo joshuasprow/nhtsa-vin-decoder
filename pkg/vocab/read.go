@@ -21,19 +21,15 @@ import (
 )
 
 // Open reads the files at paths, a directory meaning every *.jsonl file
-// directly in it, in name order, and links them (Link). Each File's Path is
-// absolute. The error is Faults: every fault of every file, which refuses
-// them all.
+// directly in it, in name order, and links them (Link). A file that begins
+// with a compiled catalog's magic opens as one (ADR 0021): read in place,
+// it stays open for the File's life. Each File's Path is absolute. The
+// error is Faults: every fault of every file, which refuses them all.
 func Open(paths ...string) ([]*File, error) {
 	var files []*File
 	var faults Faults
 	read := func(path string) {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			faults = append(faults, fault(path, 0, "%v", errorText(err)))
-			return
-		}
-		f, err := parse(path, data)
+		f, err := openFile(path)
 		if fs, ok := err.(Faults); ok {
 			faults = append(faults, fs...)
 			return
@@ -84,13 +80,47 @@ func errorText(err error) string {
 	return err.Error()
 }
 
+// openFile reads the file at path: a compiled catalog, kept open, or JSON
+// Lines.
+func openFile(path string) (*File, error) {
+	osf, err := os.Open(path)
+	var fi os.FileInfo
+	if err == nil {
+		fi, err = osf.Stat()
+	}
+	if err != nil {
+		if osf != nil {
+			osf.Close()
+		}
+		return nil, Faults{fault(path, 0, "%v", errorText(err))}
+	}
+	prefix := make([]byte, len(compiledMagic))
+	if n, _ := osf.ReadAt(prefix, 0); isCompiled(prefix[:n]) {
+		f, err := openCompiled(path, osf, fi.Size())
+		if err != nil {
+			osf.Close()
+		}
+		return f, err
+	}
+	osf.Close()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, Faults{fault(path, 0, "%v", errorText(err))}
+	}
+	return parse(path, data)
+}
+
 // Read reads one file from r; name is its Path, the name findings carry.
 // It checks the file alone: Link checks it against the others loaded with
-// it. The error is Faults: every fault in the file.
+// it. A compiled catalog is read into memory and read there. The error is
+// Faults: every fault in the file.
 func Read(name string, r io.Reader) (*File, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, Faults{fault(name, 0, "%v", err)}
+	}
+	if isCompiled(data) {
+		return openCompiled(name, bytes.NewReader(data), int64(len(data)))
 	}
 	return parse(name, data)
 }

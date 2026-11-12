@@ -291,6 +291,13 @@ _Avoid_: interchange (a catalog vendor's term), parts database; "catalog" for
 `list`'s list of what is loaded (`CatalogEntry`, ADR 0012), which names
 files, not fitments: say "what is loaded" or "the list of loaded files"
 
+**Compiled catalog**:
+A catalog checked and written by `nitrovin vocab compile` into one indexed file
+that opens in milliseconds and is read in place (ADR 0021). It answers exactly as
+its JSON Lines source, which stays the published form; its drift is the drift
+measured when it was compiled.
+_Avoid_: binary catalog, catalog database, index (an index is one of its tables)
+
 **Fitment**:
 One part in a catalog: a part type, the catalog's number for it and its side,
 with every vehicle and model-year range it fits.

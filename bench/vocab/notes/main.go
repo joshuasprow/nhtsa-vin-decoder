@@ -238,15 +238,31 @@ func (r *results) fit() string {
 	return b.String()
 }
 
-// catalogBudget is ADR 0017's interim budget for a JSON Lines catalog.
-const catalogBudget = "≤ 15 s on one core, ≤ 1.5 GiB peak, file ≤ 500 MB"
+// The catalog's forms, as BenchmarkLoadCatalog and BenchmarkCatalogReader
+// name them, each with its budget: ADR 0017's interim one for JSON Lines,
+// ADR 0021's for the compiled form.
+var catalogForms = []struct{ name, label, budget string }{
+	{"jsonl", "JSON Lines", "≤ 15 s on one core, ≤ 1.5 GiB peak, file ≤ 500 MB"},
+	{"compiled", "compiled", "≤ 1 s on one core, ≤ 512 MiB peak, ≤ 256 MiB retained, file ≤ 500 MB"},
+}
 
-// catalog is the catalog load's table (ADR 0017), "" when it did not run:
-// one row per GOMAXPROCS.
+// catalogLookups are BenchmarkCatalogReader's, with ADR 0018's budget for
+// the request each serves.
+var catalogLookups = []struct{ name, label, budget string }{
+	{"by-vehicle", "by vehicle (a part type, a vehicle, a year)", "p99 ≤ 5 ms"},
+	{"summary", "by vehicle, every part type", "p99 ≤ 10 ms"},
+	{"by-number", "by number", "p99 ≤ 1 ms"},
+	{"redirect", "redirect", ""},
+	{"page", "a page of 1,000 fitments", ""},
+}
+
+// catalog is the catalog's table, both forms side by side (ADR 0017,
+// ADR 0021), "" when its load did not run: its file, its load at each
+// GOMAXPROCS, its compiling, and its lookups on one core.
 func (r *results) catalog() string {
 	var procs []int
 	for k := range r.bench {
-		if k.name == "LoadCatalog" {
+		if k.name == "LoadCatalog/"+catalogForms[0].name {
 			procs = append(procs, k.procs)
 		}
 	}
@@ -255,17 +271,53 @@ func (r *results) catalog() string {
 	}
 	slices.Sort(procs)
 	var b strings.Builder
-	m := r.bench[key{"LoadCatalog", procs[0]}]
-	fmt.Fprintf(&b, "\n**Catalog load** (synthetic, ADR 0017: %s fitments, %s applications, %s redirects, a %s file). Budget: %s.\n\n",
-		count(m["fitments"]), count(m["applications"]), count(m["redirects"]), size(m["file-MB"]), catalogBudget)
-	b.WriteString("| | load | peak | retained heap |\n|---|---|---|---|\n")
+	m := r.bench[key{"LoadCatalog/" + catalogForms[0].name, procs[0]}]
+	fmt.Fprintf(&b, "\n**Catalog** (synthetic, ADR 0017: %s fitments, %s applications, %s redirects), as JSON Lines and compiled (ADR 0021). Budgets: JSON Lines %s; compiled %s.\n\n",
+		count(m["fitments"]), count(m["applications"]), count(m["redirects"]), catalogForms[0].budget, catalogForms[1].budget)
+	b.WriteString("| |")
+	for _, f := range catalogForms {
+		b.WriteString(" " + f.label + " |")
+	}
+	b.WriteString(" budget |\n|---|---|---|---|\n")
+	row := func(label, budget string, cell func(form string) string) {
+		b.WriteString("| " + label + " |")
+		for _, f := range catalogForms {
+			b.WriteString(" " + cell(f.name) + " |")
+		}
+		b.WriteString(" " + budget + " |\n")
+	}
+	row("file", "≤ 500 MB", func(form string) string {
+		if m, ok := r.bench[key{"LoadCatalog/" + form, procs[0]}]; ok {
+			return size(m["file-MB"])
+		}
+		return "—"
+	})
 	for _, p := range procs {
-		m := r.bench[key{"LoadCatalog", p}]
 		cores := "1 core"
 		if p != 1 {
 			cores = fmt.Sprintf("%d cores", p)
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", cores, duration(m["ns/op"]), size(m["peak-RSS-MB"]), size(m["heap-MB"]))
+		row("load, "+cores+": time, peak, retained heap", "", func(form string) string {
+			m, ok := r.bench[key{"LoadCatalog/" + form, p}]
+			if !ok {
+				return "—"
+			}
+			return fmt.Sprintf("%s, %s, %s", duration(m["ns/op"]), size(m["peak-RSS-MB"]), size(m["heap-MB"]))
+		})
+	}
+	row("compile, 1 core", "recorded", func(form string) string {
+		if m, ok := r.bench[key{"CompileCatalog", 1}]; ok && form == "compiled" {
+			return duration(m["ns/op"])
+		}
+		return "—"
+	})
+	for _, l := range catalogLookups {
+		row(l.label, l.budget, func(form string) string {
+			if m, ok := r.bench[key{"CatalogReader/" + form + "/" + l.name, 1}]; ok {
+				return quantiles(m)
+			}
+			return "—"
+		})
 	}
 	return b.String()
 }

@@ -28,7 +28,7 @@ var (
 func catalogFile(l ...string) file { return file{"c.jsonl", append([]string{catalogHeader}, l...)} }
 
 // openFiles writes files to a temporary directory and opens them in order.
-func openFiles(t *testing.T, files []file) (string, []*File, error) {
+func openFiles(t testing.TB, files []file) (string, []*File, error) {
 	t.Helper()
 	dir := t.TempDir()
 	var paths []string
@@ -189,9 +189,21 @@ func numbers(cs []Candidate) []string {
 	return out
 }
 
-// TestCatalogReader reads the fixture catalog as fitment.Reader does.
+// TestCatalogReader reads the fixture catalog as fitment.Reader does: as
+// JSON Lines, and compiled (ADR 0021), each answering the same.
 func TestCatalogReader(t *testing.T) {
-	c := fixtureCatalog(t)
+	jsonl := fixtureCatalog(t)
+	for _, form := range []struct {
+		name string
+		c    *Catalog
+	}{{"json lines", jsonl}, {"compiled", compiledFixture(t)}} {
+		t.Run(form.name, func(t *testing.T) { testCatalogReader(t, form.c, jsonl.File().Hash) })
+	}
+}
+
+// testCatalogReader reads c, the fixture catalog in either form, whose
+// JSON Lines file hashes to hash.
+func testCatalogReader(t *testing.T, c *Catalog, hash [32]byte) {
 	ram := Vehicle{Entry: map[string]string{"make": "Dodge", "model": "Ram 1500"}}
 	silverado := Vehicle{Entry: map[string]string{"make": "chevrolet", "model": "SILVERADO  1500"}} // matched after Normalize
 	left, both := SideLeft, SideBoth
@@ -296,7 +308,7 @@ func TestCatalogReader(t *testing.T) {
 	}
 
 	want := CatalogInfo{Name: "parts-catalog", Version: "2026.11", Release: "7.02", DataMonth: "2026_10", Spine: "part-types", Vehicles: "catalog-models",
-		Hash: c.File().Hash, Fitments: 5, Applications: 7, Redirects: 1, Retired: 1}
+		Hash: hash, Fitments: 5, Applications: 7, Redirects: 1, Retired: 1}
 	if got := c.Info(); got != want {
 		t.Errorf("Info %+v; want %+v", got, want)
 	}

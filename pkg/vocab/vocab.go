@@ -15,7 +15,9 @@
 // refused. A Set answers translations and lists (ADR 0012) over them:
 // routing, year scope, qualifiers checked against a Decoded, paging. A
 // loaded catalog is a Set's Catalog, which answers by vehicle, number and
-// redirect (package fitment's Reader).
+// redirect (package fitment's Reader). Compile writes a catalog as a
+// compiled catalog (ADR 0021), which Open and Read recognise by its magic
+// and read in place; Expand reads one in full, to check it again.
 //
 // The package reads no artifact: a Month can be backed by one (package
 // nitrovin) or by anything else that knows the month's makes, models and
@@ -113,8 +115,9 @@ type File struct {
 	Extensions []Extension
 	// SpineEntries are a declared spine's lines.
 	SpineEntries []SpineEntry
-	// Fitments, Redirects and Retired are a catalog's lines, each kind in
-	// file order.
+	// Fitments, Redirects and Retired are a JSON Lines catalog's lines,
+	// each kind in file order; nil for a compiled catalog, whose lines
+	// stay in its file (Catalog reads them, Expand reads them all).
 	Fitments  []Fitment
 	Redirects []Redirect
 	Retired   []Retired
@@ -122,7 +125,10 @@ type File struct {
 	targets    map[Target][]int // mapping target → indexes in Entries, ascending
 	extensions map[string]int   // extension id → index in Extensions
 	spine      map[string]int   // spine entry id → index in SpineEntries
-	catalog    *catalogIndex    // a catalog's indexes
+	catalog    *catalogIndex    // a JSON Lines catalog's indexes
+	// compiled is a compiled catalog's file (ADR 0021): its lines stay in
+	// it, and Fitments, Redirects and Retired are nil.
+	compiled *compiled
 
 	// listed is a vocabulary's entries in list order (listOrder), made
 	// once: on first use, or by ReadIndex.

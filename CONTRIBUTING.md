@@ -721,11 +721,16 @@ beside ns/op. `BenchmarkLoadCatalog` loads a catalog at the scale of ADR
 0017's budget (790,000 fitments, 1,896,000 applications, half with
 qualifiers and six in ten with option text of their own, 100,000
 redirects, 1,326 vehicles, 448 of them unmapped), written to the same
-temporary directory, and reports its file's size, the heap the load
-retains and a loading process's peak RSS, against the budget of 15 s on
-one core, 1.5 GiB peak and a 500 MB file. On the reference machine it
-measured 2.7 s on one core, 900 MB peak, 322 MB retained and a 330 MB
-file. `BenchmarkFit` asks `fit` of that catalog on one core, cycling
+temporary directory, as JSON Lines and compiled (ADR 0021), and reports
+each file's size, the heap the load retains and a loading process's peak
+RSS: against 15 s on one core, 1.5 GiB peak and a 500 MB file for JSON
+Lines, and 1 s, 512 MiB peak and 256 MiB retained for the compiled form.
+On the reference machine, on one core, JSON Lines measured 2.7 s, 900 MB
+peak, 322 MB retained and a 330 MB file; compiled, 3.1 ms, 16 MB peak,
+2.1 MB retained and a 184 MB file. `BenchmarkCompileCatalog` records how
+long `vocab compile` takes on it (3.9 s), and `BenchmarkCatalogReader`
+times `fitment.Reader`'s lookups in both forms, p50 and p99.
+`BenchmarkFit` asks `fit` of that catalog on one core, cycling
 through 64 vehicles and fitment keys: candidates, part types and related
 vehicles (each in a year and, the expensive path, with none) and
 reverse, each reporting p50, p99 and its answers' average `total`

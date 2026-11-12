@@ -101,44 +101,45 @@ func Link(files []*File) error {
 // its spine and vehicle vocabulary loaded, every part type of its
 // fitments and redirects in that spine, and every vehicle named by
 // exactly that vocabulary's fields, or by an extension a loaded set
-// defines. Its faults come in line order.
+// defines. Its faults come in line order. A compiled catalog, checked line
+// by line when it was compiled, is checked by its dictionary: each part
+// type and vehicle once, about the file as a whole.
 func linkCatalog(f *File, byName map[string]*File, ext func(string) (*Extension, string)) Faults {
 	var faults Faults
+	header := 1 // the header's line
+	if f.compiled != nil {
+		header = 0
+	}
 	spine := byName[f.Spine]
 	switch {
 	case spine == nil:
-		faults = append(faults, fault(f.Path, 1, "/spine: spine %q is not loaded", f.Spine))
+		faults = append(faults, fault(f.Path, header, "/spine: spine %q is not loaded", f.Spine))
 	case spine.Kind != KindSpine:
-		faults = append(faults, fault(f.Path, 1, "/spine: %q is %s, not a spine", f.Spine, spine.Kind.noun()))
+		faults = append(faults, fault(f.Path, header, "/spine: %q is %s, not a spine", f.Spine, spine.Kind.noun()))
 		spine = nil
 	}
 	var vehicles *File
 	if f.Vehicles != Reserved {
 		switch vehicles = byName[f.Vehicles]; {
 		case vehicles == nil:
-			faults = append(faults, fault(f.Path, 1, "/vehicles: vocabulary %q is not loaded", f.Vehicles))
+			faults = append(faults, fault(f.Path, header, "/vehicles: vocabulary %q is not loaded", f.Vehicles))
 		case vehicles.Kind != KindVocabulary:
-			faults = append(faults, fault(f.Path, 1, "/vehicles: %q is %s, not a vehicle vocabulary", f.Vehicles, vehicles.Kind.noun()))
+			faults = append(faults, fault(f.Path, header, "/vehicles: %q is %s, not a vehicle vocabulary", f.Vehicles, vehicles.Kind.noun()))
 			vehicles = nil
 		case vehicles.Subject != SubjectVehicle:
-			faults = append(faults, fault(f.Path, 1, "/vehicles: %q is a part vocabulary, not a vehicle vocabulary", f.Vehicles))
+			faults = append(faults, fault(f.Path, header, "/vehicles: %q is a part vocabulary, not a vehicle vocabulary", f.Vehicles))
 			vehicles = nil
 		}
+	}
+	if f.compiled != nil {
+		return append(faults, f.compiled.link(spine, vehicles, ext)...)
 	}
 	// why is, per vehicle that does not resolve, why not: once each,
 	// however many lines name it.
 	why := map[*Vehicle]string{}
 	for _, v := range f.catalog.vehicleList {
-		switch {
-		case v.Ext != "":
-			if _, w := ext(v.Ext); w != "" {
-				why[v] = "/ext: " + w
-			}
-		case vehicles != nil:
-			names := slices.Sorted(maps.Keys(v.Entry))
-			if want := slices.Sorted(slices.Values(vehicles.Fields)); !slices.Equal(names, want) {
-				why[v] = ": fields " + quoted(names) + " are not vocabulary " + strconv.Quote(vehicles.Name) + "'s: " + quoted(vehicles.Fields)
-			}
+		if w := vehicleWhy(v, vehicles, ext); w != "" {
+			why[v] = w
 		}
 	}
 	typeOK := func(id string) bool {
@@ -172,4 +173,59 @@ func linkCatalog(f *File, byName map[string]*File, ext func(string) (*Extension,
 	}
 	slices.SortStableFunc(faults, func(a, b Finding) int { return cmp.Compare(a.Line, b.Line) })
 	return faults
+}
+
+// vehicleWhy is why vehicle v of a catalog does not resolve against its
+// vehicle vocabulary vehicles (nil when it is vpic or not loaded) and the
+// extension sets ext reads, as a pointer's tail and a reason; "" when it
+// does.
+func vehicleWhy(v *Vehicle, vehicles *File, ext func(string) (*Extension, string)) string {
+	switch {
+	case v.Ext != "":
+		if _, w := ext(v.Ext); w != "" {
+			return "/ext: " + w
+		}
+	case vehicles != nil:
+		names := slices.Sorted(maps.Keys(v.Entry))
+		if want := slices.Sorted(slices.Values(vehicles.Fields)); !slices.Equal(names, want) {
+			return ": fields " + quoted(names) + " are not vocabulary " + strconv.Quote(vehicles.Name) + "'s: " + quoted(vehicles.Fields)
+		}
+	}
+	return ""
+}
+
+// link checks a compiled catalog against its spine and vehicle vocabulary
+// as loaded (nil when not, or when its vehicles are vpic): each part type
+// a fitment or redirect names in the spine, and each vehicle resolving.
+// They did against the files it was compiled with; a fault here is a file
+// loaded beside it that is not one of those.
+func (c *compiled) link(spine, vehicles *File, ext func(string) (*Extension, string)) Faults {
+	var faults Faults
+	for _, t := range c.types {
+		if spine == nil || !t.named {
+			continue
+		}
+		if _, ok := spine.SpineEntry(t.name); !ok {
+			faults = append(faults, fault(c.path, 0, "part type %q: spine %q has no id %q, and had when the catalog was compiled", t.name, spine.Name, t.name))
+		}
+	}
+	for _, v := range c.vehicles {
+		if w := vehicleWhy(v, vehicles, ext); w != "" {
+			faults = append(faults, fault(c.path, 0, "vehicle %s%s", vehicleText(v), w))
+		}
+	}
+	return faults
+}
+
+// vehicleText is a catalog's vehicle as a file writes it.
+func vehicleText(v *Vehicle) string {
+	switch {
+	case v.Entry != nil:
+		return entryText(v.Entry)
+	case v.Make != 0:
+		return `{"make":` + strconv.Itoa(int(v.Make)) + "}"
+	case v.Model != 0:
+		return `{"model":` + strconv.Itoa(int(v.Model)) + "}"
+	}
+	return `{"ext":` + strconv.Quote(v.Ext) + "}"
 }

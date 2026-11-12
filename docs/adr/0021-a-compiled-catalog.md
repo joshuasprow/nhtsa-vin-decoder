@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # A compiled catalog in the artifact's format family, behind the same reader
@@ -12,10 +12,10 @@ It amends ADR 0011, which deferred a compiled form "to a measured need". The
 measurements in the map's Notes are that need: at catalog scale, JSON Lines takes
 503–742 MiB retained, peaks at 972–1,419 MiB, and needs 2–3.3 s on one core.
 
-**Status: proposed until measured.** The format freezes only when a prototype meets
-the budget below on the catalog-scale fixture. Until then the format may change,
-and this ADR then flips to accepted. If it misses, a person decides whether to
-change the format or the budget.
+**Status: accepted on measured numbers** (2026-11-12,
+[#247](https://github.com/joshuasprow/nitrovin/issues/247)). A prototype met the
+budget below on the catalog-scale fixture by a wide margin (see Measured), and the
+format froze as compiled format 1.
 
 ## The format
 
@@ -89,6 +89,63 @@ Measured on the catalog-scale synthetic fixture (ADR 0017: about 790,000 fitment
 
 Compile time is unbounded but recorded. The CI benchmark records both forms side by
 side. The decoder's artifact, by comparison, opens in 1 ms with 1 MiB.
+
+## Measured
+
+The prototype that became the format, measured by `bench/vocab` on one core
+(`GOMAXPROCS=1`, Apple M5 Pro, page cache warm) and
+[recorded on #228](https://github.com/joshuasprow/nitrovin/issues/228#issuecomment-6816515002):
+
+| | JSON Lines | Compiled | Budget |
+| --- | ---: | ---: | ---: |
+| Retained heap | 322 MB | 2.1 MB | 256 MiB |
+| Peak while opening | 900 MB | 16 MB | 512 MiB |
+| Open and ready | 2.67 s | 3.1 ms | 1 s |
+| File | 330 MB | 184 MB | 500 MB |
+| Compile | | 3.9 s | recorded |
+
+Retained heap and peak include the Decoder and the spine and vocabulary beside the
+catalog. `fitment.Reader`'s lookups, p99, against ADR 0018's request budgets: one
+part type for a vehicle and year 17 µs (5 ms), all 205 part types for one vehicle
+1.8 ms (10 ms), a number 25 µs (1 ms), a redirect 15 µs, and a 1,000-fitment page
+0.7 ms. That is 5–60× slower than the in-memory JSON Lines reader, and at least 50×
+inside every budget.
+
+What was built, where the text above leaves room:
+
+- **Rows, not column arrays.** Each table is fixed-width rows sorted by key, so one
+  read fetches a row: a reader through `io.ReaderAt` pays per read, where the
+  artifact, read in memory, pays nothing.
+- **Only the dictionary is held.** Opening reads the header, the part types, the
+  vehicles and the distinct qualifier sets. Every lookup reads its index rows,
+  fitment and application rows and strings, merging reads of strings that lie
+  near each other.
+- **The artifact's code is not reused.** Its writer is bound to the vPIC tables'
+  schema and its reader reads in place from memory, so the compiled catalog shares
+  its conventions instead: a magic, a format version, the file's size, an 8-byte
+  aligned section directory, and the blake3 of the file with that hash's own bytes
+  zero, read from the header at open and checked by `vocab check`.
+- **Compile takes what check takes.** `nitrovin vocab compile -o <file> <file|dir>…`
+  loads its arguments as `vocab check` does, so the catalog's spine and vehicle
+  vocabulary are among them, and compiles the one catalog. The header stores every
+  drift finding the check made, not only the counts, so `/v1/info`'s examples and
+  the load's stderr read as for JSON Lines.
+- **Links are checked at load by the dictionary.** `--vocab` refuses a compiled
+  file whose spine or vehicle vocabulary is not loaded, as for JSON Lines, and also
+  one whose loaded spine lacks a part type it names or whose loaded vocabulary no
+  longer has its vehicles' fields: each part type and vehicle once, about the file
+  as a whole.
+- **Vehicle drift is measured at load.** It depends on the vehicle vocabulary
+  loaded, not the month, and takes one look per vehicle, so a compiled catalog
+  stores each vehicle's first line and count and measures it again at load. The
+  rest of its drift is the stored drift. `/v1/info`'s `compiled` says
+  `links_differ` when the spine or vehicle vocabulary loaded is not the file it was
+  compiled against, by blake3.
+- **`model-qualifier` drift is stored too.** Compiling runs `vocab check`'s whole
+  check, `model-qualifier` (ADR 0015) included, and stores those findings with the
+  rest. As for JSON Lines, load reports none of them and `LoadInfo` counts none;
+  `AllDrift` and `/v1/info` serve them, from the file rather than by building the
+  model values index.
 
 ## Considered options
 

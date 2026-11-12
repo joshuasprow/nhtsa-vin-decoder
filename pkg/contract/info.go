@@ -43,7 +43,9 @@ type VocabularyFile struct {
 	// Release is a catalog's publisher's release, "" (absent) when it
 	// gives none and for every other kind.
 	Release string `json:"release,omitempty"`
-	// Blake3 is the hex blake3 hash of the file's bytes.
+	// Blake3 is the hex blake3 hash of the file's bytes; for a compiled
+	// catalog, the hash its header records, of its bytes with the hash's
+	// own 32 zero (ADR 0021).
 	Blake3 string `json:"blake3"`
 	// Path is where the file was loaded from: an absolute path for --vocab
 	// and NITROVIN_VOCAB, the name given to vocab.Read otherwise.
@@ -51,10 +53,40 @@ type VocabularyFile struct {
 	// Drift counts the file's drift findings by kind ("make", "model",
 	// "qualifier", "extension", "model-years", "vehicle", "redirect",
 	// "model-qualifier"), only the kinds it has, in that order; empty when
-	// the file agrees with the data month.
+	// the file agrees with the data month. A compiled catalog's are those
+	// its compiling measured, against Compiled.DriftMonth, but for its
+	// "vehicle" drift, measured at load.
 	Drift []DriftCount `json:"drift"`
 	// CatalogCounts are a catalog's, nil (absent) for every other kind.
 	*CatalogCounts
+	// Compiled is a compiled catalog's record of its compiling, nil
+	// (absent) for every JSON Lines file.
+	Compiled *CompiledCatalog `json:"compiled,omitempty"`
+}
+
+// CompiledCatalog is what a compiled catalog records of its compiling
+// (ADR 0021).
+type CompiledCatalog struct {
+	// Format is its compiled format version.
+	Format int `json:"format"`
+	// SourceBlake3 is the hex blake3 hash of the JSON Lines catalog it was
+	// compiled from.
+	SourceBlake3 string `json:"source_blake3"`
+	// Writer is the nitrovin version that compiled it.
+	Writer string `json:"writer"`
+	// DriftMonth is the data month its drift was measured against when it
+	// was compiled: the month of its Drift counts but its vehicle drift,
+	// which is measured at load against the vehicle vocabulary loaded.
+	DriftMonth string `json:"drift_month"`
+	// DriftMonthDiffers is true when DriftMonth is not the loaded data
+	// month: the counts may be out of date, and `nitrovin vocab check`
+	// measures them again.
+	DriftMonthDiffers bool `json:"drift_month_differs"`
+	// LinksDiffer is true when its spine or vehicle vocabulary, as loaded,
+	// is not the file it was compiled against (another blake3): its
+	// vehicle drift is measured against the one loaded, and `nitrovin vocab
+	// check` checks the rest again.
+	LinksDiffer bool `json:"links_differ"`
 }
 
 // CatalogCounts are how many fitments, applications, redirects and

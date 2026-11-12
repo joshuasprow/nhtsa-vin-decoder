@@ -1,7 +1,8 @@
 // Package vocab benchmarks vocabularies against the performance budget
 // (https://github.com/joshuasprow/nitrovin/issues/142): load, translate and
 // list on the fixture, the EPA vocabulary and a generated 1M-entry one,
-// the load of a generated catalog at ADR 0017's scale, and decode alone.
+// a generated catalog at ADR 0017's scale, as JSON Lines and compiled
+// (ADR 0021): its load, its compiling and its lookups; and decode alone.
 // release.yml runs them and puts the table bench/vocab/notes makes in the
 // release notes; nothing here is a gate.
 //
@@ -17,7 +18,7 @@
 // not with -cpu, which sub-benchmarks do not all follow. Without
 // NITROVIN_EPA_VOCAB the EPA set is skipped. The 1M-entry file is written
 // to a temporary directory on first use, about 160 MB, and the catalog
-// beside it, about 330 MB.
+// beside it, about 330 MB, with its compiled form, about 185 MB.
 //
 // Each request benchmark reports p50-ns and p99-ns beside ns/op, timed per
 // iteration (the clock reads included). Each load (the embedded Decoder,

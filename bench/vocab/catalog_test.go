@@ -2,8 +2,10 @@ package vocab
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -47,13 +49,15 @@ var qualifierSets = []string{`{"13":["2.4"]}`, `{"13":["3.5"]}`, `{"13":["5.7"]}
 
 var catalogOnce struct {
 	sync.Once
-	paths []string
-	err   error
+	dir      string
+	vehicles []vocab.Vehicle // the catalog's, by index
+	err      error
 }
 
-// catalogPaths writes the catalog-scale fixture once per run: its part
-// spine, its vehicle vocabulary and the catalog.
-func catalogPaths(b *testing.B) []string {
+// catalogDir writes the catalog-scale fixture once per run, to the
+// directory it returns: its part spine, types.jsonl, its vehicle
+// vocabulary, models.jsonl, and the catalog, catalog.jsonl.
+func catalogDir(b *testing.B) string {
 	catalogOnce.Do(func() {
 		d, err := nitrovin.Embedded()
 		if err != nil {
@@ -71,12 +75,70 @@ func catalogPaths(b *testing.B) []string {
 			return
 		}
 		catalogOnce.err = writeCatalog(dir, d.Month())
-		catalogOnce.paths = []string{dir}
+		catalogOnce.dir = dir
 	})
 	if catalogOnce.err != nil {
 		b.Fatal(catalogOnce.err)
 	}
-	return catalogOnce.paths
+	return catalogOnce.dir
+}
+
+var compiledOnce struct {
+	sync.Once
+	path string
+	err  error
+}
+
+// compiledPath compiles the fixture's catalog once per run, as `nitrovin
+// vocab compile` does, and returns the compiled file's path.
+func compiledPath(b *testing.B) string {
+	dir := catalogDir(b)
+	compiledOnce.Do(func() {
+		var buf bytes.Buffer
+		if compiledOnce.err = compileCatalog(&buf, dir); compiledOnce.err != nil {
+			return
+		}
+		compiledOnce.path = filepath.Join(filepath.Dir(dir), "catalog.compiled")
+		compiledOnce.err = os.WriteFile(compiledOnce.path, buf.Bytes(), 0o644)
+	})
+	if compiledOnce.err != nil {
+		b.Fatal(compiledOnce.err)
+	}
+	return compiledOnce.path
+}
+
+// compileCatalog compiles the fixture in dir to w: the embedded Decoder's
+// month, vocab.Open and vocab.Compile.
+func compileCatalog(w io.Writer, dir string) error {
+	d, err := nitrovin.Embedded()
+	if err != nil {
+		return err
+	}
+	files, err := vocab.Open(dir)
+	if err != nil {
+		return err
+	}
+	_, err = vocab.Compile(w, d.Month(), files, nitrovin.Version())
+	return err
+}
+
+// catalogForm is one form of the fixture's catalog: the paths --vocab
+// loads it from, and the catalog file's own.
+type catalogForm struct {
+	name        string
+	paths       []string
+	catalogFile string
+}
+
+// catalogForms are the fixture's catalog as JSON Lines and compiled, each
+// beside its spine and vehicle vocabulary.
+func catalogForms(b *testing.B) []catalogForm {
+	dir := catalogDir(b)
+	compiled := compiledPath(b)
+	return []catalogForm{
+		{"jsonl", []string{dir}, filepath.Join(dir, "catalog.jsonl")},
+		{"compiled", []string{filepath.Join(dir, "types.jsonl"), filepath.Join(dir, "models.jsonl"), compiled}, compiled},
+	}
 }
 
 // writeCatalog writes the catalog-scale fixture to dir: the month's first
@@ -95,12 +157,15 @@ func writeCatalog(dir string, m vocab.Month) error {
 	}
 	models, ids = models[:catalogModels], ids[:catalogModels]
 	vehicles := make([]string, len(models))
+	catalogOnce.vehicles = make([]vocab.Vehicle, len(models))
 	for i, mm := range models {
-		v, err := json.Marshal(map[string]string{"make": mm[0], "model": mm[1] + fmt.Sprintf(" #%d", i)})
+		entry := map[string]string{"make": mm[0], "model": mm[1] + fmt.Sprintf(" #%d", i)}
+		v, err := json.Marshal(entry)
 		if err != nil {
 			return err
 		}
 		vehicles[i] = string(v)
+		catalogOnce.vehicles[i] = vocab.Vehicle{Entry: entry}
 	}
 	write := func(name string, lines func(w *bufio.Writer)) error {
 		f, err := os.Create(filepath.Join(dir, name))
@@ -163,7 +228,7 @@ func writeCatalog(dir string, m vocab.Month) error {
 		// vehicle and years: fitment i's first.
 		for r := range catalogRedirects {
 			i := r * 7 % catalogFitments
-			from := fmt.Sprintf("%03d", (i+101)%catalogTypes+1)
+			from := redirectFrom(i)
 			fmt.Fprintf(w, `{"redirect":{"vehicle":%s,"first":%d,"last":%d,"from":"%s","to":"%s","options":"listed under %s"}}`+"\n",
 				vehicles[catalogVehicleOf(i, 0)], catalogFirstOf(i, 0), catalogLastOf(i, 0), from, catalogTypeOf(i), catalogTypeOf(i))
 		}
@@ -176,41 +241,178 @@ func writeCatalog(dir string, m vocab.Month) error {
 }
 
 // BenchmarkLoadCatalog loads the catalog-scale fixture as --vocab does (the
-// embedded Decoder, vocab.Open and NewTranslator), reporting its fitments,
-// applications and redirects, its file's size, the heap it retains once
-// loaded, and a loading process's peak RSS: ADR 0017's budget is at most
-// 15 s on one core, 1.5 GiB at peak and a file of 500 MB.
+// embedded Decoder, vocab.Open and NewTranslator), as JSON Lines and
+// compiled, reporting its fitments, applications and redirects, its
+// file's size, the heap it retains once loaded, and a loading process's
+// peak RSS. ADR 0017's budget for JSON Lines is at most 15 s on one core,
+// 1.5 GiB at peak and a file of 500 MB; ADR 0021's for the compiled form
+// at most 1 s on one core, 512 MiB at peak, 256 MiB retained and a file
+// of 500 MB.
 func BenchmarkLoadCatalog(b *testing.B) {
-	paths := catalogPaths(b)
-	fi, err := os.Stat(filepath.Join(paths[0], "catalog.jsonl"))
-	if err != nil {
-		b.Fatal(err)
+	for _, form := range catalogForms(b) {
+		b.Run(form.name, func(b *testing.B) {
+			fi, err := os.Stat(form.catalogFile)
+			if err != nil {
+				b.Fatal(err)
+			}
+			var info vocab.CatalogInfo
+			b.ReportAllocs()
+			for b.Loop() {
+				tr, err := loadTranslator(form.paths)
+				if err != nil {
+					b.Fatal(err)
+				}
+				info = tr.Catalog().Info()
+			}
+			b.StopTimer()
+			heap, err := retained(form.paths)
+			if err != nil {
+				b.Fatal(err)
+			}
+			peak, err := peakRSS(form.paths)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportMetric(float64(info.Fitments), "fitments")
+			b.ReportMetric(float64(info.Applications), "applications")
+			b.ReportMetric(float64(info.Redirects), "redirects")
+			b.ReportMetric(float64(fi.Size())/1e6, "file-MB")
+			b.ReportMetric(heap/1e6, "heap-MB")
+			b.ReportMetric(peak/1e6, "peak-RSS-MB")
+		})
 	}
-	var info vocab.CatalogInfo
-	b.ReportAllocs()
+}
+
+// BenchmarkCompileCatalog compiles the catalog-scale fixture as `nitrovin
+// vocab compile` does: load it, check it, measure its drift and write the
+// compiled file. Compiling has no budget (ADR 0021); it is recorded.
+func BenchmarkCompileCatalog(b *testing.B) {
+	dir := catalogDir(b)
+	var buf bytes.Buffer
 	for b.Loop() {
-		tr, err := loadTranslator(paths)
-		if err != nil {
+		buf.Reset()
+		if err := compileCatalog(&buf, dir); err != nil {
 			b.Fatal(err)
 		}
-		info = tr.Catalog().Info()
 	}
-	b.StopTimer()
-	heap, err := retained(paths)
-	if err != nil {
-		b.Fatal(err)
-	}
-	peak, err := peakRSS(paths)
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.ReportMetric(float64(info.Fitments), "fitments")
-	b.ReportMetric(float64(info.Applications), "applications")
-	b.ReportMetric(float64(info.Redirects), "redirects")
-	b.ReportMetric(float64(fi.Size())/1e6, "file-MB")
-	b.ReportMetric(heap/1e6, "heap-MB")
-	b.ReportMetric(peak/1e6, "peak-RSS-MB")
+	b.ReportMetric(float64(buf.Len())/1e6, "file-MB")
 }
+
+// catalogQueries is how many different questions each lookup benchmark
+// cycles through, so its p99 is over many parts of the file.
+const catalogQueries = 4096
+
+// BenchmarkCatalogReader times fitment.Reader's lookups on the
+// catalog-scale fixture, as JSON Lines and compiled, each cycling through
+// catalogQueries questions about fitments spread over the catalog:
+//
+//   - by-vehicle: a part type, a vehicle and a year, the candidates of a
+//     fit request (ADR 0018: at most 5 ms p99);
+//   - summary: every part type for a vehicle and a year, the lookups of a
+//     part-type summary (at most 10 ms p99);
+//   - by-number: a fitment key, the lookup of a reverse request (at most
+//     1 ms per key);
+//   - redirect: a part type, a vehicle and a year;
+//   - page: 1,000 fitments of a part type after a key, a list page.
+func BenchmarkCatalogReader(b *testing.B) {
+	vehicles := func(i int) []vocab.Vehicle { return []vocab.Vehicle{catalogOnce.vehicles[vehicleOf(i, 0)]} }
+	at := func(k int) int { return k * 7919 % catalogFitments } // the fitment question k is about
+	for _, form := range catalogForms(b) {
+		b.Run(form.name, func(b *testing.B) {
+			tr, err := loadTranslator(form.paths)
+			if err != nil {
+				b.Fatal(err)
+			}
+			cat := tr.Catalog()
+			cycle := func(ask func(i int) int) func() error {
+				k := 0
+				return func() error {
+					i := at(k % catalogQueries)
+					k++
+					if ask(i) == 0 {
+						return fmt.Errorf("no answer about fitment %d", i)
+					}
+					return nil
+				}
+			}
+			b.Run("by-vehicle", func(b *testing.B) {
+				measure(b, cycle(func(i int) int {
+					return len(cat.ByVehicle(typeOf(i), vehicles(i), new(firstOf(i, 0)), nil))
+				}))
+			})
+			b.Run("summary", func(b *testing.B) {
+				measure(b, cycle(func(i int) int {
+					n := 0
+					for t := range catalogTypes {
+						n += len(cat.ByVehicle(fmt.Sprintf("%03d", t+1), vehicles(i), new(firstOf(i, 0)), nil))
+					}
+					return n
+				}))
+			})
+			b.Run("by-number", func(b *testing.B) {
+				measure(b, cycle(func(i int) int {
+					fit, _ := cat.ByNumber(typeOf(i), numberOf(i), sideAt(i))
+					if fit == nil {
+						return 0
+					}
+					return len(fit.Applications)
+				}))
+			})
+			b.Run("redirect", func(b *testing.B) {
+				// Redirect r is about fitment r*7%catalogFitments.
+				measure(b, cycle(func(i int) int {
+					r := i % catalogRedirects
+					j := r * 7 % catalogFitments
+					return len(cat.Redirect(redirectFrom(j), vehicles(j), new(firstOf(j, 0))))
+				}))
+			})
+			b.Run("page", func(b *testing.B) {
+				measure(b, cycle(func(i int) int {
+					after := vocab.FitmentKey{Type: typeOf(i), Number: numberOf(i), Side: sideAt(i)}
+					return len(cat.Fitments(typeOf(i), &after, 1000)) + 1 // the last of a type has none after it
+				}))
+			})
+		})
+	}
+}
+
+// The fixture: fitment i's part type, number and side, and its
+// application j's vehicle and years, functions of i and j so redirects,
+// retired numbers and lookups can point at them. One fitment in three is
+// one of a left and right pair: one part type, one number.
+func typeOf(i int) string { return fmt.Sprintf("%03d", i/2%catalogTypes+1) }
+
+func numberOf(i int) string {
+	if i%6 < 2 {
+		return fmt.Sprintf("N%07d", i-i%2)
+	}
+	return fmt.Sprintf("N%07d", i)
+}
+
+func sideAt(i int) vocab.Side {
+	switch i % 6 {
+	case 0:
+		return vocab.SideLeft
+	case 1:
+		return vocab.SideRight
+	}
+	return vocab.SideNone
+}
+
+// sideOf is fitment i's side as its key's JSON writes it.
+func sideOf(i int) string {
+	if s := sideAt(i); s != vocab.SideNone {
+		return `,"side":"` + s.String() + `"`
+	}
+	return ""
+}
+
+func vehicleOf(i, j int) int { return (i*31 + j*977) % catalogModels }
+func firstOf(i, j int) int   { return 1981 + (i+j*7)%40 }
+func lastOf(i, j int) int    { return firstOf(i, j) + (i+j)%6 }
+
+// redirectFrom is the part type a redirect about fitment i redirects from.
+func redirectFrom(i int) string { return fmt.Sprintf("%03d", (i+101)%catalogTypes+1) }
 
 // loadTranslator is load's Translator.
 func loadTranslator(paths []string) (*nitrovin.Translator, error) {
