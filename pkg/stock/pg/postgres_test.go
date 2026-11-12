@@ -398,8 +398,18 @@ CREATE FUNCTION nvtest.sleepy() RETURNS boolean LANGUAGE sql VOLATILE AS $$ SELE
 CREATE VIEW nvtest.slow AS SELECT * FROM nvtest.shelf WHERE nvtest.sleepy()`
 
 // connector is a shelf connector on parts-catalog reading relation with
-// dsn, its header's postgres members extra added.
+// dsn, its header's postgres members extra added, closed when the test
+// ends.
 func connector(t *testing.T, relation, dsn, extra string) *Source {
+	t.Helper()
+	s := unclosed(t, relation, dsn, extra)
+	t.Cleanup(s.Close)
+	return s
+}
+
+// unclosed is connector without the Close at the test's end, for a test
+// of Close itself: a Close that hangs fails it, never its cleanup.
+func unclosed(t *testing.T, relation, dsn, extra string) *Source {
 	t.Helper()
 	dir := t.TempDir()
 	header := `{"format":1,"kind":"stock","name":"shelf-live","version":"1","source":"shelf","catalog":"parts-catalog","connector":{"postgres":{"relation":"` + relation + `","dsn_env":"DSN"` + extra + `}}}`
@@ -414,9 +424,7 @@ func connector(t *testing.T, relation, dsn, extra string) *Source {
 	for _, f := range files {
 		byName[f.Name] = f
 	}
-	s := New(stock.Declared{File: byName["shelf-live"], Catalog: byName["parts-catalog"], Vehicles: byName["catalog-models"]}, dsn)
-	t.Cleanup(s.Close)
-	return s
+	return New(stock.Declared{File: byName["shelf-live"], Catalog: byName["parts-catalog"], Vehicles: byName["catalog-models"]}, dsn)
 }
 
 var mirrorKey = [][]vocab.FitmentKey{{{Type: "mirror", Number: "MR-1001", Side: vocab.SideLeft}}}
@@ -631,7 +639,7 @@ func TestSlowPostgres(t *testing.T) {
 	})
 
 	t.Run("close", func(t *testing.T) {
-		s := connector(t, "nvtest.slow", u.String(), `,"statement_timeout_ms":10000`)
+		s := unclosed(t, "nvtest.slow", u.String(), `,"statement_timeout_ms":10000`)
 		if _, _, err := s.ready(ctx); err != nil {
 			t.Fatal(err)
 		}
@@ -641,16 +649,22 @@ func TestSlowPostgres(t *testing.T) {
 			s.Close() // waits for the lookup's connection
 			close(closed)
 		}()
-		time.Sleep(100 * time.Millisecond)
+		// Health answers while Close waits, and soon says closed.
 		healthy := make(chan stock.Health, 1)
-		go func() { healthy <- s.Health() }()
-		select {
-		case h := <-healthy:
-			if h.Down == nil || h.Down.Reason != reasonClosed {
-				t.Errorf("Health while closing %+v", h)
+		go func() {
+			for {
+				h := s.Health()
+				if h.Down != nil && h.Down.Reason == reasonClosed {
+					healthy <- h
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
 			}
-		case <-time.After(time.Second):
-			t.Error("Health waits on Close")
+		}()
+		select {
+		case <-healthy:
+		case <-time.After(2 * time.Second):
+			t.Fatal("Health did not say closed within 2 s of Close: it waits on Close, or Close never marked it")
 		}
 		// The database ends the backend: the lookup fails on a dead
 		// connection, which it gives back for Close to finish.
