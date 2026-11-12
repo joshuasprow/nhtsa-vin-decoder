@@ -586,7 +586,9 @@ func (l *Library) translate(req contract.TranslateRequest, dec *contract.VINDeco
 // Translate.
 func (l *Library) Fit(ctx context.Context, req contract.FitRequest) (contract.Fit, error) {
 	start := time.Now()
-	defer func() { l.fitTook.Store(int64(time.Since(start))) }()
+	// A Fit within the clock's resolution (a millisecond, in some
+	// browsers) still counts: at least a nanosecond.
+	defer func() { l.fitTook.Store(int64(max(time.Since(start), time.Nanosecond))) }()
 	f := l.fitter(l.state.Load())
 	var decodeErr error
 	f.Decode = func(vin string, year contract.Null[int32], now time.Time) (contract.VINDecode, error) {
