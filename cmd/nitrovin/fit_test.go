@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ func fitter(t *testing.T) *nitrovin.Translator {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := vocab.Open(fixture, fitmentFixture)
+	files, err := vocab.Open(fixture, fitmentFixture, stockFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +36,7 @@ func fits(t *testing.T, tr *nitrovin.Translator, reqs ...contract.FitRequest) []
 	t.Helper()
 	out := make([]any, len(reqs))
 	for i, req := range reqs {
-		a, err := tr.Fit(req)
+		a, err := tr.Fit(context.Background(), req)
 		if err != nil {
 			t.Fatalf("Fit(%+v): %v", req, err)
 		}
@@ -49,7 +50,7 @@ func fits(t *testing.T, tr *nitrovin.Translator, reqs ...contract.FitRequest) []
 func TestFit(t *testing.T) {
 	tr := fitter(t)
 	clock, _ := contract.ParseNow(now)
-	vocabArgs := []string{"--vocab", fixture, "--vocab", fitmentFixture, "fit", "--now", now}
+	vocabArgs := []string{"--vocab", fixture, "--vocab", fitmentFixture, "--vocab", stockFixture, "fit", "--now", now}
 	mirror := &contract.FitPart{Spine: "part-types", ID: "mirror"}
 	for _, tc := range []struct {
 		args []string
@@ -65,6 +66,9 @@ func TestFit(t *testing.T) {
 		}},
 		{[]string{"--model-year", "2010", "--part", "part-types:brake-rotor-front", ram2015}, []contract.FitRequest{
 			{From: contract.FitFrom{VIN: ram2015}, ModelYear: contract.Value[int32](2010), Part: &contract.FitPart{Spine: "part-types", ID: "brake-rotor-front"}, Now: clock},
+		}},
+		{[]string{"--part", "part-types:brake-rotor-front", "--stock", "shelf,yard", "--location", "north", "--location", "south", ram2010}, []contract.FitRequest{
+			{From: contract.FitFrom{VIN: ram2010}, Part: &contract.FitPart{Spine: "part-types", ID: "brake-rotor-front"}, Stock: []string{"shelf", "yard"}, Location: []string{"north", "south"}, Now: clock},
 		}},
 	} {
 		r := cli(t, nil, "", slices.Concat(vocabArgs, tc.args)...)
@@ -116,7 +120,7 @@ func TestFit(t *testing.T) {
 // line is a usage error.
 func TestFitRefused(t *testing.T) {
 	fixtureData(t)
-	vocabArgs := []string{"--vocab", fixture, "--vocab", fitmentFixture, "fit"}
+	vocabArgs := []string{"--vocab", fixture, "--vocab", fitmentFixture, "--vocab", stockFixture, "fit"}
 	for _, tc := range []struct {
 		args            []string
 		detail, pointer string
@@ -151,6 +155,8 @@ func TestFitRefused(t *testing.T) {
 		{"fit", "--to", "", ram2010},
 		{"fit", "--now", "yesterday", ram2010},
 		{"fit", "--after", "WyJjYW5kaWRhdGVzIiwxXQ", "-"},
+		{"fit", "--stock", "bin", ram2010},
+		{"fit", "--location", "", ram2010},
 	} {
 		usageMistake(t, args...)
 	}

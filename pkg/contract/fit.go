@@ -33,6 +33,12 @@ type FitRequest struct {
 	To []string
 	// Related asks for the vehicles that share fitments with From.
 	Related bool
+	// Stock asks for the stock of the answer's fitments (ADR 0019): of
+	// StockShelf, StockYard or both, each once.
+	Stock []string
+	// Location keeps the stock rows at one of these locations; none keeps
+	// every row. It takes Stock.
+	Location []string
 	// Limit is the page size, 1 to MaxListLimit; 0 means DefaultListLimit.
 	Limit int
 	// After is the previous page's Next; "" starts at the first.
@@ -145,6 +151,29 @@ func (r FitRequest) validate(prefix string) *Problem {
 			return NewProblem(InvalidRequest, prefix+"/to/"+strconv.Itoa(i), "a vocabulary name is not empty")
 		}
 	}
+	for i, s := range r.Stock {
+		ptr := prefix + "/stock/" + strconv.Itoa(i)
+		switch {
+		case s != StockShelf && s != StockYard:
+			return NewProblem(InvalidRequest, ptr, "stock is shelf or yard")
+		case slices.Index(r.Stock, s) < i:
+			return NewProblem(InvalidRequest, ptr, fmt.Sprintf("stock names %s twice", s))
+		}
+	}
+	if len(r.Stock) > 0 && r.Part == nil && !r.Related && f.Fitment == nil {
+		return NewProblem(InvalidRequest, prefix+"/stock", "stock is a fitment's: give it with part, related or a fitment")
+	}
+	if r.Related && f.Fitment == nil && slices.Contains(r.Stock, StockShelf) {
+		return NewProblem(InvalidRequest, prefix+"/stock", `related vehicles carry yard counts only: give stock ["yard"] with related`)
+	}
+	for i, l := range r.Location {
+		if l == "" {
+			return NewProblem(InvalidRequest, prefix+"/location/"+strconv.Itoa(i), "a location is not empty")
+		}
+	}
+	if len(r.Location) > 0 && len(r.Stock) == 0 {
+		return NewProblem(InvalidRequest, prefix+"/location", "location filters stock: give it with stock")
+	}
 	if r.Limit < 0 || r.Limit > MaxListLimit {
 		return NewProblem(InvalidRequest, prefix+"/limit", fmt.Sprintf("limit must be an integer from 1 to %d", MaxListLimit))
 	}
@@ -187,7 +216,7 @@ func (p *FitPart) validate(ptr string) *Problem {
 }
 
 // fitFields are FitRequest's properties.
-var fitFields = []string{"from", "model_year", "part", "side", "to", "related", "limit", "after", "now"}
+var fitFields = []string{"from", "model_year", "part", "side", "to", "related", "stock", "location", "limit", "after", "now"}
 
 // partFields are the properties a part object may have.
 var partFields = []string{"vocabulary", "entry", "spine", "id"}
@@ -232,9 +261,10 @@ func ParseFitBatch(data []byte) ([]FitRequest, error) {
 // from.entry.<field> per entry field; from.make, from.model or from.ext;
 // or from.fitment.type, from.fitment.number and from.fitment.side. part is
 // part.spine with part.id, or part.vocabulary with one part.entry.<field>
-// per field. to is repeated, one vocabulary each; side, model_year,
-// related (true or false), limit, after and now are the request's. Every
-// parameter but to is given at most once, and an unknown one is refused.
+// per field. to, stock and location are repeated, one value each; side,
+// model_year, related (true or false), limit, after and now are the
+// request's. Every other parameter is given at most once, and an unknown
+// one is refused.
 // As in ParseTranslateQuery, the parameters are read as the JSON request
 // they spell, and a problem's pointer is the parameter's path
 // ("/part/entry/code"). The error is a *Problem.
@@ -255,7 +285,7 @@ func ParseFitQuery(query url.Values) (FitRequest, error) {
 			member = "part.entry."
 		}
 		ptr := queryPointer(name, member)
-		if name == "to" {
+		if name == "to" || name == "stock" || name == "location" {
 			to := make([]json.RawMessage, len(vs))
 			for i, v := range vs {
 				to[i] = queryString(v)
@@ -393,6 +423,27 @@ func readFit(fields map[string]json.RawMessage, prefix string) (FitRequest, *Pro
 		case "false":
 		default:
 			return r, NewProblem(InvalidRequest, prefix+"/related", "related must be true or false")
+		}
+	}
+	for _, name := range []string{"stock", "location"} {
+		raw, ok := fields[name]
+		if !ok {
+			continue
+		}
+		var items []json.RawMessage
+		if firstByte(raw) != '[' || json.Unmarshal(raw, &items) != nil || len(items) == 0 {
+			return r, NewProblem(InvalidRequest, prefix+"/"+name, name+" must be a non-empty array of strings")
+		}
+		out := make([]string, len(items))
+		for i, item := range items {
+			if !jsonString(item, &out[i]) {
+				return r, NewProblem(InvalidRequest, prefix+"/"+name+"/"+strconv.Itoa(i), name+" must be an array of strings")
+			}
+		}
+		if name == "stock" {
+			r.Stock = out
+		} else {
+			r.Location = out
 		}
 	}
 	if raw, ok := fields["limit"]; ok {
@@ -539,6 +590,17 @@ type Fit struct {
 	Candidates []FitCandidate   `json:"candidates,omitzero"`
 	Vehicles   []FitVehicle     `json:"vehicles,omitzero"`
 	Related    []RelatedVehicle `json:"related,omitzero"`
+	// Shelf and Yard are a fitment's stock lists, from a fitment key with
+	// stock, paged with Vehicles: after and limit page every list of the
+	// answer together. ShelfByVehicle is, with part and stock shelf, the
+	// shelf rows with no number for the part types and the vehicle's exact
+	// vehicle and year, paged with Candidates: next stays while either has
+	// more. Status and Total are the candidates' alone, so ShelfByVehicle
+	// can hold rows when Status is FitNoFitment. Each is absent when stock
+	// does not ask for it.
+	Shelf          *StockList `json:"shelf,omitempty"`
+	Yard           *StockList `json:"yard,omitempty"`
+	ShelfByVehicle *StockList `json:"shelf_by_vehicle,omitempty"`
 	// Total is how many the list holds across every page.
 	Total int `json:"total"`
 	// Next is the After of the next page; absent on the last.
@@ -662,6 +724,11 @@ type FitCandidate struct {
 	// Redirects are the redirects that reached it, when Reached is
 	// ReachedRedirect.
 	Redirects []FitRedirect `json:"redirects,omitempty"`
+	// Shelf and Yard are its stock lists, each its first StockFirst rows,
+	// when stock asks for them: shelf the rows of the fitment, yard the
+	// yard vehicles among its applications' vehicles and years.
+	Shelf *StockList `json:"shelf,omitempty"`
+	Yard  *StockList `json:"yard,omitempty"`
 }
 
 // FitApplication is one application of a candidate that matched: the
@@ -707,6 +774,9 @@ type RelatedVehicle struct {
 	// Shared is the count of fitments shared, every part type's.
 	Shared    int           `json:"shared"`
 	PartTypes []FitPartType `json:"part_types"`
+	// Yard counts, with stock yard, the yard vehicles among the vehicle
+	// and its years: Total and Sources, no rows.
+	Yard *StockList `json:"yard,omitempty"`
 	FitNames
 }
 

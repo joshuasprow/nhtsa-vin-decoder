@@ -5,14 +5,17 @@ import (
 	"encoding/hex"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/fitment"
+	"github.com/joshuasprow/nitrovin/pkg/stock"
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
 // Translator is a Decoder with the vocabularies, extension sets, declared
-// spines and catalog loaded beside it (ADR 0011, ADR 0012, ADR 0017): the
+// spines, catalog and stock files loaded beside it (ADR 0011, ADR 0012,
+// ADR 0017, ADR 0019): the
 // files never change for its life, and the Decoder stays vocabulary-free.
 // It translates, lists and fits through them (Translate, List, Fit),
 // wrapping the decoder-free core (contract.Translator over a vocab.Set,
@@ -50,6 +53,10 @@ func NewTranslator(d *Decoder, files ...*vocab.File) (*Translator, error) {
 	if c := set.Catalog(); c != nil {
 		t.catalog = c
 		t.core.Catalog = c
+	}
+	decode := t.core.Translator.StockDecode(time.Now())
+	for _, f := range set.Stock() {
+		t.core.Stock = append(t.core.Stock, stock.NewFile(f, decode))
 	}
 	if len(files) > 0 {
 		t.drift = vocab.Drift(m, files)
@@ -95,6 +102,10 @@ func NewTranslator(d *Decoder, files ...*vocab.File) (*Translator, error) {
 						v.Compiled.LinksDiffer = true
 					}
 				}
+			}
+			if f.Kind == vocab.KindStock {
+				v.Release = f.Release
+				v.StockCounts = &contract.StockCounts{Source: string(f.Holds), Catalog: f.StockCatalog, AsOf: f.AsOf, Rows: len(f.Stock)}
 			}
 			info.Vocabularies[i] = v
 		}

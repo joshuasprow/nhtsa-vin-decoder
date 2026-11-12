@@ -335,6 +335,26 @@ and validates the fixtures against the schema; `go test ./pkg/nitrovin`
 loads the fixture, its drift variant and the catalog against the embedded
 data.
 
+`testdata/vocab/stock/` is the synthetic stock on that catalog
+([ADR 0019](docs/adr/0019-what-stock-says.md)): two shelves, `shelf-stock`
+(numbered under release 7.01 against the catalog's 7.02, so every answer
+marks it `catalog_mismatch`) and `shelf-annex` (no release, at another
+location), with rows by number, by a retired number, and with no number by
+a part vocabulary's entry and by a spine entry; and a yard (`yard-stock`)
+with a precomputed decode, a VIN nitrovin decodes, and the catalog's own
+vehicles. It loads clean beside the catalog; `testdata/vocab/stock/drift/`
+adds a third shelf with an orphan. A fit reads stock through
+`stock.Source` (`pkg/stock`), the interface a connector (ADR 0020)
+implements too: three lookups, one per list kind, each taking a context
+and returning the release and `as_of` it read; `stock.NewFile` is the
+file's. Its examples (docs/api/README.md's Stock section) are answered on
+every surface: `go test ./pkg/nitrovin` (`TestFitStock`, location,
+paging, unavailable sources, `Info`), `TestServeContract`,
+`TestServeStockUnavailable`, `TestStdioOps`, `TestMCPVocabSession`,
+`cmd/nitrovin`'s `TestFit`, and the C library's `vocab-requests.jsonl`;
+`go test ./pkg/stock` checks the yard routes, and `go test ./pkg/vocab`
+refuses each stock fault and measures orphans and personal-looking fields.
+
 Its headers say 2026_10, but the ids, values and VINs it relies on are
 long-lived ones (2026_06 loads it the same), so its tests never skip on
 another month: they assert against the embedded month, and one that fails

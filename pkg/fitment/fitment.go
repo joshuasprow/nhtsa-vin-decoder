@@ -47,6 +47,10 @@ type Reader interface {
 	// directly, or through the retired number it replaced, which retired
 	// then is. fitment is nil when there is neither.
 	ByNumber(partType, number string, side vocab.Side) (fitment *vocab.Fitment, retired *vocab.Retired)
+	// RetiredTo returns the retired numbers the fitment with key k
+	// replaced, in file order, none when there are none: a shelf row
+	// under a retired number joins its successor (ADR 0019).
+	RetiredTo(k vocab.FitmentKey) []*vocab.Retired
 	// Redirect returns the redirects from part type partType for one of
 	// vehicles (as ByVehicle takes them) whose years hold year (nil: any),
 	// in file order, each once: each names the part type the catalog lists

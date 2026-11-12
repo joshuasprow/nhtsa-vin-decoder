@@ -13,7 +13,9 @@ import (
 // every part vocabulary's spine loaded and every id it maps to in that
 // spine, and at most one catalog, its spine and vehicle vocabulary loaded,
 // its part types in that spine and its vehicles named by exactly that
-// vocabulary's fields. The error is Faults.
+// vocabulary's fields; and of each stock source, a shelf's catalog
+// loaded, every part and vehicle its rows name resolved (linkStock). The
+// error is Faults.
 func Link(files []*File) error {
 	var faults Faults
 	byName := map[string]*File{}
@@ -89,6 +91,11 @@ func Link(files []*File) error {
 			}
 			catalog = f
 			faults = append(faults, linkCatalog(f, byName, ext)...)
+		}
+	}
+	for _, f := range files {
+		if f.Kind == KindStock {
+			faults = append(faults, linkStock(f, byName, catalog)...)
 		}
 	}
 	if len(faults) > 0 {

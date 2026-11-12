@@ -184,6 +184,8 @@ func parse(name string, data []byte) (*File, error) {
 		f.SpineEntries = make([]SpineEntry, slots)
 	case KindCatalog:
 		f.Fitments = make([]Fitment, slots)
+	case KindStock:
+		f.Stock = make([]StockRow, slots)
 	}
 	inParallel(chunks, func() func(*chunk) {
 		r := newReader(f)
@@ -311,6 +313,11 @@ func (r *reader) read(c *chunk, header int, keys []string) {
 			}
 		case KindCatalog:
 			err = r.readCatalogLine(c, slot, n, line)
+		case KindStock:
+			var row StockRow
+			if row, err = f.stockRow(n, line); err == nil {
+				f.Stock[slot] = row
+			}
 		}
 		if err != nil {
 			c.faults = append(c.faults, fault(f.Path, n, "%v", err))
@@ -339,6 +346,9 @@ func (f *File) index(chunks []*chunk, keys []string) Faults {
 		f.SpineEntries, faults = keep(f.Path, chunks, f.SpineEntries, func(e *SpineEntry) int { return e.Line }, f.addSpineEntry)
 	case KindCatalog:
 		faults = f.indexCatalog(chunks)
+	case KindStock:
+		f.stockIDs = make(map[string]int, len(f.Stock))
+		f.Stock, faults = keep(f.Path, chunks, f.Stock, func(r *StockRow) int { return r.Line }, f.addStockRow)
 	}
 	return faults
 }
@@ -528,7 +538,7 @@ func nameAt(raw []byte, ptr string) (string, error) {
 }
 
 // headerNames are a header's fields; headerFields picks each kind's.
-var headerNames = []string{"format", "kind", "name", "version", "data_month", "subject", "fields", "spine", "vehicles", "release"}
+var headerNames = []string{"format", "kind", "name", "version", "data_month", "subject", "fields", "spine", "vehicles", "release", "source", "as_of", "catalog"}
 
 // headerFields are the indexes in headerNames of each kind's header
 // fields.
@@ -537,6 +547,7 @@ var headerFields = map[Kind][]int{
 	KindExtensionSet: {0, 1, 2, 3, 4},
 	KindVocabulary:   {0, 1, 2, 3, 4, 5, 6, 7},
 	KindCatalog:      {0, 1, 2, 3, 4, 7, 8, 9},
+	KindStock:        {0, 1, 2, 3, 9, 10, 11, 12},
 }
 
 // header reads line 1.
@@ -545,7 +556,7 @@ func (f *File) header(line []byte) error {
 	if err != nil {
 		return err
 	}
-	var v, scratch [10][]byte
+	var v, scratch [13][]byte
 	if _, _, ok := members(raw, headerNames, v[:]); !ok {
 		return errAt("", "must be an object")
 	}
@@ -565,7 +576,7 @@ func (f *File) header(line []byte) error {
 	f.Kind = Kind(kind)
 	names, known := headerFields[f.Kind]
 	if !known {
-		return errAt("/kind", "unknown kind %q: vocabulary, extension-set, spine or catalog", kind)
+		return errAt("/kind", "unknown kind %q: vocabulary, extension-set, spine, catalog or stock", kind)
 	}
 	allowed := make([]string, len(names))
 	for i, j := range names {
@@ -580,6 +591,8 @@ func (f *File) header(line []byte) error {
 		required = append(required, 5, 6) // subject, fields
 	case KindCatalog:
 		required = append(required, 7, 8) // spine, vehicles
+	case KindStock:
+		required = append(required, 10, 11) // source, as_of
 	}
 	for _, i := range required {
 		if v[i] == nil {
@@ -603,6 +616,8 @@ func (f *File) header(line []byte) error {
 	switch f.Kind {
 	case KindCatalog:
 		return f.catalogHeader(v[7], v[8], v[9])
+	case KindStock:
+		return f.stockHeader(v[10], v[11], v[12], v[9])
 	case KindVocabulary:
 	default:
 		return nil

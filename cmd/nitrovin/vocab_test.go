@@ -24,11 +24,12 @@ import (
 // The synthetic fixture: testdata/vocab loads clean against the embedded
 // month (its headers say 2026_10; its ids and values are long-lived), its
 // drift/ variant with one drift of each kind, and fitment/ a catalog with
-// its spine and vehicle vocabulary.
+// its spine and vehicle vocabulary, and stock/ a shelf and a yard on it.
 var (
 	fixture        = abs("../../testdata/vocab")
 	driftFixture   = abs("../../testdata/vocab/drift")
 	fitmentFixture = abs("../../testdata/vocab/fitment")
+	stockFixture   = abs("../../testdata/vocab/stock")
 )
 
 func abs(path string) string {

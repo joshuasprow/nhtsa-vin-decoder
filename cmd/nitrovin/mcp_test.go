@@ -419,7 +419,7 @@ func TestMCPVocabSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := vocab.Open(fixture, fitmentFixture)
+	files, err := vocab.Open(fixture, fitmentFixture, stockFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,10 +451,12 @@ func TestMCPVocabSession(t *testing.T) {
 		{tool: "fit", args: `{"from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010,"now":"` + now + `"}`},
 		{tool: "fit", args: `{"from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}},"to":["yard"],"now":"` + now + `"}`},
 		{tool: "fit", args: `{"from":"` + ram2010 + `","related":true,"now":"` + now + `"}`},
+		{tool: "fit", args: `{"from":"` + ram2010 + `","part":{"vocabulary":"part-codes","entry":{"code":"ROT"}},"stock":["shelf","yard"],"now":"` + now + `"}`},
+		{tool: "fit", args: `{"from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}},"stock":["shelf","yard"],"location":["north","east"],"limit":1,"now":"` + now + `"}`},
 		{tool: "list", args: `{"of":"parts-catalog","where":{"type":"mirror"}}`},
 		{tool: "fit", args: `{"from":{"model":1938},"part":{"vocabulary":"listing","entry":{"category":"Brake Pads"}}}`, pointer: "/part/vocabulary"},
 	}
-	runSessions(t, d, "", fixture+string(os.PathListSeparator)+fitmentFixture, calls)
+	runSessions(t, d, "", fixture+string(os.PathListSeparator)+fitmentFixture+string(os.PathListSeparator)+stockFixture, calls)
 }
 
 // runSessions runs the scripted session twice with a 2026-07-28 client and
@@ -604,7 +606,7 @@ func checkCall(t *testing.T, d loaded, c mcpCall, resp message, outputs map[stri
 		case "list":
 			want, err = listJSON(d, []byte(cmp.Or(c.args, "{}")))
 		case "fit":
-			want, err = fitJSON(d, []byte(cmp.Or(c.args, "{}")))
+			want, err = fitJSON(context.Background(), d, []byte(cmp.Or(c.args, "{}")))
 		}
 		if err != nil {
 			t.Fatalf("%s %s: %v", name, c.args, err)
@@ -647,7 +649,7 @@ func checkCall(t *testing.T, d loaded, c mcpCall, resp message, outputs map[stri
 // that call, and the server goes on.
 func TestMCPRecovers(t *testing.T) {
 	var stderr strings.Builder
-	b, err := recovered("fit", func([]byte) ([]byte, error) { panic("damaged catalog") }, []byte(`{}`), &stderr)
+	b, err := recovered(context.Background(), "fit", func(context.Context, []byte) ([]byte, error) { panic("damaged catalog") }, []byte(`{}`), &stderr)
 	if p := contract.AsProblem(err); b != nil || p.Type != contract.Internal || !strings.Contains(p.Detail, "damaged catalog") {
 		t.Errorf("%s, %v; want an #internal problem naming the panic", b, err)
 	}

@@ -91,6 +91,12 @@ func (d *drifts) walk(files []*File) []Finding {
 				continue
 			}
 			d.catalog(byName[f.Vehicles])
+		case KindStock:
+			var c *Catalog
+			if g := byName[f.StockCatalog]; g != nil {
+				c = g.Catalog()
+			}
+			d.stock(c)
 		}
 	}
 	return d.out

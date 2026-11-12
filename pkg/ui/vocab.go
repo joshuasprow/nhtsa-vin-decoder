@@ -692,8 +692,8 @@ func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info) error
 		Files: []workerFile{}, EPA: h.offered(), Elements: info.Elements, ErrorTexts: h.errorTexts, DataRelease: h.links(info).DataRelease,
 	}
 	for _, f := range info.Vocabularies {
-		if f.Kind == string(vocab.KindCatalog) {
-			continue // a catalog loads on the server only: the browser has no fitment yet
+		if f.Kind == string(vocab.KindCatalog) || f.Kind == string(vocab.KindStock) {
+			continue // a catalog and stock load on the server only: the browser has no fitment yet
 		}
 		c.Files = append(c.Files, workerFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3, URL: FilePath(info, f)})
 	}

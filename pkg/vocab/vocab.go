@@ -46,6 +46,9 @@ const (
 	// KindCatalog is a catalog: fitments, redirects and retired numbers
 	// (ADR 0016, ADR 0017). A deployment loads at most one.
 	KindCatalog Kind = "catalog"
+	// KindStock is a stock source's file: shelf parts or yard vehicles
+	// (ADR 0019). A deployment loads any number.
+	KindStock Kind = "stock"
 )
 
 // noun is the kind in a sentence: "a vocabulary".
@@ -57,6 +60,8 @@ func (k Kind) noun() string {
 		return "an extension set"
 	case KindCatalog:
 		return "a catalog"
+	case KindStock:
+		return "a stock source"
 	}
 	return "a spine"
 }
@@ -109,6 +114,16 @@ type File struct {
 	Vehicles string
 	Release  string
 
+	// Holds (its header's source), AsOf and StockCatalog are a stock
+	// file's: shelf or yard, the time its rows are as of, and a shelf's
+	// catalog (Release is that catalog's release its numbers are under, ""
+	// when it says none).
+	Holds        StockHolds
+	AsOf         string
+	StockCatalog string
+	// Stock are a stock file's rows, in file order.
+	Stock []StockRow
+
 	// Entries are a vocabulary's lines.
 	Entries []Entry
 	// Extensions are an extension set's lines.
@@ -129,6 +144,7 @@ type File struct {
 	// compiled is a compiled catalog's file (ADR 0021): its lines stay in
 	// it, and Fitments, Redirects and Retired are nil.
 	compiled *compiled
+	stockIDs map[string]int // a stock row's id → index in Stock
 
 	// listed is a vocabulary's entries in list order (listOrder), made
 	// once: on first use, or by ReadIndex.

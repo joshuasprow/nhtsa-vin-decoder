@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -126,12 +127,26 @@ func TestFitRequestValidate(t *testing.T) {
 		{FitRequest{From: FitFrom{VIN: "x"}, Side: "front"}, "/side"},
 		{FitRequest{From: FitFrom{VIN: "x"}, Limit: 1001}, "/limit"},
 		{FitRequest{From: FitFrom{VIN: "x"}, To: []string{""}}, "/to/0"},
+		{FitRequest{From: FitFrom{Fitment: key}, Stock: []string{"bin"}}, "/stock/0"},
+		{FitRequest{From: FitFrom{Fitment: key}, Stock: []string{"yard", "yard"}}, "/stock/1"},
+		{FitRequest{From: FitFrom{VIN: "x"}, Stock: []string{"shelf"}}, "/stock"},
+		{FitRequest{From: FitFrom{Fitment: key}, Location: []string{"north"}}, "/location"},
+		{FitRequest{From: FitFrom{Fitment: key}, Stock: []string{"shelf"}, Location: []string{""}}, "/location/0"},
 	} {
 		problemOf(t, c.r.Validate(), InvalidRequest, c.pointer)
 	}
 	if err := (FitRequest{From: FitFrom{Fitment: key}, Side: "left"}).Validate(); err != nil {
 		t.Errorf("a fitment and a side: %v", err)
 	}
+	if err := (FitRequest{From: FitFrom{VIN: "x"}, Related: true, Stock: []string{"yard"}, Location: []string{"north"}}).Validate(); err != nil {
+		t.Errorf("related with stock and location: %v", err)
+	}
+	q, err := ParseFitQuery(url.Values{"from.fitment.type": {"mirror"}, "from.fitment.number": {"M"}, "stock": {"shelf", "yard"}, "location": {"north", "south"}})
+	if err != nil || !slices.Equal(q.Stock, []string{"shelf", "yard"}) || !slices.Equal(q.Location, []string{"north", "south"}) {
+		t.Errorf("GET stock and location: %+v, %v", q, err)
+	}
+	_, err = ParseFitRequest([]byte(`{"from":{"fitment":{"type":"t","number":"1"}},"stock":"shelf"}`))
+	problemOf(t, err, InvalidRequest, "/stock")
 }
 
 func TestParseFitBatch(t *testing.T) {

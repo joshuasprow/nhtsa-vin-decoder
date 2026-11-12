@@ -37,11 +37,12 @@ type Info struct {
 // ADR 0017).
 type VocabularyFile struct {
 	Name string `json:"name"`
-	// Kind is "vocabulary", "extension-set", "spine" or "catalog".
+	// Kind is "vocabulary", "extension-set", "spine", "catalog" or "stock".
 	Kind    string `json:"kind"`
 	Version string `json:"version"`
-	// Release is a catalog's publisher's release, "" (absent) when it
-	// gives none and for every other kind.
+	// Release is a catalog's publisher's release, or a shelf stock
+	// source's catalog release; "" (absent) when it gives none and for
+	// every other kind.
 	Release string `json:"release,omitempty"`
 	// Blake3 is the hex blake3 hash of the file's bytes; for a compiled
 	// catalog, the hash its header records, of its bytes with the hash's
@@ -52,16 +53,27 @@ type VocabularyFile struct {
 	Path string `json:"path"`
 	// Drift counts the file's drift findings by kind ("make", "model",
 	// "qualifier", "extension", "model-years", "vehicle", "redirect",
-	// "model-qualifier"), only the kinds it has, in that order; empty when
-	// the file agrees with the data month. A compiled catalog's are those
-	// its compiling measured, against Compiled.DriftMonth, but for its
-	// "vehicle" drift, measured at load.
+	// "model-qualifier", "orphan", "personal-field"), only the kinds it has,
+	// in that order; empty when the file agrees with the data month. A
+	// compiled catalog's are those its compiling measured, against
+	// Compiled.DriftMonth, but for its "vehicle" drift, measured at load.
 	Drift []DriftCount `json:"drift"`
 	// CatalogCounts are a catalog's, nil (absent) for every other kind.
 	*CatalogCounts
 	// Compiled is a compiled catalog's record of its compiling, nil
 	// (absent) for every JSON Lines file.
 	Compiled *CompiledCatalog `json:"compiled,omitempty"`
+	// StockCounts are a stock source's, nil (absent) for every other kind.
+	*StockCounts
+}
+
+// StockCounts describe a stock source (ADR 0019): what it holds, its
+// catalog when a shelf, its time, and how many rows it has.
+type StockCounts struct {
+	Source  string `json:"source"`
+	Catalog string `json:"catalog,omitempty"`
+	AsOf    string `json:"as_of"`
+	Rows    int    `json:"rows"`
 }
 
 // CompiledCatalog is what a compiled catalog records of its compiling
@@ -116,7 +128,7 @@ type DriftExample struct {
 }
 
 // driftKinds orders a file's DriftCounts.
-var driftKinds = []vocab.DriftKind{vocab.DriftMake, vocab.DriftModel, vocab.DriftQualifier, vocab.DriftExtension, vocab.DriftModelYears, vocab.DriftVehicle, vocab.DriftRedirect, vocab.DriftModelQualifier}
+var driftKinds = []vocab.DriftKind{vocab.DriftMake, vocab.DriftModel, vocab.DriftQualifier, vocab.DriftExtension, vocab.DriftModelYears, vocab.DriftVehicle, vocab.DriftRedirect, vocab.DriftModelQualifier, vocab.DriftOrphan, vocab.DriftPersonal}
 
 // DriftCounts counts the findings of drift about the file loaded from
 // path by kind, keeping the first MaxDriftExamples of each: what Info

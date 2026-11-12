@@ -61,7 +61,12 @@ func TestSchema(t *testing.T) {
 	if len(fitment) == 0 {
 		t.Fatal("no testdata/vocab/fitment/*.jsonl")
 	}
-	for _, p := range slices.Concat(paths, drift, fitment) {
+	stockFiles, _ := filepath.Glob("../../testdata/vocab/stock/*.jsonl")
+	stockDrift, _ := filepath.Glob("../../testdata/vocab/stock/drift/*.jsonl")
+	if len(stockFiles) == 0 {
+		t.Fatal("no testdata/vocab/stock/*.jsonl")
+	}
+	for _, p := range slices.Concat(paths, drift, fitment, stockFiles, stockDrift) {
 		data, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatal(err)
@@ -85,6 +90,12 @@ func TestSchema(t *testing.T) {
 		`{"id":"packard","make_name":"Packard","make":467,"name":"Clipper"}`,
 		`{"id":"pads","parent":"brakes"}`,
 		`{"format":1,"kind":"catalog","name":"cat","version":"1","spine":"parts"}`,
+		`{"format":1,"kind":"stock","name":"s","version":"1","source":"shelf","as_of":"2026-11-01"}`,
+		`{"format":1,"kind":"stock","name":"s","version":"1","source":"yard","as_of":"2026-11-01","catalog":"cat"}`,
+		`{"format":1,"kind":"stock","name":"s","version":"1","source":"bin","as_of":"2026-11-01"}`,
+		`{"id":"S-1","location":"a","type":"mirror","number":"M1","part":{"spine":"p","id":"mirror"}}`,
+		`{"id":"S-1","location":"a","type":"mirror","number":"M1","fields":{"photos":["a.jpg"]}}`,
+		`{"id":"Y-1","location":"a","year":2010}`,
 		`{"format":1,"kind":"catalog","name":"cat","version":"1","spine":"parts","vehicles":"yard","release":""}`,
 		`{"format":1,"kind":"catalog","name":"cat","version":"1","spine":"parts","vehicles":"yard","subject":"vehicle"}`,
 		`{"fitment":{"type":"pads","number":"P1","side":"front"},"applications":[]}`,

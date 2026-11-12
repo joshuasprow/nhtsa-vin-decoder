@@ -459,6 +459,10 @@ func (h *Handler) published(info contract.Info, name string, missing *pageError)
 			// on its server.
 			return "", nil, &pageError{Status: http.StatusNotFound, Message: "This nitrovin publishes no catalog: " + fileName + " stays on the server."}
 		}
+		if f.Kind == string(vocab.KindStock) {
+			// No page reads stock: a fit serves it.
+			return "", nil, &pageError{Status: http.StatusNotFound, Message: "This nitrovin publishes no stock file: " + fileName + " stays on the server."}
+		}
 		if f.Blake3 != hash {
 			return "", nil, &pageError{Status: http.StatusNotFound, Message: "This nitrovin's " + fileName +
 				" is another file now (blake3 " + f.Blake3 + "): reload the page."}

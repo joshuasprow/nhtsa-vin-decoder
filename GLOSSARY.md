@@ -263,21 +263,23 @@ spine. May be one-to-many in either direction.
 _Avoid_: lookup, aliasing
 
 **Drift**:
-Where a vocabulary, extension set, declared spine or catalog disagrees with
-the loaded data month or the files loaded with it: a vPIC id the month lacks,
+Where a vocabulary, extension set, declared spine, catalog or stock file
+disagrees with the loaded data month or the files loaded with it: a vPIC id the month lacks,
 a qualifier value its decode cannot
 produce, or one the mapping's own model never decodes to, an extension named like a vPIC entry under the same make,
 a mapping's or a catalog application's years outside its model's model years,
 a catalog's vehicle its vehicle vocabulary lacks or lists unmapped, a redirect
-no application answers. Reported,
+no application answers, an orphan shelf row, a personal-looking stock field.
+Reported,
 never refused: NHTSA's monthly changes are not the author's mistakes.
 _Avoid_: stale, invalid, broken mapping
 
 **Fault**:
-What refuses a vocabulary, extension set, declared spine or catalog whatever
-the data month: a malformed line, an unknown field, a duplicate entry, id or
-fitment key, a reference no loaded file defines, a second catalog, a retired
-number that is live or points at no fitment. A fault stops nitrovin from
+What refuses a vocabulary, extension set, declared spine, catalog or stock
+file whatever the data month: a malformed line, an unknown field, a duplicate
+entry, id or fitment key, a reference no loaded file defines, a second
+catalog, a retired number that is live or points at no fitment, a shelf whose
+catalog is not loaded, a stock row's part or vehicle the catalog's files lack. A fault stops nitrovin from
 starting; drift never does.
 _Avoid_: error (a decode's error codes are about the VIN), invalid
 
@@ -366,8 +368,9 @@ _Avoid_: inventory (as the general term), availability
 
 **Stock source**:
 A named supply of stock rows, either a file or a database read at request time,
-of one kind: `shelf` (parts, numbered under one catalog) or `yard` (vehicles).
-The source decides what is available and what fields it shows.
+holding one of two things: `shelf` (parts, numbered under one catalog) or `yard`
+(vehicles). The source decides what is available and what fields it shows. In
+Go, `stock.Source`; its `Kind` is `file` or `live`, as an answer's block says.
 _Avoid_: feed, connector (that is how a live source is read)
 
 **Connector**:
@@ -379,7 +382,13 @@ _Avoid_: plugin, adapter, live source (as the term)
 **Shelf part**:
 One part a source has on a shelf, tied to a fitment by its catalog number, or to
 a part type and an exact vehicle and year when it has none.
-_Avoid_: stock row, item
+_Avoid_: item
+
+**Stock row**:
+One shelf part or yard vehicle as its source supplies it: a stock file's line,
+or a connector's relation row; in an answer, the row with its source's name,
+how it matched, and its fields verbatim (`StockRow`).
+_Avoid_: stock item, record
 
 **Yard vehicle**:
 A whole vehicle in a self-service yard, matched to the spine by its decoded VIN or
@@ -390,3 +399,28 @@ _Avoid_: car, unit, stock vehicle
 A shelf part whose number its catalog lacks, current or retired. It appears in no
 answer and is counted as drift.
 _Avoid_: unmatched part, missing part
+
+**Stock file**:
+A file of `kind: "stock"` loaded with `--vocab`: one stock source's header
+(`source`, `as_of`, and a shelf's `catalog` and `release`), then one row a line,
+each a shelf part or a yard vehicle. A row is the line, or a connector's relation
+row, a part or vehicle comes from.
+_Avoid_: inventory file, stock feed
+
+**Stock list**:
+A fit answer's list of shelf parts or yard vehicles: a page of its rows, its
+`total`, and the block of every source of its kind (name, `file` or `live`,
+`as_of`, a shelf's `catalog`, `release` and `catalog_mismatch`, and `status`,
+with a `reason` when `unavailable`). A candidate has a shelf and a yard list,
+its first rows; a fit from the fitment's key pages them.
+_Avoid_: availability, stock result
+
+**Catalog mismatch**:
+A shelf source numbered under a catalog release other than the loaded catalog's,
+marked on its every stock list: its numbers may name other parts.
+_Avoid_: version conflict, stale stock
+
+**Personal-looking field**:
+A stock row's field whose name has a word `email`, `phone`, `name`, `address` or
+`license`: drift, a nudge that a source supplies no personal data.
+_Avoid_: PII detection (nitrovin cannot see what a field holds)

@@ -396,6 +396,8 @@ exit 2. A malformed flag (`--where` without `=`, a field given twice, a
 | `--to a,b` | `to`, comma-separated; repeatable, each use appending |
 | `--model-year N` | `model_year` |
 | `--related` | `related` |
+| `--stock shelf,yard` | `stock`, comma-separated |
+| `--location L` | `location`; repeatable, each use appending |
 | `--limit N`, `--after <cursor>` | `limit` (1 to 1,000) and `after` |
 | `--now <instant\|date>` | `now` |
 
@@ -417,10 +419,10 @@ loaded included, is an answer with its `status`, exit 0.
 
 ## Vocabularies (`--vocab`)
 
-Vocabularies, extension sets, declared spines and catalogs (ADR 0009,
-0010, 0011, 0016, 0017) are JSON Lines files: a header, then one line per
-entry, extension, spine entry, or a catalog's fitment, redirect or retired
-number, each as [`vocabulary.schema.json`](vocabulary.schema.json)
+Vocabularies, extension sets, declared spines, catalogs and stock files
+(ADR 0009, 0010, 0011, 0016, 0017, 0019) are JSON Lines files: a header,
+then one line per entry, extension, spine entry, a catalog's fitment,
+redirect or retired number, or a stock source's row, each as [`vocabulary.schema.json`](vocabulary.schema.json)
 specifies.
 
 - **Loading.** `--vocab <file|dir>` names them, on the root or any command,
@@ -465,7 +467,16 @@ specifies.
   a missing `options`; a fitment key, an application within one fitment
   (same vehicle, years, options and qualifiers) or a retired number given
   twice; a retired number that is a live fitment or whose `to` is no
-  fitment in the file.
+  fitment in the file. A stock file adds: a `source` other than `shelf` or
+  `yard`; an `as_of` that is no RFC 3339 time or date; a shelf without a
+  `catalog`, or whose catalog is not loaded; a yard with a `catalog` or
+  `release`; a row without `id` or `location`, or two rows with one `id`;
+  a shelf row with both a fitment key and `part`, or neither whole, or
+  whose `fields` are not flat; a yard row naming no route; a `vehicle`
+  without its `year`, or one no catalog is loaded to name; a `part` the
+  catalog's spine, or a part vocabulary on it, lacks; a vehicle named by
+  other fields than the catalog's vehicle vocabulary's, or one that
+  vocabulary has no entry for, so the row could never match.
 - **Drift warns and serves.** Measured against the loaded data month: a
   vPIC make or model id it lacks; a qualifier its decode cannot satisfy (an
   element that is not one of its public elements, a value of the wrong type
@@ -494,7 +505,13 @@ specifies.
   whose vehicle is a vPIC model (`vehicles: "vpic"`). A catalog's drift is
   one finding per vehicle, vPIC id, qualifier value or model-year range, at
   the first line naming it, its detail ending `(and N more)` when other
-  applications or redirects name it too, and one per redirect. Each
+  applications or redirects name it too, and one per redirect. A shelf
+  stock source adds one finding per **orphan** row, whose number its
+  catalog lacks, current or retired (`orphan`); any stock source one per
+  field name, nested ones and those inside arrays included, that holds
+  `email`, `phone`, `name`, `address` or `license` in any case
+  (`phonenumber`, `seller.email` and `part_name` alike), once at the first
+  row with it (`personal-field`). Each
   finding but `model-qualifier` is one line on stderr at load,
   `{"file", "line", "severity": "drift", "detail"}`, and the files are
   served as written. `model-qualifier` is not measured at load: it builds
@@ -511,11 +528,13 @@ specifies.
   records, of its bytes with the hash's own 32 bytes zero), `path`
   (absolute) and `drift`, a count per kind of drift the file has (`make`,
   `model`, `qualifier`, `extension`, `model-years`, `vehicle`, `redirect`,
-  `model-qualifier`, in that order) with its first three findings as
+  `model-qualifier`, `orphan`, `personal-field`, in that order) with its first three findings as
   `{"line", "detail"}`; the first request measures `model-qualifier`, so it
   may take a fraction of a second longer. A catalog adds its `release`,
   when its header gives one, and its counts of `fitments`, `applications`,
-  `redirects` and `retired` numbers; no other kind has them. A compiled
+  `redirects` and `retired` numbers; a stock source its `source`, a
+  shelf's `catalog` and `release`, its `as_of` and its `rows`; no other
+  kind has them. A compiled
   catalog adds `compiled`: its `format`, the `source_blake3` of the JSON
   Lines file it was compiled from, the `writer` (the nitrovin version that
   compiled it), the `drift_month` its drift counts were measured against,
@@ -530,7 +549,8 @@ specifies.
   when there are any, otherwise the drift. Exit 0 with no output when there
   is none, 1 when there is any. Line 0 is a file that cannot be read. A
   catalog is checked like any file, so its spine and vehicle vocabulary
-  must be among the arguments. A compiled catalog is read in full, its
+  must be among the arguments, and a stock file's catalog with them. A
+  compiled catalog is read in full, its
   bytes checked against its header's hash, then checked line by line and
   its drift measured again against the loaded month, as its source would
   be; its findings name the compiled file and its source's lines.
@@ -688,8 +708,9 @@ MCP and C surfaces carry the same object.
 
 `FitRequest` reads the loaded catalog (ADR 0016, 0017,
 [ADR 0018](../adr/0018-fit-is-a-request-beside-translate.md)); in Go,
-`nitrovin.NewTranslator(d, files…)`'s `Fit`, over `contract.Fitter` and
-`fitment.Reader`. The HTTP, stdio, CLI, MCP and C surfaces carry the same
+`nitrovin.NewTranslator(d, files…)`'s `Fit(ctx, req)`, over
+`contract.Fitter` and `fitment.Reader`; `ctx` bounds its stock lookups,
+and HTTP and MCP pass the request's. The HTTP, stdio, CLI, MCP and C surfaces carry the same
 object. Its inputs shape the answer:
 
 | Field | Type | Default | Rule |
@@ -700,6 +721,8 @@ object. Its inputs shape the answer:
 | `side` | `left` \| `right` \| `both` | none | The side filter, below |
 | `to` | string[] | none | Vehicle vocabularies the answer's vehicles are named in; none names them as spine entries |
 | `related` | bool | `false` | The vehicles that share fitments with `from` |
+| `stock` | string[] | none | `shelf`, `yard` or both: the stock of the answer's fitments (Stock, below). Only with `part`, `related` (`yard` only) or a fitment key |
+| `location` | string[] | none | Keeps the stock rows at one of these locations. Only with `stock` |
 | `limit` | int | 100 | 1 to 1,000 items a page |
 | `after` | string | none | The previous page's `next` |
 | `now` | string | wall clock | A VIN's decode clock, as a translate request's |
@@ -776,7 +799,9 @@ object. Its inputs shape the answer:
   `no-catalog` when none is loaded, which is nitrovin.app's case. Only a
   malformed request is `#invalid-request`, with a pointer: a part
   vocabulary (or a spine) that isn't the catalog's; `part` or `related`
-  with a fitment key; a side other than `left`, `right` or `both`; an
+  with a fitment key; `stock` other than `shelf` and `yard`, or without
+  `part`, `related` or a fitment key, or `shelf` with `related`;
+  `location` without `stock`; a side other than `left`, `right` or `both`; an
   unknown vocabulary (or a name of the wrong kind: a part vocabulary as
   `from` or in `to`); entry fields other than the vocabulary's; a fitment
   key without `type` and `number`. Besides those, as for every request:
@@ -813,6 +838,104 @@ The synthetic catalog's examples, tested on every surface, with
 `{"op":"list","of":"parts-catalog","where":{"type":"mirror"}}` pages the
 two `MR-1001` lines as the file has them. Without the catalog every fit
 answers `{"status":"no-catalog", …}`.
+
+### Stock
+
+`stock` adds what is in stock to a fit
+([ADR 0019](../adr/0019-what-stock-says.md)): shelf parts and whole yard
+vehicles, from every loaded **stock source** of each kind, in load order.
+A source is a stock file (Vocabularies, above) or, later, a request-time
+connector ([ADR 0020](../adr/0020-request-time-stock-the-postgres-connector.md)); in Go, a
+`stock.Source`, which `contract.Fitter` reads with one lookup per source
+and list kind.
+
+| Where | With | List |
+| --- | --- | --- |
+| each candidate | `stock: ["shelf"]` | `shelf`: the rows of its number, and of every retired number it replaced, the first 10 |
+| each candidate | `stock: ["yard"]` | `yard`: the yard vehicles among all its applications' vehicles and years, the first 10 |
+| the answer, with `part` | `stock: ["shelf"]` | `shelf_by_vehicle`: the rows with no number of the part types asked for, for one of `models` in exactly the vehicle's year (any year when none is known), paged with the candidates |
+| each related vehicle | `stock: ["yard"]` | `yard`: its count of yard vehicles in its years, `rows` empty |
+| a fitment key's answer | `stock` | `shelf` and `yard` of the fitment it reached, paged with `vehicles` |
+
+**Paging.** A list that is the answer's own pages with the answer's list:
+`limit` and `after` page `candidates` and `shelf_by_vehicle` together, and
+a fitment key's `vehicles`, `shelf` and `yard` together; `next` is present
+while any of them has more. `status` and `total` are the candidates' (or
+the vehicles') alone: `shelf_by_vehicle` can hold rows, with its own
+`total`, when `status` is `no-fitment`. A candidate's lists are its first 10 rows; a
+fit from its fitment key with the same `stock` and `location` pages them
+all. A related vehicle's `yard` is a count only (ADR 0019): no fit lists
+those vehicles by themselves. A fit from one of the fitments it shares, with
+`stock: ["yard"]`, lists the yard vehicles of every vehicle that fitment
+fits. With `related`, `stock` is `["yard"]`: `shelf` would add nothing and is
+refused.
+
+Every list (`StockList`) is `rows`, `total` across every page and source,
+and `sources`: each loaded source of its kind, as a block of `name`,
+`kind` (`file` or `live`), `as_of` (the time the rows the lookup returned
+are as of), for a shelf its `catalog` and the `release` the lookup read,
+`catalog_mismatch: true` when that release is not the loaded catalog's,
+and `status`: `available`, or `unavailable` with a `reason` when the
+source failed. An unavailable source gives no rows, and its stock is
+unknown, not empty; the rest of the answer stands. Its `reason` is the
+source's own, which never names a connection detail; `the source
+failed`; or `the request ended before the source answered` when the fit's
+caller went away first (an HTTP client disconnecting, an MCP call
+cancelled). A file source answers from memory and is always asked.
+
+A row (`StockRow`) is its `source` (the source's name), `id`, `location`,
+how it `matched`, what it names, `as_of` when its source keeps a time per
+row, and its `fields`, verbatim and never interpreted:
+
+- a shelf row with a number: `matched: "fitment"`, its `fitment` key as
+  the row wrote it, and `reached`: `direct`, or `retired` when that key is
+  a retired number the fitment replaced;
+- a shelf row with no number: `matched: "vehicle"`, its `part` type,
+  `vehicle` and `year`;
+- a yard row matched by vPIC model, its source's `decoded` model and year
+  or its `vin` decoded once at load: `matched: "vin"`. A VIN that decodes
+  no model, or a model and no year on a row that names its `vehicle` and
+  `year`, falls to them; a VIN that decodes a model and no year, on a row
+  that names no vehicle, is in every year of its model;
+- a yard row matched by the catalog `vehicle` and `year` it names:
+  `matched: "catalog-vehicle"`. A vocabulary catalog's vehicle reaches the
+  vPIC models its entry maps to, in the years both hold; a make or an
+  extension reaches no model.
+
+**Yard matching checks vehicles and years only.** A yard row carries no
+decode to check an application's or a mapping's qualifiers against, and
+option text is never interpreted. So a fitment whose only application is
+4WD lists the 2WD yard vehicles of that model and years too: settle the
+options against the vehicle itself.
+
+A shelf row whose number the catalog lacks, current or retired, is an
+**orphan**: it is under no candidate, and `/v1/info` and `vocab check`
+count it as drift.
+
+The synthetic stock's examples, tested on every surface, with
+`--vocab testdata/vocab --vocab testdata/vocab/fitment --vocab testdata/vocab/stock`:
+
+```json
+{"op":"fit","from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010,"part":{"vocabulary":"part-codes","entry":{"code":"ROT"}},"stock":["shelf","yard"]}
+{"op":"fit","from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010,"part":{"spine":"part-types","id":"mirror"},"stock":["shelf"],"location":["north"]}
+{"op":"fit","from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}},"stock":["shelf","yard"],"limit":1}
+{"op":"fit","from":{"model":1850},"model_year":2010,"related":true,"stock":["yard"]}
+```
+
+- The Ram's rotor `BR-2001`: `shelf` holds `A-1` from `shelf-annex`,
+  which names no release, and `S-2` (`reached: direct`) and `S-3`, filed
+  under the retired `BR-1999` (`reached: retired`), from `shelf-stock`,
+  numbered under release 7.01 against the catalog's 7.02, so its block
+  says `catalog_mismatch: true`. `yard` holds `Y-1` (a precomputed decode)
+  and `Y-2` (its VIN decoded), both `matched: "vin"`, and `Y-3`, a 2010
+  Silverado named by the catalog's vehicle, `matched: "catalog-vehicle"`.
+- The Ram's mirrors at `north`: the left `MR-1001` holds `S-1`, the right
+  none; `shelf_by_vehicle` holds `S-4`, a mirror with no number for the
+  2010 Ram 1500, named by the part vocabulary's `MIR`, and drops `A-2`,
+  the same at `east`.
+- From `BR-1999` a page at a time: `A-1` and `Y-1`, then `S-2` and `Y-2`,
+  then `S-3` and `Y-3`, and no `next`.
+- The Silverado's related Ram 1500, 2009–2012, has 2 yard vehicles.
 
 ## C ABI (`libnitrovin`, `nitrovin.h`)
 

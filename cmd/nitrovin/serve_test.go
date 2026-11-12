@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -582,6 +583,9 @@ func refusalCases() []apiCase {
 		fitGET("?from.spine=part-types&from.id=mirror", "/from/id"),
 		fitGET("?from.model=1938&part.spine=part-types", "/part/id"),
 		fitGET("?from.model=1938&vin=1D7RV1GT5AS123456", "/vin"),
+		fitGET("?from.model=1850&related=true&stock=shelf", "/stock"),
+		fitGET("?from.model=1850&stock=yard", "/stock"),
+		fitGET("?from.fitment.type=mirror&from.fitment.number=MR-1001&location=north", "/location"),
 		fitPOST(`[{"from":`, 400, contract.MalformedJSON, ""),
 		fitPOST(fitItem, 400, contract.InvalidRequest, ""),
 		fitPOST(`[]`, 400, contract.InvalidRequest, ""),
@@ -831,7 +835,7 @@ func fitCases(t *testing.T, svc decodeService) []apiCase {
 		if err != nil {
 			t.Fatalf("%s: %v", item, err)
 		}
-		f, err := svc.Fit(req)
+		f, err := svc.Fit(context.Background(), req)
 		want := wantBody(t, f, err)
 		cases = append(cases, apiCase{op: opFitOne, method: "GET", target: "/v1/fit?" + c.query + "&now=" + now, status: 200, want: want})
 		items = append(items, item)
@@ -844,7 +848,7 @@ func fitCases(t *testing.T, svc decodeService) []apiCase {
 		if err != nil {
 			t.Fatalf("%s: %v", c.item, err)
 		}
-		_, err = svc.Fit(req)
+		_, err = svc.Fit(context.Background(), req)
 		if err == nil {
 			t.Fatalf("%s: the Go module answers; want a refusal", c.item)
 		}
@@ -872,6 +876,13 @@ var fitExamples = []struct{ query, item string }{
 	{"from.vin=1D7RV1GT5AS123456&related=true", `{"from":"1D7RV1GT5AS123456","related":true}`},
 	{"from.vocabulary=yard&from.entry.make=Tucker&from.entry.model=48", `{"from":{"vocabulary":"yard","entry":{"make":"Tucker","model":"48"}}}`},
 	{"from.fitment.type=mirror&from.fitment.number=MR-1001", `{"from":{"fitment":{"type":"mirror","number":"MR-1001"}}}`},
+	{"from.vocabulary=catalog-models&from.entry.make=Dodge&from.entry.model=Ram+1500&model_year=2010&part.vocabulary=part-codes&part.entry.code=ROT&stock=shelf&stock=yard",
+		`{"from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010,"part":{"vocabulary":"part-codes","entry":{"code":"ROT"}},"stock":["shelf","yard"]}`},
+	{"from.vocabulary=catalog-models&from.entry.make=Dodge&from.entry.model=Ram+1500&model_year=2010&part.spine=part-types&part.id=mirror&stock=shelf&location=north",
+		`{"from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010,"part":{"spine":"part-types","id":"mirror"},"stock":["shelf"],"location":["north"]}`},
+	{"from.fitment.type=brake-rotor-front&from.fitment.number=BR-1999&stock=shelf&stock=yard&limit=1",
+		`{"from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}},"stock":["shelf","yard"],"limit":1}`},
+	{"from.model=1850&model_year=2010&related=true&stock=yard", `{"from":{"model":1850},"model_year":2010,"related":true,"stock":["yard"]}`},
 }
 
 // fitRefusals are fit requests the loaded files refuse, as a GET's query
@@ -904,10 +915,10 @@ func (faulty) TranslateBatch([]contract.TranslateRequest) ([]contract.Translatio
 func (faulty) List(contract.ListRequest) (contract.List, error) {
 	return contract.List{}, errors.New("injected fault")
 }
-func (faulty) Fit(contract.FitRequest) (contract.Fit, error) {
+func (faulty) Fit(context.Context, contract.FitRequest) (contract.Fit, error) {
 	return contract.Fit{}, errors.New("injected fault")
 }
-func (faulty) FitBatch([]contract.FitRequest) ([]contract.Fit, error) {
+func (faulty) FitBatch(context.Context, []contract.FitRequest) ([]contract.Fit, error) {
 	return nil, errors.New("injected fault")
 }
 func (faulty) SpineBundle() ([]byte, error) { return nil, errors.New("injected fault") }
@@ -1020,13 +1031,13 @@ func TestServeContract(t *testing.T) {
 		t.Skip("stops the server with SIGINT")
 	}
 	path, d := artifact(t)
-	files, err := vocab.Open(fixture, fitmentFixture)
+	files, err := vocab.Open(fixture, fitmentFixture, stockFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
 	svc := translating(t, d, files...)
 	s := loadSpec(t)
-	srv := startServe(t, []string{"NITROVIN_DATA=" + path}, "--vocab", fixture, "--vocab", fitmentFixture, "--addr", "127.0.0.1:0")
+	srv := startServe(t, []string{"NITROVIN_DATA=" + path}, "--vocab", fixture, "--vocab", fitmentFixture, "--vocab", stockFixture, "--addr", "127.0.0.1:0")
 	base := "http://127.0.0.1:" + srv.port
 
 	covered := map[string]bool{}

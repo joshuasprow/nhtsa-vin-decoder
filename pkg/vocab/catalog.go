@@ -723,8 +723,10 @@ type catalogIndex struct {
 	// redirects holds per part type redirected from and vehicle the
 	// redirects' indexes in Redirects, ascending.
 	redirects map[typeVehicle][]int32
-	// retired finds a retired key's index in Retired.
-	retired map[FitmentKey]int32
+	// retired finds a retired key's index in Retired; retiredTo, per
+	// fitment key, the indexes of the retired numbers it replaced.
+	retired   map[FitmentKey]int32
+	retiredTo map[FitmentKey][]int32
 }
 
 // typeVehicle is a part type and a vehicle's index in vehicleList.
@@ -868,6 +870,7 @@ func (f *File) indexLines(read bool) Faults {
 	}
 
 	x.retired = make(map[FitmentKey]int32, len(f.Retired))
+	x.retiredTo = map[FitmentKey][]int32{}
 	for i := range f.Retired {
 		rt := &f.Retired[i]
 		if j, dup := x.retired[rt.Key]; dup {
@@ -875,6 +878,7 @@ func (f *File) indexLines(read bool) Faults {
 			continue
 		}
 		x.retired[rt.Key] = int32(i)
+		x.retiredTo[rt.To] = append(x.retiredTo[rt.To], int32(i))
 		if !read {
 			continue // a fitment that did not read is not missing
 		}
@@ -1007,6 +1011,16 @@ func (c *Catalog) ByNumber(partType, number string, side Side) (fitment *Fitment
 	}
 	rt := &c.f.Retired[i]
 	return c.f.fitment(rt.To), rt
+}
+
+// RetiredTo returns the retired numbers fitment key k replaced, in file
+// order: a shelf row under one of them joins k's fitment (ADR 0019).
+func (c *Catalog) RetiredTo(k FitmentKey) []*Retired {
+	var out []*Retired
+	for _, i := range c.f.catalog.retiredTo[k] {
+		out = append(out, &c.f.Retired[i])
+	}
+	return out
 }
 
 // Redirect returns the redirects from part type partType for one of

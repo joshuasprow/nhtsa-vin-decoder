@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -29,6 +30,8 @@ type fitOptions struct {
 	to        []string
 	modelYear contract.Null[int32]
 	related   bool
+	stock     []string
+	location  []string
 	limit     int
 	after     string
 	now       string
@@ -62,6 +65,22 @@ func fitSetup(fs *flag.FlagSet) func(*env, []string) error {
 	})
 	modelYearFlag(fs, &o.modelYear, "model year `N`: the VINs' decode hint, and the year when none decodes one")
 	fs.BoolVar(&o.related, "related", false, "ask for the vehicles that share fitments with each VIN's")
+	fs.Func("stock", "ask for the stock of the answer's fitments: `shelf,yard`, comma-separated", func(s string) error {
+		for kind := range strings.SplitSeq(s, ",") {
+			if kind != contract.StockShelf && kind != contract.StockYard {
+				return errors.New("must be shelf, yard or shelf,yard")
+			}
+			o.stock = append(o.stock, kind)
+		}
+		return nil
+	})
+	fs.Func("location", "keep the stock rows at `location`; repeatable", func(s string) error {
+		if s == "" {
+			return errors.New("must not be empty")
+		}
+		o.location = append(o.location, s)
+		return nil
+	})
 	fs.Func("limit", fmt.Sprintf("at most `N` answers a page, 1 to %d (default %d)", contract.MaxListLimit, contract.DefaultListLimit), func(s string) error {
 		n, err := strconv.Atoi(s)
 		if err != nil || n < 1 || n > contract.MaxListLimit {
@@ -82,7 +101,7 @@ func fitSetup(fs *flag.FlagSet) func(*env, []string) error {
 }
 
 func (o *fitOptions) run(e *env, args []string) error {
-	base := contract.FitRequest{Part: o.part, Side: o.side, To: o.to, ModelYear: o.modelYear, Related: o.related, Limit: o.limit, After: o.after}
+	base := contract.FitRequest{Part: o.part, Side: o.side, To: o.to, ModelYear: o.modelYear, Related: o.related, Stock: o.stock, Location: o.location, Limit: o.limit, After: o.after}
 	var err error
 	if base.Now, err = clock(o.now); err != nil {
 		return err
@@ -115,7 +134,7 @@ func (o *fitOptions) run(e *env, args []string) error {
 	// loaded files refuse leaves stdout empty.
 	answers := make([]contract.Fit, len(reqs))
 	for i, req := range reqs {
-		if answers[i], err = t.Fit(req); err != nil {
+		if answers[i], err = t.Fit(context.Background(), req); err != nil {
 			return refused(err, fmt.Sprintf("argument %d", i+1))
 		}
 	}
@@ -170,7 +189,7 @@ func (o *fitOptions) runStdin(e *env, base contract.FitRequest) error {
 		if req.From.Fitment == nil && req.Part == nil && !req.Related {
 			req.Part, req.Related = base.Part, base.Related
 		}
-		a, err := t.Fit(req)
+		a, err := t.Fit(context.Background(), req)
 		if err != nil {
 			return err
 		}

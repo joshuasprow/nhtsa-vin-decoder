@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -176,7 +177,7 @@ func TestStdioOps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := vocab.Open(fixture, fitmentFixture)
+	files, err := vocab.Open(fixture, fitmentFixture, stockFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,6 +213,7 @@ func TestStdioOps(t *testing.T) {
 		{in: `{"id":10,"op":"translate","from":`, kind: string(contract.MalformedJSON)},
 		{in: `{"id":11,"op":"fit","from":"1D7RV1GT5AS123456","part":{"spine":"part-types","id":"mirror"},"side":"left","now":"` + now + `"}`, id: "11", kind: "fit"},
 		{in: `{"op":"fit","from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}},"to":["yard"],"now":"` + now + `"}`, kind: "fit"},
+		{in: `{"id":16,"op":"fit","from":"1D7RV1GT5AS123456","part":{"vocabulary":"part-codes","entry":{"code":"ROT"}},"stock":["shelf","yard"],"location":["north"],"now":"` + now + `"}`, id: "16", kind: "fit"},
 		{in: `{"id":12,"op":"fit","from":{"vocabulary":"yard","entry":{"make":"Tucker","model":"48"}},"now":"` + now + `"}`, id: "12", kind: "fit"},
 		{in: `{"id":13,"op":"list","of":"parts-catalog","where":{"type":"mirror"}}`, id: "13", kind: "list"},
 		{in: `{"id":14,"op":"fit","from":{"model":1938},"part":{"spine":"parts","id":"brake-rotor"},"now":"` + now + `"}`, id: "14", kind: string(contract.InvalidRequest), pointer: "/part/spine"},
@@ -236,7 +238,7 @@ func TestStdioOps(t *testing.T) {
 				body, err = tr.List(req.List)
 				key = "list"
 			case contract.OpFit:
-				body, err = tr.Fit(req.Fit)
+				body, err = tr.Fit(context.Background(), req.Fit)
 				key = "fit"
 			default:
 				body, err = d.Decode(req.Decode)
@@ -265,7 +267,7 @@ func TestStdioOps(t *testing.T) {
 		want.WriteString("}\n")
 	}
 
-	first := cli(t, nil, stdin.String(), "--vocab", fixture, "--vocab", fitmentFixture, "stdio")
+	first := cli(t, nil, stdin.String(), "--vocab", fixture, "--vocab", fitmentFixture, "--vocab", stockFixture, "stdio")
 	if first.exit != 0 || first.stderr != "" || first.stdout != want.String() {
 		t.Errorf("first run: exit %d, stderr %q, stdout equals the contract layer's replies: %t", first.exit, first.stderr, first.stdout == want.String())
 		for i, l := range strings.SplitAfter(first.stdout, "\n") {
@@ -274,7 +276,7 @@ func TestStdioOps(t *testing.T) {
 			}
 		}
 	}
-	second := cli(t, []string{"NITROVIN_VOCAB=" + fixture + string(os.PathListSeparator) + fitmentFixture}, stdin.String(), "stdio")
+	second := cli(t, []string{"NITROVIN_VOCAB=" + fixture + string(os.PathListSeparator) + fitmentFixture + string(os.PathListSeparator) + stockFixture}, stdin.String(), "stdio")
 	if second != first {
 		t.Errorf("second run differs: exit %d, stderr %q, stdout identical: %t", second.exit, second.stderr, second.stdout == first.stdout)
 	}

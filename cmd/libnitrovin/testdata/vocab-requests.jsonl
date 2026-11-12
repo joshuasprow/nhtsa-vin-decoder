@@ -30,3 +30,4 @@
 {"id":25,"op":"fit","from":"1D7RV1GT5AS123456","related":true,"now":"2026-11-01"}
 {"id":26,"op":"list","of":"parts-catalog","where":{"type":"mirror"}}
 {"id":27,"op":"fit","from":{"model":1938},"part":{"spine":"parts","id":"brake-rotor"},"now":"2026-11-01"}
+{"id":28,"op":"fit","from":"1D7RV1GT5AS123456","part":{"vocabulary":"part-codes","entry":{"code":"ROT"}},"stock":["shelf","yard"],"now":"2026-11-01"}

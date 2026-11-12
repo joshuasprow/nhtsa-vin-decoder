@@ -2,6 +2,7 @@ package contract
 
 import (
 	"cmp"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joshuasprow/nitrovin/pkg/fitment"
+	"github.com/joshuasprow/nitrovin/pkg/stock"
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
@@ -26,6 +28,9 @@ type Fitter struct {
 	Translator
 	// Catalog is the loaded catalog; nil answers every fit FitNoCatalog.
 	Catalog fitment.Reader
+	// Stock are the loaded stock sources (ADR 0019), in load order: a
+	// fit's stock lists hold the rows of every one of their kind.
+	Stock []stock.Source
 }
 
 // fitKind is the answer a fit's inputs ask for.
@@ -61,8 +66,10 @@ func (r FitRequest) kind() fitKind {
 // (a part vocabulary or spine off the catalog's spine, a to that is no
 // vehicle vocabulary), entry fields other than the vocabulary's, or an
 // after it never gave; Decode's error; or an Internal for a fault in
-// nitrovin.
-func (f Fitter) Fit(req FitRequest) (Fit, error) {
+// nitrovin. ctx bounds its stock lookups: a source that has not answered
+// when ctx ends is unavailable, with reason StockCancelled, and the rest
+// of the answer stands.
+func (f Fitter) Fit(ctx context.Context, req FitRequest) (Fit, error) {
 	if req.Now.IsZero() {
 		req.Now = time.Now()
 	}
@@ -100,7 +107,7 @@ func (f Fitter) Fit(req FitRequest) (Fit, error) {
 	}
 	pg := pager{after: after, limit: limit, kind: kind}
 	if kind == fitVehicles {
-		if err := f.vehicles(req, info, &out, pg); err != nil {
+		if err := f.vehicles(ctx, req, info, &out, pg); err != nil {
 			return Fit{}, err
 		}
 		return out, nil
@@ -152,6 +159,16 @@ func (f Fitter) Fit(req FitRequest) (Fit, error) {
 		}
 		all = mergeCandidates(all)
 		out.Total, out.Next, out.Candidates = page(all, pg, out.Candidates)
+		concurrently(
+			func() { f.candidateStock(ctx, req, out.Candidates) },
+			func() {
+				if req.wants(StockShelf) {
+					out.ShelfByVehicle = f.shelfByVehicle(ctx, types, v, req.Location, pg)
+				}
+			})
+		// shelf_by_vehicle pages with the candidates: next stays while
+		// either has more.
+		pageStock(&out, pg, out.ShelfByVehicle)
 	case fitRelated:
 		all := f.related(types, v, side)
 		var pageOf []relatedGroup
@@ -162,6 +179,15 @@ func (f Fitter) Fit(req FitRequest) (Fit, error) {
 				return Fit{}, err
 			}
 			out.Related = append(out.Related, r)
+		}
+		if req.wants(StockYard) {
+			apps := make([][]*vocab.Application, len(pageOf))
+			for i, g := range pageOf {
+				apps[i] = []*vocab.Application{{Vehicle: g.vehicle, First: g.first, Last: g.last}}
+			}
+			for i, l := range f.yardLists(ctx, apps, 0, 0, req.Location) {
+				out.Related[i].Yard = l
+			}
 		}
 	}
 	out.Status = FitFound
@@ -174,15 +200,15 @@ func (f Fitter) Fit(req FitRequest) (Fit, error) {
 // FitBatch fits requests in order, reading the wall clock once for every
 // request whose Now is zero, as the contract fixes for one HTTP request.
 // It stops at the first error, a *Problem whose pointer names the request
-// ("/3/part").
-func (f Fitter) FitBatch(reqs []FitRequest) ([]Fit, error) {
+// ("/3/part"). ctx bounds every fit's stock lookups, as Fit's.
+func (f Fitter) FitBatch(ctx context.Context, reqs []FitRequest) ([]Fit, error) {
 	now := time.Now()
 	out := make([]Fit, len(reqs))
 	for i, req := range reqs {
 		if req.Now.IsZero() {
 			req.Now = now
 		}
-		fit, err := f.Fit(req)
+		fit, err := f.Fit(ctx, req)
 		if err != nil {
 			p := *AsProblem(err)
 			p.Pointer = fmt.Sprintf("/%d%s", i, p.Pointer)
@@ -847,7 +873,7 @@ func (f Fitter) names(info vocab.CatalogInfo, v *vocab.Vehicle, first, last, at 
 // vehicles answers a fit from a fitment key: the fitment, directly or
 // through the retired number asked for, and a page of its applications'
 // vehicles, named.
-func (f Fitter) vehicles(req FitRequest, info vocab.CatalogInfo, out *Fit, pg pager) error {
+func (f Fitter) vehicles(ctx context.Context, req FitRequest, info vocab.CatalogInfo, out *Fit, pg pager) error {
 	k := req.From.Fitment
 	fit, rt := f.Catalog.ByNumber(k.Type, k.Number, sideOf(k.Side))
 	if fit == nil {
@@ -873,7 +899,9 @@ func (f Fitter) vehicles(req FitRequest, info vocab.CatalogInfo, out *Fit, pg pa
 		}
 	}
 	var err error
+	all := apps
 	out.Total, out.Next, apps = page(apps, pg, []*vocab.Application{})
+	f.fitmentStock(ctx, req, fit, all, out, pg)
 	for _, a := range apps {
 		fv := FitVehicle{Vehicle: catalogVehicle(a.Vehicle), First: year(a.First), Last: year(a.Last), Options: a.Options}
 		if fv.FitNames, err = f.names(info, a.Vehicle, a.First, a.Last, at, req.To); err != nil {

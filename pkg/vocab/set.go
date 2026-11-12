@@ -13,9 +13,10 @@ import (
 type Set struct {
 	month Month
 	// files are the vocabularies, extension sets and spines; fitments is
-	// the catalog, nil when none is loaded.
+	// the catalog, nil when none is loaded; stock the stock files.
 	files    []*File
 	fitments *Catalog
+	stock    []*File
 	byName   map[string]*File
 	// lists holds, per declared spine and extension set, its entries in
 	// list order, built on first use.
@@ -68,8 +69,12 @@ func NewSet(m Month, files []*File) (*Set, error) {
 	s := &Set{month: m, byName: map[string]*File{}, lists: map[*File]func() []row{}}
 	for _, f := range files {
 		s.byName[f.Name] = f
-		if f.Kind == KindCatalog {
+		switch f.Kind {
+		case KindCatalog:
 			s.fitments = f.Catalog()
+			continue
+		case KindStock:
+			s.stock = append(s.stock, f)
 			continue
 		}
 		s.files = append(s.files, f)
@@ -140,6 +145,10 @@ func (s *Set) Files() []*File { return s.files }
 // A fit (ADR 0018) translates a request's vehicle to the catalog's
 // vehicle vocabulary through the Set, then asks the Catalog.
 func (s *Set) Catalog() *Catalog { return s.fitments }
+
+// Stock are the stock files loaded with the files, in load order
+// (ADR 0019).
+func (s *Set) Stock() []*File { return s.stock }
 
 // File is the loaded file named name, the catalog included, nil when
 // nothing loaded has that name.

@@ -1827,7 +1827,7 @@
     {
       "name": "fit",
       "title": "Fit parts and vehicles",
-      "description": "Fit a vehicle or a part number against the loaded parts catalog, offline: which parts fit a vehicle, and which vehicles a part fits. What it answers depends on the inputs:\n- a vehicle alone: its part types, each with a count of fitments.\n- a vehicle with part: the candidate fitments of that part type, with the applications that matched.\n- a fitment key ({\"fitment\": {\"type\", \"number\", \"side\"}}) as from: the fitment's vehicles. A retired number reaches the fitment that replaced it.\n- a vehicle with related: true: the vehicles that share its fitments, with how many per part type.\n\nWhat is loaded differs from server to server: call fit with the vehicle alone first. Its catalog gives the catalog's name (list's of, to page its fitment lines), its part spine (part's spine) and its vehicle vocabulary, and its part_types the part type ids; list with no arguments gives the vocabulary names and fields. Use only names these give.\n\n- from: a VIN string; {\"vocabulary\": name, \"entry\": {...}} with exactly that vocabulary's fields; {\"make\": id}, {\"model\": id} or {\"ext\": id}; or {\"fitment\": {\"type\": part type, \"number\": number}}, with \"side\" for a sided fitment.\n- part: {\"spine\": the catalog's part spine, \"id\": part type} or {\"vocabulary\": name, \"entry\": {...}}. Not with a fitment.\n- side: \"left\", \"right\" or \"both\", to keep the fitments that can go on that side.\n- to: vehicle vocabulary names to name vehicles in. None names them as spine entries.\n- model_year: only a year the user knows apart from the VIN; with a fitment, keeps the applications whose years hold it.\n- limit: list items a page, 1-1000 (default 100); after: the previous page's next, to continue. total counts every page; no next means the last page.\n- now: omit.\n\nNothing to fit is not an error: status says why (unknown, no-vehicle, no-fitment, or no-catalog when no parts catalog is loaded) and the list is empty. When models lists several vehicles, ask the user which one. An application's options is the catalog's requirement text, verbatim: a person must settle it, so report it with the part, never decide it. A result with unconfirmed was not fully checked: report it as possible, not certain.",
+      "description": "Fit a vehicle or a part number against the loaded parts catalog, offline: which parts fit a vehicle, and which vehicles a part fits. What it answers depends on the inputs:\n- a vehicle alone: its part types, each with a count of fitments.\n- a vehicle with part: the candidate fitments of that part type, with the applications that matched.\n- a fitment key ({\"fitment\": {\"type\", \"number\", \"side\"}}) as from: the fitment's vehicles. A retired number reaches the fitment that replaced it.\n- a vehicle with related: true: the vehicles that share its fitments, with how many per part type.\n\nWhat is loaded differs from server to server: call fit with the vehicle alone first. Its catalog gives the catalog's name (list's of, to page its fitment lines), its part spine (part's spine) and its vehicle vocabulary, and its part_types the part type ids; list with no arguments gives the vocabulary names and fields. Use only names these give.\n\n- from: a VIN string; {\"vocabulary\": name, \"entry\": {...}} with exactly that vocabulary's fields; {\"make\": id}, {\"model\": id} or {\"ext\": id}; or {\"fitment\": {\"type\": part type, \"number\": number}}, with \"side\" for a sided fitment.\n- part: {\"spine\": the catalog's part spine, \"id\": part type} or {\"vocabulary\": name, \"entry\": {...}}. Not with a fitment.\n- side: \"left\", \"right\" or \"both\", to keep the fitments that can go on that side.\n- to: vehicle vocabulary names to name vehicles in. None names them as spine entries.\n- model_year: only a year the user knows apart from the VIN; with a fitment, keeps the applications whose years hold it.\n- limit: list items a page, 1-1000 (default 100); after: the previous page's next, to continue. total counts every page; no next means the last page.\n- stock: [\"shelf\"], [\"yard\"] or both, with part or a fitment, for what is in stock (with related: [\"yard\"] only). Each candidate gets shelf (parts under its number, or a retired number it replaced) and yard (whole yard vehicles of any vehicle and year the fitment fits; qualifiers and option text are not checked against them), each its first 10 rows with total: a fit from that fitment key with the same stock pages them all, with limit and after. With part, shelf_by_vehicle holds parts with no number for the vehicle and year, paged with the candidates. status and total describe the candidates only: shelf_by_vehicle has its own total and can hold rows when status is no-fitment. Related vehicles get a yard count only; no fit lists those vehicles by themselves. location: locations to keep rows at.\n- now: omit.\n\nNothing to fit is not an error: status says why (unknown, no-vehicle, no-fitment, or no-catalog when no parts catalog is loaded) and the list is empty. When models lists several vehicles, ask the user which one. An application's options is the catalog's requirement text, verbatim: a person must settle it, so report it with the part, never decide it. A result with unconfirmed was not fully checked: report it as possible, not certain. A stock row's fields are the source's own, verbatim: report them, never interpret them. A source with status unavailable gave no rows, so its stock is unknown, not empty; a shelf with catalog_mismatch numbers its parts under another catalog release, so check the number.",
       "inputSchema": {
         "type": "object",
         "$ref": "#/$defs/FitRequest",
@@ -1986,6 +1986,28 @@
                 "default": false,
                 "description": "Asks for the vehicles that share fitments with from. Only beside a vehicle."
               },
+              "stock": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 2,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "shelf",
+                    "yard"
+                  ]
+                },
+                "description": "Asks for the stock of the answer's fitments (ADR 0019): shelf parts, yard vehicles or both, from every loaded stock source of each kind. Only with part, related (yard only: related vehicles carry yard counts) or a fitment."
+              },
+              "location": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Keeps the stock rows at one of these locations, opaque strings each source gives its rows. Only with stock."
+              },
               "limit": {
                 "type": "integer",
                 "minimum": 1,
@@ -2002,6 +2024,11 @@
                 "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?([Zz]|[+-][0-9]{2}:[0-9]{2}))?$",
                 "description": "Frozen clock for the VIN's decode, as a decode request's now."
               }
+            },
+            "dependentRequired": {
+              "location": [
+                "stock"
+              ]
             },
             "if": {
               "required": [
@@ -2030,6 +2057,51 @@
                     ]
                   }
                 ]
+              }
+            },
+            "else": {
+              "if": {
+                "required": [
+                  "stock"
+                ]
+              },
+              "then": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "part"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "related"
+                    ],
+                    "properties": {
+                      "related": {
+                        "const": true
+                      }
+                    }
+                  }
+                ],
+                "if": {
+                  "required": [
+                    "related"
+                  ],
+                  "properties": {
+                    "related": {
+                      "const": true
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "stock": {
+                      "items": {
+                        "const": "yard"
+                      }
+                    }
+                  }
+                }
               }
             }
           },
@@ -2492,6 +2564,18 @@
                 },
                 "description": "The vehicles that share fitments with a vehicle."
               },
+              "shelf": {
+                "$ref": "#/$defs/StockList",
+                "description": "From a fitment key with stock shelf, the fitment's shelf rows, paged with vehicles: after and limit page every list of the answer together."
+              },
+              "yard": {
+                "$ref": "#/$defs/StockList",
+                "description": "From a fitment key with stock yard, the yard vehicles among its applications' vehicles and years, paged with vehicles."
+              },
+              "shelf_by_vehicle": {
+                "$ref": "#/$defs/StockList",
+                "description": "With part and stock shelf, the shelf rows with no number for the part type and the vehicle's exact vehicle and year (any year when none is known), paged with candidates: after and limit page both, and next stays while either has more."
+              },
               "total": {
                 "type": "integer",
                 "minimum": 0,
@@ -2812,6 +2896,14 @@
                   "$ref": "#/$defs/FitRedirect"
                 },
                 "description": "The redirects that reached it, when reached is redirect."
+              },
+              "shelf": {
+                "$ref": "#/$defs/StockList",
+                "description": "With stock shelf, the fitment's shelf rows, the first 10: a fit from its key with the same stock pages them all."
+              },
+              "yard": {
+                "$ref": "#/$defs/StockList",
+                "description": "With stock yard, the yard vehicles among its applications' vehicles and years, the first 10."
               }
             },
             "additionalProperties": false
@@ -2938,6 +3030,10 @@
                   "$ref": "#/$defs/Translated"
                 },
                 "description": "The vehicle in each to vocabulary."
+              },
+              "yard": {
+                "$ref": "#/$defs/StockList",
+                "description": "With stock yard, the count of yard vehicles among the vehicle and its years: total and sources, rows empty."
               }
             },
             "not": {
@@ -2945,6 +3041,211 @@
                 "spine",
                 "to"
               ]
+            },
+            "additionalProperties": false
+          },
+          "FitmentKey": {
+            "type": "object",
+            "description": "A fitment's key within its catalog (ADR 0016): its part type, its number, and its side, absent for a fitment that has none.",
+            "required": [
+              "type",
+              "number"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The part type, an id of the catalog's part spine."
+              },
+              "number": {
+                "type": "string",
+                "minLength": 1
+              },
+              "side": {
+                "enum": [
+                  "left",
+                  "right",
+                  "both"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "StockList": {
+            "type": "object",
+            "description": "A list of stock rows (ADR 0019): the rows of every loaded source of its kind, each tagged with its source, how many the whole list holds, and every source's block.",
+            "required": [
+              "rows",
+              "total",
+              "sources"
+            ],
+            "properties": {
+              "rows": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/StockRow"
+                }
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "How many rows the list holds across every page and available source."
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/StockSource"
+                },
+                "description": "Every loaded source of the list's kind, in load order."
+              }
+            },
+            "additionalProperties": false
+          },
+          "StockRow": {
+            "type": "object",
+            "description": "One stock row: what nitrovin interprets of it, how it matched, and its own fields verbatim.",
+            "required": [
+              "source",
+              "id",
+              "location",
+              "matched",
+              "fields"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The name of its source."
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The source's own stock id."
+              },
+              "location": {
+                "type": "string"
+              },
+              "matched": {
+                "enum": [
+                  "fitment",
+                  "vehicle",
+                  "vin",
+                  "catalog-vehicle"
+                ],
+                "description": "fitment, vehicle: a shelf row by its number, or with no number by its part type and exact vehicle and year. vin, catalog-vehicle: a yard row by its vPIC model (precomputed or decoded from its VIN), or by the catalog vehicle and year it names."
+              },
+              "fitment": {
+                "$ref": "#/$defs/FitmentKey",
+                "description": "A shelf row's key as the row names it."
+              },
+              "reached": {
+                "enum": [
+                  "direct",
+                  "retired"
+                ],
+                "description": "A shelf row with a number: under the fitment's own number, or a retired number it replaced."
+              },
+              "part": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A shelf row's part type when it has no number."
+              },
+              "vehicle": {
+                "$ref": "#/$defs/CatalogVehicle",
+                "description": "The catalog vehicle a row names."
+              },
+              "year": {
+                "type": "integer"
+              },
+              "vin": {
+                "type": "string",
+                "minLength": 1
+              },
+              "as_of": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The row's own time, when its source keeps one per row."
+              },
+              "decoded": {
+                "type": "object",
+                "description": "A yard row's vPIC make, model and year as its source decoded them.",
+                "required": [
+                  "make",
+                  "model",
+                  "year"
+                ],
+                "properties": {
+                  "make": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "model": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "year": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "fields": {
+                "type": "object",
+                "description": "The row's own fields, verbatim, never interpreted."
+              }
+            },
+            "additionalProperties": false
+          },
+          "StockSource": {
+            "type": "object",
+            "description": "A stock list's source: its name, where its rows come from, how old they are, and whether it answered; what it holds is the list's. An unavailable source's rows are absent, and the rest of the answer stands.",
+            "required": [
+              "name",
+              "kind",
+              "status"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "enum": [
+                  "file",
+                  "live"
+                ],
+                "description": "file: a stock file loaded with --vocab. live: a request-time source."
+              },
+              "as_of": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The time the list's rows from it are as of: a file's own, or what a live source read with them. Absent when it has none, and when unavailable."
+              },
+              "catalog": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A shelf's catalog."
+              },
+              "release": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The catalog release a shelf's numbers are under, as read with the rows; absent when it names none, and when unavailable."
+              },
+              "catalog_mismatch": {
+                "const": true,
+                "description": "Present when the shelf's release is not the loaded catalog's."
+              },
+              "status": {
+                "enum": [
+                  "available",
+                  "unavailable"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why an unavailable source is: the source's own words, which name no connection detail, or \"the source failed\"."
+              }
             },
             "additionalProperties": false
           }

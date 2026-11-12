@@ -28,17 +28,18 @@ The examples run from a checkout of this repository, with `nitrovin` built
 from it on `PATH`, against the synthetic vocabularies in
 [`testdata/vocab/`](../testdata/vocab) (a yard, a parts listing, its part
 spine, an extension set of classics), the synthetic catalog in
-[`testdata/vocab/fitment/`](../testdata/vocab/fitment) and EPA's
-published vocabulary:
+[`testdata/vocab/fitment/`](../testdata/vocab/fitment), its synthetic
+shelf and yard in [`testdata/vocab/stock/`](../testdata/vocab/stock) and
+EPA's published vocabulary:
 
 ```sh
 go build -o nitrovin ./cmd/nitrovin && export PATH="$PWD:$PATH"
 ```
 
-## The four kinds
+## The five kinds
 
 Every file is JSON Lines: a header line naming its `kind`, then one line
-per entry. A file is one of four kinds:
+per entry. A file is one of five kinds:
 
 | Kind | What it holds | Lines after the header | Fixture |
 | --- | --- | --- | --- |
@@ -46,8 +47,9 @@ per entry. A file is one of four kinds:
 | `extension-set` | Vehicles vPIC lacks, minted so vocabularies can map to them: a make, or a model under a vPIC make or an extension make | `{"id", "make_name"}` or `{"id", "make", "name"}` | `classics.jsonl` |
 | `spine` | A declared part-type spine: every id, flat, names optional | `{"id", "name"}` | `parts.jsonl` |
 | `catalog` | Which parts fit which vehicles: fitments with their applications, redirects and retired numbers ([below](#a-catalog)) | `{"fitment", "applications"}`, `{"redirect"}` or `{"retired", "to"}` | `fitment/catalog.jsonl` |
+| `stock` | One stock source: shelf parts or whole yard vehicles ([below](#stock)) | `{"id", "location", …}`, one row each | `stock/shelf-stock.jsonl`, `stock/yard-stock.jsonl` |
 
-Names (`name` in the header) share one namespace across all four, and
+Names (`name` in the header) share one namespace across all five, and
 `vpic` is reserved for the vehicle spine. Every object is closed: a field
 the schema does not name refuses the file, so a typo never passes
 silently.
@@ -317,6 +319,93 @@ the published, diffable form; the compiled file is a deployment's, and the
 same source, data month and nitrovin version always compile to the same
 bytes.
 
+## Stock
+
+A **stock file** is one stock source for callers with no database
+([ADR 0019](adr/0019-what-stock-says.md)): shelf parts, or whole vehicles
+in a self-service yard, that `fit` answers beside its candidates. Any
+number load with `--vocab`, each named in the one namespace; a new file
+means a restart. Its header names the `source` (`shelf` or `yard`), its
+`as_of` time (RFC 3339 or `YYYY-MM-DD`), and for a shelf the `catalog`
+its numbers belong to, which must be loaded, and optionally the catalog
+`release` they are under:
+
+```json
+{"format":1,"kind":"stock","name":"shelf-stock","version":"2026.11.01","source":"shelf","as_of":"2026-11-01T08:00:00Z","catalog":"parts-catalog","release":"7.01"}
+```
+
+Every row has the source's own `id` (unique in the file), an opaque
+`location` a fit can filter on, and `fields`: an object passed through
+verbatim and never interpreted. A shelf row's fields are flat (strings,
+numbers and null); a yard row's are any JSON, so a list of photos passes
+through. nitrovin interprets only how a row names what it is:
+
+| Source | Row | Matched |
+| --- | --- | --- |
+| `shelf` | `type`, `number`, `side`: a fitment key. A retired number joins the fitment that replaced it | `fitment` |
+| `shelf` | `part` (`{"spine", "id"}` on the catalog's spine, or `{"vocabulary", "entry"}` of a part vocabulary on it), `vehicle` (the catalog's own, as its lines write one) and `year`: a part with no number | `vehicle` |
+| `yard` | `decoded`: `{"make", "model", "year"}`, a vPIC decode the source computed | `vin` |
+| `yard` | `vin`: decoded by nitrovin, once, at load | `vin` |
+| `yard` | `vehicle` and `year`: the catalog's own vehicle | `catalog-vehicle` |
+
+A yard row uses the first of its routes that gives a vPIC model and year.
+One whose VIN decodes no model, or a model and no year, falls to its
+`vehicle` and `year`; with no vehicle, a model without a year is in every
+year of the model. Yard rows match by vehicle and years only: they carry
+no decode for an application's qualifiers. `testdata/vocab/stock/` has a
+row of each form. Its `shelf-stock` names release 7.01, so every answer
+marks it `catalog_mismatch` against the catalog's 7.02, and its `S-3` is
+filed under the retired number `BR-1999`; `shelf-annex` names no release,
+so it is never marked:
+
+```sh
+echo '{"from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010,"part":{"vocabulary":"part-codes","entry":{"code":"ROT"}},"stock":["shelf","yard"]}' |
+  nitrovin --vocab testdata/vocab --vocab testdata/vocab/fitment --vocab testdata/vocab/stock fit - |
+  jq -c '.candidates[] | {number: .fitment.number, shelf: [.shelf.rows[] | {id, reached}], yard: [.yard.rows[] | {id, matched}]}'
+nitrovin --vocab testdata/vocab --vocab testdata/vocab/fitment --vocab testdata/vocab/stock fit --part part-types:mirror --stock shelf --location north 1D7RV1GT5AS123456
+```
+
+```json
+{"number":"BR-2001","shelf":[{"id":"A-1","reached":"direct"},{"id":"S-2","reached":"direct"},{"id":"S-3","reached":"retired"}],"yard":[{"id":"Y-1","matched":"vin"},{"id":"Y-2","matched":"vin"},{"id":"Y-3","matched":"catalog-vehicle"}]}
+```
+
+A shelf row whose number the catalog lacks, current or retired, is an
+**orphan**: no candidate lists it, and `vocab check` and `/v1/info` count
+it as drift, with examples. A count that should stay at 0 makes a good
+alarm. A field named like personal data (its name holds `email`, `phone`,
+`name`, `address` or `license` in any case, so `phonenumber` and
+`part_name` alike; nested fields and those in arrays are checked too, as
+`/fields/seller/email`) is drift too: a source supplies no names,
+contact details or identity numbers, and nothing it would not show a
+customer, such as cost. nitrovin cannot see what a field holds, so that
+check is a nudge, not a guarantee. `testdata/vocab/stock/drift/` holds a
+shelf with an orphan:
+
+```sh
+nitrovin vocab check testdata/vocab/fitment testdata/vocab/stock/drift   # one orphan, exit 1
+nitrovin --vocab testdata/vocab/fitment --vocab testdata/vocab/stock info | jq -c '.vocabularies[] | select(.kind == "stock") | del(.path, .blake3)'
+```
+
+```json
+{"file":".../testdata/vocab/stock/drift/shelf-orphans.jsonl","line":2,"severity":"drift","detail":"/number: catalog \"parts-catalog\" has no fitment {\"type\":\"mirror\",\"number\":\"MR-0000\",\"side\":\"right\"}, current or retired"}
+{"name":"shelf-annex","kind":"stock","version":"2026.11.01","drift":[],"source":"shelf","catalog":"parts-catalog","as_of":"2026-10-30","rows":2}
+{"name":"shelf-stock","kind":"stock","version":"2026.11.01","release":"7.01","drift":[],"source":"shelf","catalog":"parts-catalog","as_of":"2026-11-01T08:00:00Z","rows":5}
+{"name":"yard-stock","kind":"stock","version":"2026.11.01","drift":[],"source":"yard","as_of":"2026-11-01T06:30:00Z","rows":4}
+```
+
+A shelf whose catalog is not loaded, a row in neither form, a duplicate
+id, a part the catalog's spine lacks, and a vehicle its vehicle
+vocabulary has no entry for are faults. The browser loads no stock, and
+`serve` publishes none. In Go, each source is a `stock.Source`
+([`pkg/stock`](../pkg/stock)): `stock.NewFile` over a loaded stock file
+now, a Postgres connector later
+([ADR 0020](adr/0020-request-time-stock-the-postgres-connector.md)). Every
+lookup takes a `context.Context` and returns the release and `as_of` it
+read with its rows; a source that cannot answer returns
+`*stock.Unavailable`, whose reason the answer shows. `Translator.Fit(ctx,
+req)` passes its `ctx` on: a live source that has not answered when it
+ends is `unavailable`, and the fit returns.
+
 ## Loading
 
 `--vocab <file|dir>`, before or after any command and repeatable, loads
@@ -331,8 +420,8 @@ NITROVIN_VOCAB=testdata/vocab nitrovin list | jq -c '.entries[] | {name, kind, s
 ```
 
 `/v1/info` (and `nitrovin info`) lists every loaded file with its version,
-blake3 hash, absolute path and drift, and a catalog with its release and
-counts.
+blake3 hash, absolute path and drift, a catalog with its release and
+counts, and a stock source with what it holds, its time and its rows.
 
 ## Checking
 
