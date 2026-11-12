@@ -69,6 +69,9 @@ func (r FitRequest) kind() fitKind {
 // nitrovin. ctx bounds its stock lookups: a source that has not answered
 // when ctx ends is unavailable, with reason StockCancelled, and the rest
 // of the answer stands.
+// A panic in a stock lookup, which runs on a goroutine of its own, panics
+// Fit's caller as a *LookupPanic; one in a lookup Fit stopped waiting for
+// is dropped.
 func (f Fitter) Fit(ctx context.Context, req FitRequest) (Fit, error) {
 	if req.Now.IsZero() {
 		req.Now = time.Now()

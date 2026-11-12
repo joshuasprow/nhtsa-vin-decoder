@@ -264,6 +264,16 @@ func fitJSON(ctx context.Context, t decodeService, args []byte) ([]byte, error) 
 	return json.Marshal(f)
 }
 
+// panicStack is the stack to log with v, a recovered panic: the one it
+// happened on for a panic carried from a fit's stock lookup, else this
+// goroutine's.
+func panicStack(v any) []byte {
+	if p, ok := v.(*contract.LookupPanic); ok {
+		return p.Stack
+	}
+	return debug.Stack()
+}
+
 // recovered is h's answer to args, a call of tool name. A panic in it (a
 // fault in nitrovin, or a catalog reader failing on a damaged file) is an
 // #internal problem, so the server outlives it, and is written with its
@@ -271,7 +281,7 @@ func fitJSON(ctx context.Context, t decodeService, args []byte) ([]byte, error) 
 func recovered(ctx context.Context, name string, h answer, args []byte, stderr io.Writer) (b []byte, err error) {
 	defer func() {
 		if v := recover(); v != nil {
-			fmt.Fprintf(stderr, "panic answering tool %s: %v\n%s", name, v, debug.Stack())
+			fmt.Fprintf(stderr, "panic answering tool %s: %v\n%s", name, v, panicStack(v))
 			b, err = nil, contract.NewProblem(contract.Internal, "", fmt.Sprint("panic: ", v))
 		}
 	}()

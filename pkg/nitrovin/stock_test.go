@@ -470,3 +470,77 @@ func TestFitStockConcurrent(t *testing.T) {
 		}
 	}
 }
+
+// panicking is a stock source with a fault: every lookup panics, once
+// release (when not nil) is closed, closing panicked as it does.
+type panicking struct {
+	name     string
+	holds    stock.Holds
+	kind     stock.Kind
+	release  chan struct{}
+	panicked chan struct{}
+}
+
+func (s panicking) Info() stock.Info {
+	return stock.Info{Name: s.name, Holds: s.holds, Kind: s.kind}
+}
+func (s panicking) fail() ([]stock.Result, stock.Meta, error) {
+	if s.release != nil {
+		<-s.release
+		defer close(s.panicked)
+	}
+	panic("a fault in " + s.name)
+}
+func (s panicking) ShelfByFitment(context.Context, [][]vocab.FitmentKey, stock.Page) ([]stock.Result, stock.Meta, error) {
+	return s.fail()
+}
+func (s panicking) ShelfByVehicle(context.Context, []stock.ShelfVehicle, stock.Page) ([]stock.Result, stock.Meta, error) {
+	return s.fail()
+}
+func (s panicking) Yard(context.Context, []stock.YardQuery, stock.Page) ([]stock.Result, stock.Meta, error) {
+	return s.fail()
+}
+
+// TestFitStockPanic: a panic in a stock lookup, on a goroutine of its own,
+// reaches Fit's caller, who can recover it, as a *contract.LookupPanic
+// with the original value and the stack it happened on, whether the
+// source is a file, looked up on concurrently's goroutine, or live, on
+// the lookup's own. A live lookup that panics after the fit stopped
+// waiting for it is dropped, and the process lives on.
+func TestFitStockPanic(t *testing.T) {
+	req := contract.FitRequest{
+		From: contract.FitFrom{Vocabulary: "catalog-models", Entry: map[string]string{"make": "Dodge", "model": "Ram 1500"}}, ModelYear: contract.Value[int32](2010),
+		Part: &contract.FitPart{Spine: "part-types", ID: "brake-rotor-front"}, Stock: []string{"shelf", "yard"}, Now: fitNow,
+	}
+	for _, kind := range []stock.Kind{stock.KindFile, stock.KindLive} {
+		t.Run(string(kind), func(t *testing.T) {
+			tr := stockTranslator(t)
+			tr.core.Stock = append(tr.core.Stock, panicking{name: "faulty-yard", holds: stock.Yard, kind: kind})
+			var v any
+			func() {
+				defer func() { v = recover() }()
+				tr.Fit(context.Background(), req)
+			}()
+			p, ok := v.(*contract.LookupPanic)
+			if !ok || p.Value != "a fault in faulty-yard" || fmt.Sprint(p) != "a fault in faulty-yard" || !strings.Contains(string(p.Stack), "panicking.fail") {
+				t.Fatalf("recovered %#v; want a *contract.LookupPanic of the source's panic, with its stack", v)
+			}
+		})
+	}
+
+	tr := stockTranslator(t)
+	late := panicking{name: "late-yard", holds: stock.Yard, kind: stock.KindLive, release: make(chan struct{}), panicked: make(chan struct{})}
+	tr.core.Stock = append(tr.core.Stock, late)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	f, err := tr.Fit(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sourcesText(f.Candidates[0].Yard); !strings.HasSuffix(got, "late-yard live unavailable ("+contract.StockCancelled+")") {
+		t.Errorf("the late yard's block: %s", got)
+	}
+	close(late.release)
+	<-late.panicked
+	time.Sleep(100 * time.Millisecond) // a panic unrecovered would end the test binary here
+}

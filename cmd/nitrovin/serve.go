@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -279,7 +278,7 @@ func (a *api) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if v == http.ErrAbortHandler {
 				panic(v)
 			}
-			a.log.Printf("panic serving %s %s: %v\n%s", r.Method, r.URL.EscapedPath(), v, debug.Stack())
+			a.log.Printf("panic serving %s %s: %v\n%s", r.Method, r.URL.EscapedPath(), v, panicStack(v))
 			a.problem(w, contract.NewProblem(contract.Internal, "", fmt.Sprint("panic: ", v)))
 		}
 	}()

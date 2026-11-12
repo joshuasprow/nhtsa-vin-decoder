@@ -576,7 +576,6 @@ func (c *compiled) byNumber(k FitmentKey) (*Fitment, *Retired) {
 	return &c.fitments([]int32{rank})[0], rt
 }
 
-// byVehicle is Catalog.ByVehicle, cat being the compiled catalog's.
 // retiredAt reads retired row i.
 func (c *compiled) retiredAt(i int) *Retired {
 	row := c.rowsAt(secRetired, i, 1)
@@ -608,6 +607,7 @@ func (c *compiled) retiredTo(k FitmentKey) []*Retired {
 	return out
 }
 
+// byVehicle is Catalog.ByVehicle, cat being the compiled catalog's.
 func (c *compiled) byVehicle(cat *Catalog, partType string, vehicles []Vehicle, year *int, side *Side) []Candidate {
 	t, ok := c.typeAt[partType]
 	if !ok {

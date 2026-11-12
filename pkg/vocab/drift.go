@@ -92,6 +92,9 @@ func (d *drifts) walk(files []*File) []Finding {
 			}
 			d.catalog(byName[f.Vehicles])
 		case KindStock:
+			if d.mm != nil {
+				continue // ModelDrift: a stock file has no qualifiers
+			}
 			var c *Catalog
 			if g := byName[f.StockCatalog]; g != nil {
 				c = g.Catalog()

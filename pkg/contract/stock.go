@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"slices"
 	"sync"
 	"time"
@@ -189,20 +190,31 @@ func lookup(ctx context.Context, src stock.Source, p stock.Page, call stockCall)
 		return nil, stock.Meta{}, errCancelled
 	}
 	type answer struct {
-		rs   []stock.Result
-		meta stock.Meta
-		err  error
+		rs    []stock.Result
+		meta  stock.Meta
+		err   error
+		panic *LookupPanic
 	}
 	// The goroutine may outlive this call: it gets its own copy of the
 	// page, so a caller reusing its location slice cannot race it.
 	p.Location = slices.Clone(p.Location)
 	done := make(chan answer, 1)
 	go func() {
+		// A panic is the caller's while it waits; once ctx has ended and
+		// it no longer does, it is recovered and dropped with the answer.
+		defer func() {
+			if v := recover(); v != nil {
+				done <- answer{panic: lookupPanic(v)}
+			}
+		}()
 		rs, meta, err := call(ctx, src, p)
-		done <- answer{rs, meta, err}
+		done <- answer{rs, meta, err, nil}
 	}()
 	select {
 	case a := <-done:
+		if a.panic != nil {
+			panic(a.panic)
+		}
 		if a.err != nil && ctx.Err() != nil {
 			return nil, stock.Meta{}, errCancelled // the source stopped because ctx did
 		}
@@ -394,12 +406,52 @@ func (f Fitter) candidateStock(ctx context.Context, req FitRequest, cs []FitCand
 // concurrently runs fns at once and returns when every one has: one
 // answer's independent stock lookups (its shelf, its yard, its rows by
 // vehicle) wait on their slowest source, not on the sum of them.
+//
+// A panic in one of fns, which on its own goroutine no caller's recover
+// could see, is recovered there and, once every one has returned, panics
+// again on the calling goroutine as a *LookupPanic: the first one's, by
+// fns's order.
 func concurrently(fns ...func()) {
 	var wg sync.WaitGroup
-	for _, fn := range fns {
-		wg.Go(fn)
+	panics := make([]*LookupPanic, len(fns))
+	for i, fn := range fns {
+		wg.Go(func() {
+			defer func() {
+				if v := recover(); v != nil {
+					panics[i] = lookupPanic(v)
+				}
+			}()
+			fn()
+		})
 	}
 	wg.Wait()
+	for _, p := range panics {
+		if p != nil {
+			panic(p)
+		}
+	}
+}
+
+// LookupPanic is a panic in one of a fit's stock lookups, which run on
+// goroutines of their own (a fault in a stock.Source, or in nitrovin),
+// carried to the goroutine that called Fit and panicked again there, so
+// its caller's recover sees it. Value is the original panic's value and
+// Stack the stack of the goroutine it happened on, for a log. Its String
+// is Value's, so an #internal problem reads as the original panic would.
+type LookupPanic struct {
+	Value any
+	Stack []byte
+}
+
+func (p *LookupPanic) String() string { return fmt.Sprint(p.Value) }
+
+// lookupPanic is v, a recovered panic, as a *LookupPanic, with the stack
+// of the goroutine recovering it, unless it is one already.
+func lookupPanic(v any) *LookupPanic {
+	if p, ok := v.(*LookupPanic); ok {
+		return p
+	}
+	return &LookupPanic{Value: v, Stack: debug.Stack()}
 }
 
 // fitmentStock gives a fitment's answer the stock lists req asks for,

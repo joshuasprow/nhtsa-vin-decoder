@@ -117,3 +117,62 @@ func TestServeStockUnavailable(t *testing.T) {
 		t.Errorf("the answer: %s", body)
 	}
 }
+
+// faultySource is a live stock source whose every lookup panics.
+type faultySource struct{}
+
+func (faultySource) Info() stock.Info {
+	return stock.Info{Name: "faulty", Holds: stock.Shelf, Kind: stock.KindLive}
+}
+func (faultySource) ShelfByFitment(context.Context, [][]vocab.FitmentKey, stock.Page) ([]stock.Result, stock.Meta, error) {
+	panic("a fault in a stock source")
+}
+func (faultySource) ShelfByVehicle(context.Context, []stock.ShelfVehicle, stock.Page) ([]stock.Result, stock.Meta, error) {
+	panic("a fault in a stock source")
+}
+func (faultySource) Yard(context.Context, []stock.YardQuery, stock.Page) ([]stock.Result, stock.Meta, error) {
+	panic("a fault in a stock source")
+}
+
+// TestServeStockPanic: a stock source that panics, on a lookup's goroutine
+// of its own, is an #internal problem naming the panic, logged with the
+// stack it happened on, and serve outlives it.
+func TestServeStockPanic(t *testing.T) {
+	fixtureData(t)
+	d, err := nitrovin.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := vocab.Open(fixture, fitmentFixture, stockFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := vocab.NewSet(d.Month(), files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := d.Info()
+	f := contract.Fitter{Translator: contract.Translator{Set: set, DataMonth: info.DataMonth, DecoderVersion: info.DecoderVersion}, Catalog: set.Catalog(), Stock: []stock.Source{faultySource{}}}
+	var logged strings.Builder
+	a, err := newAPI(stockService{translating(t, d, files...), f}, log.New(&logged, "", 0), io.Discard, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(a)
+	defer srv.Close()
+	for range 2 {
+		resp, err := client.Get(srv.URL + "/v1/fit?from.fitment.type=brake-rotor-front&from.fitment.number=BR-2001&stock=shelf&now=" + now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var p contract.Problem
+		err = json.NewDecoder(resp.Body).Decode(&p)
+		resp.Body.Close()
+		if err != nil || resp.StatusCode != http.StatusInternalServerError || p.Type != contract.Internal || p.Detail != "panic: a fault in a stock source" {
+			t.Fatalf("GET /v1/fit: %d %+v (%v)", resp.StatusCode, p, err)
+		}
+	}
+	if !strings.Contains(logged.String(), "faultySource.ShelfByFitment") {
+		t.Errorf("the log has not the stack the panic happened on:\n%s", logged.String())
+	}
+}
