@@ -125,6 +125,15 @@ func TestSpineBundleTranslates(t *testing.T) {
 			t.Errorf("list %+v through the bundle:\n%+v (%v)\nwant the artifact's\n%+v (%v)", req, got, gotErr, want, wantErr)
 		}
 	}
+	// A spine bundle carries no model values (ADR 0015): where the artifact
+	// lists them, the bundle refuses.
+	values := contract.ListRequest{Of: "vpic", Where: map[string]string{"model": "1850", "element": "34"}}
+	if _, err := tr.List(values); err != nil {
+		t.Fatalf("list %+v: %v", values, err)
+	}
+	if l, err := core.List(values); err == nil || contract.AsProblem(err).Type != contract.InvalidRequest || contract.AsProblem(err).Pointer != "/where/model" {
+		t.Errorf("list %+v through the bundle: %+v, %v; want #invalid-request at /where/model", values, l, err)
+	}
 }
 
 // sameMonth checks that got answers every question of vocab.Month as want

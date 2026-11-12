@@ -430,6 +430,7 @@ func TestMCPVocabSession(t *testing.T) {
 		{tool: "list", args: `{"of":"yard","where":{"make":"dodge"}}`},
 		{tool: "list", args: `{"of":"parts","limit":3}`},
 		{tool: "list", args: `{"of":"parts","limit":3,"after":"` + first.Next + `"}`},
+		{tool: "list", args: `{"of":"vpic","where":{"model":1850,"element":15}}`},
 		{tool: "translate", args: `{"from":"` + ram2010 + `","to":["yard"],"now":"` + now + `"}`},
 		{tool: "translate", args: `{"from":{"vocabulary":"yard","entry":{"make":"Dodge","model":"Ram 1500"}},"vin":"` + ram2010 + `","to":["yard"],"now":"` + now + `"}`},
 		{tool: "translate", args: `{"from":{"vocabulary":"listing","entry":{"category":"Brake Pads"}},"to":["listing"],"now":"` + now + `"}`},
@@ -439,6 +440,7 @@ func TestMCPVocabSession(t *testing.T) {
 		{tool: "translate", args: `{"now":"` + now + `"}`, pointer: "/from"},
 		{tool: "list", args: `{"of":"ebay"}`, pointer: "/of"},
 		{tool: "list", args: `{"of":"parts","limit":0}`, pointer: "/limit"},
+		{tool: "list", args: `{"of":"vpic","where":{"element":15}}`, pointer: "/where/element"},
 	}
 	runSessions(t, d, "", fixture, calls)
 }

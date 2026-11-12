@@ -14,7 +14,7 @@ func init() {
 	register(command{
 		name:     "list",
 		synopsis: "[flags] [of]",
-		summary:  "List what is loaded (the catalog: vpic, then every vocabulary, extension set and spine), or with of one page of vpic's makes, a make's models, a vocabulary's entries, a spine's or an extension set's.",
+		summary:  "List what is loaded (the catalog: vpic, then every vocabulary, extension set and spine), or with of one page of vpic's makes, a make's models, a model's values for an element, a vocabulary's entries, a spine's or an extension set's.",
 		setup:    listSetup,
 	})
 }
@@ -23,7 +23,7 @@ func init() {
 // flags, answered as one object.
 func listSetup(fs *flag.FlagSet) func(*env, []string) error {
 	var req contract.ListRequest
-	fs.Func("where", "keep the entries whose `field=value`, matched after normalization (vpic takes make=<id>, listing that make's models); repeatable", func(s string) error {
+	fs.Func("where", "keep the entries whose `field=value`, matched after normalization (vpic takes make=<id>, listing that make's models, or model=<id> with element=<id>, listing the values a VIN of that model can decode the element to); repeatable", func(s string) error {
 		field, value, ok := strings.Cut(s, "=")
 		if !ok || field == "" {
 			return errors.New("must be field=value")

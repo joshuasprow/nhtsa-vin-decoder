@@ -22,12 +22,40 @@ const (
 type ListQuery struct {
 	Of string
 	// Where filters by fields, matched after Normalize: a vocabulary's
-	// fields, or vPIC's "make", a make id, to list that make's models.
+	// fields; or vPIC's "make", a make id, to list that make's models, or
+	// "model" and "element", a model id and an element id together, to
+	// list the model's model values for the element.
 	Where map[string]string
 	// Limit is the page size, 1 to MaxLimit; 0 means DefaultLimit.
 	Limit int
 	// After is the Next of the previous page; "" starts at the first.
 	After string
+}
+
+// ModelMonth is a Month that also knows each vPIC model's model values
+// (ADR 0015), which list answers for where.model and where.element.
+// pkg/nitrovin's month is one; a spine bundle, which carries no per-model
+// values, is not.
+type ModelMonth interface {
+	Month
+	// ModelValues is every value a VIN that decodes to vPIC model can
+	// decode element to, each once, in any order: attribute ids in decimal
+	// for a lookup element, the exact text for a text one. It may hold a
+	// value no such VIN ends up with, but never leaves one out. An unknown
+	// model has none.
+	ModelValues(model, element int32) []string
+	// AttributeName is lookup element's attribute id's name.
+	AttributeName(element, id int32) (name string, ok bool)
+}
+
+// ModelValue is one of a model's model values for an element.
+type ModelValue struct {
+	// Value is an attribute id in decimal when Lookup, else the exact
+	// text.
+	Value  string
+	Lookup bool
+	// Name is a lookup value's attribute name, "" when it has none.
+	Name string
 }
 
 // CatalogEntry is one thing a translation can name: vPIC or a loaded file.
@@ -59,6 +87,9 @@ type Listing struct {
 	// id; or a declared spine's entries or an extension set's extensions,
 	// by id.
 	Spine []Reached
+	// Values are one vPIC model's model values for one element: text by
+	// normalized then exact value, attribute ids ascending.
+	Values []ModelValue
 	// Next is the After of the next page, "" on the last.
 	Next string
 }
@@ -68,6 +99,7 @@ type row struct {
 	key   []string
 	entry *Entry
 	spine Reached
+	value ModelValue
 }
 
 // vpicRow is a vPIC make or model, keyed by normalized name then id.
@@ -150,30 +182,7 @@ func (s *Set) pager(q ListQuery, l *Listing) (pager, int, error) {
 	where := slices.Sorted(maps.Keys(q.Where))
 	addSpine := func(r *row) { l.Spine = append(l.Spine, r.spine) }
 	if q.Of == Reserved {
-		for _, k := range where {
-			if k != "make" && k != "year" {
-				return nil, 0, refuse("/where/"+pointerToken(k), "vPIC's entries take where.make, a vPIC make id, and with it where.year, and no other field")
-			}
-		}
-		v, ok := q.Where["make"]
-		if !ok {
-			if _, ok := q.Where["year"]; ok {
-				return nil, 0, refuse("/where/year", "where.year needs where.make: it filters one make's models")
-			}
-			return rowPager(s.makes(), addSpine), 2, nil
-		}
-		mk, err := strconv.ParseInt(v, 10, 32)
-		if err != nil || mk < 1 {
-			return nil, 0, refuse("/where/make", "%q is not a vPIC make id", v)
-		}
-		keep, err := yearFilter(q.Where)
-		if err != nil {
-			return nil, 0, err
-		}
-		rows := s.models(int32(mk))
-		return func(after []string, limit int) string {
-			return page(rows, func(r *row) []string { return r.key }, keep, after, limit, addSpine)
-		}, 2, nil
+		return s.vpicPager(q, where, l)
 	}
 	f := s.byName[q.Of]
 	if f == nil {
@@ -221,6 +230,88 @@ func (s *Set) pager(q ListQuery, l *Listing) (pager, int, error) {
 	return func(after []string, limit int) string {
 		return page(es, func(se *sortedEntry) []string { return se.key }, keep, after, limit, func(se *sortedEntry) { l.Entries = append(l.Entries, se.entry) })
 	}, len(f.Fields), nil
+}
+
+// vpicPager pages through vPIC: its makes, a make's models (where.make),
+// or a model's model values for an element (where.model and
+// where.element, together and without where.make).
+func (s *Set) vpicPager(q ListQuery, where []string, l *Listing) (pager, int, error) {
+	for _, k := range where {
+		if k != "make" && k != "year" && k != "model" && k != "element" {
+			return nil, 0, refuse("/where/"+pointerToken(k), "vPIC's entries take where.make, a vPIC make id, and with it where.year; or where.model and where.element together; and no other field")
+		}
+	}
+	addSpine := func(r *row) { l.Spine = append(l.Spine, r.spine) }
+	mkText, byMake := q.Where["make"]
+	_, byYear := q.Where["year"]
+	modelText, byModel := q.Where["model"]
+	elementText, byElement := q.Where["element"]
+	switch {
+	case byMake && (byModel || byElement):
+		return nil, 0, refuse("/where/make", "where.make lists a make's models and where.model with where.element a model's values: give one or the other")
+	case byYear && (byModel || byElement):
+		return nil, 0, refuse("/where/year", "where.year filters one make's models and takes no where.model or where.element: a model's values span its years")
+	case byModel && !byElement:
+		return nil, 0, refuse("/where/model", "where.model needs where.element: a model's values are listed one element at a time")
+	case byElement && !byModel:
+		return nil, 0, refuse("/where/element", "where.element needs where.model: an element's values are listed for one model")
+	case byModel:
+		return s.modelValuesPager(modelText, elementText, l)
+	case byYear && !byMake:
+		return nil, 0, refuse("/where/year", "where.year needs where.make: it filters one make's models")
+	case !byMake:
+		return rowPager(s.makes(), addSpine), 2, nil
+	}
+	mk, err := strconv.ParseInt(mkText, 10, 32)
+	if err != nil || mk < 1 {
+		return nil, 0, refuse("/where/make", "%q is not a vPIC make id", mkText)
+	}
+	keep, err := yearFilter(q.Where)
+	if err != nil {
+		return nil, 0, err
+	}
+	rows := s.models(int32(mk))
+	return func(after []string, limit int) string {
+		return page(rows, func(r *row) []string { return r.key }, keep, after, limit, addSpine)
+	}, 2, nil
+}
+
+// modelValuesPager pages through vPIC model modelText's model values for
+// public element elementText (ADR 0015). A model the month lacks has none.
+// Text values sort by their normalized then exact text, so case variants
+// are each listed; attribute ids sort ascending.
+func (s *Set) modelValuesPager(modelText, elementText string, l *Listing) (pager, int, error) {
+	model, err := strconv.ParseInt(modelText, 10, 32)
+	if err != nil || model < 1 {
+		return nil, 0, refuse("/where/model", "%q is not a vPIC model id", modelText)
+	}
+	element, err := strconv.ParseInt(elementText, 10, 32)
+	lookup, public := false, false
+	if err == nil {
+		lookup, public = s.month.Element(int32(element))
+	}
+	if !public {
+		return nil, 0, refuse("/where/element", "%q is not a public element id: /v1/info lists them", elementText)
+	}
+	mm, ok := s.month.(ModelMonth)
+	if !ok {
+		return nil, 0, refuse("/where/model", "data month %s is served without model values here: ask a server that holds its artifact", s.month.Name())
+	}
+	var rows []row
+	for _, v := range mm.ModelValues(int32(model), int32(element)) {
+		if !lookup {
+			rows = append(rows, row{key: []string{Normalize(v), v}, value: ModelValue{Value: v}})
+			continue
+		}
+		id, err := strconv.ParseInt(v, 10, 32)
+		if err != nil || strconv.FormatInt(id, 10) != v || id < 0 {
+			continue // no attribute id casts to it, so no decode names it
+		}
+		name, _ := mm.AttributeName(int32(element), int32(id))
+		rows = append(rows, row{key: []string{fmt.Sprintf("%010d", id), v}, value: ModelValue{Value: v, Lookup: true, Name: name}})
+	}
+	sortRows(rows)
+	return rowPager(rows, func(r *row) { l.Values = append(l.Values, r.value) }), 2, nil
 }
 
 // rowPager pages through rows, every one, by add.

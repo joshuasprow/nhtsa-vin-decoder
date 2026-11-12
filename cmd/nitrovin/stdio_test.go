@@ -201,12 +201,14 @@ func TestStdioOps(t *testing.T) {
 		{in: `{"id":3,"op":"list"}`, id: "3", kind: "list"},
 		{in: `{"op":"list","of":"yard","limit":2}`, kind: "list"},
 		{in: `{"id":4,"op":"list","of":"vpic","where":{"make":476},"limit":3}`, id: "4", kind: "list"},
+		{in: `{"id":"mv","op":"list","of":"vpic","where":{"model":1850,"element":34},"limit":3}`, id: `"mv"`, kind: "list"},
 		{in: `{"id":5,"op":"decode","vin":"1HGCM82633A004352","shape":"nitrovin","now":"` + now + `"}`, id: "5", kind: "decode"},
 		{in: `{"id":6,"op":"Translate","from":{"make":476}}`, id: "6", kind: string(contract.InvalidRequest), pointer: "/op"},
 		{in: `{"id":7,"op":"translate","from":{"make":476},"to":["nowhere"],"now":"` + now + `"}`, id: "7", kind: string(contract.InvalidRequest), pointer: "/to/0"},
 		{in: `{"op":"translate","from":{"make":476},"to":["listing"],"now":"` + now + `"}`, kind: string(contract.InvalidRequest), pointer: "/to/0"},
 		{in: `{"id":8,"op":"list","of":"vpic","full":true}`, id: "8", kind: string(contract.InvalidRequest), pointer: "/full"},
 		{in: `{"id":9,"op":"list","of":"nowhere"}`, id: "9", kind: string(contract.InvalidRequest), pointer: "/of"},
+		{in: `{"op":"list","of":"vpic","where":{"model":1850,"element":7777}}`, kind: string(contract.InvalidRequest), pointer: "/where/element"},
 		{in: `{"id":10,"op":"translate","from":`, kind: string(contract.MalformedJSON)},
 	}
 

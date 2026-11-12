@@ -186,8 +186,9 @@ contract, not in `openapi.yaml`, and may change.
   (`/from/entry/model`) included.
 - `GET /v1/vocabularies` is the catalog (`list` with no `of`), and takes no
   parameter. `GET /v1/vocabularies/{name}/entries` is `list` with `of` the
-  name (`vpic` included): `where.<field>` per field (`where.make=476`),
-  `limit`, `after`.
+  name (`vpic` included): `where.<field>` per field (`where.make=476`;
+  `where.model=1850&where.element=34` for a model's values), `limit`,
+  `after`.
 - Every parameter but `to` is given at most once, and an unknown one is
   refused, as on `GET /v1/decode/{vin}`.
 
@@ -359,7 +360,7 @@ the Go module marshals it. A trailing `\r` is dropped, and blank lines
 | Argument or flag | Request field |
 | --- | --- |
 | `[of]`, at most one | `of`; none asks for the catalog |
-| `--where field=value` | `where`, repeatable, a field once (`--where make=476` for `vpic`) |
+| `--where field=value` | `where`, repeatable, a field once (`--where make=476`, or `--where model=1850 --where element=34`, for `vpic`) |
 | `--limit N` | `limit`, 1 to 1,000 |
 | `--after <cursor>` | `after`, the previous page's `next` |
 
@@ -496,7 +497,7 @@ MCP and C surfaces carry the same object.
 | Field | Type | Default | Rule |
 | --- | --- | --- | --- |
 | `of` | string | none | `vpic` or a loaded file's name. None asks for the catalog |
-| `where` | object | none | Fields matched exactly after the fixed normalization: a vocabulary's fields; for `vpic` only `make`, a make id, which lists that make's models, and with it `year`, one model year. Spines and extension sets take none |
+| `where` | object | none | Fields matched exactly after the fixed normalization: a vocabulary's fields; for `vpic`, `make`, a make id, which lists that make's models, and with it `year`, one model year; or `model` and `element` together, a model id and a public element id, which list the model's values for the element. Spines and extension sets take none |
 | `limit` | int | 100 | 1 to 1,000 entries a page |
 | `after` | string | none | The previous page's `next` |
 
@@ -519,6 +520,27 @@ MCP and C surfaces carry the same object.
   open range including every later year, and the models with unknown
   years: a superset of what the make built that year. A spine's entries and an extension set's extensions
   are `SpineEntry` values ordered by id.
+- **Model values** ([ADR 0015](../adr/0015-model-values-for-an-element.md)).
+  `vpic` with `where.model` and `where.element` lists the values a VIN of
+  that model can decode the element to, each a `ModelValueEntry`: `value`,
+  the attribute id of a lookup element or the exact text of a text one, and
+  for a lookup element its attribute's `name`. Text values are ordered by
+  normalized then exact value, so case variants ("3/4 Ton", "3/4 ton") are
+  each listed; attribute ids ascending. A value counts when it comes from
+  a pattern whose key could match one VIN together with one of the model's
+  Model (28) pattern keys, in the same VIN schema or one a WMI reaches in
+  an overlapping year band; from an engine model row through such an
+  Engine Model (18) pattern; from a vehicle spec naming the model whose
+  make and vehicle type the model's WMIs carry; or from a default value
+  for a vehicle type they have. Make (26) is the model's makes,
+  Manufacturer Name (27) and Vehicle Type (39) its WMIs', Model (28) the
+  model. Values a formula pattern computes from the VIN or a conversion
+  from another element are not listed. The list is an upper bound: it may
+  hold a value no VIN of the model ends up with, but leaves none out that
+  a VIN with a model year decodes to. An unknown model id lists nothing.
+  `model` or `element` alone, either beside `make`, or an element that is
+  not public, is `#invalid-request`. The index behind it is built per
+  element on its first ask, about 0.2 s, and kept.
 - **Paging.** The order is stable for a given set of loaded files. `next`
   is an opaque cursor, present when more entries follow; passing it as
   `after` continues after the last entry returned, so paging end to end

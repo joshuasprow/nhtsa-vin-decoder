@@ -1129,7 +1129,7 @@
     {
       "name": "list",
       "title": "List vocabularies",
-      "description": "List what this server has loaded, or page through one part of it, offline.\n\nCall it with no arguments first: the catalog names vPIC and every loaded vocabulary, spine and extension set, with each vocabulary's fields and the spine it translates through. What is loaded differs from server to server, so never guess a name.\n\n- of: \"vpic\" for vPIC's makes, or a name from the catalog for its entries.\n- where: exact field matches after normalization: a vocabulary's fields; for vpic only make, a make id, to list that make's models, and with it year, one model year: the models whose years include it, or are unknown. A vpic model's years are on its entry.\n- limit: entries a page, 1-1000 (default 100).\n- after: the previous page's next, to continue. No next means the last page.",
+      "description": "List what this server has loaded, or page through one part of it, offline.\n\nCall it with no arguments first: the catalog names vPIC and every loaded vocabulary, spine and extension set, with each vocabulary's fields and the spine it translates through. What is loaded differs from server to server, so never guess a name.\n\n- of: \"vpic\" for vPIC's makes, or a name from the catalog for its entries.\n- where: exact field matches after normalization: a vocabulary's fields; for vpic, make, a make id, to list that make's models, and with it year, one model year: the models whose years include it, or are unknown. A vpic model's years are on its entry. Or, for vpic, model and element together, a vPIC model id and an element id (34 is Series, 15 Drive Type), to list every value a VIN of that model can decode the element to. The list may hold a value no VIN of the model ends up with, but never leaves one out.\n- limit: entries a page, 1-1000 (default 100).\n- after: the previous page's next, to continue. No next means the last page.",
       "inputSchema": {
         "type": "object",
         "$ref": "#/$defs/ListRequest",
@@ -1155,7 +1155,7 @@
                     "integer"
                   ]
                 },
-                "description": "Fields to match after the fixed normalization: a vocabulary's fields, or for vpic only make, a vPIC make id, to list its models, and with make year, one model year, keeping the models whose years include it or are unknown (ADR 0022)."
+                "description": "Fields to match after the fixed normalization: a vocabulary's fields; for vpic, make, a vPIC make id, to list its models, and with make year, one model year, keeping the models whose years include it or are unknown (ADR 0022); or model and element together, a vPIC model id and a public element id, to list the model's values for the element (ADR 0015). Model or element alone, or either with make or year, is refused."
               },
               "limit": {
                 "type": "integer",
@@ -1201,10 +1201,13 @@
                     },
                     {
                       "$ref": "#/$defs/SpineEntry"
+                    },
+                    {
+                      "$ref": "#/$defs/ModelValueEntry"
                     }
                   ]
                 },
-                "description": "CatalogEntry for the catalog; VocabularyEntry for a vocabulary; SpineEntry for vpic, a declared spine or an extension set."
+                "description": "CatalogEntry for the catalog; VocabularyEntry for a vocabulary; ModelValueEntry for vpic with where.model and where.element; SpineEntry for the rest of vpic, a declared spine or an extension set."
               },
               "next": {
                 "type": "string",
@@ -1225,6 +1228,27 @@
               "decoder_version": {
                 "type": "string",
                 "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "ModelValueEntry": {
+            "type": "object",
+            "description": "One value a VIN of the vPIC model can decode the element to (ADR 0015). The list may hold a value no VIN of the model ends up with, but never leaves one out. Text values come by normalized then exact value, attribute ids ascending.",
+            "required": [
+              "value"
+            ],
+            "properties": {
+              "value": {
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "description": "The attribute id for a lookup element; the exact text for a text element."
+              },
+              "name": {
+                "type": "string",
+                "description": "The attribute's name, for a lookup element only."
               }
             },
             "additionalProperties": false

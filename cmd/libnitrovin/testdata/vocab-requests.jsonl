@@ -13,6 +13,8 @@
 {"id":11,"op":"list","of":"vpic","where":{"make":476},"limit":5}
 {"id":12,"op":"list","of":"parts"}
 {"op":"list","of":"classics"}
+{"id":"model-values","op":"list","of":"vpic","where":{"model":1850,"element":15}}
+{"id":"model-alone","op":"list","of":"vpic","where":{"model":1850}}
 {"id":13,"op":"decode","vin":"1HGCM82633A004352","shape":"nitrovin","now":"2026-11-01"}
 {"id":14,"vin":"1GCVKREC6EZ123456","now":"2026-11-01"}
 {"id":15,"op":"Translate","from":{"make":476}}

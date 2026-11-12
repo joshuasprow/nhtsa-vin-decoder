@@ -28,11 +28,12 @@ func (t *Translator) TranslateBatch(reqs []contract.TranslateRequest) ([]contrac
 }
 
 // List answers one list request (ADR 0012): the catalog without Of, else
-// one page of vPIC's makes or a make's models, a vocabulary's entries with
+// one page of vPIC's makes, a make's models or a model's values for an
+// element (ADR 0015, Month's ModelValues), a vocabulary's entries with
 // their mappings, a declared spine's entries or an extension set's
 // extensions. The error is a *contract.Problem, an InvalidRequest for an
-// Of nothing loaded has, a where field the listing lacks, a limit out of
-// range or an after it never gave.
+// Of nothing loaded has, a where field the listing lacks or a vPIC where
+// it refuses, a limit out of range or an after it never gave.
 func (t *Translator) List(req contract.ListRequest) (contract.List, error) {
 	return t.core.List(req)
 }

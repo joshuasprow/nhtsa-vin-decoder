@@ -467,6 +467,12 @@ func (h *Handler) entries(r *http.Request) (view, error) {
 				row.Link = vocabulariesPath + "/vpic?where.make=" + strconv.Itoa(int(e.Make))
 			}
 			p.Rows = append(p.Rows, row)
+		case contract.ModelValueEntry:
+			v := e.Value.Text
+			if !e.Value.IsText {
+				v = strconv.Itoa(int(e.Value.Attribute))
+			}
+			p.Rows = append(p.Rows, entryRow{Cells: []string{v, e.Name, ""}})
 		}
 	}
 	if l.Next != "" {

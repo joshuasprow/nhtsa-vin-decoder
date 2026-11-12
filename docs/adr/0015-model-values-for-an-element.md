@@ -29,8 +29,9 @@ over-reaches. On 2026_10:
 So a value counts for a model only where the two could appear in one decode:
 
 - **Patterns.** A pattern's value counts when its key could match the same VIN as one of
-  the model's Model (28) pattern keys in that schema. Keys are compared position by
-  position with the decoder's own key compiler.
+  the model's Model (28) pattern keys in that schema, or in another schema one of its WMIs
+  reaches in an overlapping year band. Keys are compared position by position with the
+  decoder's own key compiler.
 - **Engine-model rows** count through the keys of the Engine Model (18) pattern that
   selects them.
 - **Vehicle specs** count for the model they name, gated by make and by a vehicle type that
@@ -49,6 +50,19 @@ On 2026_10 the bound holds 31,800 (model, Series) pairs, and 7,830 (model, Drive
 pairs before default values are added. Fifteen sampled pairs that the schema-wide rule adds and this rule
 drops were each checked by decoding a VIN built from both keys. In every case the model
 never decodes the value.
+
+*Amended when built ([#233](https://github.com/joshuasprow/nitrovin/issues/233)):* the
+same-schema rule left out 412 of the 12,659 values the parity corpus's decodes give. A pass
+reads every schema of every year band holding its model year, and some makers keep a
+model's Model patterns in one schema and its engine or plant patterns in another under the
+same WMI and years. Schemas whose bands overlap under one WMI therefore count together.
+That adds 887 (model, Series) pairs (32,687 in all), the Silverado still gets no van series,
+and no value of a corpus decode with a model year is left out. Ignoring the years instead
+would give the Silverado "1500 Cargo" again and cost 1.5 s for Series alone. Two kinds of
+decode can still give a value the list lacks: one with no model year, whose year character
+is not one, which reads every band; and one of a VIN holding `#`, which only a formula key
+holds. The first ask of Series and Drive Type now costs about 0.17 s, about 0.13 s of it
+patterns and the schema join they share.
 
 ## Computed when the artifact is opened, one element at a time
 
