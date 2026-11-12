@@ -615,7 +615,7 @@ func TestList(t *testing.T) {
 		{
 			name: "a make's models",
 			req:  `{"of":"vpic","where":{"make":496},"limit":2}`,
-			want: []string{`{"model":13620,"name":"1500","under":{"make":496}}`, `{"model":13621,"name":"2500","under":{"make":496}}`, "next"},
+			want: []string{`{"model":13620,"name":"1500","under":{"make":496},"years":[{"first":2013}]}`, `{"model":13621,"name":"2500","under":{"make":496},"years":[{"first":2013}]}`, "next"},
 		},
 		{name: "an unknown make has no models", req: `{"of":"vpic","where":{"make":"2147483647"}}`},
 		{
@@ -636,6 +636,8 @@ func TestList(t *testing.T) {
 		{name: "of nothing loaded", req: `{"of":"ebay"}`, ptr: "/of"},
 		{name: "a field the vocabulary lacks", req: `{"of":"yard","where":{"trim":"SLT"}}`, ptr: "/where/trim"},
 		{name: "vpic takes only make", req: `{"of":"vpic","where":{"name":"Dodge"}}`, ptr: "/where/name"},
+		{name: "vpic's year needs make", req: `{"of":"vpic","where":{"year":2004}}`, ptr: "/where/year"},
+		{name: "vpic's year is a year", req: `{"of":"vpic","where":{"make":496,"year":"new"}}`, ptr: "/where/year"},
 		{name: "vpic's make is an id", req: `{"of":"vpic","where":{"make":"Dodge"}}`, ptr: "/where/make"},
 		{name: "a spine takes no where", req: `{"of":"parts","where":{"id":"300"}}`, ptr: "/where/id"},
 		{name: "the catalog takes no where", req: `{"where":{"make":"Dodge"}}`, ptr: "/where"},

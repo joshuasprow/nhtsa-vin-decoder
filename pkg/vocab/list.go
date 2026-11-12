@@ -151,19 +151,29 @@ func (s *Set) pager(q ListQuery, l *Listing) (pager, int, error) {
 	addSpine := func(r *row) { l.Spine = append(l.Spine, r.spine) }
 	if q.Of == Reserved {
 		for _, k := range where {
-			if k != "make" {
-				return nil, 0, refuse("/where/"+pointerToken(k), "vPIC's entries take where.make, a vPIC make id, and no other field")
+			if k != "make" && k != "year" {
+				return nil, 0, refuse("/where/"+pointerToken(k), "vPIC's entries take where.make, a vPIC make id, and with it where.year, and no other field")
 			}
 		}
 		v, ok := q.Where["make"]
 		if !ok {
+			if _, ok := q.Where["year"]; ok {
+				return nil, 0, refuse("/where/year", "where.year needs where.make: it filters one make's models")
+			}
 			return rowPager(s.makes(), addSpine), 2, nil
 		}
 		mk, err := strconv.ParseInt(v, 10, 32)
 		if err != nil || mk < 1 {
 			return nil, 0, refuse("/where/make", "%q is not a vPIC make id", v)
 		}
-		return rowPager(s.models(int32(mk)), addSpine), 2, nil
+		keep, err := yearFilter(q.Where)
+		if err != nil {
+			return nil, 0, err
+		}
+		rows := s.models(int32(mk))
+		return func(after []string, limit int) string {
+			return page(rows, func(r *row) []string { return r.key }, keep, after, limit, addSpine)
+		}, 2, nil
 	}
 	f := s.byName[q.Of]
 	if f == nil {

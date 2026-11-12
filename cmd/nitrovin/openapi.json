@@ -358,7 +358,7 @@
       "get": {
         "operationId": "listEntries",
         "summary": "Page through vPIC or one loaded file.",
-        "description": "One page of what `name` lists: vPIC's makes (`vpic`), or one make's\nmodels (`vpic` with `where.make`); a vocabulary's entries with their\nmappings; a declared spine's entries; an extension set's extensions.\n`where.<field>` matches a field exactly after the fixed\nnormalization, once per field (`where.make=Dodge`). Every parameter\nis given at most once, and an unknown one is refused.\n",
+        "description": "One page of what `name` lists: vPIC's makes (`vpic`), or one make's\nmodels (`vpic` with `where.make`); a vocabulary's entries with their\nmappings; a declared spine's entries; an extension set's extensions.\n`where.<field>` matches a field exactly after the fixed\nnormalization, once per field (`where.make=Dodge`). For `vpic`,\n`where.year` (only with `where.make`) keeps the models whose\n`years` include that model year, or are unknown (ADR 0022). Every parameter\nis given at most once, and an unknown one is refused.\n",
         "parameters": [
           {
             "name": "name",
@@ -1326,7 +1326,7 @@
                 },
                 "drift": {
                   "type": "array",
-                  "description": "The file's drift against the data month, by kind, only the kinds it has, in the order make, model, qualifier, extension; empty when it agrees with the month. Drift is served, never refused.",
+                  "description": "The file's drift against the data month, by kind, only the kinds it has, in the order make, model, qualifier, extension, model-years; empty when it agrees with the month. Drift is served, never refused.",
                   "items": {
                     "type": "object",
                     "required": [
@@ -1340,7 +1340,8 @@
                           "make",
                           "model",
                           "qualifier",
-                          "extension"
+                          "extension",
+                          "model-years"
                         ],
                         "description": "make, model: a vPIC id the month lacks. qualifier: an element the month lacks, a value of the wrong type for it, or a value its decode never produces. extension: an extension named like a vPIC make, or a vPIC model under the same make."
                       },
@@ -1788,6 +1789,14 @@
             "$ref": "#/components/schemas/SpineRef",
             "description": "The make a vPIC or extension model sits under."
           },
+          "years": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/YearRange"
+            },
+            "description": "In a list of vpic, a model's model years: the year bands of every VIN schema with a Model pattern naming it, merged into ranges, ascending, gaps kept (ADR 0022). Absent when unknown: the model has no Model pattern."
+          },
           "via": {
             "type": "array",
             "minItems": 1,
@@ -1801,6 +1810,22 @@
           }
         },
         "unevaluatedProperties": false
+      },
+      "YearRange": {
+        "description": "A run of model years, inclusive. No last: still running.",
+        "type": "object",
+        "required": [
+          "first"
+        ],
+        "properties": {
+          "first": {
+            "type": "integer"
+          },
+          "last": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
       },
       "Via": {
         "description": "One mapping that held on a route: the spine entry it names, its years, origin and note as its file has them, and what could not be checked on the route through it.",
@@ -1932,7 +1957,7 @@
                 "integer"
               ]
             },
-            "description": "Fields to match after the fixed normalization: a vocabulary's fields, or for vpic only make, a vPIC make id, to list its models."
+            "description": "Fields to match after the fixed normalization: a vocabulary's fields, or for vpic only make, a vPIC make id, to list its models, and with make year, one model year, keeping the models whose years include it or are unknown (ADR 0022)."
           },
           "limit": {
             "type": "integer",

@@ -237,6 +237,13 @@ func spineEntry(it vocab.Reached) SpineEntry {
 		u := spineRef(*it.Under)
 		e.Under = &u
 	}
+	for _, r := range it.Years {
+		y := YearRange{First: int32(r.First)}
+		if r.Last != 0 {
+			y.Last = Value(int32(r.Last))
+		}
+		e.Years = append(e.Years, y)
+	}
 	return e
 }
 

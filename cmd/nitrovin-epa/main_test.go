@@ -98,8 +98,12 @@ func TestBuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if drift := tr.Drift(); len(drift) > 0 {
-		t.Errorf("the build drifts from %s: %v", embedded.Month, drift)
+	// EPA's years and vPIC's model years disagree (ADR 0022): that drift
+	// is the data's, reported for the author to judge, not the build's.
+	for _, f := range tr.Drift() {
+		if f.Drift != vocab.DriftModelYears {
+			t.Errorf("the build drifts from %s: %v", embedded.Month, f)
+		}
 	}
 
 	notes := map[string]bool{}

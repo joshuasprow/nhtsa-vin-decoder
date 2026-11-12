@@ -110,6 +110,14 @@ func TestSpineBundleTranslates(t *testing.T) {
 	} {
 		got, gotErr := core.List(req)
 		want, wantErr := tr.List(req)
+		// A spine bundle carries no model years (ADR 0022): its models'
+		// are unknown.
+		for i, e := range want.Entries {
+			if se, ok := e.(contract.SpineEntry); ok {
+				se.Years = nil
+				want.Entries[i] = se
+			}
+		}
 		if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(gotErr, wantErr) {
 			t.Errorf("list %+v through the bundle:\n%+v (%v)\nwant the artifact's\n%+v (%v)", req, got, gotErr, want, wantErr)
 		}

@@ -262,7 +262,7 @@ _Avoid_: lookup, aliasing
 **Drift**:
 Where a vocabulary, extension set or declared spine disagrees with the loaded
 data month: a vPIC id the month lacks, a qualifier value its decode cannot
-produce, or one the mapping's own model never decodes to, an extension named like a vPIC entry under the same make. Reported,
+produce, or one the mapping's own model never decodes to, an extension named like a vPIC entry under the same make, or a mapping's years outside its model's model years. Reported,
 never refused: NHTSA's monthly changes are not the author's mistakes.
 _Avoid_: stale, invalid, broken mapping
 
