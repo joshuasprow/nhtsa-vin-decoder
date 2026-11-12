@@ -137,7 +137,7 @@ func TestVocabCheck(t *testing.T) {
 	for _, f := range findings(t, r.stdout) {
 		got = append(got, string(f.Severity)+" "+filepath.Base(f.File)+":"+strconv.Itoa(f.Line))
 	}
-	if want := []string{"drift classics.jsonl:2", "drift yard.jsonl:2", "drift yard.jsonl:3", "drift yard.jsonl:4", "drift yard.jsonl:5", "drift yard.jsonl:7"}; r.exit != 1 || r.stderr != "" || !slices.Equal(got, want) {
+	if want := []string{"drift classics.jsonl:2", "drift yard.jsonl:2", "drift yard.jsonl:3", "drift yard.jsonl:4", "drift yard.jsonl:5", "drift yard.jsonl:7", "drift yard.jsonl:8"}; r.exit != 1 || r.stderr != "" || !slices.Equal(got, want) {
 		t.Errorf("vocab check on the drift fixture: exit %d, findings %v, stderr %q; want exit 1 and %v", r.exit, got, r.stderr, want)
 	}
 
@@ -192,12 +192,14 @@ func TestVocabLoad(t *testing.T) {
 	}
 
 	// Drift: on stderr, one finding per line, and in info.
+	// Load leaves model-qualifier drift out of stderr (ADR 0015's cost);
+	// info counts it, all five of yard's kinds.
 	r := cli(t, []string{"NITROVIN_VOCAB=" + driftFixture}, "", "info")
 	if fs := findings(t, r.stderr); r.exit != 0 || len(fs) != 6 || fs[0].Severity != vocab.SeverityDrift {
 		t.Errorf("info with the drift fixture: exit %d, stderr %q; want exit 0 and six drift lines", r.exit, r.stderr)
 	}
 	var info contract.Info
-	if err := json.Unmarshal([]byte(r.stdout), &info); err != nil || len(info.Vocabularies) != 2 || len(info.Vocabularies[1].Drift) != 4 {
+	if err := json.Unmarshal([]byte(r.stdout), &info); err != nil || len(info.Vocabularies) != 2 || len(info.Vocabularies[1].Drift) != 5 || info.Vocabularies[1].Drift[4].Kind != "model-qualifier" {
 		t.Errorf("info with the drift fixture: %v, %+v", err, info.Vocabularies)
 	}
 	clock, _ := contract.ParseNow(now)

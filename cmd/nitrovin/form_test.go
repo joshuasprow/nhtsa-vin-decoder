@@ -34,6 +34,12 @@ func (v versioned) Info() contract.Info {
 	return info
 }
 
+func (v versioned) LoadInfo() contract.Info {
+	info := v.loaded.LoadInfo()
+	info.DecoderVersion = v.version
+	return info
+}
+
 // formServer serves the API on the embedded data, as serve does; a version
 // other than "" is the one the decoder reports.
 func formServer(t *testing.T, version string) (*httptest.Server, *nitrovin.Decoder) {
@@ -550,4 +556,40 @@ func fence(t *testing.T, md, lang string) string {
 		t.Fatalf("README: unclosed %s block", lang)
 	}
 	return s
+}
+
+// costlyInfo is loaded whose Info, which measures model-qualifier drift on
+// its first call (ADR 0015), must not be reached.
+type costlyInfo struct{ loaded }
+
+func (costlyInfo) Info() contract.Info { panic("Info read: model-qualifier drift measured") }
+
+// TestPagesReadLoadInfo: requests that show no drift (the Service Worker,
+// assets, an unknown page) read the info load measured, never Info, so no
+// page but the one listing drift builds the model values index.
+func TestPagesReadLoadInfo(t *testing.T) {
+	d, err := nitrovin.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := nitrovin.NewTranslator(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := newAPI(costlyInfo{loaded{d, tr}}, log.New(io.Discard, "", 0), io.Discard, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(a)
+	t.Cleanup(srv.Close)
+	for _, path := range []string{"/sw.js", "/ui/no-such-page"} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusInternalServerError {
+			t.Errorf("%s: 500, Info was read", path)
+		}
+	}
 }

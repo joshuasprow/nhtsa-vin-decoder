@@ -524,7 +524,7 @@ func (h *Handler) moved(r *http.Request) (view, error) {
 // them. A refusal is the page still, with its status, so htmx sends it to
 // the page's main and not to the error slot.
 func (h *Handler) home(r *http.Request) (view, error) {
-	info := h.p.Info()
+	info := h.info()
 	page := &homePage{DataMonth: info.DataMonth, DecoderVersion: info.DecoderVersion, Links: h.links(info)}
 	v := view{title: homeTitle, template: "home", data: page, target: mainTarget, vocabDialog: true}
 	raw, malformed := url.ParseQuery(r.URL.RawQuery)

@@ -5,3 +5,5 @@
 {"entry":{"make":"Dodge","model":"Phantom"},"mappings":[{"model":99999}]}
 {"entry":{"make":"Chevrolet","model":"Silverado"},"mappings":[{"ext":"ext:classics/silverado"}]}
 {"entry":{"make":"Dodge","model":"Ram 1500 Classic"},"mappings":[{"model":13620,"first":2005,"last":2010}]}
+{"entry":{"make":"Chevrolet","model":"Silverado 2500 Cargo"},"mappings":[{"model":1850,"qualifiers":{"34":["2500 Cargo"]}}]}
+{"entry":{"make":"Chevrolet","model":"Any 2500 Cargo"},"mappings":[{"make":467,"qualifiers":{"34":["2500 Cargo"]}}]}

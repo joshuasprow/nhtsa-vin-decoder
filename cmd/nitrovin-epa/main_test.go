@@ -103,20 +103,42 @@ func TestBuild(t *testing.T) {
 	// a rule picking a model of other years: line 13's prefix rule and line
 	// 15's slash alternatives. Any other model-years finding is a rule that
 	// changed what it picks, and any other drift a build fault.
-	var years []string
-	for _, f := range tr.Drift() {
-		if f.Drift != vocab.DriftModelYears {
+	//
+	// The Avalanche 1500 (lines 19, 20) takes Series spellings from the
+	// van line its VIN schemas share, and the 4WD widens its drive to AWD
+	// too (ADR 0015): model-qualifier findings until the builder moves onto
+	// the model values index (#235), which removes them.
+	var years, qualifiers []string
+	for _, f := range tr.AllDrift() {
+		switch f.Drift {
+		case vocab.DriftModelYears:
+			how := "partly"
+			if strings.Contains(f.Detail, " wholly ") {
+				how = "wholly"
+			}
+			years = append(years, strconv.Itoa(f.Line)+" "+how)
+		case vocab.DriftModelQualifier:
+			ptr, _, _ := strings.Cut(f.Detail, ":")
+			qualifiers = append(qualifiers, strconv.Itoa(f.Line)+" "+ptr)
+		default:
 			t.Errorf("the build drifts from %s: %v", embedded.Month, f)
-			continue
 		}
-		how := "partly"
-		if strings.Contains(f.Detail, " wholly ") {
-			how = "wholly"
-		}
-		years = append(years, strconv.Itoa(f.Line)+" "+how)
 	}
 	if want := []string{"13 wholly", "15 wholly", "22 partly", "32 partly"}; !slices.Equal(years, want) {
 		t.Errorf("model-years drift on lines %v; want %v", years, want)
+	}
+	if want := []string{
+		"19 /mappings/0/qualifiers/34/2", // "1500"
+		"19 /mappings/0/qualifiers/34/7", // "1500 Cargo"
+		"19 /mappings/0/qualifiers/34/8", // "1500 Conversion"
+		"19 /mappings/0/qualifiers/34/9", // "1500 Passenger"
+		"20 /mappings/0/qualifiers/15/1", // 3, AWD
+		"20 /mappings/0/qualifiers/34/2",
+		"20 /mappings/0/qualifiers/34/7",
+		"20 /mappings/0/qualifiers/34/8",
+		"20 /mappings/0/qualifiers/34/9",
+	}; !slices.Equal(qualifiers, want) {
+		t.Errorf("model-qualifier drift %v; want %v", qualifiers, want)
 	}
 
 	notes := map[string]bool{}
@@ -239,7 +261,7 @@ func TestCuratedLoadsClean(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if drift := tr.Drift(); len(drift) > 0 {
+	if drift := tr.AllDrift(); len(drift) > 0 {
 		t.Errorf("%s drifts from %s: %v", curatedName, embedded.Month, drift)
 	}
 	for _, e := range f.Entries {

@@ -49,9 +49,9 @@ type VocabularyFile struct {
 	// and NITROVIN_VOCAB, the name given to vocab.Read otherwise.
 	Path string `json:"path"`
 	// Drift counts the file's drift findings by kind ("make", "model",
-	// "qualifier", "extension", "model-years", "vehicle", "redirect"), only
-	// the kinds it has, in that order; empty when the file agrees with the
-	// data month.
+	// "qualifier", "extension", "model-years", "vehicle", "redirect",
+	// "model-qualifier"), only the kinds it has, in that order; empty when
+	// the file agrees with the data month.
 	Drift []DriftCount `json:"drift"`
 	// CatalogCounts are a catalog's, nil (absent) for every other kind.
 	*CatalogCounts
@@ -84,7 +84,7 @@ type DriftExample struct {
 }
 
 // driftKinds orders a file's DriftCounts.
-var driftKinds = []vocab.DriftKind{vocab.DriftMake, vocab.DriftModel, vocab.DriftQualifier, vocab.DriftExtension, vocab.DriftModelYears, vocab.DriftVehicle, vocab.DriftRedirect}
+var driftKinds = []vocab.DriftKind{vocab.DriftMake, vocab.DriftModel, vocab.DriftQualifier, vocab.DriftExtension, vocab.DriftModelYears, vocab.DriftVehicle, vocab.DriftRedirect, vocab.DriftModelQualifier}
 
 // DriftCounts counts the findings of drift about the file loaded from
 // path by kind, keeping the first MaxDriftExamples of each: what Info

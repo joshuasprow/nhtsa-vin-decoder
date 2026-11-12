@@ -60,7 +60,7 @@ func TestFixtureLoadsClean(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if drift := tr.Drift(); len(drift) > 0 {
+	if drift := tr.AllDrift(); len(drift) > 0 {
 		t.Errorf("the fixture drifts from %s: %v", embedded.Month, drift)
 	}
 	info := tr.Info()
@@ -93,7 +93,7 @@ func TestFixtureDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got []string
-	for _, f := range tr.Drift() {
+	for _, f := range tr.AllDrift() {
 		got = append(got, string(f.Drift)+" "+filepath.Base(f.File)+":"+strconv.Itoa(f.Line)+": "+f.Detail)
 	}
 	want := []string{
@@ -103,6 +103,9 @@ func TestFixtureDrift(t *testing.T) {
 		driftDetail(`make yard.jsonl:4: /mappings/0/make: vPIC make 99999 is not in data month %[1]s`),
 		driftDetail(`model yard.jsonl:5: /mappings/0/model: vPIC model 99999 is not in data month %[1]s`),
 		driftDetail(`model-years yard.jsonl:7: /mappings/0: model years 2005-2010 fall wholly outside vPIC model 13620's years in data month %[1]s: 2013-`),
+		// Only vans decode this Series; the same string on line 9's make
+		// target is tested month-wide and holds.
+		driftDetail(`model-qualifier yard.jsonl:8: /mappings/0/qualifiers/34/0: vPIC model 1850 never decodes element 34 to "2500 Cargo" in data month %[1]s`),
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("drift:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -118,7 +121,7 @@ func TestFixtureDrift(t *testing.T) {
 	for _, c := range counts["yard"] {
 		kinds = append(kinds, c.Kind+"="+strconv.Itoa(c.Count))
 	}
-	if want := []string{"make=1", "model=1", "qualifier=2", "model-years=1"}; !slices.Equal(kinds, want) {
+	if want := []string{"make=1", "model=1", "qualifier=2", "model-years=1", "model-qualifier=1"}; !slices.Equal(kinds, want) {
 		t.Errorf("yard drift counts %v; want %v", kinds, want)
 	}
 }

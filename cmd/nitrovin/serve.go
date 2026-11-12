@@ -123,7 +123,7 @@ func serve(e *env, addr, cors string) error {
 	defer stop()
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
-	logger.Printf("serving data %s on http://%s", d.Info().DataMonth, ln.Addr())
+	logger.Printf("serving data %s on http://%s", d.Decoder.Info().DataMonth, ln.Addr())
 
 	select {
 	case err := <-served:
@@ -158,7 +158,7 @@ func (l loaded) SpineBundle() ([]byte, error) {
 // not the ones loaded are refused, so the URL naming their blake3 never
 // serves others.
 func (l loaded) File(name string) ([]byte, error) {
-	for _, f := range l.Info().Vocabularies {
+	for _, f := range l.LoadInfo().Vocabularies {
 		if f.Name != name {
 			continue
 		}
@@ -182,6 +182,16 @@ type pages struct {
 }
 
 func (p pages) ErrorTexts() map[int]string { return p.errorTexts }
+
+// LoadInfo is Info without the drift a first Info measures (ADR 0015):
+// what the pages read for the release and the files' names, so only the
+// page that shows drift pays for it.
+func (p pages) LoadInfo() contract.Info {
+	if l, ok := p.decodeService.(interface{ LoadInfo() contract.Info }); ok {
+		return l.LoadInfo()
+	}
+	return p.Info()
+}
 
 // errorTexts reads the error-code table of the artifact data: each code's
 // text as NHTSA's ErrorText spells it ("1 - Check Digit (9th position)

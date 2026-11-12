@@ -58,7 +58,7 @@ silently.
 
 ```json
 {"format":1,"kind":"vocabulary","name":"yard","version":"2026.11","data_month":"2026_10","subject":"vehicle","fields":["make","model"]}
-{"entry":{"make":"Dodge","model":"Ram 1500"},"mappings":[{"model":1938,"last":2012,"qualifiers":{"34":["1500","1500 (1/2 Ton)","DS (1500)"]},"origin":"curated"},{"model":13620,"first":2013,"origin":"curated","note":"Ram is its own make from 2013"}]}
+{"entry":{"make":"Dodge","model":"Ram 1500"},"mappings":[{"model":1938,"last":2012,"qualifiers":{"34":["1500","DS (1500)"]},"origin":"curated"},{"model":13620,"first":2013,"origin":"curated","note":"Ram is its own make from 2013"}]}
 {"entry":{"make":"Dodge","model":"Other"},"mappings":[{"make":476}],"note":"any Dodge"}
 {"entry":{"make":"Studebaker","model":"Lark"},"mappings":[],"note":"listed, not yet placed"}
 ```
@@ -294,10 +294,15 @@ nitrovin tells two kinds of problem apart:
   after the last, a reference no loaded file defines. A fault stops every
   command before it answers, naming the file and line.
 - **Drift** is where a file disagrees with the loaded data month: a vPIC
-  id NHTSA has since dropped, a qualifier value the month never decodes, an
-  extension named like a vPIC entry. NHTSA's monthly changes are not your
+  id NHTSA has since dropped, a qualifier value the month never decodes, or
+  one the month decodes but never for the mapping's own vPIC model (a
+  Series only the van line has, on a pickup), an extension named like a
+  vPIC entry. NHTSA's monthly changes are not your
   mistakes, so drift is a warning on stderr and in `/v1/info`, and the
-  file is served as written.
+  file is served as written. The per-model check (`model-qualifier`)
+  costs about 0.14 s and 80–100 MB of memory for an EPA-sized vocabulary,
+  so it is left out of load's stderr warnings: `nitrovin vocab check`
+  runs it, and `/v1/info` counts it from its first request.
 
 `nitrovin vocab check` loads only its arguments, prints every finding as
 a JSON line on stdout and exits 1 on any, fault or drift, so CI can gate a
@@ -305,7 +310,7 @@ vocabulary on the month it will run against:
 
 ```sh
 nitrovin vocab check testdata/vocab            # nothing printed, exit 0
-nitrovin vocab check testdata/vocab/drift      # six drift lines, exit 1
+nitrovin vocab check testdata/vocab/drift      # seven drift lines, exit 1
 nitrovin vocab check testdata/vocab/fitment    # a catalog with its spine and vehicles: nothing, exit 0
 nitrovin vocab check testdata/vocab/fitment/catalog.jsonl   # alone: two faults, exit 1
 ```
