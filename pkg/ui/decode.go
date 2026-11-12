@@ -413,7 +413,7 @@ func (h *Handler) decoded(r *http.Request, vin string, query url.Values, showEmp
 	if err != nil {
 		return nil, nil, err
 	}
-	elements := h.p.Info().Elements
+	elements := h.info().Elements
 	jsonURL := "/v1/decode/" + url.PathEscape(vin)
 	if len(query) > 0 {
 		jsonURL += "?" + query.Encode()

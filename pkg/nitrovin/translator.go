@@ -23,9 +23,11 @@ type Translator struct {
 	core    contract.Translator
 	catalog fitment.Reader
 	drift   []vocab.Finding
-	// all is drift with the model-qualifier findings (vocab.ModelDrift),
-	// and info Info with them counted: both built on first ask, since the
-	// model values index costs about 0.15 s and 100 MB (ADR 0015).
+	// load is Info with the drift measured at load; all is drift with the
+	// model-qualifier findings (vocab.ModelDrift), and info Info with them
+	// counted: both built on first ask, since the model values index
+	// costs about 0.15 s and 100 MB (ADR 0015).
+	load contract.Info
 	all  func() []vocab.Finding
 	info func() contract.Info
 }
@@ -65,10 +67,9 @@ func NewTranslator(d *Decoder, files ...*vocab.File) (*Translator, error) {
 		})
 		return all
 	})
-	t.info = sync.OnceValue(func() contract.Info {
+	infoWith := func(drift []vocab.Finding) contract.Info {
 		info := base
 		info.Vocabularies = make([]contract.VocabularyFile, len(files))
-		all := t.all()
 		for i, f := range files {
 			v := contract.VocabularyFile{
 				Name:    f.Name,
@@ -76,7 +77,7 @@ func NewTranslator(d *Decoder, files ...*vocab.File) (*Translator, error) {
 				Version: f.Version,
 				Blake3:  hex.EncodeToString(f.Hash[:]),
 				Path:    f.Path,
-				Drift:   contract.DriftCounts(f.Path, all),
+				Drift:   contract.DriftCounts(f.Path, drift),
 			}
 			if c := f.Catalog(); c != nil {
 				ci := c.Info()
@@ -86,7 +87,9 @@ func NewTranslator(d *Decoder, files ...*vocab.File) (*Translator, error) {
 			info.Vocabularies[i] = v
 		}
 		return info
-	})
+	}
+	t.load = infoWith(t.drift)
+	t.info = sync.OnceValue(func() contract.Info { return infoWith(t.all()) })
 	return t, nil
 }
 
@@ -95,9 +98,13 @@ func (t *Translator) Decoder() *Decoder { return t.d }
 
 // Info is the Decoder's Info with the loaded files and all their drift,
 // model-qualifier included: GET /v1/info. The first call measures the
-// model-qualifier drift (AllDrift); what needs only the decoder's facts
-// should read Decoder().Info().
+// model-qualifier drift (AllDrift); LoadInfo does not.
 func (t *Translator) Info() contract.Info { return t.info() }
+
+// LoadInfo is Info with only the drift measured at load, no
+// model-qualifier counts: what a page that shows no drift reads, at no
+// cost (ADR 0015).
+func (t *Translator) LoadInfo() contract.Info { return t.load }
 
 // Drift is the drift findings of the loaded files measured at load (every
 // kind but model-qualifier), in file and line order: what `nitrovin`

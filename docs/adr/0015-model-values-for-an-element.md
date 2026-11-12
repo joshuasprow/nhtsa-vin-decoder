@@ -140,8 +140,13 @@ an EPA-sized vocabulary, on every process start and every C handle. So:
 - `nitrovin vocab check` always runs it.
 - Load does not run it, so it prints no `model-qualifier` warnings on stderr.
 - `/v1/info`'s drift counts and examples include it. They are computed on the first info
-  request and cached, so a server pays the cost only if someone asks. The server's HTML pages
-  read the same info, so the first page served pays it too.
+  request and cached, so a server pays the cost only if someone asks. Startup, assets,
+  `/sw.js` and the decode views read the info as load measured it, so they never pay. The one
+  view that lists the files' drift does: the Vocabularies dialog, which `/` draws, so the first
+  `/` served pays it once.
+- A catalog whose vehicles are vPIC's (`vehicles: "vpic"`) has its applications'
+  qualifiers tested the same way, against the application's model, one finding per value at
+  its first application.
 
 The browser keeps the month-wide check: the spine bundle carries no per-model values. Adding
 Series and Drive Type to it would add about 693 KB raw, so it waits for a measurement against

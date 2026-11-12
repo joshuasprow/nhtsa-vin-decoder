@@ -130,6 +130,23 @@ type Pages interface {
 	List(contract.ListRequest) (contract.List, error)
 }
 
+// loadInfoer is a Pages whose Info measures drift on its first call, which
+// is costly (the server's: model-qualifier drift, ADR 0015). LoadInfo is
+// the same Info without that drift: the release, elements and files.
+type loadInfoer interface {
+	LoadInfo() contract.Info
+}
+
+// info is what a page that shows no drift reads: the Pages' LoadInfo when
+// it has one, else its Info. Only the page listing the files' drift reads
+// Info itself.
+func (h *Handler) info() contract.Info {
+	if l, ok := h.p.(loadInfoer); ok {
+		return l.LoadInfo()
+	}
+	return h.p.Info()
+}
+
 // Backend is what the server's pages answer from: its decoder and loaded
 // files. Decode answers as GET /v1/decode/{vin} does. ErrorTexts are the
 // data's error codes' texts by code, as NHTSA's ErrorText spells them ("1
@@ -309,7 +326,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.fail(w, frag, known, &pageError{Status: http.StatusInternalServerError, Message: fmt.Sprint("nitrovin failed: ", v)})
 		}
 	}()
-	info := h.p.Info()
+	info := h.info()
 	known = &info
 	w.Header().Set(ReleaseHeader, Release(info))
 

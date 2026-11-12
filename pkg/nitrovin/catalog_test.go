@@ -131,3 +131,51 @@ func TestCatalogDrift(t *testing.T) {
 		t.Errorf("catalog drift counts %v; want %v", kinds, want)
 	}
 }
+
+// TestCatalogModelDrift: a catalog whose vehicles are vPIC's has its
+// applications' qualifiers tested against their model's values (ADR 0015),
+// as a mapping's are: off load, in AllDrift and Info, once per value at its
+// first application. A make vehicle keeps the month-wide test.
+func TestCatalogModelDrift(t *testing.T) {
+	d := embeddedDecoder(t)
+	dir := t.TempDir()
+	// "2500 Cargo" is a Series only the Express van line decodes to.
+	catalog := `{"format":1,"kind":"catalog","name":"vpic-parts","version":"1","data_month":"2026_10","spine":"part-types","vehicles":"vpic"}` + "\n" +
+		`{"fitment":{"type":"mirror","number":"MR-1","side":"left"},"applications":[{"vehicle":{"model":1850},"options":"","qualifiers":{"34":["2500 Cargo"]}},{"vehicle":{"model":1850},"first":2010,"options":"","qualifiers":{"34":["2500 Cargo"]}}]}` + "\n" +
+		`{"fitment":{"type":"mirror","number":"MR-2","side":"left"},"applications":[{"vehicle":{"make":467},"options":"","qualifiers":{"34":["2500 Cargo"]}}]}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "catalog.jsonl"), []byte(catalog), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files, err := vocab.Open("../../testdata/vocab/fitment/part-types.jsonl", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := NewTranslator(d, files...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if drift := tr.Drift(); len(drift) > 0 {
+		t.Errorf("load drift %v; want none, model-qualifier is off load", drift)
+	}
+	var got []string
+	for _, f := range tr.AllDrift() {
+		got = append(got, string(f.Drift)+" "+strconv.Itoa(f.Line)+": "+f.Detail)
+	}
+	want := []string{
+		driftDetail(`model-qualifier 2: /applications/0/qualifiers/34/0: vPIC model 1850 never decodes element 34 to "2500 Cargo" in data month %[1]s (and 1 more)`),
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("all drift:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	var kinds []string
+	for _, v := range tr.Info().Vocabularies {
+		if v.Kind == "catalog" {
+			for _, c := range v.Drift {
+				kinds = append(kinds, c.Kind+"="+strconv.Itoa(c.Count))
+			}
+		}
+	}
+	if want := []string{"model-qualifier=1"}; !slices.Equal(kinds, want) {
+		t.Errorf("catalog drift counts %v; want %v", kinds, want)
+	}
+}

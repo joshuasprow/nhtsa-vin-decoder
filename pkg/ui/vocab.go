@@ -594,7 +594,7 @@ const epaFileName = "epa-vehicles.jsonl"
 // month than the server decodes with, or the server loaded a file of its
 // name, which makes the browser refuse it.
 func (h *Handler) epaOffer(b []byte) *Offer {
-	info := h.p.Info()
+	info := h.info()
 	f, err := vocab.Read(epaFileName, bytes.NewReader(b))
 	if err != nil {
 		h.log.Printf("ui: the EPA vocabulary built in is not offered: %v", err)
