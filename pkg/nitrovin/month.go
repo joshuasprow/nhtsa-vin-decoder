@@ -36,7 +36,7 @@ type month struct {
 	values map[int32]map[string]bool
 	// modelValues holds, per element asked about, its model values index
 	// (ModelValues), built by its first call.
-	modelValues map[int32]func() map[int32][]string
+	modelValues map[modelIndexKey]func() map[int32][]string
 	// modelBase is what every element's index shares, built on first use.
 	modelBase func() *modelBase
 
@@ -65,7 +65,7 @@ func newMonth(a *artifact.Artifact, elements contract.Elements) *month {
 	mm := a.Table("make_model")
 	m := &month{a: a, elements: elements, ids: t.Int32s("id"), names: t.Strings("name"),
 		modelIDs: mm.Int32s("modelid"), modelMake: mm.Int32s("makeid"), values: map[int32]map[string]bool{},
-		modelValues: map[int32]func() map[int32][]string{}}
+		modelValues: map[modelIndexKey]func() map[int32][]string{}}
 	m.makes[0], m.makes[1] = tables.EqualRange(0, t.Rows(), "make")
 	m.models[0], m.models[1] = tables.EqualRange(0, t.Rows(), "model")
 	m.byMake = sync.OnceValue(m.modelsByMake)

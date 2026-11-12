@@ -29,58 +29,73 @@ over-reaches. On 2026_10:
 So a value counts for a model only where the two could appear in one decode:
 
 - **Patterns.** A pattern's value counts when its key could match the same VIN as one of
-  the model's Model (28) pattern keys in that schema, or in another schema one of its WMIs
-  reaches in an overlapping year band. Keys are compared position by position with the
-  decoder's own key compiler.
+  the model's Model (28) pattern keys in that schema, or in another schema its WMI code
+  (every WMI row with it) reaches in an overlapping year band. Keys are compared position by
+  position with the decoder's own key compiler.
 - **Engine-model rows** count through the keys of the Engine Model (18) pattern that
   selects them.
 - **Vehicle specs** count for the model they name, gated by make and by a vehicle type that
   the model's WMIs carry. Their key rows are not evaluated.
 - **Default values** count for the models whose WMIs carry the default's vehicle type.
+- **Conversions** count for a model when the decoder's own conversion gives them from one
+  of the model's values of the conversion's from element (Displacement CC, CI and L), a
+  formula pattern's attribute included, as the conversion stage reads it.
+- **Make, Manufacturer Name and Vehicle Type**, which the pattern pass skips, are the
+  model's makes and its WMIs' manufacturers and vehicle types. Model is the model itself.
 
-The decoder keeps one value per element, and the winning value always comes from a pattern
-whose key matched the VIN. So this set can over-reach but never leave out a value a VIN of
-the model really decodes to; it is an **upper bound**. A listed value may still lose, in a
-given VIN, to a higher-ranked pattern.
+The list holds every value a decode with a model year gives the element for a VIN of the
+model, except a value a formula pattern computes from the VIN's characters; it may list
+values no VIN of the model ends up with. It is an **upper bound**: a listed value may still
+lose, in a given VIN, to a higher-ranked pattern. On 2026_10 no Series pattern is a formula.
 
-Values a formula pattern computes from the VIN are not listed, as for `Month` today. On
-2026_10 no Series pattern is a formula.
+Some public elements are decoded from the VIN itself, not from a row: Model Year (29), and
+the Corrections elements (142 suggested VIN, 143 error codes, 144 possible values, 156,
+191 error text, 196 the descriptor). They have no model values, and asking for one is
+refused.
 
 On 2026_10 the bound holds 31,800 (model, Series) pairs, and 7,830 (model, Drive Type)
 pairs before default values are added. Fifteen sampled pairs that the schema-wide rule adds and this rule
 drops were each checked by decoding a VIN built from both keys. In every case the model
 never decodes the value.
 
-*Amended when built ([#233](https://github.com/joshuasprow/nitrovin/issues/233)):* the
-same-schema rule left out 412 of the 12,659 values the parity corpus's decodes give. A pass
-reads every schema of every year band holding its model year, and some makers keep a
-model's Model patterns in one schema and its engine or plant patterns in another under the
-same WMI and years. Schemas whose bands overlap under one WMI therefore count together.
-That adds 887 (model, Series) pairs (32,687 in all), the Silverado still gets no van series,
-and no value of a corpus decode with a model year is left out. Ignoring the years instead
-would give the Silverado "1500 Cargo" again and cost 1.5 s for Series alone. Two kinds of
-decode can still give a value the list lacks: one with no model year, whose year character
-is not one, which reads every band; and one of a VIN holding `#`, which only a formula key
-holds. The first ask of Series and Drive Type now costs about 0.17 s, about 0.13 s of it
-patterns and the schema join they share.
+*Amended when built ([#233](https://github.com/joshuasprow/nitrovin/issues/233)):*
+
+- **Partner schemas.** The same-schema rule left out 412 of the 12,659 values the parity
+  corpus's decodes give. A pass reads every schema of every year band holding its model
+  year, and some makers keep a model's Model patterns in one schema and its engine or plant
+  patterns in another under the same WMI code and years. Schemas whose bands overlap under
+  one WMI code therefore count together. That adds 887 (model, Series) pairs (32,687 in
+  all). The Silverado gets no Express or cargo van series; it gains APV, 6000/7000 Medium
+  Duty and 3 Ton, each decodable. Ignoring the years instead would give it "1500 Cargo" and
+  cost 1.5 s for Series alone.
+- **Conversions and the VIN's own elements.** Displacement CC, CI and L are filled by
+  conversions as often as by patterns, so the list converts the model's values as the
+  decoder does. Model Year and the Corrections elements are refused.
+- **What is left out.** No value of a corpus decode with a model year is left out, but for
+  a formula pattern's. Two kinds of decode can still give a value the list lacks: one with no
+  model year, whose year character is not one, which reads every band; and one of a VIN
+  holding `#`, which only a formula key holds.
 
 ## Computed when the artifact is opened, one element at a time
 
 The index is built from the open artifact on the first request for an element, then cached
 (as `Month.valuesOf` is):
 
-- Series and Drive Type together take about 41 ms of patterns and retain 2.6 MB.
-- With specs and defaults, about 0.2 s.
-- Every element at once would take about 0.5 s and 84 MB, which is why nothing is built
-  until asked.
+- Measured when built, on an M5 Pro: the first ask of Series and Drive Type together
+  takes 0.14-0.16 s. 60-90 ms of it is the join every element shares (each schema's Model
+  keys and partners, each model's WMIs), which keeps about 31 MB. Patterns take about 75 ms
+  and keep about 3 MB for the two elements; specs and defaults take about 5 ms.
+- Displacement CC, CI and L together take about 0.4 s and keep about 17 MB more: each
+  converts the others' values.
+- Every element at once would cost far more, which is why nothing is built until asked.
 - Opening stays under 1 ms.
 - The artifact format does not change, so no data major or decoder major is bumped
   (ADR 0007).
 
-Any public element can be asked for.
+Any public element can be asked for, but those decoded from the VIN itself.
 
-Model years play no part. [Model-year spans](https://github.com/joshuasprow/nitrovin/issues/222)
-derives spans through the same schema-to-Model-pattern join and may add a year to it.
+A value counts only through schemas whose year bands overlap under the VIN's WMI code;
+spans are [#222](https://github.com/joshuasprow/nitrovin/issues/222)'s.
 
 ## The request
 
@@ -89,8 +104,8 @@ derives spans through the same schema-to-Model-pattern join and may add a year t
 - **Required together.** Both fields are required together.
 - **Refused as `#invalid-request`:**
   - either one alone;
-  - either one combined with `where.make`;
-  - an element that is not public.
+  - either one combined with `where.make`, or with `where.year` (ADR 0022);
+  - an element that is not public, or one decoded from the VIN itself.
 - **An unknown model id answers an empty list.** As ADR 0012 has it, nothing to list is
   never an error.
 - **Rows** are `{"value", "name"}`:

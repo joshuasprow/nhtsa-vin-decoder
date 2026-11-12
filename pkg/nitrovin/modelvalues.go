@@ -16,48 +16,63 @@ var _ vocab.ModelMonth = (*month)(nil)
 
 // Elements whose values come from the WMI and the model (elementModel
 // among them), not from patterns: the pattern pass skips them (decoder's
-// excludedElement), as it does Model Year (29); and Engine Model, whose
-// patterns name the engine model rows.
+// excludedElement); and Engine Model, whose patterns name the engine model
+// rows.
 const (
 	elementMake         = 26
 	elementManufacturer = 27
-	elementModelYear    = 29
 	elementVehicleType  = 39
 	elementEngineModel  = 18
 )
 
+// fromTheVIN are the public elements a decode writes from the VIN itself,
+// not from a row of the data: Model Year (29, the pass's year), and the
+// Corrections items (decoder's pass, C20: 142 suggested VIN, 143 error
+// codes, 144 possible values, 156 additional decoding info, 191 error
+// text, 196 the descriptor). A model has no values of them to list.
+var fromTheVIN = []int32{29, 142, 143, 144, 156, 191, 196}
+
 // ModelValues is model's model values for element (ADR 0015), each once,
-// in no order: what a VIN that decodes to model can decode element to,
-// lookup elements' attribute ids in decimal. A value counts when
+// in no order, lookup elements' attribute ids in decimal: every value a
+// decode with a model year gives element for a VIN of model, except a
+// formula pattern's (a value computed from the VIN's characters). It may
+// hold values no VIN of model ends up with. A value counts when
 //
 //   - a pattern of element's key overlaps one of model's Model (28) pattern
 //     keys (decoder.Key.Overlaps) in the same VIN schema, or in a schema one
-//     of its WMIs reaches in an overlapping year band: a pass with a model
-//     year reads them together;
+//     of its WMI codes reaches in an overlapping year band: a pass with a
+//     model year reads them together;
 //   - an engine model row of element hangs off an Engine Model (18) pattern
 //     whose key overlaps one of them;
 //   - a vehicle spec names model, its make is one the model's WMIs carry and
 //     its vehicle type one they have;
-//   - a default value is for a vehicle type the model's WMIs have.
+//   - a default value is for a vehicle type the model's WMIs have;
+//   - a conversion to element (decoder.Convert) gives it from one of the
+//     values the above give model for the conversion's from element.
 //
 // The model's WMIs are those whose VIN schemas hold one of its Model
-// patterns, with every WMI row of the same WMI. Make (26) is the model's
-// makes, Manufacturer Name (27) and Vehicle Type (39) its WMIs', Model (28)
-// the model itself. VIN schemas and spec schemas held for QC, which a
-// decode skips, add nothing; nor do values a formula pattern computes
-// from the VIN, or a conversion from another element. An unknown model has
-// none.
+// patterns, with every WMI row of the same WMI code. Make (26) is the
+// model's makes, Manufacturer Name (27) and Vehicle Type (39) its WMIs',
+// Model (28) the model itself. VIN schemas and spec schemas held for QC,
+// which a decode skips, add nothing. An unknown model has none.
+//
+// ok is false for an element a decode writes from the VIN itself (Model
+// Year and the Corrections elements), whatever the model: it has no model
+// values.
 //
 // The index is built per element on first ask and kept, as the month's
 // values are.
-func (m *month) ModelValues(model, element int32) []string {
-	w, ok := m.modelBase().wmis[model]
-	if !ok {
-		return nil
+func (m *month) ModelValues(model, element int32) (values []string, ok bool) {
+	if slices.Contains(fromTheVIN, element) {
+		return nil, false
+	}
+	w, known := m.modelBase().wmis[model]
+	if !known {
+		return nil, true
 	}
 	switch element {
 	case elementModel:
-		return []string{strconv.Itoa(int(model))}
+		return []string{strconv.Itoa(int(model))}, true
 	case elementMake:
 		var out []string
 		lo, hi := artifact.EqualRange(m.modelIDs, 0, len(m.modelIDs), model)
@@ -66,15 +81,13 @@ func (m *month) ModelValues(model, element int32) []string {
 				out = append(out, strconv.Itoa(int(m.modelMake[r])))
 			}
 		}
-		return out
+		return out, true
 	case elementManufacturer:
-		return itoas(w.manufacturers)
+		return itoas(w.manufacturers), true
 	case elementVehicleType:
-		return itoas(w.types)
-	case elementModelYear:
-		return nil // the year is the pass's, not the model's
+		return itoas(w.types), true
 	}
-	return m.modelIndex(element)()[model]
+	return m.modelIndex(element, true)()[model], true
 }
 
 // AttributeName is the name of lookup element's attribute id, from the
@@ -119,15 +132,25 @@ func itoas(ids []int32) []string {
 }
 
 // modelIndex is element's index, model → values, built by its first call.
-func (m *month) modelIndex(element int32) func() map[int32][]string {
+// With converted it is ModelValues': the data's rows' values, and those
+// conversions give it. Without, it is what a conversion reads from
+// element: the rows' values and formula patterns' attributes, never a
+// converted value (a decode converts none).
+func (m *month) modelIndex(element int32, converted bool) func() map[int32][]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	f, ok := m.modelValues[element]
+	k := modelIndexKey{element, converted}
+	f, ok := m.modelValues[k]
 	if !ok {
-		f = sync.OnceValue(func() map[int32][]string { return m.buildModelIndex(element) })
-		m.modelValues[element] = f
+		f = sync.OnceValue(func() map[int32][]string { return m.buildModelIndex(element, converted) })
+		m.modelValues[k] = f
 	}
 	return f
+}
+
+type modelIndexKey struct {
+	element   int32
+	converted bool
 }
 
 // modelBase is what every element's index shares: each VIN schema's Model
@@ -335,18 +358,45 @@ func (m *month) buildModelBase() *modelBase {
 	return b
 }
 
-// buildModelIndex is element's model values for every model, as
-// ModelValues describes them.
-func (m *month) buildModelIndex(element int32) map[int32][]string {
+// buildModelIndex is modelIndex(element, converted) for every model.
+func (m *month) buildModelIndex(element int32, converted bool) map[int32][]string {
 	b, sets := m.modelBase(), modelSets{}
-	m.patternValues(b, element, sets)
+	m.patternValues(b, element, sets, !converted)
 	m.specValues(b, element, sets)
 	m.defaultValues(b, element, sets)
+	if converted {
+		m.conversionValues(element, sets)
+	}
 	out := make(map[int32][]string, len(sets))
 	for model, s := range sets {
 		out[model] = slices.Collect(maps.Keys(s))
 	}
 	return out
+}
+
+// conversionValues adds what each conversion to element gives a model
+// from the values its rows give the conversion's from element. A value
+// the decoder declines to convert, where a decode would fail, adds
+// nothing.
+func (m *month) conversionValues(element int32, sets modelSets) {
+	c := m.a.Table("conversion")
+	from, formulas := c.Int32s("fromelementid"), c.Strings("formula")
+	for r, to := range c.Int32s("toelementid") {
+		if to != element {
+			continue
+		}
+		formula, ok := formulas.At(r)
+		if !ok {
+			continue
+		}
+		for model, vs := range m.modelIndex(from[r], false)() {
+			for _, v := range vs {
+				if out, ok, err := decoder.Convert(formula, v); err == nil && ok {
+					sets.add(model, out)
+				}
+			}
+		}
+	}
 }
 
 // modelSets is model values as they are collected: model → value → true.
@@ -364,8 +414,11 @@ func (s modelSets) add(model int32, v string) {
 // patternValues adds element's values from patterns, and from engine
 // model rows through Engine Model patterns: a pattern's values count for
 // the models of every Model key, in its own schema or a partner, its key
-// overlaps.
-func (m *month) patternValues(b *modelBase, element int32, sets modelSets) {
+// overlaps. A formula pattern's value is computed from the VIN, so its
+// attribute counts only with formulas, for a conversion to read: the
+// formula pass hands the conversion stage that attribute, its '#' any
+// digit.
+func (m *month) patternValues(b *modelBase, element int32, sets modelSets, formulas bool) {
 	a := m.a
 	// The engine model rows of element, by engine model id.
 	byEngine := map[int32][]string{}
@@ -383,8 +436,9 @@ func (m *month) patternValues(b *modelBase, element int32, sets modelSets) {
 	// Each reached schema's keys of element, each with the values its
 	// rows give.
 	type group struct {
-		key    decoder.Key
-		values []string
+		key     decoder.Key
+		formula bool
+		values  []string
 	}
 	p := a.Table("pattern")
 	schemaIDs, elements := p.Int32s("vinschemaid"), p.Int32s("elementid")
@@ -405,9 +459,13 @@ func (m *month) patternValues(b *modelBase, element int32, sets modelSets) {
 		if !seen {
 			key, _ := keys.At(r)
 			g = -1
-			if strings.IndexByte(key, '#') < 0 { // a formula pattern's value is the VIN's
+			switch formula := strings.IndexByte(key, '#') >= 0; {
+			case !formula:
 				g = len(bySchema[sid])
 				bySchema[sid] = append(bySchema[sid], group{key: decoder.CompileKey(key)})
+			case formulas:
+				g = len(bySchema[sid])
+				bySchema[sid] = append(bySchema[sid], group{key: decoder.CompileKey(strings.ReplaceAll(key, "#", "[0-9]")), formula: true})
 			}
 			at[k] = g
 		}
@@ -415,6 +473,9 @@ func (m *month) patternValues(b *modelBase, element int32, sets modelSets) {
 			continue
 		}
 		vs := &bySchema[sid][g].values
+		if bySchema[sid][g].formula && el != element {
+			continue // the formula pass names no engine model
+		}
 		if el == element {
 			*vs = append(*vs, attr)
 			continue

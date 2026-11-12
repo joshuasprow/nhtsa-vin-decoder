@@ -1,21 +1,24 @@
 package decoder
 
 // Key is one pattern.keys compiled as the pattern pass matches it
-// (compileKey): a test on a prefix of var_keys, one set of accepted
-// characters per position. It lets a reader of the artifact ask which
-// patterns could match one VIN together (ADR 0015) with the decoder's own
-// reading of a key.
+// (compileKey): a test on a prefix of a VIN's var_keys, the string every
+// pattern key is matched against, which is the VIN's positions 4-8, then
+// '|' and positions 10-17. The key accepts one set of characters per
+// position. It lets a reader of the artifact ask which patterns could
+// match one VIN together (ADR 0015) with the decoder's own reading of a
+// key.
 type Key struct{ m keyMatcher }
 
 // CompileKey compiles pattern key keys as the pattern pass does.
 func CompileKey(keys string) Key { return Key{compileKey(keys)} }
 
-// Overlaps reports whether some var_keys matches both k and o: position by
-// position, over the shorter key's length, the characters each accepts
-// intersect. A key the pattern pass rejects matches nothing and so
-// overlaps nothing. A LIKE key holding '%' or '\', which no 2026_10 key
-// does, is not read position by position: it overlaps every key that
-// matches anything, so a reader of overlaps never leaves out a pair.
+// Overlaps reports false only when no var_keys matches both k and o; it
+// may report true when none does. It compares the keys position by
+// position, over the shorter key's length: they overlap when the
+// characters each accepts intersect at every position. A key the pattern
+// pass rejects matches nothing, so it overlaps nothing. A LIKE key holding
+// '%' or '\', which no 2026_10 key does, is not read position by position
+// and overlaps every key that matches anything.
 func (k Key) Overlaps(o Key) bool {
 	a, b := &k.m, &o.m
 	switch {

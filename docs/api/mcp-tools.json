@@ -1129,7 +1129,7 @@
     {
       "name": "list",
       "title": "List vocabularies",
-      "description": "List what this server has loaded, or page through one part of it, offline.\n\nCall it with no arguments first: the catalog names vPIC and every loaded vocabulary, spine and extension set, with each vocabulary's fields and the spine it translates through. What is loaded differs from server to server, so never guess a name.\n\n- of: \"vpic\" for vPIC's makes, or a name from the catalog for its entries.\n- where: exact field matches after normalization: a vocabulary's fields; for vpic, make, a make id, to list that make's models, and with it year, one model year: the models whose years include it, or are unknown. A vpic model's years are on its entry. Or, for vpic, model and element together, a vPIC model id and an element id (34 is Series, 15 Drive Type), to list every value a VIN of that model can decode the element to. The list may hold a value no VIN of the model ends up with, but never leaves one out.\n- limit: entries a page, 1-1000 (default 100).\n- after: the previous page's next, to continue. No next means the last page.",
+      "description": "List what this server has loaded, or page through one part of it, offline.\n\nCall it with no arguments first: the catalog names vPIC and every loaded vocabulary, spine and extension set, with each vocabulary's fields and the spine it translates through. What is loaded differs from server to server, so never guess a name.\n\n- of: \"vpic\" for vPIC's makes, or a name from the catalog for its entries.\n- where: exact field matches after normalization: a vocabulary's fields; for vpic, make, a make id, to list that make's models, and with it year, one model year: the models whose years include it, or are unknown. A vpic model's years are on its entry. Or, for vpic, model and element together, a vPIC model id and a public element id (34 is Series, 15 Drive Type), to list the model's values: every value a decode with a model year gives the element for a VIN of the model, except a value a formula pattern computes from the VIN's characters; it may list values no VIN of the model ends up with. Model Year and the error and correction elements are decoded from the VIN itself and refused.\n- limit: entries a page, 1-1000 (default 100).\n- after: the previous page's next, to continue. No next means the last page.",
       "inputSchema": {
         "type": "object",
         "$ref": "#/$defs/ListRequest",
@@ -1155,7 +1155,7 @@
                     "integer"
                   ]
                 },
-                "description": "Fields to match after the fixed normalization: a vocabulary's fields; for vpic, make, a vPIC make id, to list its models, and with make year, one model year, keeping the models whose years include it or are unknown (ADR 0022); or model and element together, a vPIC model id and a public element id, to list the model's values for the element (ADR 0015). Model or element alone, or either with make or year, is refused."
+                "description": "Fields to match after the fixed normalization: a vocabulary's fields; for vpic, make, a vPIC make id, to list its models, and with make year, one model year, keeping the models whose years include it or are unknown (ADR 0022); or model and element together, a vPIC model id and a public element id, to list the model's values for the element (ADR 0015). Model or element alone, either with make or year, or an element decoded from the VIN itself rather than a pattern (Model Year and the Corrections elements 142, 143, 144, 156, 191, 196) is refused."
               },
               "limit": {
                 "type": "integer",
@@ -1234,7 +1234,7 @@
           },
           "ModelValueEntry": {
             "type": "object",
-            "description": "One value a VIN of the vPIC model can decode the element to (ADR 0015). The list may hold a value no VIN of the model ends up with, but never leaves one out. Text values come by normalized then exact value, attribute ids ascending.",
+            "description": "One of a vPIC model's values for an element (ADR 0015). The list holds every value a decode with a model year gives the element for a VIN of the model, except a value a formula pattern computes from the VIN's characters; it may list values no VIN of the model ends up with. Text values come by normalized then exact value, attribute ids ascending.",
             "required": [
               "value"
             ],

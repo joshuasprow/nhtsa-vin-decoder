@@ -294,8 +294,8 @@ func BenchmarkDecode(b *testing.B) {
 
 // BenchmarkModelValuesFirst is the first ask of a model's values for
 // Series (34) and Drive Type (15) on a Decoder just loaded: what building
-// the two elements' indexes from the artifact costs (ADR 0015, about
-// 0.2 s). The load itself is not timed.
+// the two elements' indexes from the artifact costs (ADR 0015, 0.14-0.16
+// s). The load itself is not timed.
 func BenchmarkModelValuesFirst(b *testing.B) {
 	for b.Loop() {
 		b.StopTimer()

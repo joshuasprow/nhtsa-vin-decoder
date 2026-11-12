@@ -3,6 +3,7 @@ package nitrovin
 import (
 	"bufio"
 	"encoding/json"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -81,13 +82,12 @@ func TestModelValuesAnotherModelsSeries(t *testing.T) {
 }
 
 // TestModelValuesCoverDecodes: every value a decode of a parity-corpus VIN
-// gives an element, from a pattern, an engine model, a vehicle spec, a
-// default, or the WMI and the model (Make, Manufacturer Name, Vehicle
-// Type), is among its model's model values for that element: the index
-// never leaves one out. Formula and conversion values, which ADR 0015
-// leaves out, are not checked, nor are two kinds of decode no VIN of a
-// model makes: one with no model year, whose pass reads every year band
-// of the WMI, and one of a VIN holding '#', which no VIN character is and
+// gives an element is among its model's model values for that element, or
+// the element is one list refuses, written from the VIN itself: the index
+// leaves nothing out. Only a formula pattern's values, which ADR 0015
+// leaves out, are not checked, and the two kinds of decode its amendment
+// names: one with no model year, whose pass reads every year band of the
+// WMI code, and one of a VIN holding '#', which is no VIN character and
 // which only a formula pattern's key holds.
 func TestModelValuesCoverDecodes(t *testing.T) {
 	d := embeddedDecoder(t)
@@ -98,6 +98,7 @@ func TestModelValuesCoverDecodes(t *testing.T) {
 	defer f.Close()
 	now := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
 	vins, checked := 0, 0
+	sources, refused := map[string]bool{}, map[int32]bool{}
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
@@ -128,7 +129,7 @@ func TestModelValuesCoverDecodes(t *testing.T) {
 				if model, err = strconv.Atoi(it.AttributeID.V); err != nil {
 					t.Fatalf("%s: model %q", vin, it.AttributeID.V)
 				}
-			case elementModelYear:
+			case 29: // Model Year
 				dated = true
 			}
 		}
@@ -137,16 +138,17 @@ func TestModelValuesCoverDecodes(t *testing.T) {
 		}
 		vins++
 		for _, it := range p.Items {
-			switch it.Source.V {
-			case "Pattern", "EngineModelPattern", "Vehicle Specs", "Default", "pattern - model", "VehType", "Manu. Name":
-			default:
+			if it.Source.V == "Formula Pattern" || !it.AttributeID.Valid {
 				continue
 			}
-			if !it.AttributeID.Valid {
+			values, ok := d.month.ModelValues(int32(model), it.ElementID)
+			if !ok {
+				refused[it.ElementID] = true
 				continue
 			}
 			checked++
-			if !slices.Contains(d.month.ModelValues(int32(model), it.ElementID), it.AttributeID.V) {
+			sources[strings.SplitN(it.Source.V, " ", 2)[0]] = true
+			if !slices.Contains(values, it.AttributeID.V) {
 				t.Errorf("%s (model %d): element %d's %q (%s, VIN schema %v) is not among the model's values", vin, model, it.ElementID, it.AttributeID.V, it.Source.V, it.VinSchemaID)
 			}
 		}
@@ -157,7 +159,10 @@ func TestModelValuesCoverDecodes(t *testing.T) {
 	if vins < 300 {
 		t.Errorf("checked %d VINs; the corpus has over 300 with a model and a year", vins)
 	}
-	t.Logf("%d values of %d VINs, each among its model's", checked, vins)
+	t.Logf("%d values of %d VINs, each among its model's; sources %v; refused elements %v", checked, vins, slices.Sorted(maps.Keys(sources)), slices.Sorted(maps.Keys(refused)))
+	if !sources["Conversion"] {
+		t.Error("no conversion value was checked")
+	}
 }
 
 // TestModelValuesInMonth: a model's values are values the month's decode
@@ -168,7 +173,8 @@ func TestModelValuesInMonth(t *testing.T) {
 	for _, el := range []int32{15, 34, 26, 27, 39, 28} {
 		lookup, _ := m.Element(el)
 		for _, model := range []int32{1850, 1801, 1938, 13620} {
-			for _, v := range m.ModelValues(model, el) {
+			values, _ := m.ModelValues(model, el)
+			for _, v := range values {
 				ok := m.Text(el, v)
 				if lookup {
 					id, err := strconv.Atoi(v)
@@ -267,6 +273,9 @@ func TestListModelValues(t *testing.T) {
 		{"a model that is no id", `{"of":"vpic","where":{"model":"Silverado","element":34}}`, "/where/model"},
 		{"an element that is no id", `{"of":"vpic","where":{"model":1850,"element":"Series"}}`, "/where/element"},
 		{"an element the month lacks", `{"of":"vpic","where":{"model":1850,"element":999999}}`, "/where/element"},
+		{"Model Year, decoded from the VIN", `{"of":"vpic","where":{"model":1850,"element":29}}`, "/where/element"},
+		{"Error Code, decoded from the VIN", `{"of":"vpic","where":{"model":1850,"element":143}}`, "/where/element"},
+		{"an unknown model and Model Year", `{"of":"vpic","where":{"model":2147483647,"element":29}}`, "/where/element"},
 		{"a private element", `{"of":"vpic","where":{"model":1850,"element":` + privateElement(t, tr) + `}}`, "/where/element"},
 		{"a year with model and element", `{"of":"vpic","where":{"model":1850,"element":34,"year":2014}}`, "/where/year"},
 		{"a year with element", `{"of":"vpic","where":{"element":34,"year":2014}}`, "/where/year"},

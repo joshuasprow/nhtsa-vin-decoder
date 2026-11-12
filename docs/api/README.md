@@ -521,26 +521,32 @@ MCP and C surfaces carry the same object.
   years: a superset of what the make built that year. A spine's entries and an extension set's extensions
   are `SpineEntry` values ordered by id.
 - **Model values** ([ADR 0015](../adr/0015-model-values-for-an-element.md)).
-  `vpic` with `where.model` and `where.element` lists the values a VIN of
-  that model can decode the element to, each a `ModelValueEntry`: `value`,
-  the attribute id of a lookup element or the exact text of a text one, and
-  for a lookup element its attribute's `name`. Text values are ordered by
-  normalized then exact value, so case variants ("3/4 Ton", "3/4 ton") are
-  each listed; attribute ids ascending. A value counts when it comes from
-  a pattern whose key could match one VIN together with one of the model's
-  Model (28) pattern keys, in the same VIN schema or one a WMI reaches in
+  `vpic` with `where.model` and `where.element` lists a model's values for
+  the element: every value a decode with a model year gives the element for
+  a VIN of the model, except a value a formula pattern computes from the
+  VIN's characters; it may list values no VIN of the model ends up with.
+  Each is a `ModelValueEntry`: `value`, the attribute id of a lookup
+  element or the exact text of a text one, and for a lookup element its
+  attribute's `name`. Text values are ordered by normalized then exact
+  value, so case variants ("3/4 Ton", "3/4 ton") are each listed;
+  attribute ids ascending. A value counts when it comes from a pattern
+  whose key could match one VIN together with one of the model's Model
+  (28) pattern keys, in the same VIN schema or one its WMI code reaches in
   an overlapping year band; from an engine model row through such an
   Engine Model (18) pattern; from a vehicle spec naming the model whose
-  make and vehicle type the model's WMIs carry; or from a default value
-  for a vehicle type they have. Make (26) is the model's makes,
-  Manufacturer Name (27) and Vehicle Type (39) its WMIs', Model (28) the
-  model. Values a formula pattern computes from the VIN or a conversion
-  from another element are not listed. The list is an upper bound: it may
-  hold a value no VIN of the model ends up with, but leaves none out that
-  a VIN with a model year decodes to. An unknown model id lists nothing.
-  `model` or `element` alone, either beside `make` or `year`, or an element
-  that is not public, is `#invalid-request`. The index behind it is built per
-  element on its first ask, about 0.2 s, and kept.
+  make and vehicle type the model's WMIs carry; from a default value for a
+  vehicle type they have; or from a conversion of one of the model's
+  values of the conversion's from element (Displacement CC, CI and L).
+  Make (26) is the model's makes, Manufacturer Name (27) and Vehicle Type
+  (39) its WMIs', Model (28) the model. An unknown model id lists nothing.
+  These are `#invalid-request`: `model` or `element` alone, either beside
+  `make` or `year`, an element that is not public, and one decoded from the
+  VIN itself rather than a pattern (Model Year, 29, and the Corrections
+  elements 142, 143, 144, 156, 191, 196), refused at `/where/element`. The
+  index behind it is built per element on its first ask and kept: 0.14-0.16
+  s for Series and Drive Type together on an M5 Pro, 60-90 ms of it a join
+  every element shares, which keeps about 31 MB, and about 1.5 MB per
+  element after it.
 - **Paging.** The order is stable for a given set of loaded files. `next`
   is an opaque cursor, present when more entries follow; passing it as
   `after` continues after the last entry returned, so paging end to end

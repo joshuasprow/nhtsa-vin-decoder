@@ -38,12 +38,16 @@ type ListQuery struct {
 // values, is not.
 type ModelMonth interface {
 	Month
-	// ModelValues is every value a VIN that decodes to vPIC model can
-	// decode element to, each once, in any order: attribute ids in decimal
-	// for a lookup element, the exact text for a text one. It may hold a
-	// value no such VIN ends up with, but never leaves one out. An unknown
-	// model has none.
-	ModelValues(model, element int32) []string
+	// ModelValues is vPIC model's model values for element, each once, in
+	// any order: attribute ids in decimal for a lookup element, the exact
+	// text for a text one. They are every value a decode with a model year
+	// gives the element for a VIN of the model, except a formula pattern's
+	// (a value computed from the VIN's characters); they may hold values no
+	// VIN of the model ends up with. An unknown model has none. ok is false
+	// for an element a decode writes from the VIN itself rather than from
+	// a pattern (Model Year, the Corrections elements), which has no model
+	// values.
+	ModelValues(model, element int32) (values []string, ok bool)
 	// AttributeName is lookup element's attribute id's name.
 	AttributeName(element, id int32) (name string, ok bool)
 }
@@ -87,9 +91,9 @@ type Listing struct {
 	// id; or a declared spine's entries or an extension set's extensions,
 	// by id.
 	Spine []Reached
-	// Values are one vPIC model's model values for one element: text by
-	// normalized then exact value, attribute ids ascending.
-	Values []ModelValue
+	// ModelValues are one vPIC model's model values for one element: text
+	// by normalized then exact value, attribute ids ascending.
+	ModelValues []ModelValue
 	// Next is the After of the next page, "" on the last.
 	Next string
 }
@@ -297,8 +301,12 @@ func (s *Set) modelValuesPager(modelText, elementText string, l *Listing) (pager
 	if !ok {
 		return nil, 0, refuse("/where/model", "data month %s is served without model values here: ask a server that holds its artifact", s.month.Name())
 	}
+	values, ok := mm.ModelValues(int32(model), int32(element))
+	if !ok {
+		return nil, 0, refuse("/where/element", "element %s is decoded from the VIN itself, not from a pattern: it has no model values", elementText)
+	}
 	var rows []row
-	for _, v := range mm.ModelValues(int32(model), int32(element)) {
+	for _, v := range values {
 		if !lookup {
 			rows = append(rows, row{key: []string{Normalize(v), v}, value: ModelValue{Value: v}})
 			continue
@@ -311,7 +319,7 @@ func (s *Set) modelValuesPager(modelText, elementText string, l *Listing) (pager
 		rows = append(rows, row{key: []string{fmt.Sprintf("%010d", id), v}, value: ModelValue{Value: v, Lookup: true, Name: name}})
 	}
 	sortRows(rows)
-	return rowPager(rows, func(r *row) { l.Values = append(l.Values, r.value) }), 2, nil
+	return rowPager(rows, func(r *row) { l.ModelValues = append(l.ModelValues, r.value) }), 2, nil
 }
 
 // rowPager pages through rows, every one, by add.

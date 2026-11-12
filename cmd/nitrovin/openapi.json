@@ -1957,7 +1957,7 @@
                 "integer"
               ]
             },
-            "description": "Fields to match after the fixed normalization: a vocabulary's fields; for vpic, make, a vPIC make id, to list its models, and with make year, one model year, keeping the models whose years include it or are unknown (ADR 0022); or model and element together, a vPIC model id and a public element id, to list the model's values for the element (ADR 0015). Model or element alone, or either with make or year, is refused."
+            "description": "Fields to match after the fixed normalization: a vocabulary's fields; for vpic, make, a vPIC make id, to list its models, and with make year, one model year, keeping the models whose years include it or are unknown (ADR 0022); or model and element together, a vPIC model id and a public element id, to list the model's values for the element (ADR 0015). Model or element alone, either with make or year, or an element decoded from the VIN itself rather than a pattern (Model Year and the Corrections elements 142, 143, 144, 156, 191, 196) is refused."
           },
           "limit": {
             "type": "integer",
@@ -2035,7 +2035,7 @@
       },
       "ModelValueEntry": {
         "type": "object",
-        "description": "One value a VIN of the vPIC model can decode the element to (ADR 0015). The list may hold a value no VIN of the model ends up with, but never leaves one out. Text values come by normalized then exact value, attribute ids ascending.",
+        "description": "One of a vPIC model's values for an element (ADR 0015). The list holds every value a decode with a model year gives the element for a VIN of the model, except a value a formula pattern computes from the VIN's characters; it may list values no VIN of the model ends up with. Text values come by normalized then exact value, attribute ids ascending.",
         "required": [
           "value"
         ],

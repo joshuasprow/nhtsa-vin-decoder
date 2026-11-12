@@ -181,7 +181,7 @@ func (t Translator) List(req ListRequest) (List, error) {
 	for _, it := range l.Spine {
 		out.Entries = append(out.Entries, spineEntry(it))
 	}
-	for _, v := range l.Values {
+	for _, v := range l.ModelValues {
 		e := ModelValueEntry{Value: QualifierValue{IsText: !v.Lookup, Text: v.Value}, Name: v.Name}
 		if v.Lookup {
 			id, _ := strconv.ParseInt(v.Value, 10, 32) // vocab lists decimal ids only

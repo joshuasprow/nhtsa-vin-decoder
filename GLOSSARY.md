@@ -225,9 +225,11 @@ _Avoid_: trim (as the general term), filter, attribute (an attribute is the
 decode's value; a qualifier is the mapping's condition on it)
 
 **Model values**:
-The values a VIN of one vPIC model can decode to for one element, worked out from the
-patterns whose keys could match together with the model's own. It may list a value a VIN
-never ends up with, but it never leaves one out.
+Every value a decode with a model year gives one element for a VIN of one vPIC model,
+except a value a formula pattern computes from the VIN's characters; it may list values no
+VIN of the model ends up with. It is worked out from the patterns whose keys could match
+together with the model's own, in the model's VIN schema or one its WMI code reaches in an
+overlapping year band, and from the model's specs, defaults and conversions.
 _Avoid_: model attributes, series list
 
 **Model years**:

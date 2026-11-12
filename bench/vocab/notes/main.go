@@ -158,7 +158,7 @@ func (r *results) table() string {
 		fmt.Fprintf(&b, "**Decode alone** (`1HGCM82633A004352`): %s · %s. Budget: ≥ 20k VIN/s and < 1 ms.\n\n", quantiles(m), throughput(m["ns/op"]))
 	}
 	if m, ok := r.bench[key{"ModelValuesFirst", 1}]; ok {
-		fmt.Fprintf(&b, "**Model values, first ask** (Series and Drive Type on a Decoder just loaded, ADR 0015): %s. No budget; the ADR measured about 0.2 s.\n\n", duration(m["ns/op"]))
+		fmt.Fprintf(&b, "**Model values, first ask** (Series and Drive Type on a Decoder just loaded, ADR 0015): %s. No budget; ADR 0015 measured 0.14-0.16 s.\n\n", duration(m["ns/op"]))
 	}
 
 	b.WriteString("| |")
