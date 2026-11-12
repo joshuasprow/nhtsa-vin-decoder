@@ -63,10 +63,11 @@ func TestSchema(t *testing.T) {
 	}
 	stockFiles, _ := filepath.Glob("../../testdata/vocab/stock/*.jsonl")
 	stockDrift, _ := filepath.Glob("../../testdata/vocab/stock/drift/*.jsonl")
-	if len(stockFiles) == 0 {
-		t.Fatal("no testdata/vocab/stock/*.jsonl")
+	stockLive, _ := filepath.Glob("../../testdata/vocab/stock/live/*.jsonl")
+	if len(stockFiles) == 0 || len(stockLive) == 0 {
+		t.Fatal("no testdata/vocab/stock/*.jsonl or testdata/vocab/stock/live/*.jsonl")
 	}
-	for _, p := range slices.Concat(paths, drift, fitment, stockFiles, stockDrift) {
+	for _, p := range slices.Concat(paths, drift, fitment, stockFiles, stockDrift, stockLive) {
 		data, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatal(err)
@@ -93,6 +94,14 @@ func TestSchema(t *testing.T) {
 		`{"format":1,"kind":"stock","name":"s","version":"1","source":"shelf","as_of":"2026-11-01"}`,
 		`{"format":1,"kind":"stock","name":"s","version":"1","source":"yard","as_of":"2026-11-01","catalog":"cat"}`,
 		`{"format":1,"kind":"stock","name":"s","version":"1","source":"bin","as_of":"2026-11-01"}`,
+		`{"format":1,"kind":"stock","name":"s","version":"1","source":"shelf","catalog":"cat"}`,
+		`{"format":1,"kind":"stock","name":"s","version":"1","source":"shelf","catalog":"cat","as_of":"2026-11-01","connector":{"postgres":{"relation":"s","dsn_env":"DSN"}}}`,
+		`{"format":1,"kind":"stock","name":"s","version":"1","source":"shelf","catalog":"cat","release":"1","connector":{"postgres":{"relation":"s","dsn_env":"DSN"}}}`,
+		`{"format":1,"kind":"stock","name":"s","version":"1","source":"yard","connector":{"postgres":{"relation":"s","release_relation":"r","dsn_env":"DSN"}}}`,
+		`{"format":1,"kind":"stock","name":"s","version":"1","source":"yard","connector":{"mysql":{}}}`,
+		`{"format":1,"kind":"stock","name":"s","version":"1","source":"yard","connector":{"postgres":{"relation":"Stock.Yard","dsn_env":"DSN"}}}`,
+		`{"format":1,"kind":"stock","name":"s","version":"1","source":"yard","connector":{"postgres":{"relation":"s","dsn_env":"DSN","dsn":"postgres://h"}}}`,
+		`{"format":1,"kind":"stock","name":"s","version":"1","source":"yard","connector":{"postgres":{"relation":"s","dsn_env":"DSN","max_connections":0}}}`,
 		`{"id":"S-1","location":"a","type":"mirror","number":"M1","part":{"spine":"p","id":"mirror"}}`,
 		`{"id":"S-1","location":"a","type":"mirror","number":"M1","fields":{"photos":["a.jpg"]}}`,
 		`{"id":"Y-1","location":"a","year":2010}`,

@@ -476,7 +476,14 @@ specifies.
   without its `year`, or one no catalog is loaded to name; a `part` the
   catalog's spine, or a part vocabulary on it, lacks; a vehicle named by
   other fields than the catalog's vehicle vocabulary's, or one that
-  vocabulary has no entry for, so the row could never match.
+  vocabulary has no entry for, so the row could never match. A connector's
+  file adds: any line after its header; an `as_of` or `release` in its
+  header (it reads them from its database); a connector other than
+  `postgres`; a `relation` or `release_relation` that is not `name` or
+  `schema.name` in unquoted lower case; a missing `relation` or `dsn_env`,
+  a `dsn_env` that is no environment variable's name, any other member
+  (a DSN among them); a yard's `release_relation`; a timeout or
+  `max_connections` that is not a positive integer.
 - **Drift warns and serves.** Measured against the loaded data month: a
   vPIC make or model id it lacks; a qualifier its decode cannot satisfy (an
   element that is not one of its public elements, a value of the wrong type
@@ -532,8 +539,13 @@ specifies.
   `{"line", "detail"}`; the first request measures `model-qualifier`, so it
   may take a fraction of a second longer. A catalog adds its `release`,
   when its header gives one, and its counts of `fitments`, `applications`,
-  `redirects` and `retired` numbers; a stock source its `source`, a
-  shelf's `catalog` and `release`, its `as_of` and its `rows`; no other
+  `redirects` and `retired` numbers; a stock file its `source`, a
+  shelf's `catalog` and `release`, its `as_of` and its `rows`; a stock
+  connector ([ADR 0020](../adr/0020-request-time-stock-the-postgres-connector.md))
+  its `source`, a shelf's `catalog`, `connector: "postgres"`, its
+  `relation` and its `status`: `unchecked` until its first lookup connects
+  (nothing connects at load), then `available`, or `unavailable` with a
+  `reason`. Never a DSN, host or user. No other
   kind has them. A compiled
   catalog adds `compiled`: its `format`, the `source_blake3` of the JSON
   Lines file it was compiled from, the `writer` (the nitrovin version that
@@ -844,10 +856,13 @@ answers `{"status":"no-catalog", …}`.
 `stock` adds what is in stock to a fit
 ([ADR 0019](../adr/0019-what-stock-says.md)): shelf parts and whole yard
 vehicles, from every loaded **stock source** of each kind, in load order.
-A source is a stock file (Vocabularies, above) or, later, a request-time
-connector ([ADR 0020](../adr/0020-request-time-stock-the-postgres-connector.md)); in Go, a
+A source is a stock file (Vocabularies, above) or a request-time
+connector, a table or view in Postgres
+([ADR 0020](../adr/0020-request-time-stock-the-postgres-connector.md),
+[Connectors](../vocabularies.md#connectors)); in Go, a
 `stock.Source`, which `contract.Fitter` reads with one lookup per source
-and list kind.
+and list kind: for a connector, one parameterised `SELECT` answering every
+list of that kind in the answer, bounded by the page.
 
 | Where | With | List |
 | --- | --- | --- |
@@ -872,8 +887,11 @@ refused.
 
 Every list (`StockList`) is `rows`, `total` across every page and source,
 and `sources`: each loaded source of its kind, as a block of `name`,
-`kind` (`file` or `live`), `as_of` (the time the rows the lookup returned
-are as of), for a shelf its `catalog` and the `release` the lookup read,
+`kind` (`file` or `live`), for a live source its `connector`
+(`postgres`) and `relation`, `as_of` (the time the rows the lookup
+returned are as of: a file's header time, or the oldest `as_of` of a
+connector's returned rows when its relation keeps one), for a shelf its
+`catalog` and the `release` the lookup read,
 `catalog_mismatch: true` when that release is not the loaded catalog's,
 and `status`: `available`, or `unavailable` with a `reason` when the
 source failed. An unavailable source gives no rows, and its stock is
@@ -881,7 +899,14 @@ unknown, not empty; the rest of the answer stands. Its `reason` is the
 source's own, which never names a connection detail; `the source
 failed`; or `the request ended before the source answered` when the fit's
 caller went away first (an HTTP client disconnecting, an MCP call
-cancelled). A file source answers from memory and is always asked.
+cancelled). A file source answers from memory and is always asked. A
+connector's reasons are fixed text: its relation lacks a column, or has
+one of the wrong type (naming it); its database is unreachable, refused
+the credentials, or has no connection to spare; the query ran past its
+statement timeout; every connection was busy until the lookup's
+deadline; the environment variable holding its DSN is not set (naming the
+variable). A connector that could not connect answers unavailable at
+once for 5 s before it tries again, and nothing it reads is cached.
 
 A row (`StockRow`) is its `source` (the source's name), `id`, `location`,
 how it `matched`, what it names, `as_of` when its source keeps a time per

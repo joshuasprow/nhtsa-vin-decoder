@@ -67,13 +67,25 @@ type VocabularyFile struct {
 	*StockCounts
 }
 
-// StockCounts describe a stock source (ADR 0019): what it holds, its
-// catalog when a shelf, its time, and how many rows it has.
+// StockCounts describe a stock source (ADR 0019): what it holds and its
+// catalog when a shelf; for a stock file, its time and how many rows it
+// has; for a connector (ADR 0020), how it is read, its relation and its
+// status as its latest connection found it. Never a DSN, host or user.
 type StockCounts struct {
 	Source  string `json:"source"`
 	Catalog string `json:"catalog,omitempty"`
-	AsOf    string `json:"as_of"`
-	Rows    int    `json:"rows"`
+	// AsOf and Rows are a stock file's, absent for a connector, whose
+	// rows and their times are read at request time.
+	AsOf string `json:"as_of,omitempty"`
+	Rows *int   `json:"rows,omitempty"`
+	// Connector is "postgres" and Relation the relation its rows are
+	// read from, for a connector; absent for a stock file.
+	Connector string `json:"connector,omitempty"`
+	Relation  string `json:"relation,omitempty"`
+	// Status is a connector's: StockUnchecked before its first lookup
+	// connects, then StockAvailable, or StockUnavailable with Reason.
+	Status string `json:"status,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // CompiledCatalog is what a compiled catalog records of its compiling
@@ -100,6 +112,10 @@ type CompiledCatalog struct {
 	// check` checks the rest again.
 	LinksDiffer bool `json:"links_differ"`
 }
+
+// StockUnchecked is the status of a connector in Info before its first
+// lookup: it connects then, never at load.
+const StockUnchecked = "unchecked"
 
 // CatalogCounts are how many fitments, applications, redirects and
 // retired numbers a catalog holds (ADR 0017).

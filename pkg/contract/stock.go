@@ -40,6 +40,11 @@ type StockSource struct {
 	Name string `json:"name"`
 	// Kind is file or live.
 	Kind string `json:"kind"`
+	// Connector and Relation are a live source's (ADR 0020): how it is
+	// read ("postgres") and the relation its rows are read from; absent
+	// for a file.
+	Connector string `json:"connector,omitempty"`
+	Relation  string `json:"relation,omitempty"`
 	// AsOf is the time the lookup's rows are as of: a file's own, or what
 	// a live source read with them; absent when it has none.
 	AsOf string `json:"as_of,omitempty"`
@@ -135,7 +140,7 @@ func (f Fitter) stockLists(ctx context.Context, holds stock.Holds, n, offset, li
 		if info.Holds != holds {
 			continue
 		}
-		block := StockSource{Name: info.Name, Kind: string(info.Kind), Catalog: info.Catalog, Status: StockAvailable}
+		block := StockSource{Name: info.Name, Kind: string(info.Kind), Connector: info.Connector, Relation: info.Relation, Catalog: info.Catalog, Status: StockAvailable}
 		p := stock.Page{Location: location, Limit: limit}
 		if n == 1 {
 			p.Offset, p.Limit = skip, limit-len(out[0].Rows)

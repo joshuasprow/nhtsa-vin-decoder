@@ -88,7 +88,8 @@ That adds, among others, `TestParity` (the engine against the frozen
 answer key, in a fraction of a second), the contract's answer-key tests,
 and the CLI, HTTP, stdio and MCP tests against the built binary. The tests
 that compare against Postgres also need `NITROVIN_PSQL`
-([the engine](#the-engine)).
+([the engine](#the-engine)), and the stock connector's
+`NITROVIN_STOCK_PG_DSN` ([Vocabularies](#vocabularies)).
 
 CI runs what a change can affect. Every test workflow cancels its run on a
 branch when a newer push supersedes it (`release.yml` and the refresh never
@@ -105,7 +106,7 @@ text `TestFormREADME` holds to the form's.
   pass, not skip: on the refresh's bump PR they fail it, naming the month,
   if the new month breaks them ([the fixture](#vocabularies)).
 - `import.yml`, **Tests**, on `pkg/`, `cmd/`, `go.mod`, `go.sum`,
-  `testdata/parity/`, `testdata/vocab/`, `scripts/oracle.sh`, in three
+  `testdata/parity/`, `testdata/vocab/`, `scripts/oracle.sh`, in four
   jobs. *Changed paths* decides whether Postgres is needed. *Artifact*
   always runs, without Postgres, on the artifact `go.mod` pins (read from
   the module cache): the
@@ -117,7 +118,10 @@ text `TestFormREADME` holds to the form's.
   `scripts/oracle.sh` or `import.yml`; otherwise it is skipped, which counts
   as passed. `go.mod` and `testdata/parity` alone (the refresh's bump PR)
   take the short path. `gh workflow run import.yml --ref <branch> -f
-  full=true` runs Postgres anyway.
+  full=true` runs Postgres anyway. *Stock connector* starts an empty
+  Postgres 17 (the oracle's digest, no dump) and runs every
+  `pkg/stock/pg` Postgres test, each required to pass, in about a minute,
+  for every path the workflow watches.
 - `libnitrovin.yml` (the C library on six native runners, on the pinned
   artifact): `cmd/libnitrovin`, the packages it links (`pkg/stdio`,
   `pkg/nitrovin`, `pkg/contract`, `pkg/decoder`, `pkg/vocab`), `go.mod`,
@@ -358,6 +362,29 @@ On a compiled catalog, `TestCompiledAnswersAsJSONLines` asks `RetiredTo`
 of every key, `TestFitCompiled` fits the synthetic stock against both
 forms alike, and `TestVocabCompile` checks the stock's orphan and fits
 with it through the CLI.
+
+`testdata/vocab/stock/live/` reads the same three sources through
+connectors ([ADR 0020](docs/adr/0020-request-time-stock-the-postgres-connector.md)):
+a header each, and `views.sql`, a synthetic parts system's and yard
+system's tables with the views the connectors read. `go test
+./pkg/stock/pg` checks the connector with no database (an unset or
+malformed DSN, a refused connection and its 5 s retry, each error's fixed
+reason) and that no package the C library or the browser builds links the
+driver. Its `*Postgres` tests need a database they own, by URL in
+`NITROVIN_STOCK_PG_DSN`: `TestParityPostgres` fills the views with the
+synthetic rows and holds every fit to the same rows loaded as files; the
+others check missing and mistyped columns, credentials, as_of, the
+`READ ONLY` transaction, a cancelled and a timed-out query, a full pool,
+a relation that changes, and a vpic catalog:
+
+```sh
+docker run -d --name nitrovin-stock -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=stock -p 55432:5432 \
+  postgres:17@sha256:ff87138949ad9a46f32ff23bd6852b52ce024a13dffe9b4087be98292cdd3b4f
+NITROVIN_STOCK_PG_DSN='postgres://postgres:postgres@127.0.0.1:55432/stock?sslmode=disable' go test -v -run Postgres ./pkg/stock/pg
+```
+
+`cmd/nitrovin`'s `TestConnectorSurfaces` loads the connectors on the CLI,
+stdio, `serve` and MCP against a port nothing listens on.
 
 Its headers say 2026_10, but the ids, values and VINs it relies on are
 long-lived ones (2026_06 loads it the same), so its tests never skip on

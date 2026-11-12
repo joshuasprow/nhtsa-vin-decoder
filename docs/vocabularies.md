@@ -401,14 +401,128 @@ A shelf whose catalog is not loaded, a row in neither form, a duplicate
 id, a part the catalog's spine lacks, and a vehicle its vehicle
 vocabulary has no entry for are faults. The browser loads no stock, and
 `serve` publishes none. In Go, each source is a `stock.Source`
-([`pkg/stock`](../pkg/stock)): `stock.NewFile` over a loaded stock file
-now, a Postgres connector later
-([ADR 0020](adr/0020-request-time-stock-the-postgres-connector.md)). Every
+([`pkg/stock`](../pkg/stock)): `stock.NewFile` over a loaded stock file,
+or a connector's (below). Every
 lookup takes a `context.Context` and returns the release and `as_of` it
 read with its rows; a source that cannot answer returns
 `*stock.Unavailable`, whose reason the answer shows. `Translator.Fit(ctx,
 req)` passes its `ctx` on: a live source that has not answered when it
 ends is `unavailable`, and the fit returns.
+
+### Connectors
+
+A **connector** reads a stock source from Postgres at request time
+([ADR 0020](adr/0020-request-time-stock-the-postgres-connector.md)), so a
+yard's rows and photos are as fresh as its database. It is a stock file
+with a header and no lines, loaded with `--vocab` like any other, in the
+one namespace of names. `testdata/vocab/stock/live` holds one for each
+synthetic source:
+
+```json
+{"format":1,"kind":"stock","name":"shelf-stock","version":"2026.11.01","source":"shelf","catalog":"parts-catalog","connector":{"postgres":{"relation":"stock.shelf_stock","release_relation":"stock.shelf_stock_release","dsn_env":"NITROVIN_STOCK_DSN"}}}
+```
+
+| `connector.postgres` | |
+| --- | --- |
+| `relation` | the table or view holding the rows: `name` or `schema.name`, unquoted lower case |
+| `release_relation` | a shelf's only, optional: a relation of one row whose `release` column is the catalog release its numbers are under (in place of the header's `release`) |
+| `dsn_env` | the environment variable holding the DSN (`postgres://user:password@host/db` or `key=value` form, with libpq's `PG*` variables and `.pgpass` as defaults). The file carries no secret, and no answer, `/v1/info` included, shows a DSN, host or user |
+| `statement_timeout_ms` | each query's bound, default 1000 |
+| `connect_timeout_ms` | each connection's bound, default 2000 |
+| `max_connections` | the most connections held open at once, default 4 |
+
+A connector's header has no `as_of` and no `release`: its rows carry
+their own. Any line after the header, and any other member (a DSN among
+them), is a fault.
+
+**The relation's columns.** nitrovin dictates column names, never SQL: a
+view renames a system's own columns. Each is read in one of a few types:
+
+| Source | Columns |
+| --- | --- |
+| `shelf` | `id`, `location` (text); `type`, `number`, `side` (text; null on a row with no number, `side` null for a fitment with none); `part_type` (text, a spine id, for a row with no number); the vehicle columns; `year` (integer); `fields` (jsonb or json); `as_of` (optional) |
+| `yard` | `id`, `location` (text); `decoded_make`, `decoded_model`, `decoded_year` (integer, the source's own vPIC decode of the vehicle's VIN); the vehicle columns; `year` (integer); `fields` (jsonb or json); `as_of` (optional) |
+
+The vehicle columns are `vehicle_<field>` (text) for each field of the
+catalog's vehicle vocabulary, `vehicle_make` and `vehicle_model` for
+`catalog-models`; under a catalog whose vehicles are vpic,
+`vehicle_make` and `vehicle_model` (integer, vPIC ids) and `vehicle_ext`
+(text), one of them set. A yard's catalog is the one loaded. Text is
+`text`, `character varying` or `character`; an integer is `smallint`,
+`integer` or `bigint`; `as_of` is `timestamp with time zone` (served in
+UTC), `timestamp without time zone` (read as UTC) or `date`.
+
+The rows match as a file's do (ADR 0019), with what a database cannot
+carry left to the source: a yard row is matched by its decode when all
+three `decoded_*` columns are set (`matched: "vin"`; nitrovin never
+decodes a connector's VIN, so a source keeps its decodes fresh itself,
+for example with `POST /v1/decode`), else by its vehicle and `year`; a
+vehicle matches when its columns equal the catalog's values exactly, as
+the catalog writes them; a row with a null `id` or `location` is never
+served; `fields` that are null, or not an object, are served as `{}`.
+Each list's rows come in `id` order (bytewise), and its `as_of` is the
+oldest of the rows a lookup returned.
+
+**Lookups and indexes.** Each lookup is one fixed, parameterised `SELECT`
+for every list of its kind in an answer, each list bounded by the page,
+in its own `READ ONLY` transaction under the statement timeout. Give the
+relation's tables these indexes:
+
+- shelf, by fitment keys: `(type, number, side)`;
+- shelf, rows with no number: `(part_type, vehicle_<fields>, year)`;
+- yard, by vPIC model: `(decoded_model, decoded_year)`;
+- yard, by catalog vehicle: `(vehicle_<fields>, year)`.
+
+**A worked view.** `testdata/vocab/stock/live/views.sql` is a synthetic
+parts system's table and a yard system's, the views the connectors read,
+and a role that reads only the views; CI loads the synthetic rows into it
+and checks that the connectors answer every fit as the same rows loaded as
+files do. The shelf's view:
+
+```sql
+CREATE INDEX shelf_by_number ON parts.shelf (part_class, catalog_no, hand);
+CREATE INDEX shelf_by_vehicle ON parts.shelf (spine_part, make, model, model_year) WHERE catalog_no IS NULL;
+
+CREATE VIEW stock.shelf_stock AS
+SELECT stock_id AS id, bin AS location,
+       part_class AS type, catalog_no AS number, hand AS side, spine_part AS part_type,
+       make AS vehicle_make, model AS vehicle_model, model_year AS year,
+       attrs AS fields
+FROM parts.shelf WHERE shelf = 'main';
+CREATE VIEW stock.shelf_stock_release AS
+SELECT release FROM parts.release WHERE shelf = 'main';
+```
+
+A system without a jsonb column builds `fields` in the view, which is
+also where it leaves out what it would not show a customer (ADR 0019):
+`jsonb_strip_nulls(jsonb_build_object('stock_number', stock_no, 'price', list_price)) AS fields`.
+
+**Status and failure.** Nothing connects at load: `nitrovin info` says
+`status: "unchecked"` until a fit asks for the source's stock. Its first
+lookup connects and checks the relation's columns against
+`information_schema`; a missing or mistyped column makes the source
+unavailable, naming the column (`column year of stock.shelf_stock is
+text, not an integer (smallint, integer or bigint)`). A database that is
+down does not stop nitrovin: its lists answer `unavailable` (`the
+database is unreachable`), at once and with no connection for 5 s, then
+it tries again. A slow query fails only its own list. A relation that
+changes under a running nitrovin is checked again. `/v1/info` shows each
+connector's `connector`, `relation` and latest `status`:
+
+```sh
+NITROVIN_STOCK_DSN=postgres://… nitrovin --vocab testdata/vocab --vocab testdata/vocab/fitment --vocab testdata/vocab/stock/live serve
+```
+
+**Where it runs.** The `nitrovin` binary's `serve`, stdio, CLI and MCP
+read a connector; its driver, `pgx` (MIT, [`pkg/stock/pg`](../pkg/stock/pg)),
+adds 4.3 MB to the 75.4 MB release binary (`-trimpath -ldflags='-s -w'`,
+darwin/arm64 and linux/amd64 alike), most of it Postgres's type codecs
+and the Unicode tables its password hashing needs; ADR 0020's estimate
+was 0.5 MB. The C library loads a connector's file as a source that is
+always unavailable (`this build reads stock files only: a connector
+needs the nitrovin binary`), and the browser loads no stock; neither
+links a driver. In Go, `nitrovin.NewTranslatorWith(d, pg.Connect(os.Getenv),
+files...)` connects them; `nitrovin.NewTranslator` does not.
 
 ## Loading
 

@@ -36,6 +36,7 @@ import (
 	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
+	"github.com/joshuasprow/nitrovin/pkg/stock/pg"
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
@@ -262,7 +263,9 @@ func (e *env) decoder() (*nitrovin.Decoder, error) {
 // translator loads the data, then the vocabularies beside it: every
 // --vocab, or else $NITROVIN_VOCAB. A fault in a file is an internal
 // problem naming the flag or variable, the file and the line; drift is
-// written to stderr, one vocab.Finding per line, and served.
+// written to stderr, one vocab.Finding per line, and served. A
+// connector's stock file (ADR 0020) reads its DSN from the environment
+// variable it names, and connects on its first lookup.
 func (e *env) translator() (*nitrovin.Translator, error) {
 	t, _, err := e.load()
 	return t, err
@@ -288,7 +291,7 @@ func (e *env) load() (*nitrovin.Translator, []byte, error) {
 	files, err := vocab.Open(paths...)
 	var t *nitrovin.Translator
 	if err == nil {
-		t, err = nitrovin.NewTranslator(d, files...)
+		t, err = nitrovin.NewTranslatorWith(d, pg.Connect(e.getenv), files...)
 	}
 	if err != nil {
 		return nil, nil, contract.NewProblem(contract.Internal, "", fmt.Sprintf("%s: %v", from, err))

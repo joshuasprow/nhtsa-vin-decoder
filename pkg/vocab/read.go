@@ -538,7 +538,7 @@ func nameAt(raw []byte, ptr string) (string, error) {
 }
 
 // headerNames are a header's fields; headerFields picks each kind's.
-var headerNames = []string{"format", "kind", "name", "version", "data_month", "subject", "fields", "spine", "vehicles", "release", "source", "as_of", "catalog"}
+var headerNames = []string{"format", "kind", "name", "version", "data_month", "subject", "fields", "spine", "vehicles", "release", "source", "as_of", "catalog", "connector"}
 
 // headerFields are the indexes in headerNames of each kind's header
 // fields.
@@ -547,7 +547,7 @@ var headerFields = map[Kind][]int{
 	KindExtensionSet: {0, 1, 2, 3, 4},
 	KindVocabulary:   {0, 1, 2, 3, 4, 5, 6, 7},
 	KindCatalog:      {0, 1, 2, 3, 4, 7, 8, 9},
-	KindStock:        {0, 1, 2, 3, 9, 10, 11, 12},
+	KindStock:        {0, 1, 2, 3, 9, 10, 11, 12, 13},
 }
 
 // header reads line 1.
@@ -556,7 +556,7 @@ func (f *File) header(line []byte) error {
 	if err != nil {
 		return err
 	}
-	var v, scratch [13][]byte
+	var v, scratch [14][]byte
 	if _, _, ok := members(raw, headerNames, v[:]); !ok {
 		return errAt("", "must be an object")
 	}
@@ -592,7 +592,10 @@ func (f *File) header(line []byte) error {
 	case KindCatalog:
 		required = append(required, 7, 8) // spine, vehicles
 	case KindStock:
-		required = append(required, 10, 11) // source, as_of
+		required = append(required, 10) // source
+		if v[13] == nil {
+			required = append(required, 11) // as_of: a connector's rows carry their own
+		}
 	}
 	for _, i := range required {
 		if v[i] == nil {
@@ -617,7 +620,7 @@ func (f *File) header(line []byte) error {
 	case KindCatalog:
 		return f.catalogHeader(v[7], v[8], v[9])
 	case KindStock:
-		return f.stockHeader(v[10], v[11], v[12], v[9])
+		return f.stockHeader(v[10], v[11], v[12], v[9], v[13])
 	case KindVocabulary:
 	default:
 		return nil
