@@ -39,7 +39,7 @@ import (
 // paused.
 
 // wireLog serves h and records every request the server gets: method,
-// path and query, and how many bytes of body it carried.
+// path and query, and the body it carried.
 type wireLog struct {
 	h    http.Handler
 	mu   sync.Mutex
@@ -55,13 +55,14 @@ type wireLog struct {
 type wireRequest struct {
 	method, target string
 	body           int
+	data           string
 }
 
 func (l *wireLog) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	l.mu.Lock()
-	l.seen = append(l.seen, wireRequest{r.Method, r.URL.RequestURI(), len(body)})
+	l.seen = append(l.seen, wireRequest{r.Method, r.URL.RequestURI(), len(body), string(body)})
 	tail, cut := l.swTail, l.cutDecodes
 	l.mu.Unlock()
 	if cut && strings.HasPrefix(r.URL.Path, "/v1/decode/") {

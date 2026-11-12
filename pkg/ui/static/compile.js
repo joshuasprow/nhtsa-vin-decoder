@@ -30,6 +30,12 @@ self.addEventListener('message', async (e) => {
       const r = (await caches.match(path, { cacheName: cache })) || await fetch(path);
       return { status: r.status, body: new Uint8Array(await r.arrayBuffer()) };
     };
+    // post is a POST of body (JSON) to path: a stored yard file's VINs,
+    // decoded again when this release opens it first.
+    self.nitrovinPost = async (path, body) => {
+      const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      return { status: r.status, body: new Uint8Array(await r.arrayBuffer()) };
+    };
     say({ progress: 'Starting the compiler…' });
     const ready = new Promise((resolve) => { self.nitrovinReady = resolve; });
     const go = new Go();

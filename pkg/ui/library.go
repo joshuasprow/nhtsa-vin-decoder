@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
+	"github.com/joshuasprow/nitrovin/pkg/stock"
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
@@ -47,6 +48,10 @@ import (
 // open, or whose spine or vehicle vocabulary is no longer the file it was
 // compiled against, is listed with the reason and "pick the source again
 // to recompile"; it is never compiled again behind the visitor's back.
+//
+// And it may hold stock files (stock.go), which fit lists as the server
+// does: a shelf beside its own catalog, a yard whose VINs the server
+// decodes once, as it loads.
 type Library struct {
 	info   contract.Info
 	month  *vocab.Bundle
@@ -133,9 +138,12 @@ func (s Selection) Names() []string {
 	return out
 }
 
-// Remote is the server, from the browser: a GET of path on its origin.
+// Remote is the server, from the browser: a GET of path on its origin,
+// and a POST of body (JSON) to path, which only POST /v1/decode uses: a
+// yard file's VINs, decoded when it loads.
 type Remote interface {
 	Get(path string) (status int, body []byte, err error)
+	Post(path string, body []byte) (status int, answer []byte, err error)
 }
 
 // Record is one stored file: its name (the header's), the name of the file
@@ -166,7 +174,7 @@ type Picked struct {
 type StoredFile struct {
 	Record
 	Kind, Version, Fault string
-	// Lines are its entries, extensions or spine entries.
+	// Lines are its entries, extensions, spine entries or stock rows.
 	Lines int
 	// Drift counts its drift by kind, as /v1/info does; empty for a file
 	// left out.
@@ -177,12 +185,17 @@ type StoredFile struct {
 	Catalog  bool
 	Fitments int
 	Skipped  []string
+	// Holds is a stock file's shelf or yard, and StockCatalog a shelf's
+	// catalog.
+	Holds, StockCatalog string
 }
 
-// shelf is the files at one moment, and the set the linked ones make.
+// shelf is the files at one moment, the set the linked ones make, and
+// the stock sources of its stock files, in the set's order.
 type shelf struct {
 	server, browser []*held
 	set             *vocab.Set
+	stock           []stock.Source
 	// drift is the linked files' drift, measured once, when a page first
 	// shows it: a translation never needs it.
 	driftOnce sync.Once
@@ -191,7 +204,8 @@ type shelf struct {
 
 // held is one file: the server's or the browser's, read (file) or not,
 // and why it is left out (fault). catalog marks the browser's compiled
-// catalog, which IndexedDB keeps apart from the other files.
+// catalog, which IndexedDB keeps apart from the other files. decodes are a
+// yard file's VINs as the server decoded them, kept with its index.
 type held struct {
 	name    string
 	server  bool
@@ -199,6 +213,7 @@ type held struct {
 	rec     Record
 	file    *vocab.File
 	fault   string
+	decodes map[string]*vinDecode
 }
 
 // OpenLibrary opens the browser's files beside the server whose release
@@ -239,7 +254,7 @@ func OpenLibrary(info contract.Info, remote Remote, disk Disk) (*Library, error)
 			continue
 		}
 		h := &held{name: v.Name, server: true}
-		h.file, err = l.read(v.Blake3, serverPath(v.Name), func() ([]byte, error) {
+		h.file, _, err = l.read(v.Blake3, serverPath(v.Name), func() ([]byte, error) {
 			status, body, err := remote.Get(FilePath(info, v))
 			if err == nil && status != http.StatusOK {
 				err = fmt.Errorf("HTTP %d from %s", status, FilePath(info, v))
@@ -258,7 +273,7 @@ func OpenLibrary(info contract.Info, remote Remote, disk Disk) (*Library, error)
 	}
 	for _, rec := range records {
 		h := &held{name: rec.Name, rec: rec}
-		h.file, err = l.read(rec.Blake3, browserPath(rec.FileName, rec.Name), func() ([]byte, error) { return disk.Text(rec.Blake3) })
+		h.file, h.decodes, err = l.read(rec.Blake3, browserPath(rec.FileName, rec.Name), func() ([]byte, error) { return disk.Text(rec.Blake3) })
 		if err != nil {
 			h.fault = err.Error()
 		} else if h.file.Name != rec.Name {
@@ -289,12 +304,12 @@ func OpenLibrary(info contract.Info, remote Remote, disk Disk) (*Library, error)
 	if err != nil {
 		return nil, err
 	}
-	s.set = set
 	for _, h := range s.all() {
 		if why, ok := dropped[h]; ok {
 			h.fault = why
 		}
 	}
+	s.use(set)
 	took("link")
 	l.opened = strings.Join(timings, ", ")
 	l.state.Store(s)
@@ -313,39 +328,46 @@ func browserPath(fileName, name string) string {
 	return fileName + " (" + name + ")"
 }
 
-// read is the file with hash blake3: from its stored index, else parsed
-// from text's bytes, its index then stored.
-func (l *Library) read(blake3, path string, text func() ([]byte, error)) (*vocab.File, error) {
+// read is the file with hash blake3, and a yard file's decodes: from its
+// stored index, else parsed from text's bytes, a yard's VINs decoded by
+// the server, its index then stored. A yard whose VINs cannot be decoded
+// now (the server is out of reach) is an error, its index not stored, so
+// the next open tries again.
+func (l *Library) read(blake3, path string, text func() ([]byte, error)) (*vocab.File, map[string]*vinDecode, error) {
 	t0 := time.Now()
 	idx, err := l.disk.Index(blake3)
 	t1 := time.Now()
 	l.indexRead += t1.Sub(t0)
 	if err == nil && idx != nil {
-		f, err := vocab.ReadIndex(idx)
+		f, decodes, err := readStoredIndex(idx)
 		l.indexParse += time.Since(t1)
 		if err == nil && hex.EncodeToString(f.Hash[:]) == blake3 && f.Path == path {
-			return f, nil
+			return f, decodes, nil
 		}
 	}
 	data, err := text()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	f, err := vocab.Read(path, bytes.NewReader(data))
 	if err != nil {
-		return nil, errors.New(faultText(err))
+		return nil, nil, errors.New(faultText(err))
 	}
 	if got := hex.EncodeToString(f.Hash[:]); got != blake3 {
-		return nil, fmt.Errorf("its bytes changed: blake3 %s, not %s", got, blake3)
+		return nil, nil, fmt.Errorf("its bytes changed: blake3 %s, not %s", got, blake3)
 	}
-	var written bytes.Buffer
-	if err := vocab.WriteIndex(&written, f); err != nil {
-		return nil, err
+	decodes, err := l.decodeYard(f, func(string) {})
+	if err != nil {
+		return nil, nil, err
 	}
-	if err := l.disk.PutIndex(blake3, written.Bytes()); err != nil {
-		return nil, fmt.Errorf("storing its index: %w", err)
+	written, err := storedIndex(f, decodes)
+	if err != nil {
+		return nil, nil, err
 	}
-	return f, nil
+	if err := l.disk.PutIndex(blake3, written); err != nil {
+		return nil, nil, fmt.Errorf("storing its index: %w", err)
+	}
+	return f, decodes, nil
 }
 
 // faultText is a load's error in words: its first faults, and how many
@@ -441,23 +463,42 @@ func (l *Library) link(hs, required []*held) (*vocab.Set, map[*held]string, erro
 func (l *Library) Opened() string { return l.opened }
 
 // Info is the server's /v1/info as the worker was given it, its release
-// and files, but for the catalog: the browser's, when it holds one that
-// links, as /v1/info lists a loaded catalog, and never the server's,
-// which the browser does not read (the worker sends the fit page to the
-// server while it has one).
-func (l *Library) Info() contract.Info {
+// and files, but for the catalog and stock: the browser's catalog, when it
+// holds one that links, and its stock files that link, as /v1/info lists
+// them, each with its drift; never the server's catalog, which the
+// browser does not read (the worker sends the fit page to the server
+// while it has one), nor its stock, which it does not publish.
+func (l *Library) Info() contract.Info { return l.infoWith(true) }
+
+// LoadInfo is Info without the drift, which the pages but the files'
+// panel never show: a fit page never waits on measuring it.
+func (l *Library) LoadInfo() contract.Info { return l.infoWith(false) }
+
+// infoWith is Info, its drift measured when drift is set.
+func (l *Library) infoWith(drift bool) contract.Info {
 	info := l.info
 	info.Vocabularies = slices.DeleteFunc(slices.Clone(info.Vocabularies), func(v contract.VocabularyFile) bool { return v.Kind == string(vocab.KindCatalog) })
 	s := l.state.Load()
 	for _, h := range s.browser {
-		if h.catalog && h.linked() {
-			v := catalogFile(h)
-			v.Drift = contract.DriftCounts(h.file.Path, l.drift(s))
+		if !h.linked() {
+			continue
+		}
+		var v contract.VocabularyFile
+		switch {
+		case h.catalog:
+			v = catalogFile(h)
 			if v.Compiled != nil {
 				v.Compiled.DriftMonthDiffers = v.Compiled.DriftMonth != info.DataMonth
 			}
-			info.Vocabularies = append(info.Vocabularies, v)
+		case h.file.Kind == vocab.KindStock:
+			v = stockFile(h)
+		default:
+			continue
 		}
+		if drift {
+			v.Drift = contract.DriftCounts(h.file.Path, l.drift(s))
+		}
+		info.Vocabularies = append(info.Vocabularies, v)
 	}
 	return info
 }
@@ -519,7 +560,8 @@ func (l *Library) list(s *shelf, hs []*held) []StoredFile {
 		out[i].Name = h.name
 		if f := h.file; f != nil {
 			out[i].Kind, out[i].Version = string(f.Kind), f.Version
-			out[i].Lines = len(f.Entries) + len(f.Extensions) + len(f.SpineEntries)
+			out[i].Lines = len(f.Entries) + len(f.Extensions) + len(f.SpineEntries) + len(f.Stock)
+			out[i].Holds, out[i].StockCatalog = string(f.Holds), f.StockCatalog
 			if c := f.Catalog(); c != nil {
 				out[i].Fitments = c.Info().Fitments
 			}
@@ -620,9 +662,10 @@ func (l *Library) List(req contract.ListRequest) (contract.List, error) {
 // to hold the browser to ADR 0018's fit budgets.
 func (l *Library) FitTook() time.Duration { return time.Duration(l.fitTook.Swap(0)) }
 
-// fitter is the core over s's set and its catalog, if it has one.
+// fitter is the core over s's set, its catalog, if it has one, and its
+// stock.
 func (l *Library) fitter(s *shelf) contract.Fitter {
-	f := contract.Fitter{Translator: l.translator(s)}
+	f := contract.Fitter{Translator: l.translator(s), Stock: s.stock}
 	if c := s.set.Catalog(); c != nil {
 		f.Catalog = c
 	}
@@ -701,23 +744,30 @@ func (l *Library) decode(vin string, year contract.Null[int32], now time.Time) (
 	if err != nil {
 		return contract.VINDecode{}, time.Time{}, err
 	}
-	var d struct {
-		VIN             string       `json:"vin"`
-		WMI             string       `json:"wmi"`
-		CheckDigitValid bool         `json:"check_digit_valid"`
-		Now             time.Time    `json:"now"`
-		DataMonth       string       `json:"data_month"`
-		DecoderVersion  string       `json:"decoder_version"`
-		Items           []serverItem `json:"items"`
-	}
+	var d serverDecode
 	if err := json.Unmarshal(body, &d); err != nil {
 		return contract.VINDecode{}, time.Time{}, fmt.Errorf("reading the server's decode of %s: %w", vin, err)
 	}
 	if d.DataMonth != l.month.Name() {
-		return contract.VINDecode{}, time.Time{}, &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
-			"This server now decodes with data month %s, but the translator in this browser is of data month %s (release %s): update it with Update now in Vocabularies, or by closing every nitrovin tab and opening it again.",
-			d.DataMonth, l.month.Name(), Release(l.info))}
+		return contract.VINDecode{}, time.Time{}, l.monthChanged(d.DataMonth)
 	}
+	return d.vinDecode(), d.Now, nil
+}
+
+// serverDecode is the server's full decode (contract.Decode's JSON), as
+// far as a translation and a yard read it.
+type serverDecode struct {
+	VIN             string       `json:"vin"`
+	WMI             string       `json:"wmi"`
+	CheckDigitValid bool         `json:"check_digit_valid"`
+	Now             time.Time    `json:"now"`
+	DataMonth       string       `json:"data_month"`
+	DecoderVersion  string       `json:"decoder_version"`
+	Items           []serverItem `json:"items"`
+}
+
+// vinDecode is d as a translation reads it.
+func (d serverDecode) vinDecode() contract.VINDecode {
 	items := make([]contract.Item, len(d.Items))
 	for i, it := range d.Items {
 		items[i] = contract.Item(it)
@@ -725,13 +775,22 @@ func (l *Library) decode(vin string, year contract.Null[int32], now time.Time) (
 	return contract.VINDecode{
 		Projection: contract.Projection{VIN: d.VIN, WMI: d.WMI, CheckDigitValid: d.CheckDigitValid, Items: items},
 		DataMonth:  d.DataMonth, DecoderVersion: d.DecoderVersion,
-	}, d.Now, nil
+	}
+}
+
+// monthChanged refuses a decode of the server's data month month, which
+// is not the release's.
+func (l *Library) monthChanged(month string) error {
+	return &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
+		"This server now decodes with data month %s, but the translator in this browser is of data month %s (release %s): update it with Update now in Vocabularies, or by closing every nitrovin tab and opening it again.",
+		month, l.month.Name(), Release(l.info))}
 }
 
 // Load reads picked as one batch and stores it: each file checked alone
-// (vocab.Read), then all linked with the server's and the stored files, a
-// stored file of the same name replaced. Each vocabulary it stores joins
-// the selected targets. A batch that does not link, or that would leave a
+// (vocab.Read; a stock file as admitStock admits it), then all linked
+// with the server's and the stored files, a stored file of the same name
+// replaced, then a yard's VINs decoded by the server. Each vocabulary it
+// stores joins the selected targets. A batch that does not link, or that would leave a
 // linked stored file unable to, changes nothing: the error says which file
 // and why. progress is told each step.
 func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, error) {
@@ -748,13 +807,14 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 			return nil, &pageError{Status: http.StatusUnprocessableEntity, Message: fmt.Sprintf(
 				"%s is a catalog: pick it on its own, and this browser compiles it.", p.FileName)}
 		}
-		if headerKind(p.Data) == vocab.KindStock {
-			return nil, &pageError{Status: http.StatusUnprocessableEntity, Message: fmt.Sprintf(
-				"%s is a stock source: stock loads on a server, with --vocab, not in this browser.", p.FileName)}
-		}
 		f, err := vocab.Read(p.FileName, bytes.NewReader(p.Data))
 		if err != nil {
 			return nil, &pageError{Status: http.StatusUnprocessableEntity, Message: faultText(err)}
+		}
+		if f.Kind == vocab.KindStock {
+			if err := l.admitStock(f, p.FileName, cur); err != nil {
+				return nil, err
+			}
 		}
 		if slices.ContainsFunc(cur.server, func(h *held) bool { return h.name == f.Name }) {
 			return nil, &pageError{Status: http.StatusConflict, Message: fmt.Sprintf(
@@ -781,6 +841,11 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 	if broken := breaks(kept, dropped); broken != "" {
 		return nil, &pageError{Status: http.StatusConflict, Message: "This batch would leave stored files unable to link, so nothing was loaded: " + broken}
 	}
+	for _, n := range news {
+		if n.decodes, err = l.decodeYard(n.file, progress); err != nil {
+			return nil, err
+		}
+	}
 	progress("Storing…")
 	selection, err := l.Selection()
 	if err != nil {
@@ -791,11 +856,11 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 	}
 	put := make([]Stored, len(news))
 	for i, n := range news {
-		var idx bytes.Buffer
-		if err := vocab.WriteIndex(&idx, n.file); err != nil {
+		idx, err := storedIndex(n.file, n.decodes)
+		if err != nil {
 			return nil, err
 		}
-		put[i] = Stored{Record: n.rec, Text: picked[i].Data, Index: idx.Bytes()}
+		put[i] = Stored{Record: n.rec, Text: picked[i].Data, Index: idx}
 		if n.file.Kind != vocab.KindVocabulary {
 			continue
 		}
@@ -810,7 +875,7 @@ func (l *Library) Load(picked []Picked, progress func(string)) ([]StoredFile, er
 	if err := l.disk.Change(put, nil, selection); err != nil {
 		return nil, fmt.Errorf("storing the batch in this browser: %w", err)
 	}
-	next.set = next.relink(set, dropped)
+	next.relink(set, dropped)
 	l.state.Store(next)
 	return l.Files(), nil
 }
@@ -849,8 +914,8 @@ func breaks(kept []*held, dropped map[*held]string) string {
 
 // relink copies s's files with their faults as dropped has them, a file
 // that links again losing its old fault, so the shelf before stays as it
-// was; and returns set.
-func (s *shelf) relink(set *vocab.Set, dropped map[*held]string) *vocab.Set {
+// was; and makes set, which they link to, its set.
+func (s *shelf) relink(set *vocab.Set, dropped map[*held]string) {
 	s.server = slices.Clone(s.server)
 	for _, hs := range [][]*held{s.server, s.browser} {
 		for i, h := range hs {
@@ -863,7 +928,21 @@ func (s *shelf) relink(set *vocab.Set, dropped map[*held]string) *vocab.Set {
 			hs[i] = &c
 		}
 	}
-	return set
+	s.use(set)
+}
+
+// use makes set, which s's linked files make, its set, and its stock
+// files its stock sources: each stock.NewFile, as on the server, a yard's
+// VINs read from the decodes kept with it.
+func (s *shelf) use(set *vocab.Set) {
+	s.set, s.stock = set, nil
+	byFile := map[*vocab.File]*held{}
+	for _, h := range s.all() {
+		byFile[h.file] = h
+	}
+	for _, f := range set.Stock() {
+		s.stock = append(s.stock, stock.NewFile(f, stockDecode(byFile[f].decodes)))
+	}
 }
 
 // removeRefusal is a remove that would leave other stored files unable to
@@ -931,7 +1010,7 @@ func (l *Library) Remove(names []string, all bool) error {
 			return fmt.Errorf("removing the catalog from this browser: %w", err)
 		}
 	}
-	next.set = next.relink(set, dropped)
+	next.relink(set, dropped)
 	l.state.Store(next)
 	return nil
 }

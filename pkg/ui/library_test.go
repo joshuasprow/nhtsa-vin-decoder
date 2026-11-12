@@ -312,6 +312,15 @@ type fakeServer struct {
 	status  int
 	down    bool
 	gets    []string
+	posts   [][]byte // the bodies POSTed
+}
+
+func (s *fakeServer) Post(path string, body []byte) (int, []byte, error) {
+	s.posts = append(s.posts, body)
+	if s.down {
+		return 0, nil, errors.New("Failed to fetch")
+	}
+	return http.StatusNotFound, nil, nil
 }
 
 func (s *fakeServer) Get(path string) (int, []byte, error) {

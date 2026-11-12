@@ -169,6 +169,9 @@
         }
         await showFiles();
         say('ready', 'Your files stay in this browser and are translated here.');
+        // The panel settled before the page was ready, so what a compile
+        // not finished left is dropped and said now.
+        usage().catch(() => {});
       })().catch((err) => say('failed', 'The translator in this browser could not start: ' + err + '.'));
     }
     return starting;

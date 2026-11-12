@@ -623,6 +623,22 @@ a reload, and its refusals, quota and staleness. The worker's
 `Server-Timing` adds `fit` (the last `Fit`'s own time), `heap` and `memory`
 (the module's Go heap and WebAssembly memory), which the browser half of
 ADR 0023's budget is measured by.
+Stock files load in the browser too
+([#265](https://github.com/joshuasprow/nitrovin/issues/265)): `Library.Load`
+takes them like any file, with the server's faults and drift, but refuses a
+connector's file ("connectors run on a server") and a shelf whose catalog
+the browser does not hold. Each is stored with its index
+(`vocab.WriteIndex` writes a stock file's rows), read from memory through
+`stock.NewFile` as on the server, and its sources are the Library's `Fitter`'s
+`Stock`, in the set's order: the browser's files by name. A yard's VINs
+are the one thing a load sends the server: `POST /v1/decode` in batches of
+50 (`ui.Remote`'s `Post`, `worker.js`'s `nitrovinPost`), read as the server's
+`StockDecode` reads a decode, and kept after the file's index in its stored
+index (`storedIndex`), so a release that keeps no index decodes them again
+when it opens the file. `stock_test.go` holds the browser's fit, every
+request of `TestLibraryCatalogFit` asked with every kind of stock and at
+locations, to the server's on the same files, and `TestWorkerStock` does
+the same for the fit page in Chrome, with what the module retains.
 `cmd/nitrovin-sw` is the module: `ui.NewInBrowser`
 over a `Library`, given IndexedDB and `fetch` by `pkg/ui/static/worker.js`,
 the worker script that `/sw.js` (its release and the server's files, never
@@ -760,6 +776,13 @@ spine compiles it, after the browser loads its vehicle vocabulary, says
 which drift kinds it could not check, keeps it over a reload, answers
 `/ui/fit` from the worker only once it holds it, and downloads it as a
 compiled catalog that opens.
+
+`TestWorkerStock` (`workerstock_test.go`) loads the synthetic shelves and
+yard beside that catalog: a shelf before it, and a connector's file, are
+refused in words; the yard's one VIN to decode is the only body the server
+gets; the worker's fit pages with stock are the server's on the same files
+in the same order, before and after a reload; it logs the module's retained
+memory, and checks the dialog's first opening drops a compile's leftovers.
 
 `cmd/libnitrovin` is the C library (`-buildmode=c-shared`, no data).
 `scripts/libnitrovin.sh <dir> [<goos>/<goarch>…]` builds it for all six

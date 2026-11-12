@@ -728,7 +728,7 @@ func (h *Handler) serviceWorker(w http.ResponseWriter, info contract.Info) error
 			continue
 		}
 		if f.Kind == string(vocab.KindStock) {
-			continue // stock loads on the server only
+			continue // never published: a browser loads stock of its own
 		}
 		c.Files = append(c.Files, workerFile{Name: f.Name, Kind: f.Kind, Version: f.Version, Blake3: f.Blake3, URL: FilePath(info, f)})
 	}

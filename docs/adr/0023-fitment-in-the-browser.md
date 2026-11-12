@@ -571,6 +571,26 @@ page starts, as decided, and a Service Worker's events stay short.
 - **The server's catalog is named, never published:** `/sw.js` carries its
   name, so the browser refuses a catalog of its own while the server has one,
   and the worker sends the fit page to the server.
+- **Stock files** ([#265](https://github.com/joshuasprow/nitrovin/issues/265))
+  load in the dialog like any file, with the server's faults and drift, and
+  are stored with their index (a stock file's rows are now in it) and read
+  from memory through `stock.NewFile`, as on the server. A shelf loads only
+  beside the browser's own catalog: one of the server's catalog loads on the
+  server. A connector's file is refused: "connectors run on a server". A
+  yard's VINs, of the rows with no `decoded`, are decoded by the server's
+  `POST /v1/decode` as the file loads, 50 a request (a full decode is about
+  18 kB), and the decodes are kept in its stored index, by blake3 and
+  release, so another release decodes them again when it opens the file. The
+  dialog repeats ADR 0019's warning about personal data, and a row's fields
+  never leave the browser. The fit page's stock lists are the server's on
+  the same files in the same order (the browser's sources are its files in
+  name order). Drift, a shelf's orphans among it (one read of the catalog a
+  numbered row), is measured once for a set of files, when a page first
+  draws the dialog; a fit asked by htmx draws none, and no longer reads
+  drift for its `Info` (`Library.LoadInfo`). With
+  the synthetic shelves and yard beside the fixture's catalog, Chrome 157
+  retained 21.3 MiB of Go heap and 52.9 MiB of WebAssembly memory (19.7 and
+  52.9 MiB with the catalog alone), within 64 MiB.
 
 ## Considered options
 

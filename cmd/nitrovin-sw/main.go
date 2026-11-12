@@ -6,8 +6,8 @@
 // with Go's toolchain for js/wasm by scripts/sw.sh, which `nitrovin serve`
 // embeds and publishes at /ui/r/<release>/sw.wasm; pkg/ui's worker.js
 // loads it. It gives the Library the browser: IndexedDB through
-// self.nitrovinDisk (disk.js) and the server through self.nitrovinGet,
-// and sets self.nitrovin:
+// self.nitrovinDisk (disk.js) and the server through self.nitrovinGet and
+// self.nitrovinPost, and sets self.nitrovin:
 //
 //	serve(method, url, hxRequest, hxHistoryRestore, body) → Promise<{status, headers, body}>
 //	load([{name, data: Uint8Array}], progress(text)) → Promise<{ok, message}>
@@ -136,37 +136,44 @@ func (w *worker) serve(method, url, hx, restore, body string) map[string]any {
 	reads, waited := blobReads.Load(), blobWaited.Load()
 	answer.Reset()
 	rec := &recorder{h: http.Header{}, body: &answer}
+	// A read that timed out before this request is none of this one's.
+	readTimedOut = false
 	h, err := w.open()
-	if err != nil {
+	switch {
+	case err != nil:
 		rec.h.Set("Content-Type", "text/plain; charset=utf-8")
 		rec.WriteHeader(http.StatusServiceUnavailable)
 		fmt.Fprintf(rec, "The translator in this browser could not start: %v. Reload the page to try again.", err)
-	} else {
+	case readTimedOut:
+		// Opening the files read the stored catalog, and a read timed out:
+		// the catalog was left out for that alone, so the next request
+		// opens them again.
+		w.reset()
+	default:
 		req, err := http.NewRequest(method, url, io.NopCloser(strings.NewReader(body)))
 		if err != nil {
 			rec.WriteHeader(http.StatusBadRequest)
 			fmt.Fprint(rec, err)
-		} else {
-			if method == http.MethodPost {
-				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			}
-			if hx != "" {
-				req.Header.Set("HX-Request", hx)
-			}
-			if restore != "" {
-				req.Header.Set("HX-History-Restore-Request", restore)
-			}
-			readTimedOut = false
-			h.ServeHTTP(rec, req)
-			if readTimedOut {
-				answer.Reset()
-				rec = &recorder{h: http.Header{}, body: &answer}
-				rec.h.Set("Content-Type", "text/plain; charset=utf-8")
-				rec.h.Set("Retry-After", "5")
-				rec.WriteHeader(http.StatusServiceUnavailable)
-				fmt.Fprint(rec, readTimeoutText)
-			}
+			break
 		}
+		if method == http.MethodPost {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		if hx != "" {
+			req.Header.Set("HX-Request", hx)
+		}
+		if restore != "" {
+			req.Header.Set("HX-History-Restore-Request", restore)
+		}
+		h.ServeHTTP(rec, req)
+	}
+	if readTimedOut {
+		answer.Reset()
+		rec = &recorder{h: http.Header{}, body: &answer}
+		rec.h.Set("Content-Type", "text/plain; charset=utf-8")
+		rec.h.Set("Retry-After", "5")
+		rec.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprint(rec, readTimeoutText)
 	}
 	if w.lib != nil {
 		// What the module holds after answering, for the browser's half of
@@ -599,12 +606,20 @@ func (disk) RemoveCatalog() error {
 	return err
 }
 
-// remote is the server, through self.nitrovinGet (worker.js's, or
-// compile.js's).
+// remote is the server, through self.nitrovinGet and self.nitrovinPost
+// (worker.js's, or compile.js's).
 type remote struct{}
 
 func (remote) Get(path string) (int, []byte, error) {
 	v, err := await(js.Global().Call("nitrovinGet", path))
+	if err != nil {
+		return 0, nil, err
+	}
+	return v.Get("status").Int(), goBytes(v.Get("body")), nil
+}
+
+func (remote) Post(path string, body []byte) (int, []byte, error) {
+	v, err := await(js.Global().Call("nitrovinPost", path, jsBytes(body)))
 	if err != nil {
 		return 0, nil, err
 	}

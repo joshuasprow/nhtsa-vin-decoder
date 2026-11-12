@@ -268,8 +268,9 @@ echo '{"from":{"model":1850},"model_year":2010,"part":{"vocabulary":"part-codes"
   nitrovin --vocab testdata/vocab --vocab testdata/vocab/fitment fit -
 ```
 
-The browser neither loads a catalog nor is
-offered the server's, and `serve` never publishes one. In Go, a loaded
+`serve` never publishes a catalog, and a browser never reads the
+server's: while the server has none, a browser may compile one of its own
+(**In a browser**, below). In Go, a loaded
 catalog is a `fitment.Reader` ([`pkg/fitment`](../pkg/fitment)), the one
 interface every consumer reads it through (ADR 0017): `ByVehicle`,
 `ByNumber`, `Redirect`, `Fitments` (a page of fitments in key order) and
@@ -412,8 +413,9 @@ compiled file with the stock files finds the same drift.
 
 A shelf whose catalog is not loaded, a row in neither form, a duplicate
 id, a part the catalog's spine lacks, and a vehicle its vehicle
-vocabulary has no entry for are faults. The browser loads no stock, and
-`serve` publishes none. In Go, each source is a `stock.Source`
+vocabulary has no entry for are faults. `serve` publishes no stock; a
+browser loads stock files of its own beside the catalog it holds
+(**In a browser**, below), and never a connector. In Go, each source is a `stock.Source`
 ([`pkg/stock`](../pkg/stock)): `stock.NewFile` over a loaded stock file,
 or a connector's (below). Every
 lookup takes a `context.Context` and returns the release and `as_of` it
@@ -538,8 +540,8 @@ darwin/arm64 and linux/amd64 alike), most of it Postgres's type codecs
 and the Unicode tables its password hashing needs; ADR 0020's estimate
 was 0.5 MB. The C library loads a connector's file as a source that is
 always unavailable (`this build reads stock files only: a connector
-needs the nitrovin binary`), and the browser loads no stock; neither
-links a driver. In Go, `nitrovin.NewTranslatorWith(d,
+needs the nitrovin binary`), and the browser refuses one (`connectors run
+on a server`) and loads stock files alone; neither links a driver. In Go, `nitrovin.NewTranslatorWith(d,
 nitrovin.TranslatorConfig{Connect: pg.Connect(os.Getenv)}, files...)`
 connects them, and `nitrovin.NewTranslator` does not; the Translator's
 `Close` releases their connections, which every `nitrovin` command does
@@ -795,7 +797,17 @@ that load. Release builds also offer [EPA's vocabulary](#epas-vocabulary)
 of their data month as a one-click load: `serve` publishes it, byte for
 byte as nitrovin-data's release has it, at
 `/ui/r/<release>/vocab/<blake3>/epa-vehicles.jsonl`, and the browser keeps
-it like a file of yours.
+it like a file of yours. A catalog picked on its own is compiled in the
+browser instead, while the server has none, and the worker then answers
+the fit page (`/ui/fit`) from it
+([ADR 0023](adr/0023-fitment-in-the-browser.md)). Stock files load in the
+dialog too: a shelf beside that catalog, which the browser must hold, and
+a yard, whose VINs (of the rows with no `decoded`) the worker sends to the
+server's `POST /v1/decode` once as it loads, keeping the decodes with the
+file. The fit page lists them as a server lists the same files loaded in
+the same order (the browser's in name order). A row's fields never leave
+the browser, and the dialog repeats that a stock file supplies no personal
+data. A connector's file is refused: connectors run on a server.
 
 **stdio**: a line with `"op": "translate"` or `"op": "list"` carries that
 request, and its reply is keyed `translation` or `list`:
