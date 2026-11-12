@@ -579,25 +579,36 @@ func apiDocs(info *contract.Info) string {
 // Rendering is whole before anything is written, so a template's fault is
 // a clean 500.
 func (h *Handler) render(w http.ResponseWriter, frag bool, info *contract.Info, v view, failed bool) {
-	var body bytes.Buffer
-	if frag && !failed {
-		if err := tpl.ExecuteTemplate(&body, "fragment-title", v.title); err != nil {
-			panic(err)
-		}
+	status := v.status
+	if status == 0 {
+		status = http.StatusOK
 	}
-	if err := tpl.ExecuteTemplate(&body, v.template, v.data); err != nil {
-		panic(fmt.Errorf("template %s: %w", v.template, err))
-	}
-	out := &body
+	// A fragment, the page htmx swaps in, streams to w as it is drawn: a
+	// fit's related vehicles are MBs of HTML, which a buffer would hold
+	// whole, grown and copied, on every request (ADR 0023).
 	if frag && !failed {
-		if err := tpl.ExecuteTemplate(&body, "clear-error", nil); err != nil {
-			panic(err)
-		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Vary", "HX-Request")
 		if v.target != "" {
 			w.Header().Set("HX-Retarget", v.target)
 			w.Header().Set("HX-Reswap", "innerHTML")
 		}
+		w.WriteHeader(status)
+		for _, t := range []struct {
+			name string
+			data any
+		}{{"fragment-title", v.title}, {v.template, v.data}, {"clear-error", nil}} {
+			if err := tpl.ExecuteTemplate(w, t.name, t.data); err != nil {
+				panic(fmt.Errorf("template %s: %w", t.name, err))
+			}
+		}
+		return
 	}
+	var body bytes.Buffer
+	if err := tpl.ExecuteTemplate(&body, v.template, v.data); err != nil {
+		panic(fmt.Errorf("template %s: %w", v.template, err))
+	}
+	out := &body
 	if !frag {
 		out = new(bytes.Buffer)
 		page := layout{Title: v.title, HTMXConfig: htmxConfig, Body: template.HTML(body.String()),
@@ -622,10 +633,6 @@ func (h *Handler) render(w http.ResponseWriter, frag bool, info *contract.Info, 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(out.Len()))
 	w.Header().Set("Vary", "HX-Request")
-	status := v.status
-	if status == 0 {
-		status = http.StatusOK
-	}
 	w.WriteHeader(status)
 	_, _ = w.Write(out.Bytes())
 }

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Fitment in the browser: a compiled format clustered by vehicle, compiled and read there
@@ -19,27 +19,27 @@ It amends four ADRs:
 - **ADR 0021:** compiled format 2 replaces format 1, and one streaming compiler
   replaces the in-memory one.
 
-**Status: proposed until the browser half is met on the wide variants.** A
-prototype must meet the budgets below: the format half measured in Go on the
-catalog-scale fixture and its wide variants, the browser half in current
-stable Chrome, Safari and Firefox. A miss stops the work for a person to
-decide whether to change the design or the budget.
+**Status: accepted (2026-11-12): both halves are met.** A prototype had to
+meet the budgets below: the format half measured in Go on the catalog-scale
+fixture and its wide variants, the browser half in current stable Chrome,
+Safari and Firefox, and a miss stopped the work for a person to decide
+whether to change the design or the budget.
 
 - **The format half** is met on the catalog-scale fixture (2026-11-12,
   [#262](https://github.com/joshuasprow/nitrovin/issues/262); see Measured),
   and with a share of fitments of hundreds of applications too, related
   vehicles included, since
   [#267](https://github.com/joshuasprow/nitrovin/issues/267) (2026-11-12).
-- **The browser half** is met on the catalog-scale fixture in Chrome, Safari,
-  Firefox, WebKit and Chromium on format 3 (2026-11-12,
-  [#263](https://github.com/joshuasprow/nitrovin/issues/263); see The
-  browser half), after two decisions on its misses. The design changed: the
-  module's collector runs between requests, and the module answers one
-  request at a time. And the budget changed for one kind: reverse's p99 in a
-  browser is 3 ms per key, the server's still 1 ms (see Budget). On the wide
-  variants it misses: related vehicles with no year take 59–61 ms at p99 at
-  1% (50 ms), and retained memory is 64.6–67.6 MiB at every share (64 MiB);
-  see On the wide variants. A person decides.
+- **The browser half** is met on format 3 on the catalog-scale fixture in
+  Chrome, Safari, Firefox, WebKit and Chromium, and on its wide variants
+  (2026-11-12, [#263](https://github.com/joshuasprow/nitrovin/issues/263);
+  see The browser half), after decisions on each miss. The design changed
+  where it missed: the module's collector runs between requests and it
+  answers one request at a time; related vehicles stream the shared spans;
+  and the fit page draws its JSON in one pass and streams its HTML. The
+  budget changed for two kinds, in a browser only: reverse's p99 is 3 ms
+  per key and related vehicles with no year 100 ms, the server's still
+  ADR 0018's 1 ms and 50 ms (see Budget). Retained memory stays 64 MiB.
 
 ## Who it is for
 
@@ -147,8 +147,9 @@ The reads come from the layout:
 | | Budget |
 | --- | --- |
 | Reads per request (CI, a counting `ReaderAt`) | candidates ≤ 10; part types ≤ 20, with or without a year; related ≤ 100, with or without a year; reverse ≤ 2 per key; a 1,000-fitment page ≤ 8 |
-| `fit` p99, server and the three browsers | ADR 0018's, unchanged, but for reverse in a browser |
+| `fit` p99, server and the three browsers | ADR 0018's, unchanged, but for reverse and related vehicles with no year in a browser |
 | `fit` p99 of reverse, in a browser | ≤ 3 ms per key (the server's stays ADR 0018's 1 ms) |
+| `fit` p99 of related vehicles with no year, in a browser | ≤ 100 ms (the server's stays ADR 0018's 50 ms) |
 | Retained in the browser | ≤ 64 MiB |
 | Compile peak, CLI and browser | ≤ 256 MiB |
 | Compiled file | ≤ 500 MB (ADR 0021) |
@@ -163,7 +164,14 @@ of a few KB, and its tail is that read: one that starts just after the module's
 collection is slow inside the browser (see The browser half), which nothing in
 the module reaches, and Firefox's clock is a millisecond. And in a browser a
 reverse request is one click, not a bulk job of a thousand keys, where a
-millisecond a key adds up. 3 ms covers both with room. Browsers can't run in CI, so CI holds
+millisecond a key adds up. 3 ms covers both with room.
+
+**Related vehicles with no year in a browser is 100 ms, decided 2026-11-12**
+after the browser measured 59–61 ms at p99 on the 1% wide variants against
+50 ms. Its tail is the fit's own work over some 1,480 shared wide fitments,
+not a collection (see The browser half). On a page it is one click that
+opens a section, and 1% of fitments each of 50–500 applications is a
+synthetic extreme. The server keeps 50 ms. Browsers can't run in CI, so CI holds
 the read counts and the release notes record the browser numbers.
 
 ## Measured
@@ -453,47 +461,52 @@ collected in the middle of a request and 60.1 MiB retained.
 
 #### On the wide variants
 
-Measured in Chromium 151 (Playwright) on 2026-11-12 at `881d3e8`, after
-related vehicles stopped holding the shared spans (see the format half's
-related vehicles), the same way: 1,024 answers a kind, shuffled, each page
-the server's byte for byte (384 of 384 on every variant). The machine was
-otherwise quiet but for the desktop's own load (1-minute load 2.4–3.8); a
-first wide-1 run, which may have overlapped another agent's browser runs, gave the same
-numbers within 4 ms.
+Measured in Chromium 151 (Playwright) on 2026-11-12, after related vehicles
+stopped holding the shared spans (`881d3e8`, see the format half's related
+vehicles) and the fit page stopped drawing its JSON twice and building
+fragments whole (see What was built), the same way: 1,024 answers a kind,
+shuffled, each page the server's byte for byte (384 of 384 on every
+variant). Firefox 160 was measured on wide-1 and the fixture too. The
+machine's 1-minute load was 2.0–3.3 for these runs, but 4.4–7.8 for
+wide-1-varied (other work on the machine); its retained memory was the
+same in two runs, and its times the slower of the two are below.
 
-`fit` p99 (p50); **bold** misses:
+`fit` p99 (p50), and what the module retained:
 
-| Request | wide-0.1 | wide-0.3 | wide-1 | wide-1-varied | Budget |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| candidates | 1.9 ms (0.6) | 2.5 ms (0.6) | 0.9 ms (0.6) | 0.9 ms (0.6) | 5 ms |
-| part types | 2.2 ms (1.0) | 3.2 ms (1.1) | 1.8 ms (1.4) | 1.9 ms (1.5) | 10 ms |
-| part types, no year | 3.5 ms (2.2) | 4.5 ms (2.4) | 3.8 ms (3.1) | 3.7 ms (3.1) | 10 ms |
-| related vehicles | 5.8 ms (4.1) | 9.7 ms (6.4) | 21.3 ms (12.8) | 28.7 ms (18.7) | 50 ms |
-| related vehicles, no year | 11.3 ms (9.8) | 21.7 ms (18.7) | **59.2 ms** (50.2) | **61.0 ms** (49.7) | 50 ms |
-| reverse | 1.5 ms (0.3) | 1.5 ms (0.3) | 0.5 ms (0.3) | 0.6 ms (0.3) | 3 ms |
-| Retained WebAssembly memory | **64.6 MiB** | **67.6 MiB** | **67.6 MiB** | **66.1 MiB** | 64 MiB |
-| Answers spanning a collection | 0 | 0 | 48 | 62 | |
-| Compile, peak | 14.4 s, 171 MiB | 16.6 s, 176 MiB | 25.4 s, 172 MiB | 25.4 s, 170 MiB | 256 MiB |
+| Request | wide-0.1 | wide-0.3 | wide-1 | wide-1 (Firefox) | wide-1-varied | Budget |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| candidates | 2.4 ms (0.6) | 2.3 ms (0.6) | 2.0 ms (0.6) | 2 ms (1) | 2.7 ms (0.7) | 5 ms |
+| part types | 1.3 ms (1.0) | 2.5 ms (1.1) | 3.1 ms (1.4) | 3 ms (2) | 3.3 ms (1.6) | 10 ms |
+| part types, no year | 3.7 ms (2.2) | 4.2 ms (2.4) | 4.8 ms (3.1) | 6 ms (4) | 5.5 ms (3.3) | 10 ms |
+| related vehicles | 4.6 ms (4.0) | 7.8 ms (6.3) | 14.7 ms (12.8) | 24 ms (18) | 36.1 ms (19.3) | 50 ms |
+| related vehicles, no year | 11.0 ms (9.7) | 20.4 ms (18.6) | 53.3 ms (50.2) | 81 ms (67) | 74.1 ms (51.6) | 100 ms in a browser |
+| reverse | 2.1 ms (0.3) | 1.7 ms (0.3) | 2.1 ms (0.3) | 3 ms (0) | 2.2 ms (0.3) | 3 ms |
+| Retained: Go heap / WebAssembly memory | 26.1 / 59.6 MiB | 26.6 / 60.1 MiB | 27.9 / 60.1 MiB | 25.5 / 59.9 MiB | 28.0 / 63.1 MiB | 64 MiB |
+| Answers spanning a collection | 0 | 0 | 0 | 0 | 0 | |
+| Compile, peak | 14.1 s, 169 MiB | 16.6 s, 170 MiB | 24.9 s, 172 MiB | 31.4 s, 172 MiB | 26.4 s, 167 MiB | 256 MiB |
 
-Before, wide-1's related vehicles with no year took 123 ms at p99 and
-retained 114 MiB, each request allocating about 117 MB.
+How it got there, wide-1's related vehicles with no year in Chromium:
 
-- **Why related with no year still misses at 1%:** the fit itself. Its p50
-  is 50 ms, and its p99 is the same with or without a collection: the
-  module's work over some 1,480 shared wide fitments, about 407,000 spans,
-  which takes 17–19 ms natively, and 16 reads of 15 MB together, 6 ms of
-  them waiting at p50. Collections, 48 of 1,024 such answers, don't make
-  the p99.
-- **Why retained memory misses:** the fit page, not the fit. Natively, a
-  wide-1 related request allocates 5.8 MiB in `Library.Fit` and 26 MiB for
-  the whole page: the page draws the answer's JSON (444 KB, indented and
-  formatted again) beside 1.5 MB of HTML. The module collects only between
-  requests, so the heap reaches about 50 MiB inside one, and the WebAssembly
-  memory grows past 64 MiB once; at 1% the heap reaches the 56 MiB backstop,
-  and Go collects inside the request.
-- **The catalog-scale fixture is unchanged:** measured again in all four
-  engines at `881d3e8`, every budget is met (worst p99 3.8 ms, reverse
-  1.0–1.7 ms, retained 58.6–61.6 MiB).
+| | `fit` p99 | Retained | Allocated a request |
+| --- | ---: | ---: | ---: |
+| Before (`accf15a`) | 123 ms | 114.1 MiB | about 117 MB |
+| Related streamed (`881d3e8`) | 59.2 ms | 67.6 MiB | 24.7 MB (5.8 MiB in the fit) |
+| And the page drawn lighter | 53.3 ms | 60.1 MiB | 14.8 MB (5.4 MiB in the fit) |
+
+- **Related with no year at 1% is the fit's own work:** some 1,480 shared
+  wide fitments, about 407,000 spans, 17–19 ms natively, and 16 reads of
+  15 MB together. Its p50 is 50 ms, within the browser's 100 ms.
+- **Memory was the page's.** The fit page drew the answer's JSON indented,
+  formatted it again and escaped a copy, then built the whole fragment in a
+  buffer the module copied again into its answer and once more into a
+  string for JavaScript: 26 MiB a wide-1 related request, natively. It now
+  writes the JSON indented and escaped in one pass, streams a fragment to
+  the response, and the module keeps its answer's buffer between requests
+  and hands JavaScript the bytes. The heap no longer reaches the backstop
+  inside a request, and no answer spanned a collection.
+- **The catalog-scale fixture,** measured at the same build in Chromium and
+  Firefox: every budget is met, the worst p99 4 ms, retained 56.4 MiB in
+  both (it was 58.6–61.6 MiB).
 
 ### A Service Worker's lifetime
 
@@ -536,6 +549,11 @@ page starts, as decided, and a Service Worker's events stay short.
 - **A read gives up after 10 s.** A read IndexedDB never answers would hold
   every request behind it, so `disk.js` fails it after 10 s and the module
   answers 503, "Reload the page to try again", and takes the next request.
+- **The fit page is drawn light.** Its JSON is written indented and escaped
+  for the page in one pass (`jsonText`, the bytes `json.MarshalIndent` and
+  `html/template` gave), a fragment streams to the response as it is
+  drawn, and the module keeps its answer's buffer from one request to the
+  next and hands JavaScript bytes, not a string.
 - **One request at a time, and the collector between them.** `sw.wasm`
   answers one request at a time. While serving it turns Go's pacing off
   (`debug.SetGCPercent(-1)`) and, once 4 MiB have been allocated since the

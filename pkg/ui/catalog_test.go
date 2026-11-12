@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"html/template"
 	"io"
 	"log"
 	"net/http"
@@ -516,4 +517,45 @@ func TestLibraryCatalogStale(t *testing.T) {
 	if disk2.catalog != nil || len(disk2.records) != 0 || len(stored(l)) != 0 {
 		t.Errorf("after removing all: %v, %v, %q", disk2.catalog, disk2.records, stored(l))
 	}
+}
+
+// TestJSONText: the fit page's JSON is the bytes json.MarshalIndent writes,
+// escaped as html/template escapes a string, written in one pass.
+func TestJSONText(t *testing.T) {
+	d := embedded(t)
+	srv := serverTranslator(t, d)
+	for _, req := range []contract.FitRequest{
+		{From: contract.FitFrom{SpineRef: contract.SpineRef{Model: 1938}}, Related: true, Now: fitNow},
+		{From: contract.FitFrom{Fitment: &contract.FitmentKey{Type: "brake-rotor-front", Number: "BR-1999"}}, Now: fitNow},
+	} {
+		fit, err := srv.Fit(context.Background(), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := json.MarshalIndent(fit, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := jsonText(fit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != htmlEscaped(string(want)) {
+			t.Errorf("jsonText differs from MarshalIndent, escaped:\n%s\n%s", got, want)
+		}
+	}
+	if got, _ := jsonText(map[string]string{"a": "<b> & 'c' + \"d\""}); got != `{
+  &#34;a&#34;: &#34;\u003cb\u003e \u0026 &#39;c&#39; &#43; \&#34;d\&#34;&#34;
+}` {
+		t.Errorf("escaping: %s", got)
+	}
+}
+
+// htmlEscaped is s as html/template escapes a string in an element's text.
+func htmlEscaped(s string) string {
+	var b strings.Builder
+	if err := template.Must(template.New("").Parse(`{{.}}`)).Execute(&b, s); err != nil {
+		panic(err)
+	}
+	return b.String()
 }

@@ -134,7 +134,8 @@ func (w *worker) serve(method, url, hx, restore, body string) map[string]any {
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 	reads, waited := blobReads.Load(), blobWaited.Load()
-	rec := &recorder{h: http.Header{}}
+	answer.Reset()
+	rec := &recorder{h: http.Header{}, body: &answer}
 	h, err := w.open()
 	if err != nil {
 		rec.h.Set("Content-Type", "text/plain; charset=utf-8")
@@ -158,7 +159,8 @@ func (w *worker) serve(method, url, hx, restore, body string) map[string]any {
 			readTimedOut = false
 			h.ServeHTTP(rec, req)
 			if readTimedOut {
-				rec = &recorder{h: http.Header{}}
+				answer.Reset()
+				rec = &recorder{h: http.Header{}, body: &answer}
 				rec.h.Set("Content-Type", "text/plain; charset=utf-8")
 				rec.h.Set("Retry-After", "5")
 				rec.WriteHeader(http.StatusServiceUnavailable)
@@ -190,7 +192,9 @@ func (w *worker) serve(method, url, hx, restore, body string) map[string]any {
 	if rec.status == 0 {
 		rec.status = http.StatusOK
 	}
-	return map[string]any{"status": rec.status, "headers": headers, "body": rec.body.String()}
+	// The body goes to JavaScript as bytes, copied once into a Uint8Array,
+	// never as a Go string first.
+	return map[string]any{"status": rec.status, "headers": headers, "body": jsBytes(rec.body.Bytes())}
 }
 
 // load loads picked as one batch, and says what it loaded.
@@ -476,8 +480,13 @@ func (w *catalogWriter) Abort() error { return w.drop() }
 type recorder struct {
 	h      http.Header
 	status int
-	body   bytes.Buffer
+	body   *bytes.Buffer
 }
+
+// answer is the body of the request being answered, kept from one to the
+// next: requests are answered one at a time (turn), and a page of related
+// vehicles is MBs, which a fresh buffer would grow to again each time.
+var answer bytes.Buffer
 
 func (r *recorder) Header() http.Header { return r.h }
 

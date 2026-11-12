@@ -233,7 +233,7 @@ func TestWorkerCatalogParts(t *testing.T) {
 		const took = Date.now() - t0;
 		Blob.prototype.slice = slice;
 		const next = await self.nitrovin.serve("GET", `+jsString(fit+"05"+pinned)+`, "true", "", "");
-		return [String(r.status), r.headers["Retry-After"] || "", r.body, String(held), String(took), String(next.status)];
+		return [String(r.status), r.headers["Retry-After"] || "", new TextDecoder().decode(r.body), String(held), String(took), String(next.status)];
 	})()`)
 	if got[0] != "503" || got[1] != "5" || got[2] != "This browser's storage did not answer a read of its files in 10 s. Reload the page to try again." || got[3] == "0" || got[5] != "200" {
 		t.Errorf("a read that never settles: %q", got)

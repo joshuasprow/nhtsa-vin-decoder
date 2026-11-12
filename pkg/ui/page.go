@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
+	"html/template"
 	"maps"
 	"net/http"
 	"net/url"
@@ -490,9 +493,68 @@ type result struct {
 // jsonDoc is one JSON object the dialog shows: its element's id, what it
 // is, in a heading and for its copy button, the request on /v1 that
 // answers it ("" for a translation, which only this browser may be able
-// to answer), and its text, indented.
+// to answer), and its text, indented and escaped for the page (jsonText).
 type jsonDoc struct {
-	ID, Title, What, Href, Text string
+	ID, Title, What, Href string
+	Text                  template.HTML
+}
+
+// jsonText is v as json.MarshalIndent writes it, indented by two spaces,
+// escaped as html/template escapes an element's text, in one pass: a
+// related page's answer is hundreds of KB, and marshalling it, formatting
+// it again and escaping a copy of it cost a browser's module MBs a request
+// (ADR 0023).
+func jsonText(v any) (template.HTML, error) {
+	var b strings.Builder
+	if err := jsonv2.MarshalWrite(htmlText{&b}, v, json.DefaultOptionsV1(), jsontext.WithIndent("  ")); err != nil {
+		return "", err
+	}
+	return template.HTML(b.String()), nil
+}
+
+// indentText is raw, JSON, indented and escaped as jsonText's.
+func indentText(raw []byte) (template.HTML, error) {
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, raw, "", "  "); err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	_, _ = htmlText{&b}.Write(indented.Bytes())
+	return template.HTML(b.String()), nil
+}
+
+// htmlText writes text to b escaped as html/template escapes an element's
+// text: the same bytes as {{.}} of a string.
+type htmlText struct{ b *strings.Builder }
+
+func (w htmlText) Write(p []byte) (int, error) {
+	last := 0
+	for i, c := range p {
+		var esc string
+		switch c {
+		case 0:
+			esc = "\uFFFD"
+		case '"':
+			esc = "&#34;"
+		case '&':
+			esc = "&amp;"
+		case '\'':
+			esc = "&#39;"
+		case '+':
+			esc = "&#43;"
+		case '<':
+			esc = "&lt;"
+		case '>':
+			esc = "&gt;"
+		default:
+			continue
+		}
+		w.b.Write(p[last:i])
+		w.b.WriteString(esc)
+		last = i + 1
+	}
+	w.b.Write(p[last:])
+	return len(p), nil
 }
 
 // oldForm reports whether q is an old link to the decode form, /?vin=…:
@@ -630,17 +692,17 @@ func (h *Handler) home(r *http.Request) (view, error) {
 	// browser) changes their load order, never the page.
 	tr.Vocabularies = slices.Clone(tr.Vocabularies)
 	slices.SortFunc(tr.Vocabularies, func(a, b contract.FileVersion) int { return strings.Compare(a.Name, b.Name) })
-	body, err := json.MarshalIndent(tr, "", "  ")
+	body, err := jsonText(tr)
 	if err != nil {
 		return view{}, err
 	}
-	res.JSON = []jsonDoc{{ID: "translation-json", Title: "The translation", What: "the translation's JSON", Text: string(body)}}
+	res.JSON = []jsonDoc{{ID: "translation-json", Title: "The translation", What: "the translation's JSON", Text: body}}
 	if d := res.Decode; d != nil {
-		var text bytes.Buffer
-		if err := json.Indent(&text, []byte(d.Copy.JSON), "", "  "); err != nil {
+		text, err := indentText([]byte(d.Copy.JSON))
+		if err != nil {
 			return view{}, err
 		}
-		res.JSON = append(res.JSON, jsonDoc{ID: "decode-json", Title: "The decode", What: "the decode's JSON", Href: d.JSON, Text: text.String()})
+		res.JSON = append(res.JSON, jsonDoc{ID: "decode-json", Title: "The decode", What: "the decode's JSON", Href: d.JSON, Text: text})
 		if d.VPIC {
 			toggle := maps.Clone(raw)
 			if c.ShowEmpty {

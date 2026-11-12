@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -778,11 +777,11 @@ func (h *Handler) newFitResult(req contract.FitRequest, q url.Values, fit contra
 		fq.Del("after")
 		res.First = fitPath + "?" + fq.Encode()
 	}
-	body, err := json.MarshalIndent(fit, "", "  ")
+	body, err := jsonText(fit)
 	if err != nil {
 		return nil, err
 	}
-	doc := jsonDoc{ID: "fit-json", Title: "The fit", What: "the fit's JSON", Text: string(body)}
+	doc := jsonDoc{ID: "fit-json", Title: "The fit", What: "the fit's JSON", Text: body}
 	if h.b != nil {
 		// Only the server's: /v1/fit never answers from a browser's catalog.
 		doc.Href = "/v1/fit?" + q.Encode()
