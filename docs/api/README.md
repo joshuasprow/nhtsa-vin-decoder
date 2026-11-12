@@ -512,8 +512,9 @@ MCP and C surfaces carry the same object.
   years its VIN schemas cover (ADR 0022): the union of the year bands of
   every VIN schema with a Model pattern naming it, across all its WMIs,
   merged into ranges, `[{"first": 1999, "last": 2006}, {"first": 2009}]`.
-  Gaps are kept, a range with no `last` is still running, and a model with
-  no Model pattern has no `years`: unknown, not empty. `where.year` (only
+  Gaps are kept, a range with no `last` is still running, and when no VIN
+  schema with a Model pattern naming a model has a year band, the model has
+  no `years`: unknown, not empty. `where.year` (only
   with `where.make`) keeps the models whose ranges include the year, an
   open range including every later year, and the models with unknown
   years: a superset of what the make built that year. A spine's entries and an extension set's extensions

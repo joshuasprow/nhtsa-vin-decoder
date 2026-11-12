@@ -18,11 +18,16 @@ func TestModelYearsCounts(t *testing.T) {
 	if embedded.Month != "2026_10" {
 		t.Skipf("ADR 0022 measured 2026_10, not %s", embedded.Month)
 	}
-	years := d.month.years()
-	gaps := 0
-	for _, ys := range years {
-		if len(ys) > 1 {
+	known, unknown, gaps := 0, 0, 0
+	for id := range d.month.ModelIDs() {
+		switch ys := d.month.ModelYears(id); {
+		case ys == nil:
+			unknown++
+		case len(ys) > 1:
 			gaps++
+			fallthrough
+		default:
+			known++
 		}
 	}
 	open, bands := 0, 0
@@ -32,8 +37,10 @@ func TestModelYearsCounts(t *testing.T) {
 			open++
 		}
 	}
-	if len(years) != 31530 || gaps != 920 || open != 12186 || bands != 41810 {
-		t.Errorf("%d models with years, %d with gaps, %d of %d bands open; want 31530, 920, 12186 of 41810", len(years), gaps, open, bands)
+	// ADR 0022 says 540 unknown: 533 models have no Model pattern, and 8
+	// have one whose schemas have no year band.
+	if known != 31529 || unknown != 541 || gaps != 920 || open != 12186 || bands != 41810 {
+		t.Errorf("%d models with years, %d unknown, %d with gaps, %d of %d bands open; want 31529, 541, 920, 12186 of 41810", known, unknown, gaps, open, bands)
 	}
 }
 
@@ -115,7 +122,8 @@ func TestListModelYears(t *testing.T) {
 // TestModelYearsDrift: a mapping whose years fall outside its model's
 // reports model-years drift, saying which and giving the ranges; one
 // within, one to a model with unknown years, one with no years and one to
-// a make never do.
+// a make never do. A single stated end beyond the model's years is wholly
+// outside.
 func TestModelYearsDrift(t *testing.T) {
 	d := embeddedDecoder(t)
 	f, err := vocab.Read("yard", strings.NewReader(strings.Join([]string{
@@ -127,6 +135,10 @@ func TestModelYearsDrift(t *testing.T) {
 		`{"entry":{"make":"Lonestar","model":"TX22"},"mappings":[{"model":32453,"first":2030}]}`,
 		`{"entry":{"make":"Victory","model":"Ness Magnum"},"mappings":[{"model":2924,"first":1950,"last":1951}]}`,
 		`{"entry":{"make":"Oldsmobile","model":"Other"},"mappings":[{"make":4162,"first":1950,"last":1951}]}`,
+		`{"entry":{"make":"Oldsmobile","model":"Cutlass new"},"mappings":[{"model":9068,"first":2005}]}`,
+		`{"entry":{"make":"Oldsmobile","model":"Cutlass old"},"mappings":[{"model":9068,"last":1970}]}`,
+		`{"entry":{"make":"Oldsmobile","model":"Cutlass to 1990"},"mappings":[{"model":9068,"last":1990}]}`,
+		`{"entry":{"make":"Lonestar","model":"TX22 old"},"mappings":[{"model":32453,"last":2010}]}`,
 	}, "\n")))
 	if err != nil {
 		t.Fatal(err)
@@ -142,6 +154,10 @@ func TestModelYearsDrift(t *testing.T) {
 	want := []string{
 		`model-years yard:2: /mappings/0: model years 1985-1990 fall wholly outside vPIC model 9068's years in data month 2026_10: 1981-1981, 1997-1999`,
 		`model-years yard:3: /mappings/0: model years 1998-2002 fall partly outside vPIC model 9068's years in data month 2026_10: 1981-1981, 1997-1999`,
+		`model-years yard:9: /mappings/0: model years 2005- fall wholly outside vPIC model 9068's years in data month 2026_10: 1981-1981, 1997-1999`,
+		`model-years yard:10: /mappings/0: model years -1970 fall wholly outside vPIC model 9068's years in data month 2026_10: 1981-1981, 1997-1999`,
+		`model-years yard:11: /mappings/0: model years -1990 fall partly outside vPIC model 9068's years in data month 2026_10: 1981-1981, 1997-1999`,
+		`model-years yard:12: /mappings/0: model years -2010 fall wholly outside vPIC model 32453's years in data month 2026_10: 2019-`,
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("drift:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

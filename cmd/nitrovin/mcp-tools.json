@@ -820,7 +820,7 @@
                 "items": {
                   "$ref": "#/$defs/YearRange"
                 },
-                "description": "In a list of vpic, a model's model years: the year bands of every VIN schema with a Model pattern naming it, merged into ranges, ascending, gaps kept (ADR 0022). Absent when unknown: the model has no Model pattern."
+                "description": "In a list of vpic, a model's model years: the year bands of every VIN schema with a Model pattern naming it, merged into ranges, ascending, gaps kept (ADR 0022). Absent when unknown: no VIN schema with a Model pattern naming it has a year band."
               },
               "via": {
                 "type": "array",
@@ -1405,7 +1405,7 @@
                 "items": {
                   "$ref": "#/$defs/YearRange"
                 },
-                "description": "In a list of vpic, a model's model years: the year bands of every VIN schema with a Model pattern naming it, merged into ranges, ascending, gaps kept (ADR 0022). Absent when unknown: the model has no Model pattern."
+                "description": "In a list of vpic, a model's model years: the year bands of every VIN schema with a Model pattern naming it, merged into ranges, ascending, gaps kept (ADR 0022). Absent when unknown: no VIN schema with a Model pattern naming it has a year band."
               },
               "via": {
                 "type": "array",

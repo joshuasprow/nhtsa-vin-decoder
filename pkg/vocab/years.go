@@ -71,6 +71,9 @@ func outside(years []YearRange, first, last *int) string {
 	if last != nil {
 		hi = *last
 	}
+	if hi != 0 && lo > hi {
+		return "wholly" // one stated end lies beyond the model's years
+	}
 	in := false
 	for _, r := range years {
 		if r.First <= lo && (r.Last == 0 || hi != 0 && hi <= r.Last) {

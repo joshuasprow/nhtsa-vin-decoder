@@ -72,7 +72,10 @@ func TestSpineBundleTranslates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, want := vocab.Drift(b, files), vocab.Drift(tr.d.month, files); !reflect.DeepEqual(got, want) {
+		// A spine bundle carries no model years (ADR 0022), so it reports
+		// no model-years drift.
+		want := slices.DeleteFunc(vocab.Drift(tr.d.month, files), func(f vocab.Finding) bool { return f.Drift == vocab.DriftModelYears })
+		if got := vocab.Drift(b, files); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: drift through the bundle\n%v\nwant the artifact's\n%v", dir, got, want)
 		}
 	}

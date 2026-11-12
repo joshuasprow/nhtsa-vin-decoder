@@ -90,7 +90,7 @@ func (d *drifts) mapping(line, i int, mp *Mapping) {
 		if _, _, ok := d.m.Model(mp.Model); !ok {
 			d.add(line, DriftModel, "/mappings/%d/model: vPIC model %d is not in data month %s", i, mp.Model, month)
 		} else {
-			d.modelYears(line, fmt.Sprintf("/mappings/%d", i), mp.Model, mp.First, mp.Last)
+			d.modelYears(line, mp.Model, mp.First, mp.Last, func() string { return fmt.Sprintf("/mappings/%d", i) })
 		}
 	}
 	for _, q := range mp.Qualifiers {
@@ -115,16 +115,20 @@ func (d *drifts) mapping(line, i int, mp *Mapping) {
 }
 
 // modelYears reports DriftModelYears when model years [first, last] (nil:
-// unbounded) fall outside vPIC model's years, about the thing at pointer
-// ptr on line: a mapping, or a catalog application whose vehicle is the
-// model. A model with unknown years is never flagged.
-func (d *drifts) modelYears(line int, ptr string, model int32, first, last *int) {
+// unbounded) fall outside vPIC model's years, about the thing on line at
+// the pointer ptr gives, built only for a finding: a mapping, or a catalog
+// application whose vehicle is the model. A model with unknown years, and
+// years unbounded both ways, are never flagged.
+func (d *drifts) modelYears(line int, model int32, first, last *int, ptr func() string) {
+	if first == nil && last == nil {
+		return
+	}
 	years := modelYears(d.m, model)
 	how := outside(years, first, last)
 	if how == "" {
 		return
 	}
-	d.add(line, DriftModelYears, "%s: model years %s fall %s outside vPIC model %d's years in data month %s: %s", ptr, mappingYears(first, last), how, model, d.month, yearsText(years))
+	d.add(line, DriftModelYears, "%s: model years %s fall %s outside vPIC model %d's years in data month %s: %s", ptr(), mappingYears(first, last), how, model, d.month, yearsText(years))
 }
 
 // mappingYears is [first, last] as "2001-2004", "2001-" or "-2004".

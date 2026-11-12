@@ -232,7 +232,8 @@ _Avoid_: model attributes, series list
 
 **Model years**:
 The model-year ranges a vPIC model's VIN schemas cover, gaps kept and an open
-range still running. A model with no Model pattern has none: unknown, not empty.
+range still running. When no VIN schema with a Model pattern naming the model has a year band, it has
+none: unknown, not empty.
 _Avoid_: span (one range hides the gaps), production years
 
 **Extension**:

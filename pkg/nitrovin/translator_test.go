@@ -102,6 +102,7 @@ func TestFixtureDrift(t *testing.T) {
 		driftDetail(`qualifier yard.jsonl:3: /mappings/0/qualifiers/15/1: data month %[1]s never decodes element 15 to attribute id 99`),
 		driftDetail(`make yard.jsonl:4: /mappings/0/make: vPIC make 99999 is not in data month %[1]s`),
 		driftDetail(`model yard.jsonl:5: /mappings/0/model: vPIC model 99999 is not in data month %[1]s`),
+		driftDetail(`model-years yard.jsonl:7: /mappings/0: model years 2005-2010 fall wholly outside vPIC model 13620's years in data month %[1]s: 2013-`),
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("drift:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -117,7 +118,7 @@ func TestFixtureDrift(t *testing.T) {
 	for _, c := range counts["yard"] {
 		kinds = append(kinds, c.Kind+"="+strconv.Itoa(c.Count))
 	}
-	if want := []string{"make=1", "model=1", "qualifier=2"}; !slices.Equal(kinds, want) {
+	if want := []string{"make=1", "model=1", "qualifier=2", "model-years=1"}; !slices.Equal(kinds, want) {
 		t.Errorf("yard drift counts %v; want %v", kinds, want)
 	}
 }

@@ -185,7 +185,7 @@ vocabulary on the month it will run against:
 
 ```sh
 nitrovin vocab check testdata/vocab            # nothing printed, exit 0
-nitrovin vocab check testdata/vocab/drift      # five drift lines, exit 1
+nitrovin vocab check testdata/vocab/drift      # six drift lines, exit 1
 ```
 
 ```json

@@ -4,3 +4,4 @@
 {"entry":{"make":"Imperial","model":"Other"},"mappings":[{"make":99999}]}
 {"entry":{"make":"Dodge","model":"Phantom"},"mappings":[{"model":99999}]}
 {"entry":{"make":"Chevrolet","model":"Silverado"},"mappings":[{"ext":"ext:classics/silverado"}]}
+{"entry":{"make":"Dodge","model":"Ram 1500 Classic"},"mappings":[{"model":13620,"first":2005,"last":2010}]}

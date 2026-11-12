@@ -366,7 +366,7 @@
                   "properties": {
                     "kind": {
                       "enum": ["make", "model", "qualifier", "extension", "model-years"],
-                      "description": "make, model: a vPIC id the month lacks. qualifier: an element the month lacks, a value of the wrong type for it, or a value its decode never produces. extension: an extension named like a vPIC make, or a vPIC model under the same make."
+                      "description": "make, model: a vPIC id the month lacks. qualifier: an element the month lacks, a value of the wrong type for it, or a value its decode never produces. extension: an extension named like a vPIC make, or a vPIC model under the same make. model-years: a mapping's first–last partly or wholly outside its vPIC model's model years."
                     },
                     "count": { "type": "integer", "minimum": 1 },
                     "examples": {
@@ -549,7 +549,7 @@
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/$defs/YearRange" },
-          "description": "In a list of vpic, a model's model years: the year bands of every VIN schema with a Model pattern naming it, merged into ranges, ascending, gaps kept (ADR 0022). Absent when unknown: the model has no Model pattern."
+          "description": "In a list of vpic, a model's model years: the year bands of every VIN schema with a Model pattern naming it, merged into ranges, ascending, gaps kept (ADR 0022). Absent when unknown: no VIN schema with a Model pattern naming it has a year band."
         },
         "via": {
           "type": "array",
