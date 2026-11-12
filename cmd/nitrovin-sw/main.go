@@ -58,12 +58,9 @@ func main() {
 		"serve": js.FuncOf(func(_ js.Value, a []js.Value) any {
 			method, url, hx, restore, body := a[0].String(), a[1].String(), a[2].String(), a[3].String(), a[4].String()
 			return promise(func() (any, error) {
-				serving++
-				res := w.serve(method, url, hx, restore, body)
-				serving--
-				collectBetween()
-				return res, nil
-			})
+				turn.Lock()
+				return w.serve(method, url, hx, restore, body), nil
+			}, collectBetween)
 		}),
 		"load": js.FuncOf(func(_ js.Value, a []js.Value) any {
 			files, progress := a[0], a[1]
@@ -243,11 +240,16 @@ func (w *worker) compile(file js.Value, progress func(string)) (string, error) {
 // The module's collector. WebAssembly runs Go on one thread, so a
 // collection marks the whole heap (about 25 MiB of vocabularies, most of
 // it the spine and the vehicles') on the thread answering: some 7 ms
-// that landed inside one request in twenty, and made ADR 0023's p99. So
-// while serving, the collector never starts on its own: it runs between
-// requests, once one has allocated idleBytes since the last collection,
-// and the memory limit is only a backstop. Memory taken from the
-// browser never shrinks, so the limit keeps it within the budget.
+// that landed inside one request in twenty, and made ADR 0023's p99.
+//
+// So the module answers one request at a time (turn), which on one
+// thread costs nothing but the overlap of reads, and while serving the
+// collector never starts on its own: once a request has answered, and
+// idleBytes have been allocated since the last collection, it runs
+// before the next request's turn, after the answer has gone back.
+// Requests that a page asks at once wait for it, but none is answered
+// across it. The memory limit is only a backstop. Memory taken from the
+// browser never shrinks, and these keep it within the budget.
 //
 // The compile runs in a worker of its own (compile.js) and allocates
 // its batches without pause: there Go's own pacing stands, under the
@@ -257,6 +259,13 @@ const (
 	servingLimit  = 56 << 20
 	compilesLimit = 224 << 20
 )
+
+// turn is held by the request being answered, from the fetch event to
+// collectBetween.
+var turn sync.Mutex
+
+// collected is the heap allocated just after the last collection.
+var collected uint64
 
 // toServe sets the collector for answering requests.
 func toServe() {
@@ -272,37 +281,22 @@ func toCompile() {
 	debug.SetMemoryLimit(compilesLimit)
 }
 
-// serving counts the requests being answered; collected is the heap
-// allocated just after the last collection between requests; collecting
-// says one is due. Go runs on one thread here, so they need no lock.
-var (
-	serving    int
-	collected  uint64
-	collecting bool
-)
-
-// collectBetween asks for a collection once the request answered, if
-// idleBytes have been allocated since the last: in a task after this
-// one, so the answer goes back first. A request that started meanwhile
-// (one awaiting a read gives the thread back) puts it off to its end.
+// collectBetween ends a request's turn, once its answer went back:
+// collecting first if idleBytes have been allocated since the last
+// collection, in a task of its own, so the page has the answer.
 func collectBetween() {
-	if serving > 0 || collecting || heapAlloc() < collected+idleBytes {
+	defer turn.Unlock()
+	if heapAlloc() < collected+idleBytes {
 		return
 	}
-	collecting = true
-	var f js.Func
-	f = js.FuncOf(func(js.Value, []js.Value) any {
-		f.Release()
-		go func() {
-			if serving == 0 {
-				runtime.GC()
-				collected = heapAlloc()
-			}
-			collecting = false
-		}()
+	later := js.FuncOf(func(_ js.Value, a []js.Value) any {
+		js.Global().Call("setTimeout", a[0], 0)
 		return nil
 	})
-	js.Global().Call("setTimeout", f, 0)
+	defer later.Release()
+	await(js.Global().Get("Promise").New(later))
+	runtime.GC()
+	collected = heapAlloc()
 }
 
 // heapAlloc is the heap's objects, live or not yet collected.
@@ -618,13 +612,17 @@ func arg(a []js.Value) js.Value {
 	return a[0]
 }
 
-// promise runs f in a goroutine, resolving with its result.
-func promise(f func() (any, error)) js.Value {
+// promise runs f in a goroutine, resolving with its result, then runs
+// each of after.
+func promise(f func() (any, error), after ...func()) js.Value {
 	var executor js.Func
 	executor = js.FuncOf(func(_ js.Value, a []js.Value) any {
 		resolve, reject := a[0], a[1]
 		go func() {
 			defer executor.Release()
+			for _, g := range after {
+				defer g()
+			}
 			v, err := f()
 			if err != nil {
 				reject.Invoke(err.Error())
