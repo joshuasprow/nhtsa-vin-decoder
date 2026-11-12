@@ -55,7 +55,11 @@ flowchart LR
   is `no-store`, but `/sw.js`, which keeps its `no-cache` so a browser
   asks for it on every update check; `POST` and `/mcp` never touch the
   cache. The pages are not cached: one URL answers a fragment for htmx
-  and a whole page otherwise.
+  and a whole page otherwise. The Cache API is each data center's own,
+  and two connections from one client can end in two, so `smoke.sh` asks
+  for a URL twice over one connection, and reads a second `MISS` as a
+  broken cache only when both answers' `cf-ray` name one data center
+  ([#131](https://github.com/joshuasprow/nitrovin/issues/131)).
 - **CORS** is the container's (`serve --cors '*'`): `/v1` and `/mcp` only.
 - **Logs.** Workers Logs without invocation logs, which would record each
   URL and so each VIN. The Worker logs nothing itself.
