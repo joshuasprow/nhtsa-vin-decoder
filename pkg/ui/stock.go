@@ -214,26 +214,27 @@ func (d *stockDrift) of(f *vocab.File) []vocab.Finding {
 }
 
 // A stored file's index is vocab.WriteIndex's, but for a stock file with
-// something to keep beside it: stockIndex, the length of the vocabulary
-// index (a uvarint), that index, then a stockStored as JSON.
+// something to keep beside it: stockIndex, the length of a stockStored as
+// JSON (a uvarint), that JSON, then the vocabulary index, written after
+// it into the one buffer, never copied.
 const stockIndex = "nitrovin stock index\n"
 
 // storedIndex is f's index to store, with kept beside it when it keeps
 // anything.
 func storedIndex(f *vocab.File, kept stockStored) ([]byte, error) {
 	var idx bytes.Buffer
+	if kept.Decodes != nil || kept.Drift != nil {
+		js, err := json.Marshal(kept)
+		if err != nil {
+			return nil, err
+		}
+		idx.Write(binary.AppendUvarint([]byte(stockIndex), uint64(len(js))))
+		idx.Write(js)
+	}
 	if err := vocab.WriteIndex(&idx, f); err != nil {
 		return nil, err
 	}
-	if kept.Decodes == nil && kept.Drift == nil {
-		return idx.Bytes(), nil
-	}
-	js, err := json.Marshal(kept)
-	if err != nil {
-		return nil, err
-	}
-	out := binary.AppendUvarint([]byte(stockIndex), uint64(idx.Len()))
-	return slices.Concat(out, idx.Bytes(), js), nil
+	return idx.Bytes(), nil
 }
 
 // readStoredIndex reads what storedIndex wrote.
@@ -249,13 +250,13 @@ func readStoredIndex(b []byte) (*vocab.File, stockStored, error) {
 		return nil, stockStored{}, damaged
 	}
 	rest = rest[k:]
-	f, err := vocab.ReadIndex(rest[:n])
+	var kept stockStored
+	if err := json.Unmarshal(rest[:n], &kept); err != nil || kept.Decodes == nil && kept.Drift == nil {
+		return nil, stockStored{}, damaged
+	}
+	f, err := vocab.ReadIndex(rest[n:])
 	if err != nil {
 		return nil, stockStored{}, err
-	}
-	var kept stockStored
-	if err := json.Unmarshal(rest[n:], &kept); err != nil || kept.Decodes == nil && kept.Drift == nil {
-		return nil, stockStored{}, damaged
 	}
 	return f, kept, nil
 }

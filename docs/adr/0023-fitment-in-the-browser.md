@@ -616,6 +616,21 @@ page starts, as decided, and a Service Worker's events stay short.
   WebAssembly memory (19.7 and 53.4 MiB with the catalog alone); with a
   2,000-row shelf and a 3,000-VIN yard loaded beside them too, 22.0 and
   54.9 MiB: within 64 MiB.
+- **The first start under a new release costs memory once.** A new
+  release keeps none of the last one's stored indexes, so its first start
+  parses the stock files again and has the server decode the yard again,
+  and its first panel counts the shelf's orphans again. On the 19,950-row
+  shelf and the 3,000-VIN yard beside the catalog-scale catalog, in
+  Chrome 157, that start allocated about 320 MB and the panel 190 MB, the
+  backstop collecting 12–15 times in each. That left 64.4 and 65.8–66.1 MiB
+  of WebAssembly memory, until the browser stops the worker; every start
+  after is back at 56.6 MiB. Collecting more often in the middle of those
+  requests changed nothing, since what was over was live, not garbage. Not
+  holding a stock file's text while its yard decodes, and writing its
+  stored index without a second copy, brought them to 62.9 and 64.6 MiB.
+  The panel's 0.6 MiB over the budget is left: it happens once a release,
+  per browser, and only with a shelf of tens of thousands of numbered rows
+  beside a catalog of this scale.
 
 ## Considered options
 

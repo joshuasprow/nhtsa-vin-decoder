@@ -321,7 +321,7 @@ func manyShelf(n int) Picked {
 // stored index: opening the files again (a start of the module), a fit
 // with its stock, the panel's files and Info read the catalog only as a
 // fit needs, and say the same drift. A release that keeps no index counts
-// them once again, on the panel, and keeps them.
+// them once again, on the panel, and keeps them; so does another catalog.
 func TestLibraryShelfDriftKept(t *testing.T) {
 	d := embedded(t)
 	s, disk := newDecoderServer(t, d, "part-types", "part-codes"), newDisk()
@@ -382,4 +382,28 @@ func TestLibraryShelfDriftKept(t *testing.T) {
 	clear(disk.indexes)
 	cold("with no index", rows)
 	cold("again", 0)
+
+	// The catalog changes: its vehicle vocabulary does, so it is left
+	// out, and the shelf with it, until the catalog is compiled again,
+	// now with one of the shelf's orphan numbers. The drift kept against
+	// the old catalog is not the new one's: one orphan fewer, in this
+	// Library and after a reopen.
+	l = openWith(t, s, disk)
+	models := strings.Replace(string(fitmentFile(t, "catalog-models")), `"version":"2026.11"`, `"version":"2026.12"`, 1)
+	if _, err := l.Load([]Picked{{FileName: "catalog-models.jsonl", Data: []byte(models)}}, quiet); err != nil {
+		t.Fatal(err)
+	}
+	if got := stored(l); !slices.ContainsFunc(got, func(n string) bool { return strings.HasPrefix(n, "parts-catalog: its vehicle vocabulary") }) {
+		t.Fatalf("with a new catalog-models: %q; want the catalog left out", got)
+	}
+	v2 := append(slices.Clone(fitmentFile(t, "catalog")), []byte(`{"fitment":{"type":"brake-rotor-front","number":"NONE-0"},"applications":[{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2010,"last":2010,"options":""}]}`+"\n")...)
+	if _, err := compileFixture(t, l, v2); err != nil {
+		t.Fatal(err)
+	}
+	if n := orphans(l); n != rows/10-1 {
+		t.Errorf("against the new catalog: %d orphans; want %d", n, rows/10-1)
+	}
+	if n := orphans(openWith(t, s, disk)); n != rows/10-1 {
+		t.Errorf("against the new catalog, after a reopen: %d orphans; want %d", n, rows/10-1)
+	}
 }

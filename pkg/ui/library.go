@@ -366,6 +366,7 @@ func (l *Library) read(blake3, path string, text func() ([]byte, error)) (*vocab
 	if got := hex.EncodeToString(f.Hash[:]); got != blake3 {
 		return nil, stockStored{}, fmt.Errorf("its bytes changed: blake3 %s, not %s", got, blake3)
 	}
+	data = nil // the File holds none of it: a collection may take it while the yard decodes
 	decodes, err := l.decodeYard(f, func(string) {})
 	if err != nil {
 		return nil, stockStored{}, err
