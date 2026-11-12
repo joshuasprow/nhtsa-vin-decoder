@@ -13,11 +13,12 @@ import (
 	"testing"
 
 	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
+	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
-// testdata/vehicles.csv is 78 rows of EPA's vehicles.csv (fueleconomy.gov,
+// testdata/vehicles.csv is 80 rows of EPA's vehicles.csv (fueleconomy.gov,
 // fetched 2026-11-10; US government work, public domain), chosen to reach
 // every rule and outcome; testdata/curated.jsonl overrides some of them.
 // testdata/vehicles.jsonl is what they build against the data month its
@@ -125,7 +126,7 @@ func TestBuild(t *testing.T) {
 			t.Errorf("the build drifts from %s: %v", embedded.Month, f)
 		}
 	}
-	if want := []string{"13 wholly", "15 wholly", "22 partly", "32 partly"}; !slices.Equal(years, want) {
+	if want := []string{"13 wholly", "15 wholly", "23 partly", "34 partly"}; !slices.Equal(years, want) {
 		t.Errorf("model-years drift on lines %v; want %v", years, want)
 	}
 	if want := []string{
@@ -176,7 +177,7 @@ func TestBuild(t *testing.T) {
 
 // TestEntry checks lines of the build that pin the rules down: slash
 // alternatives map to several models, qualifiers come from the drive
-// column and the model's schemas, curated lines win and keep what they
+// column and the model's own model values, curated lines win and keep what they
 // say, the rest of their years coming from the EPA rows.
 func TestEntry(t *testing.T) {
 	embeddedDecoder(t)
@@ -197,7 +198,7 @@ func TestEntry(t *testing.T) {
 		make, model string
 		want        string // mappings, as model:first-last[qualifiers]origin
 	}{
-		{"Acura", "ADX AWD", "35664:2025-2026[15:3]derived"},
+		{"Acura", "ADX AWD", "35664:2025-2026[15:2,3]derived"},
 		{"Acura", "ADX FWD", "35664:2025-2026[15:7]derived"},
 		{"Audi", "80/90", "14342:1988-1988[]derived 8056:1988-1988[]derived"},
 		{"GMC", "Sierra LTD K15 4WD", "24910:2019-2019[15:2 34:1500]curated"},
@@ -227,6 +228,44 @@ func TestQualifiersAreTheModels(t *testing.T) {
 	}
 	if bad := qualifierMismatches(d.Month().(vocab.ModelMonth), f); len(bad) > 0 {
 		t.Errorf("%d qualifier values not the model's own: %v", len(bad), bad)
+	}
+}
+
+// TestDriveReachesTheVIN: a drive qualifier keeps every id the model
+// decodes for EPA's drive, so a VIN whose decode gives either reaches the
+// entry: a 2011 Silverado decodes 4x2 for EPA's Rear-Wheel Drive, a 2022
+// Pilot 4WD for its All-Wheel Drive, while the same models decode RWD and
+// AWD in other years.
+func TestDriveReachesTheVIN(t *testing.T) {
+	d := embeddedDecoder(t)
+	out, _ := runBuild(t, "-curated", "testdata/curated.jsonl", "testdata/vehicles.csv")
+	f, err := vocab.Read("vehicles.jsonl", bytes.NewReader(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := nitrovin.NewTranslator(d, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		vin, make, model string
+	}{
+		{"1GCACRAA8BA111111", "Chevrolet", "Silverado C15 2WD"},
+		{"JHLYF6H8000000000", "Honda", "Pilot AWD"},
+	} {
+		got, err := tr.Translate(contract.TranslateRequest{From: contract.TranslateFrom{VIN: c.vin}, To: []string{Name}})
+		if err != nil {
+			t.Fatalf("%s: %v", c.vin, err)
+		}
+		var reached []string
+		for _, e := range got.To[0].Entries {
+			reached = append(reached, e.Entry["make"]+" / "+e.Entry["model"])
+		}
+		if !slices.ContainsFunc(reached, func(r string) bool {
+			return vocab.Normalize(r) == vocab.Normalize(c.make+" / "+c.model)
+		}) {
+			t.Errorf("%s reaches %v; want %s / %s", c.vin, reached, c.make, c.model)
+		}
 	}
 }
 

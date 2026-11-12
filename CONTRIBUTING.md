@@ -350,10 +350,8 @@ punctuation-insensitive, make-name prefix, slash alternatives, each named in
 its mapping's note. Every mapping holds for the years of the entry's EPA
 rows. Drive Type and Series qualifiers come from EPA's `drive` column and the
 tonnage in the name, narrowed to the model's own model values (ADR 0015):
-a drive takes the ids that say what EPA says when the model decodes them,
-else the ones the model decodes the same drive as ("Front-Wheel Drive" is
-4x2 on a model that decodes 4x2 and no FWD), never both; Series keeps the
-spellings the model itself decodes.
+a drive keeps the ids it can decode to ("Front-Wheel Drive": FWD or 4x2)
+that the model decodes, and Series the spellings the model itself decodes.
 `cmd/nitrovin-epa/curated.jsonl`, built in, is the curated overrides: a
 vehicle vocabulary whose entries replace the derived ones (`origin:
 curated`), taking the EPA years and derived qualifiers where they state
@@ -366,7 +364,7 @@ go run ./cmd/nitrovin-epa -o epa-vehicles.jsonl vehicles.csv.zip   # coverage on
 go run ./cmd/nitrovin vocab check epa-vehicles.jsonl
 ```
 
-`go test ./cmd/nitrovin-epa` builds a 78-row sample of vehicles.csv
+`go test ./cmd/nitrovin-epa` builds a 80-row sample of vehicles.csv
 (`testdata/`) twice, from the CSV and from a zip, against its golden file
 (`-update` rewrites it; on another month than the one its header names, the
 build must differ in that name alone), loads it against the embedded data

@@ -44,48 +44,40 @@ const (
 	drive4x2 = 7 // 4x2
 )
 
-// driveColumn is, for each value of EPA's drive column, the Drive Type
-// ids it can decode to, as tiers in order of preference: the ids that say
-// what EPA says first, then the ones a model decodes the same drive as
-// (2WD trucks and SUVs decode 4x2; some makers' AWD decodes 4WD). A
-// qualifier takes the first tier the model decodes any id of, and only
-// the ids of it the model decodes: "Front-Wheel Drive" is FWD on a model
-// that decodes FWD, 4x2 on one that decodes 4x2 and no FWD, and never
+// driveColumn is what each value of EPA's drive column can decode to:
+// 2WD trucks and SUVs decode 4x2, and some makers' AWD decodes 4WD. A
+// qualifier keeps only the ids of it the model itself decodes (ADR 0015);
+// model values carry no years, so a model decoding both FWD and 4x2 keeps
 // both.
-var driveColumn = map[string][][]int32{
-	"Front-Wheel Drive":          {{driveFWD}, {drive4x2}},
-	"Rear-Wheel Drive":           {{driveRWD}, {drive4x2}},
-	"2-Wheel Drive":              {{drive4x2}, {driveFWD, driveRWD}},
-	"All-Wheel Drive":            {{driveAWD}, {drive4WD}},
-	"4-Wheel or All-Wheel Drive": {{drive4WD, driveAWD}},
-	"4-Wheel Drive":              {{drive4WD}, {driveAWD}},
-	"Part-time 4-Wheel Drive":    {{drive4WD}, {driveAWD}},
+var driveColumn = map[string][]int32{
+	"Front-Wheel Drive":          {driveFWD, drive4x2},
+	"Rear-Wheel Drive":           {driveRWD, drive4x2},
+	"2-Wheel Drive":              {driveFWD, driveRWD, drive4x2},
+	"All-Wheel Drive":            {drive4WD, driveAWD},
+	"4-Wheel or All-Wheel Drive": {drive4WD, driveAWD},
+	"4-Wheel Drive":              {drive4WD, driveAWD},
+	"Part-time 4-Wheel Drive":    {drive4WD, driveAWD},
 }
 
 // driveToken is the drive column value a drive token in the name stands
-// for, the fallback when no row has one; a maker drive name stands for
-// either 4WD or AWD, whichever the model decodes.
+// for, the fallback when no row has one: sDrive is rear-wheel drive; the
+// other maker drive names stand for 4WD or AWD.
 func driveToken(t string) string {
 	switch t {
 	case "fwd":
 		return "Front-Wheel Drive"
-	case "rwd":
+	case "rwd", "sdrive":
 		return "Rear-Wheel Drive"
 	case "2wd", "4x2":
 		return "2-Wheel Drive"
-	case "awd":
-		return "All-Wheel Drive"
-	case "4wd", "4x4":
-		return "4-Wheel Drive"
 	}
-	return "4-Wheel or All-Wheel Drive"
+	return "4-Wheel Drive"
 }
 
 // driveQualifier is the Drive Type values an entry whose name carries a
-// drive token holds for on model: for each drive its rows' drive column
-// (or else the token) says, the first of driveColumn's tiers the model
-// decodes, narrowed to the ids the model decodes. None when the name
-// carries no token or the model decodes none of them.
+// drive token holds for on model: what its rows' drive column (or else
+// the token) can decode to, narrowed to the ids the model decodes. None
+// when the name carries no token or the model decodes none of them.
 func (mv modelValues) driveQualifier(e *entry, normModel string, model int32) []int32 {
 	tok, ok := impliesDrive(normModel)
 	if !ok {
@@ -98,15 +90,9 @@ func (mv modelValues) driveQualifier(e *entry, normModel string, model int32) []
 	has := mv.drive(model)
 	var out []int32
 	for _, d := range drives {
-		for _, tier := range driveColumn[d] {
-			n := len(out)
-			for _, v := range tier {
-				if has[v] {
-					out = append(out, v)
-				}
-			}
-			if len(out) > n {
-				break
+		for _, v := range driveColumn[d] {
+			if has[v] {
+				out = append(out, v)
 			}
 		}
 	}
