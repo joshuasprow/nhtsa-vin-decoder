@@ -300,6 +300,12 @@ A catalog's statement that, for a vehicle and years, one part type is listed
 under another. A request follows it one hop.
 _Avoid_: see-also, cross-reference
 
+**Candidate**:
+A fitment that may be the right part for a vehicle and a part type, with the
+applications that matched, their option text and what a decode could not
+confirm. A person settles among candidates.
+_Avoid_: match, result, hit
+
 **Retired number**:
 A number a catalog no longer uses, pointing at the fitment that replaced it.
 _Avoid_: alias (the word is kept away from mappings and entries), old number
