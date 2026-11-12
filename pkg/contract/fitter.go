@@ -70,8 +70,9 @@ func (r FitRequest) kind() fitKind {
 // when ctx ends is unavailable, with reason StockCancelled, and the rest
 // of the answer stands.
 // A panic in a stock lookup, which runs on a goroutine of its own, panics
-// Fit's caller as a *LookupPanic; one in a lookup Fit stopped waiting for
-// is dropped.
+// Fit's caller as a *LookupPanic. One in a live lookup Fit stopped waiting
+// for, its ctx having ended, is dropped without a trace: nothing logs it,
+// and the answer already says the source is unavailable.
 func (f Fitter) Fit(ctx context.Context, req FitRequest) (Fit, error) {
 	if req.Now.IsZero() {
 		req.Now = time.Now()

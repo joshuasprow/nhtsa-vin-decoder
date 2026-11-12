@@ -474,6 +474,7 @@ func TestFitStockConcurrent(t *testing.T) {
 // panicking is a stock source with a fault: every lookup panics, once
 // release (when not nil) is closed, closing panicked as it does.
 type panicking struct {
+	value    any // what it panics with; nil: a string naming it
 	name     string
 	holds    stock.Holds
 	kind     stock.Kind
@@ -489,7 +490,18 @@ func (s panicking) fail() ([]stock.Result, stock.Meta, error) {
 		<-s.release
 		defer close(s.panicked)
 	}
+	if s.value != nil {
+		panic(s.value)
+	}
 	panic("a fault in " + s.name)
+}
+
+// damagedCatalog is an error like a damaged compiled catalog's reader
+// panics with.
+type damagedCatalog struct{ path string }
+
+func (e *damagedCatalog) Error() string {
+	return "compiled catalog " + e.path + ": a string out of range: the file is damaged"
 }
 func (s panicking) ShelfByFitment(context.Context, [][]vocab.FitmentKey, stock.Page) ([]stock.Result, stock.Meta, error) {
 	return s.fail()
@@ -528,7 +540,25 @@ func TestFitStockPanic(t *testing.T) {
 		})
 	}
 
+	// An error it panics with is found through the LookupPanic.
 	tr := stockTranslator(t)
+	damaged := &damagedCatalog{"catalog.compiled"}
+	tr.core.Stock = append(tr.core.Stock, panicking{value: damaged, name: "damaged-yard", holds: stock.Yard, kind: stock.KindLive})
+	var v any
+	func() {
+		defer func() { v = recover() }()
+		tr.Fit(context.Background(), req)
+	}()
+	err, _ := v.(error)
+	var found *damagedCatalog
+	if !errors.As(err, &found) || found != damaged || !errors.Is(err, damaged) || err.Error() != damaged.Error() {
+		t.Errorf("recovered %#v; want a *contract.LookupPanic unwrapping to the damaged catalog's error", v)
+	}
+	if p, _ := v.(*contract.LookupPanic); p == nil || errors.Unwrap(&contract.LookupPanic{Value: "not an error"}) != nil {
+		t.Errorf("a LookupPanic of a string unwraps to an error")
+	}
+
+	tr = stockTranslator(t)
 	late := panicking{name: "late-yard", holds: stock.Yard, kind: stock.KindLive, release: make(chan struct{}), panicked: make(chan struct{})}
 	tr.core.Stock = append(tr.core.Stock, late)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)

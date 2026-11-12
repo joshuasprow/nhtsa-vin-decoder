@@ -437,13 +437,25 @@ func concurrently(fns ...func()) {
 // carried to the goroutine that called Fit and panicked again there, so
 // its caller's recover sees it. Value is the original panic's value and
 // Stack the stack of the goroutine it happened on, for a log. Its String
-// is Value's, so an #internal problem reads as the original panic would.
+// and Error are Value's, so an #internal problem reads as the original
+// panic would, and it unwraps to Value when that is an error (a damaged
+// compiled catalog's, say), so errors.Is and errors.As see through it.
 type LookupPanic struct {
 	Value any
 	Stack []byte
 }
 
 func (p *LookupPanic) String() string { return fmt.Sprint(p.Value) }
+
+func (p *LookupPanic) Error() string { return p.String() }
+
+// Unwrap is Value when it is an error, else nil.
+func (p *LookupPanic) Unwrap() error {
+	if err, ok := p.Value.(error); ok {
+		return err
+	}
+	return nil
+}
 
 // lookupPanic is v, a recovered panic, as a *LookupPanic, with the stack
 // of the goroutine recovering it, unless it is one already.
