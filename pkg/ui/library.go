@@ -64,6 +64,9 @@ type Library struct {
 	// indexes and reading them.
 	indexRead, indexParse time.Duration
 
+	// fitTook is how long the last Fit took, for FitTook.
+	fitTook atomic.Int64
+
 	// mu serializes changes; state is what the pages answer from.
 	mu    sync.Mutex
 	state atomic.Pointer[shelf]
@@ -582,6 +585,8 @@ func (l *Library) translate(req contract.TranslateRequest, dec *contract.VINDeco
 // answers no-catalog), a VIN decoded by the server's /v1/decode as for
 // Translate.
 func (l *Library) Fit(ctx context.Context, req contract.FitRequest) (contract.Fit, error) {
+	start := time.Now()
+	defer func() { l.fitTook.Store(int64(time.Since(start))) }()
 	f := l.fitter(l.state.Load())
 	var decodeErr error
 	f.Decode = func(vin string, year contract.Null[int32], now time.Time) (contract.VINDecode, error) {
@@ -601,6 +606,11 @@ func (l *Library) Fit(ctx context.Context, req contract.FitRequest) (contract.Fi
 func (l *Library) List(req contract.ListRequest) (contract.List, error) {
 	return l.fitter(l.state.Load()).List(req)
 }
+
+// FitTook is how long the last Fit took, and 0 after it is read: the
+// worker reports it in Server-Timing (fit), apart from drawing the page,
+// to hold the browser to ADR 0018's fit budgets.
+func (l *Library) FitTook() time.Duration { return time.Duration(l.fitTook.Swap(0)) }
 
 // fitter is the core over s's set and its catalog, if it has one.
 func (l *Library) fitter(s *shelf) contract.Fitter {

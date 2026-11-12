@@ -152,8 +152,12 @@ func (w *worker) serve(method, url, hx, restore, body string) map[string]any {
 		// memory it has taken from the browser, which never shrinks.
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
-		rec.h.Set("Server-Timing", w.lib.Opened()+fmt.Sprintf(", serve;dur=%.1f, heap;desc=%d, memory;desc=%d",
-			float64(time.Since(start).Microseconds())/1000, m.HeapInuse, m.Sys))
+		timing := w.lib.Opened() + fmt.Sprintf(", serve;dur=%.1f, heap;desc=%d, memory;desc=%d",
+			float64(time.Since(start).Microseconds())/1000, m.HeapInuse, m.Sys)
+		if d := w.lib.FitTook(); d > 0 {
+			timing += fmt.Sprintf(", fit;dur=%.2f", float64(d.Microseconds())/1000)
+		}
+		rec.h.Set("Server-Timing", timing)
 	}
 	headers := map[string]any{}
 	for k := range rec.h {
