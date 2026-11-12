@@ -128,9 +128,10 @@ text `TestFormREADME` holds to the form's.
   `scripts/libnitrovin.sh`, the `testdata/vocab` fixture it loads.
 - `oracle-smoke.yml` (the Postgres oracle end to end): `oracle.yml`,
   `scripts/oracle.sh`, `testdata/oracle/`, `docs/deviations/`.
-- `release.yml`'s snapshot and benchmarks when release files or
-  `bench/vocab` change, and on dispatch (`gh workflow run release.yml --ref
-  <branch>`).
+- `release.yml`'s snapshot, benchmarks and the tests of `scripts/release.sh`
+  when release files or `bench/vocab` change, and on dispatch without a tag
+  (`gh workflow run release.yml --ref <branch>`). Dispatched with a tag, it
+  retries that tag's release ([When a release is red](#when-a-release-is-red)).
 - `deploy.yml` (nitrovin.app): `deploy/cloudflare/`, the workflow itself. On
   a pull request, Terraform `validate` and the Worker under `wrangler dev`;
   after each green release, the deploy and its smoke test; weekly, the drift
@@ -797,7 +798,8 @@ the one `go.mod` pins: a newer month, or the pinned month's dump re-touched
 5. Once proxy.golang.org serves that tag, a PR bumps `go.mod` with the new
    keys and the report as its body; it is squash-merged when every check on
    it passes, and the next patch tag starts `release.yml`, which the refresh
-   waits for.
+   waits for. When that run fails after publishing part of the release, the
+   refresh retries the rest once ([When a release is red](#when-a-release-is-red)).
 
 Red anywhere publishes nothing: the pinned month stays, and the report goes
 to the issue "Refresh <month> is red", which the next green run closes.
@@ -825,7 +827,70 @@ own. A pull request that touches the release builds a snapshot and installs
 its packages in Debian, Fedora and Alpine. The monthly refresh tags patch
 releases itself; a code change ships with the next tag. Until v1.0.0 every
 tag is a prerelease (ADR 0007), and the workflow refuses a tag whose
-prerelease setting disagrees.
+prerelease setting disagrees. A rebuild of a tag writes the same bytes
+(`-trimpath`, the commit's time on every file, reproducible C library links),
+which is what lets a red release be completed rather than replaced.
+
+## When a release is red
+
+A tag is never moved or tagged again (ADR 0007): once the module proxy has
+seen it, it is that version for good. The publishers are not atomic, though:
+goreleaser pushes the image, then makes the GitHub release, then runs winget,
+the Homebrew cask and the Scoop manifest (these three carry on past each
+other's failure and are listed together at the end of its log), and the
+steps after it sign `server.json`, verify everything, sign the image and
+publish to the MCP Registry. A red run is one of three cases.
+
+1. **Red before anything was published**: the tag has no GitHub release (a
+   runner or tool flake, the image push). Re-run the failed jobs from the
+   run's page (`gh run rerun <id> --failed`). A tag push refuses a tag that
+   already has a release, so a re-run never publishes twice.
+2. **Red after publishing part of it**: the tag has a release, and a
+   publisher or a later step failed (say winget's API answered 502 after
+   the rest went out). Retry the rest, from the tag:
+   - Find what published in the failed run's goreleaser log: the publishers
+     before the failure and, of the last three, those not named in its
+     `* winget: …` lines. A failure after the goreleaser step means every
+     publisher published.
+   - Dry run first. In Actions → Release → Run workflow, set "Use workflow
+     from" to the tag (Tags → `vX.Y.Z`), `tag` to the same tag, `skip` to
+     what published, and tick `dry-run`; or
+     `gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z -f skip=docker,homebrew,scoop -f dry-run=true`.
+     Its "Plan the retry" step names what will run and what is skipped (a
+     publisher whose channel already has the version is skipped whatever
+     `skip` says, and so is signing when every asset has its bundle), and
+     "Rebuild and compare with the release" rebuilds the tag, requires the
+     release's `checksums.txt` and verifies the release's bundles against
+     the rebuilt bytes.
+   - Then the same without `dry-run`. The retry re-attaches to the release,
+     replacing its assets by name with the bytes it compared, so URLs,
+     notes and checksums stay; deletes a winget branch a failed attempt left
+     on the fork (unless a pull request has it); runs the steps after
+     goreleaser, each idempotent (an image or a registry version already
+     there is left alone); and adds "Publishers retried on <date>: …" to the
+     notes. Its signatures are the tag's identity, because it runs from the
+     tag. Tick `resign` only to make every bundle again.
+   - The deploy follows a tag push's green run only: once the retry is
+     green, `gh workflow run deploy.yml -f tag=vX.Y.Z`.
+
+   The refresh does this by itself once: when the tag's run fails after
+   publishing, `scripts/release.sh wait` reads its log, dispatches the retry
+   skipping what published and waits for it; a second failure is the red
+   month, with both runs linked in the issue. It never touches the data
+   release or the go.mod bump.
+
+   The retry refuses, before publishing anything: a tag that does not exist
+   or has no release (case 1), `skip=publish` or an unknown name, `sign` when
+   some asset has no bundle, a ref other than the tag (its signatures would
+   carry another identity; a dry run may run from a branch), and a rebuild
+   whose bytes differ from the release's. The last means the tree or the
+   toolchain is not the tag's; never work around it. A tag from before
+   retries existed has neither the inputs nor a reproducible build: a dry
+   run from a branch shows its rebuild differing, and it is case 3.
+3. **A real defect**: the failure is in the code or the configuration
+   (v0.1.3's winget template, with everything else live), so a retry from
+   the tag fails the same way. Fix it on `main`; the fix ships with the next
+   patch tag, and the red tag's release stays as it was published.
 
 ## Benchmarks in the release
 

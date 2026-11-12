@@ -170,6 +170,18 @@ The unattended run that notices a new dump, builds its artifact, runs the
 gates, and ships a release.
 _Avoid_: sync, update
 
+**Publisher**:
+One channel a release goes out through: the GitHub release, the image
+(`docker`), the Homebrew tap (`homebrew`), the Scoop bucket (`scoop`) and
+winget (`winget`), and signing (`sign`) beside them.
+_Avoid_: target, destination
+
+**Retry** (of a release):
+release.yml dispatched with a tag whose release went out in part: it rebuilds
+the tag, requires the published bytes, and runs only the publishers that did
+not publish. It completes a release; it never replaces one or makes a version.
+_Avoid_: re-release, re-tag, rerun
+
 ### Translation
 
 **Vocabulary**:

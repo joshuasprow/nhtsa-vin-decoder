@@ -28,8 +28,14 @@ targets=("$@")
 # Go's os package links -lresolv on darwin (internal/syscall/unix), for three
 # DNS functions this library never calls, and zig ships libSystem's stub but
 # not libresolv's. A text stub (.tbd: names only, no Apple code) lets the
-# link record /usr/lib/libresolv.9.dylib, which every macOS has.
-stubs="$(mktemp -d)"
+# link record /usr/lib/libresolv.9.dylib, which every macOS has. Its
+# directory is a fixed path under <dir>, not a temporary one: Go hashes
+# CGO_LDFLAGS into the library's build ID, and a release retry
+# (.github/workflows/release.yml) requires a rebuild of the tag to write the
+# same bytes.
+mkdir -p "$dir"
+stubs="$(cd "$dir" && pwd)/.stubs"
+mkdir -p "$stubs"
 trap 'rm -rf "$stubs"' EXIT
 cat >"$stubs/libresolv.tbd" <<'EOF'
 --- !tapi-tbd
@@ -53,7 +59,9 @@ for target in "${targets[@]}"; do
   case "$goos" in
     linux) triple="$arch-linux-gnu.2.17" ext=so ldflags="-Wl,-soname,libnitrovin.so" ;;
     darwin) triple="$arch-macos.11.0" ext=dylib ldflags="-L$stubs -Wl,-install_name,@rpath/libnitrovin.dylib" ;;
-    windows) triple="$arch-windows-gnu" ext=dll ldflags= ;;
+    # -Brepro: the PE timestamp is a hash of the content, not the time of
+    # the link, so a rebuild writes the same bytes.
+    windows) triple="$arch-windows-gnu" ext=dll ldflags=-Wl,-Brepro ;;
     *) echo "libnitrovin.sh: no such target $target" >&2; exit 2 ;;
   esac
   out="$dir/$goos-$goarch"
