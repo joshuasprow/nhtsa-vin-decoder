@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,11 +13,12 @@ import (
 	"testing"
 
 	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
+	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
 
-// testdata/vehicles.csv is 78 rows of EPA's vehicles.csv (fueleconomy.gov,
+// testdata/vehicles.csv is 80 rows of EPA's vehicles.csv (fueleconomy.gov,
 // fetched 2026-11-10; US government work, public domain), chosen to reach
 // every rule and outcome; testdata/curated.jsonl overrides some of them.
 // testdata/vehicles.jsonl is what they build against the data month its
@@ -104,10 +106,8 @@ func TestBuild(t *testing.T) {
 	// 15's slash alternatives. Any other model-years finding is a rule that
 	// changed what it picks, and any other drift a build fault.
 	//
-	// The Avalanche 1500 (lines 19, 20) takes Series spellings from the
-	// van line its VIN schemas share, and the 4WD widens its drive to AWD
-	// too (ADR 0015): model-qualifier findings until the builder moves onto
-	// the model values index (#235), which removes them.
+	// Every qualifier is the mapped model's own (ADR 0015): AllDrift, which
+	// also runs the model-qualifier check load skips, finds none.
 	var years, qualifiers []string
 	for _, f := range tr.AllDrift() {
 		switch f.Drift {
@@ -124,21 +124,11 @@ func TestBuild(t *testing.T) {
 			t.Errorf("the build drifts from %s: %v", embedded.Month, f)
 		}
 	}
-	if want := []string{"13 wholly", "15 wholly", "22 partly", "32 partly"}; !slices.Equal(years, want) {
+	if want := []string{"13 wholly", "15 wholly", "23 partly", "34 partly"}; !slices.Equal(years, want) {
 		t.Errorf("model-years drift on lines %v; want %v", years, want)
 	}
-	if want := []string{
-		"19 /mappings/0/qualifiers/34/2", // "1500"
-		"19 /mappings/0/qualifiers/34/7", // "1500 Cargo"
-		"19 /mappings/0/qualifiers/34/8", // "1500 Conversion"
-		"19 /mappings/0/qualifiers/34/9", // "1500 Passenger"
-		"20 /mappings/0/qualifiers/15/1", // 3, AWD
-		"20 /mappings/0/qualifiers/34/2",
-		"20 /mappings/0/qualifiers/34/7",
-		"20 /mappings/0/qualifiers/34/8",
-		"20 /mappings/0/qualifiers/34/9",
-	}; !slices.Equal(qualifiers, want) {
-		t.Errorf("model-qualifier drift %v; want %v", qualifiers, want)
+	if len(qualifiers) > 0 {
+		t.Errorf("model-qualifier drift %v; want none", qualifiers)
 	}
 
 	notes := map[string]bool{}
@@ -175,7 +165,7 @@ func TestBuild(t *testing.T) {
 
 // TestEntry checks lines of the build that pin the rules down: slash
 // alternatives map to several models, qualifiers come from the drive
-// column and the model's schemas, curated lines win and keep what they
+// column and the model's own model values, curated lines win and keep what they
 // say, the rest of their years coming from the EPA rows.
 func TestEntry(t *testing.T) {
 	embeddedDecoder(t)
@@ -211,6 +201,89 @@ func TestEntry(t *testing.T) {
 			t.Errorf("%s / %s: %s; want %s", c.make, c.model, got, c.want)
 		}
 	}
+}
+
+// TestQualifiersAreTheModels: every Drive Type and Series value the build
+// qualifies a model mapping with is one of that model's own model values
+// in the month it was built from (ADR 0015), not one another model sharing
+// its VIN schemas decodes to.
+func TestQualifiersAreTheModels(t *testing.T) {
+	d := embeddedDecoder(t)
+	out, _ := runBuild(t, "-curated", "testdata/curated.jsonl", "testdata/vehicles.csv")
+	f, err := vocab.Read("vehicles.jsonl", bytes.NewReader(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bad := qualifierMismatches(d.Month().(vocab.ModelMonth), f); len(bad) > 0 {
+		t.Errorf("%d qualifier values not the model's own: %v", len(bad), bad)
+	}
+}
+
+// TestDriveReachesTheVIN: a drive qualifier keeps every id the model
+// decodes for EPA's drive, so a VIN whose decode gives either reaches the
+// entry: a 2011 Silverado decodes 4x2 for EPA's Rear-Wheel Drive, a 2022
+// Pilot 4WD for its All-Wheel Drive, while the same models decode RWD and
+// AWD in other years.
+func TestDriveReachesTheVIN(t *testing.T) {
+	d := embeddedDecoder(t)
+	out, _ := runBuild(t, "-curated", "testdata/curated.jsonl", "testdata/vehicles.csv")
+	f, err := vocab.Read("vehicles.jsonl", bytes.NewReader(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := nitrovin.NewTranslator(d, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		vin, make, model string
+	}{
+		{"1GCACRAA8BA111111", "Chevrolet", "Silverado C15 2WD"},
+		{"JHLYF6H8000000000", "Honda", "Pilot AWD"},
+	} {
+		got, err := tr.Translate(contract.TranslateRequest{From: contract.TranslateFrom{VIN: c.vin}, To: []string{Name}})
+		if err != nil {
+			t.Fatalf("%s: %v", c.vin, err)
+		}
+		var reached []string
+		for _, e := range got.To[0].Entries {
+			reached = append(reached, e.Entry["make"]+" / "+e.Entry["model"])
+		}
+		if !slices.ContainsFunc(reached, func(r string) bool {
+			return vocab.Normalize(r) == vocab.Normalize(c.make+" / "+c.model)
+		}) {
+			t.Errorf("%s reaches %v; want %s / %s", c.vin, reached, c.make, c.model)
+		}
+	}
+}
+
+// qualifierMismatches are f's model mappings' Drive Type and Series
+// qualifier values that are not the mapping's model's model values in m.
+func qualifierMismatches(m vocab.ModelMonth, f *vocab.File) []string {
+	var bad []string
+	for _, e := range f.Entries {
+		for _, mp := range e.Mappings {
+			if mp.Model == 0 {
+				continue
+			}
+			for _, q := range mp.Qualifiers {
+				if q.Element != elementDriveType && q.Element != elementSeries {
+					continue
+				}
+				own, _ := m.ModelValues(mp.Model, q.Element)
+				for _, v := range q.Values {
+					s := v.Text
+					if !v.IsText {
+						s = itoa(int(v.Attribute))
+					}
+					if !slices.Contains(own, s) {
+						bad = append(bad, fmt.Sprintf("line %d model %d %d:%s", e.Line, mp.Model, q.Element, s))
+					}
+				}
+			}
+		}
+	}
+	return bad
 }
 
 // describe is an entry's mappings in TestEntry's notation.

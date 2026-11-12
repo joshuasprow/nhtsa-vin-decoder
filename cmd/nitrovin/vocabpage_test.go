@@ -180,7 +180,7 @@ func vocabJSOn(t *testing.T, path, base string, wire *wireLog, off offPages, epa
 
 	// EPA's vocabulary in one click, from the release's assets.
 	tb.do(chromedp.Click(chromedp.CSS("#load-epa")))
-	tb.waitPrefix("#load-status", "Loaded epa-vehicles (32 lines).")
+	tb.waitPrefix("#load-status", "Loaded epa-vehicles (34 lines).")
 	if s := tb.html("#browser-files"); !strings.Contains(s, "EPA's vocabulary, epa-vehicles 2026-06-09+"+embedded.Month+", is kept in this browser.") || tb.count("#load-epa") != 0 {
 		t.Errorf("EPA loaded: %s", s)
 	}

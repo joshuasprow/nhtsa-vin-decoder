@@ -45,7 +45,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/joshuasprow/nitrovin-data/pkg/artifact"
 	"github.com/joshuasprow/nitrovin-data/pkg/embedded"
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
@@ -98,17 +97,13 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	a, err := artifact.Open(raw)
-	if err != nil {
-		return err
-	}
 	cur, err := readCurated(*curatedPath)
 	if err != nil {
 		return err
 	}
 
 	var buf bytes.Buffer
-	cov, err := build(&buf, f, d.Month(), readModelValues(a), cur)
+	cov, err := build(&buf, f, d.Month().(vocab.ModelMonth), cur)
 	if err != nil {
 		return err
 	}
