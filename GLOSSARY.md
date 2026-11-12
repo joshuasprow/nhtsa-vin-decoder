@@ -340,7 +340,8 @@ _Avoid_: whole-vehicle list, parts list
 
 **Related vehicle**:
 A catalog vehicle and a year range that shares at least one fitment with a
-fit's vehicle, with its count of shared fitments per part type.
+fit's vehicle: the longest range over which it shares the same fitments,
+with their count per part type.
 _Avoid_: interchangeable vehicle, sibling, twin
 
 **Side filter**:

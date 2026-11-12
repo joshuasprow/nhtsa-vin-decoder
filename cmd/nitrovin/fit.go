@@ -21,8 +21,8 @@ func init() {
 	})
 }
 
-// fitOptions are fit's flags: the request fields every VIN shares; to,
-// side, model_year and now fill what a stdin request leaves out.
+// fitOptions are fit's flags: the request fields every VIN shares, and,
+// --after aside, what fills a stdin request that leaves them out.
 type fitOptions struct {
 	part      *contract.FitPart
 	side      string
@@ -92,6 +92,8 @@ func (o *fitOptions) run(e *env, args []string) error {
 		return usageError("no VIN: give one or more, or - to read fit requests from stdin")
 	case slices.Contains(args, "-") && len(args) > 1:
 		return usageError("- reads the requests from stdin and takes no other argument")
+	case args[0] == "-" && o.after != "":
+		return usageError("--after continues one answer: give it on a stdin line, as after")
 	}
 	if args[0] == "-" {
 		return o.runStdin(e, base)
@@ -131,9 +133,11 @@ func (o *fitOptions) run(e *env, args []string) error {
 }
 
 // runStdin fits one request object per stdin line, writing each answer
-// before reading the next line's. A line's own to, side, model_year and
-// now beat the flags'; a line without one takes the flag's. A refused line
-// stops the run; the answers already written are complete.
+// before reading the next line's. A line's own to, side, model_year, limit
+// and now beat the flags'; a line without one takes the flag's, and a line
+// whose from is a vehicle and that gives neither part nor related takes
+// --part and --related. A refused line stops the run; the answers already
+// written are complete.
 func (o *fitOptions) runStdin(e *env, base contract.FitRequest) error {
 	t, err := e.translator()
 	if err != nil {
@@ -159,6 +163,12 @@ func (o *fitOptions) runStdin(e *env, base contract.FitRequest) error {
 		}
 		if req.Now.IsZero() {
 			req.Now = base.Now
+		}
+		if req.Limit == 0 {
+			req.Limit = base.Limit
+		}
+		if req.From.Fitment == nil && req.Part == nil && !req.Related {
+			req.Part, req.Related = base.Part, base.Related
 		}
 		a, err := t.Fit(req)
 		if err != nil {

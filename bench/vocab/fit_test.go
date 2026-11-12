@@ -12,8 +12,9 @@ import (
 
 // BenchmarkFit times fit on the catalog-scale fixture (ADR 0017), loaded
 // once: candidates for a vehicle, a year and a part type; a vehicle's
-// part-type summary; its related vehicles; and reverse, one fitment key to
-// its vehicles. ADR 0018's budget, all p99 on the reference machine: at
+// part-type summary and its related vehicles, in a year and with none
+// (every year's fitments, the expensive path); and reverse, one fitment
+// key to its vehicles. ADR 0018's budget, all p99 on the reference machine: at
 // most 5 ms for candidates, 10 ms for part types, 50 ms for related and
 // 1 ms per key for reverse. Like the load benchmark, it reports its numbers
 // for comparison and holds none of them: each request kind reports p50-ns
@@ -37,7 +38,7 @@ func BenchmarkFit(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	var candidates, partTypes, related, reverse []contract.FitRequest
+	var candidates, partTypes, related, reverse, partTypesAnyYear, relatedAnyYear []contract.FitRequest
 	for _, i := range fitBenchFitments() {
 		from := contract.FitFrom{Vocabulary: "bench-models", Entry: names[catalogVehicleOf(i, 0)]}
 		year := contract.Value(int32(catalogFirstOf(i, 0)))
@@ -45,6 +46,8 @@ func BenchmarkFit(b *testing.B) {
 		candidates = append(candidates, contract.FitRequest{From: from, ModelYear: year, Part: part, Now: now})
 		partTypes = append(partTypes, contract.FitRequest{From: from, ModelYear: year, Now: now})
 		related = append(related, contract.FitRequest{From: from, ModelYear: year, Related: true, Now: now})
+		partTypesAnyYear = append(partTypesAnyYear, contract.FitRequest{From: from, Now: now})
+		relatedAnyYear = append(relatedAnyYear, contract.FitRequest{From: from, Related: true, Now: now})
 		key := &contract.FitmentKey{Type: catalogTypeOf(i), Number: catalogNumberOf(i), Side: catalogSideOf(i)}
 		reverse = append(reverse, contract.FitRequest{From: contract.FitFrom{Fitment: key}, Now: now})
 	}
@@ -55,6 +58,8 @@ func BenchmarkFit(b *testing.B) {
 		{"candidates", candidates},
 		{"part-types", partTypes},
 		{"related", related},
+		{"part-types-any-year", partTypesAnyYear},
+		{"related-any-year", relatedAnyYear},
 		{"reverse", reverse},
 	} {
 		b.Run(k.name, func(b *testing.B) { measureFit(b, tr, k.reqs) })

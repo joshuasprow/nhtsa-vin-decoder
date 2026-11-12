@@ -722,11 +722,14 @@ retains and a loading process's peak RSS, against the budget of 15 s on
 one core, 1.5 GiB peak and a 500 MB file. On the reference machine it
 measured 2.7 s on one core, 900 MB peak, 322 MB retained and a 330 MB
 file. `BenchmarkFit` asks `fit` of that catalog on one core, cycling
-through 64 vehicles and fitment keys: candidates, part types, related
-vehicles and reverse, each reporting p50, p99 and its answers' average
-`total` (`items`), against ADR 0018's p99 budget of 5 ms, 10 ms, 50 ms
-and 1 ms per key; on the reference machine they measured 4.3 µs, 328 µs,
-291 µs and 6.7 µs. `release.yml`'s bench job runs them on its runner, and
+through 64 vehicles and fitment keys: candidates, part types and related
+vehicles (each in a year and, the expensive path, with none) and
+reverse, each reporting p50, p99 and its answers' average `total`
+(`items`), against ADR 0018's p99 budget of 5 ms, 10 ms, 50 ms and 1 ms
+per key. On the reference machine they measured 4.6 µs; 344 µs, and
+2.0 ms with no year; 385 µs, and 9.4 ms with no year; and 6.4 µs. The
+no-year tails are garbage collection of the loaded catalog's heap on one
+core, which the compiled form (ADR 0021) shrinks. `release.yml`'s bench job runs them on its runner, and
 `bench/vocab/notes` turns the output into the table the release notes end
 with, beside the budgets, which are stated for the reference machine (an
 Apple M5 Pro). Nothing gates on it: runner timings are too noisy, and a

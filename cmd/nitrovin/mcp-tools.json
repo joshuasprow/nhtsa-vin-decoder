@@ -1129,7 +1129,7 @@
     {
       "name": "list",
       "title": "List vocabularies",
-      "description": "List what this server has loaded, or page through one part of it, offline.\n\nCall it with no arguments first: the catalog names vPIC and every loaded vocabulary, spine and extension set, with each vocabulary's fields and the spine it translates through. What is loaded differs from server to server, so never guess a name.\n\n- of: \"vpic\" for vPIC's makes, or a name from the catalog for its entries; the loaded parts catalog's name pages its fitment lines.\n- where: exact field matches after normalization: a vocabulary's fields; for vpic, make, a make id, to list that make's models, and with it year, one model year: the models whose years include it, or are unknown. A vpic model's years are on its entry. Or, for vpic, model and element together, a vPIC model id and a public element id (34 is Series, 15 Drive Type), to list the model's values: every value a decode with a model year gives the element for a VIN of the model, except a value a formula pattern computes from the VIN's characters; it may list values no VIN of the model ends up with. Model Year and the error and correction elements are decoded from the VIN itself and refused. For a parts catalog only type, a part type.\n- limit: entries a page, 1-1000 (default 100).\n- after: the previous page's next, to continue. No next means the last page.",
+      "description": "List what this server has loaded, or page through one part of it, offline.\n\nCall it with no arguments first: the catalog names vPIC and every loaded vocabulary, spine and extension set, with each vocabulary's fields and the spine it translates through. What is loaded differs from server to server, so never guess a name.\n\n- of: \"vpic\" for vPIC's makes, or a name from the catalog for its entries; the loaded parts catalog's name, a fit answer's catalog.name, pages its fitment lines (the catalog is not in the no-argument list).\n- where: exact field matches after normalization: a vocabulary's fields; for vpic, make, a make id, to list that make's models, and with it year, one model year: the models whose years include it, or are unknown. A vpic model's years are on its entry. Or, for vpic, model and element together, a vPIC model id and a public element id (34 is Series, 15 Drive Type), to list the model's values: every value a decode with a model year gives the element for a VIN of the model, except a value a formula pattern computes from the VIN's characters; it may list values no VIN of the model ends up with. Model Year and the error and correction elements are decoded from the VIN itself and refused. For a parts catalog only type, a part type.\n- limit: entries a page, 1-1000 (default 100).\n- after: the previous page's next, to continue. No next means the last page.",
       "inputSchema": {
         "type": "object",
         "$ref": "#/$defs/ListRequest",
@@ -1827,7 +1827,7 @@
     {
       "name": "fit",
       "title": "Fit parts and vehicles",
-      "description": "Fit a vehicle or a part number against the loaded parts catalog, offline: which parts fit a vehicle, and which vehicles a part fits. What it answers depends on the inputs:\n- a vehicle alone: its part types, each with a count of fitments.\n- a vehicle with part: the candidate fitments of that part type, with the applications that matched.\n- a fitment key ({\"fitment\": {\"type\", \"number\", \"side\"}}) as from: the fitment's vehicles. A retired number reaches the fitment that replaced it.\n- a vehicle with related: true: the vehicles that share its fitments, with how many per part type.\n\nWhat is loaded differs from server to server: call list with no arguments first (or read info), and use only the catalog, vocabulary names, fields and part types it gives.\n\n- from: a VIN string; {\"vocabulary\": name, \"entry\": {...}} with exactly that vocabulary's fields; {\"make\": id}, {\"model\": id} or {\"ext\": id}; or {\"fitment\": {\"type\": part type, \"number\": number}}, with \"side\" for a sided fitment.\n- part: {\"spine\": the catalog's part spine, \"id\": part type} or {\"vocabulary\": name, \"entry\": {...}}. Not with a fitment.\n- side: \"left\", \"right\" or \"both\", to keep the fitments that can go on that side.\n- to: vehicle vocabulary names to name vehicles in. None names them as spine entries.\n- model_year: only a year the user knows apart from the VIN; with a fitment, keeps the applications whose years hold it.\n- limit: list items a page, 1-1000 (default 100); after: the previous page's next, to continue. total counts every page; no next means the last page.\n- now: omit.\n\nNothing to fit is not an error: status says why (unknown, no-vehicle, no-fitment, or no-catalog when no parts catalog is loaded) and the list is empty. When models lists several vehicles, ask the user which one. An application's options is the catalog's requirement text, verbatim: a person must settle it, so report it with the part, never decide it. A result with unconfirmed was not fully checked: report it as possible, not certain.",
+      "description": "Fit a vehicle or a part number against the loaded parts catalog, offline: which parts fit a vehicle, and which vehicles a part fits. What it answers depends on the inputs:\n- a vehicle alone: its part types, each with a count of fitments.\n- a vehicle with part: the candidate fitments of that part type, with the applications that matched.\n- a fitment key ({\"fitment\": {\"type\", \"number\", \"side\"}}) as from: the fitment's vehicles. A retired number reaches the fitment that replaced it.\n- a vehicle with related: true: the vehicles that share its fitments, with how many per part type.\n\nWhat is loaded differs from server to server: call fit with the vehicle alone first. Its catalog gives the catalog's name (list's of, to page its fitment lines), its part spine (part's spine) and its vehicle vocabulary, and its part_types the part type ids; list with no arguments gives the vocabulary names and fields. Use only names these give.\n\n- from: a VIN string; {\"vocabulary\": name, \"entry\": {...}} with exactly that vocabulary's fields; {\"make\": id}, {\"model\": id} or {\"ext\": id}; or {\"fitment\": {\"type\": part type, \"number\": number}}, with \"side\" for a sided fitment.\n- part: {\"spine\": the catalog's part spine, \"id\": part type} or {\"vocabulary\": name, \"entry\": {...}}. Not with a fitment.\n- side: \"left\", \"right\" or \"both\", to keep the fitments that can go on that side.\n- to: vehicle vocabulary names to name vehicles in. None names them as spine entries.\n- model_year: only a year the user knows apart from the VIN; with a fitment, keeps the applications whose years hold it.\n- limit: list items a page, 1-1000 (default 100); after: the previous page's next, to continue. total counts every page; no next means the last page.\n- now: omit.\n\nNothing to fit is not an error: status says why (unknown, no-vehicle, no-fitment, or no-catalog when no parts catalog is loaded) and the list is empty. When models lists several vehicles, ask the user which one. An application's options is the catalog's requirement text, verbatim: a person must settle it, so report it with the part, never decide it. A result with unconfirmed was not fully checked: report it as possible, not certain.",
       "inputSchema": {
         "type": "object",
         "$ref": "#/$defs/FitRequest",
@@ -2543,10 +2543,12 @@
           },
           "FitCatalog": {
             "type": "object",
-            "description": "The catalog a fit answered from.",
+            "description": "The catalog a fit answered from, and the files it names: its name is what list's of takes to page its fitment lines, spine the part spine a part names, vehicles its vehicle vocabulary.",
             "required": [
               "name",
-              "version"
+              "version",
+              "spine",
+              "vehicles"
             ],
             "properties": {
               "name": {
@@ -2561,6 +2563,16 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "The publisher's release; absent when the catalog gives none."
+              },
+              "spine": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The declared spine its part types come from: a part's spine."
+              },
+              "vehicles": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The vehicle vocabulary its vehicles are entries of, or vpic."
               }
             },
             "additionalProperties": false

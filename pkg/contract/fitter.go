@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -92,7 +93,7 @@ func (f Fitter) Fit(req FitRequest) (Fit, error) {
 		return Fit{}, p
 	}
 	info := f.Catalog.Info()
-	out.Catalog = &FitCatalog{Name: info.Name, Version: info.Version, Release: info.Release}
+	out.Catalog = &FitCatalog{Name: info.Name, Version: info.Version, Release: info.Release, Spine: info.Spine, Vehicles: info.Vehicles}
 	limit := req.Limit
 	if limit == 0 {
 		limit = DefaultListLimit
@@ -233,6 +234,8 @@ type reached struct {
 	decoded                   *vocab.Decoded
 	decode                    *Vehicle
 	dataMonth, decoderVersion string
+	// modelIdx remembers modelOf's answers.
+	modelIdx map[*vocab.Vehicle]int
 }
 
 // reach translates a fit's vehicle to the catalog's vehicles, decoding its
@@ -401,33 +404,69 @@ func keeps(want, s vocab.Side) bool {
 }
 
 // candidates are the candidates of part type t for the vehicle, side kept,
-// each with the applications that hold, directly or, when it has none,
-// through the redirects listed for its vehicles: how they were reached.
+// each with the applications that hold: directly, and through each
+// redirect listed for one of its vehicles and years that no direct
+// candidate covers. Reached is direct when any candidate is.
 func (f Fitter) candidates(t partType, v *reached, side vocab.Side) ([]FitCandidate, FitReach) {
-	if cs := f.matching(f.Catalog.ByVehicle(t.id, v.vehicles, v.year, nil), t, v, side, nil); len(cs) > 0 {
-		return cs, ReachedDirect
-	}
-	var out []FitCandidate
+	direct := f.matching(f.Catalog.ByVehicle(t.id, v.vehicles, v.year, nil), t, v, side, nil)
+	out := direct
 	for _, rd := range f.Catalog.Redirect(t.id, v.vehicles, v.year) {
+		if covers(direct, rd) {
+			continue
+		}
+		if len(out) == len(direct) {
+			out = slices.Clone(direct) // what follows never writes into direct
+		}
 		for _, c := range f.matching(f.Catalog.ByVehicle(rd.To, []vocab.Vehicle{*rd.Vehicle}, v.year, nil), t, v, side, rd) {
 			c.Reached = ReachedRedirect
 			c.Redirects = []FitRedirect{fitRedirect(rd)}
 			out = append(out, c)
 		}
 	}
-	return mergeCandidates(out), ReachedRedirect
+	if len(out) == len(direct) {
+		return direct, ReachedDirect
+	}
+	out = mergeCandidates(out)
+	if len(direct) > 0 {
+		return out, ReachedDirect
+	}
+	return out, ReachedRedirect
+}
+
+// covers reports whether a direct candidate has an application to rd's
+// vehicle in years that overlap rd's: a redirect is for a vehicle and
+// years (ADR 0016), and is followed wherever the part type asked for has
+// no fitment of its own.
+func covers(direct []FitCandidate, rd *vocab.Redirect) bool {
+	rv := catalogVehicle(rd.Vehicle)
+	for _, c := range direct {
+		for _, a := range c.Applications {
+			if sameVehicle(a.Vehicle, rv) && overlaps(intOf(a.First), intOf(a.Last), rd.First, rd.Last) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// intOf is a year as the catalog has it, nil when absent.
+func intOf(y Null[int32]) *int {
+	if !y.Valid {
+		return nil
+	}
+	return new(int(y.V))
 }
 
 // matching is cs, side kept, as an answer has them: each with the
 // applications that hold against the vehicle's year and decode (and the
 // redirect's years, through rd), the unchecked of the route to each.
 func (f Fitter) matching(cs []vocab.Candidate, t partType, v *reached, side vocab.Side, rd *vocab.Redirect) []FitCandidate {
-	var out []FitCandidate
+	out := make([]FitCandidate, 0, len(cs))
 	for _, c := range cs {
 		if !keeps(side, c.Fitment.Key.Side) {
 			continue
 		}
-		fc := FitCandidate{Fitment: fitmentOf(c.Fitment), Reached: ReachedDirect}
+		fc := FitCandidate{Fitment: fitmentOf(c.Fitment), Reached: ReachedDirect, Applications: make([]FitApplication, 0, len(c.Applications))}
 		for _, a := range c.Applications {
 			if rd != nil && v.year == nil && !overlaps(a.First, a.Last, rd.First, rd.Last) {
 				continue
@@ -438,7 +477,7 @@ func (f Fitter) matching(cs []vocab.Candidate, t partType, v *reached, side voca
 			}
 			fa := FitApplication{Vehicle: catalogVehicle(a.Vehicle), First: year(a.First), Last: year(a.Last), Options: a.Options}
 			uc := Unconfirmed{Elements: u.Elements, ModelYear: u.ModelYear}
-			if i := modelOf(v.vehicles, a.Vehicle); i >= 0 {
+			if i := v.modelOf(a.Vehicle); i >= 0 {
 				fa.Via = v.models[i].Via
 				uc = uc.union(v.models[i].Unconfirmed)
 			}
@@ -460,6 +499,12 @@ func overlaps(a1, a2, b1, b2 *int) bool {
 
 // union is what is unchecked in u or w.
 func (u Unconfirmed) union(w Unconfirmed) Unconfirmed {
+	switch {
+	case w.IsZero():
+		return u
+	case u.IsZero():
+		return w
+	}
 	out := Unconfirmed{ModelYear: u.ModelYear || w.ModelYear}
 	if len(u.Elements)+len(w.Elements) > 0 {
 		out.Elements = append(slices.Clone(u.Elements), w.Elements...)
@@ -526,16 +571,25 @@ func compareFitments(a, b Fitment) int {
 	return cmp.Or(strings.Compare(a.Type, b.Type), cmp.Compare(sa, sb), strings.Compare(a.Number, b.Number))
 }
 
-// modelOf is the index in vehicles of the catalog's vehicle v, -1 when it
-// is none of them.
-func modelOf(vehicles []vocab.Vehicle, v *vocab.Vehicle) int {
-	cv := catalogVehicle(v)
-	for i := range vehicles {
-		if sameVehicle(catalogVehicle(&vehicles[i]), cv) {
-			return i
+// modelOf is the index in r.vehicles of the catalog's vehicle v, -1 when
+// it is none of them, remembered for v: a catalog names each vehicle on
+// many lines.
+func (r *reached) modelOf(v *vocab.Vehicle) int {
+	if i, ok := r.modelIdx[v]; ok {
+		return i
+	}
+	i, cv := -1, catalogVehicle(v)
+	for j := range r.vehicles {
+		if sameVehicle(catalogVehicle(&r.vehicles[j]), cv) {
+			i = j
+			break
 		}
 	}
-	return -1
+	if r.modelIdx == nil {
+		r.modelIdx = map[*vocab.Vehicle]int{}
+	}
+	r.modelIdx[v] = i
+	return i
 }
 
 func catalogVehicle(v *vocab.Vehicle) CatalogVehicle {
@@ -554,40 +608,38 @@ func fitRedirect(rd *vocab.Redirect) FitRedirect {
 	return FitRedirect{Vehicle: catalogVehicle(rd.Vehicle), First: year(rd.First), Last: year(rd.Last), From: rd.From, To: rd.To, Options: rd.Options}
 }
 
-// relatedGroup is a related vehicle being counted: a catalog vehicle and
-// a year range, and the fitments it shares.
+// relatedGroup is a related vehicle: a catalog vehicle and a year range,
+// and the fitments it shares in every year of it.
 type relatedGroup struct {
 	vehicle     *vocab.Vehicle
 	first, last *int
-	key         string // vehicle and years, for grouping
 	name        []string
 	shared      int
 	partTypes   []FitPartType
-	last1       *vocab.Fitment // the last fitment counted, so each counts once
 }
 
-// related are the vehicles, each a catalog vehicle and a year range, with
-// an application of a fitment the vehicle has (types, side kept, its
-// applications holding), other than the vehicle's own: ordered by shared
-// count, most first, then name and years.
+// sharedSpan is a shared fitment's application to a related vehicle: the
+// fitment's index among those shared, and its years, math.MinInt and
+// math.MaxInt for unbounded.
+type sharedSpan struct{ fit, lo, hi int }
+
+// related are the vehicles that share a fitment with v (of types, side
+// kept, an application of v's holding), other than v's own applications.
+// Each catalog vehicle's years are cut where the set of fitments it
+// shares changes: a row is a vehicle and the longest year range over
+// which it shares the same fitments, so shared counts every fitment
+// shared in each year of it. Rows are ordered by shared count, most
+// first, then name and years.
 func (f Fitter) related(types []partType, v *reached, side vocab.Side) []relatedGroup {
-	byKey := map[string]*relatedGroup{}
-	var groups []*relatedGroup
-	keys := map[*vocab.Vehicle]string{}
-	keyOf := func(veh *vocab.Vehicle) string {
-		k, ok := keys[veh]
-		if !ok {
-			k = vehicleKey(catalogVehicle(veh))
-			keys[veh] = k
-		}
-		return k
+	type spans struct {
+		vehicle *vocab.Vehicle
+		spans   []sharedSpan
 	}
-	own := map[string]bool{}
-	for i := range v.vehicles {
-		own[vehicleKey(catalogVehicle(&v.vehicles[i]))] = true
-	}
-	var buf []byte
-	for _, t := range types {
+	// A catalog shares one Vehicle among every line naming it.
+	byVehicle := map[*vocab.Vehicle]*spans{}
+	var order []*spans
+	var fits []int32 // each shared fitment's part type, an index in types
+	for ti, t := range types {
 		for _, c := range f.Catalog.ByVehicle(t.id, v.vehicles, v.year, nil) {
 			if !keeps(side, c.Fitment.Key.Side) || !slices.ContainsFunc(c.Applications, func(a *vocab.Application) bool {
 				_, ok := a.Check(v.year, v.decoded)
@@ -595,38 +647,101 @@ func (f Fitter) related(types []partType, v *reached, side vocab.Side) []related
 			}) {
 				continue
 			}
+			fi := len(fits)
+			fits = append(fits, int32(ti))
 			for i := range c.Fitment.Applications {
 				a := &c.Fitment.Applications[i]
-				vk := keyOf(a.Vehicle)
-				if own[vk] && (v.year == nil || holds(a.First, a.Last, *v.year)) {
+				if v.modelOf(a.Vehicle) >= 0 && (v.year == nil || holds(a.First, a.Last, *v.year)) {
 					continue // the vehicle itself
 				}
-				buf = appendYears(append(buf[:0], vk...), a.First, a.Last)
-				g := byKey[string(buf)]
+				g := byVehicle[a.Vehicle]
 				if g == nil {
-					g = &relatedGroup{vehicle: a.Vehicle, first: a.First, last: a.Last, key: string(buf), name: f.vehicleName(a.Vehicle)}
-					byKey[g.key] = g
-					groups = append(groups, g)
+					g = &spans{vehicle: a.Vehicle}
+					byVehicle[a.Vehicle] = g
+					order = append(order, g)
 				}
-				if g.last1 == c.Fitment {
-					continue
+				sp := sharedSpan{fit: fi, lo: math.MinInt, hi: math.MaxInt}
+				if a.First != nil {
+					sp.lo = *a.First
 				}
-				g.last1 = c.Fitment
-				g.shared++
-				if n := len(g.partTypes); n > 0 && g.partTypes[n-1].Type == t.id {
-					g.partTypes[n-1].Count++
-				} else {
-					g.partTypes = append(g.partTypes, FitPartType{Type: t.id, Name: t.name, Count: 1})
+				if a.Last != nil {
+					sp.hi = *a.Last
 				}
+				g.spans = append(g.spans, sp)
 			}
 		}
 	}
-	slices.SortFunc(groups, func(a, b *relatedGroup) int {
+	var out []relatedGroup
+	for _, g := range order {
+		name := f.vehicleName(g.vehicle)
+		for _, r := range splitShared(g.spans) {
+			rg := relatedGroup{vehicle: g.vehicle, name: name, shared: len(r.fits)}
+			if r.lo != math.MinInt {
+				rg.first = new(r.lo)
+			}
+			if r.hi != math.MaxInt {
+				rg.last = new(r.hi)
+			}
+			for _, fi := range r.fits { // ascending, so by part type
+				t := &types[fits[fi]]
+				if n := len(rg.partTypes); n > 0 && rg.partTypes[n-1].Type == t.id {
+					rg.partTypes[n-1].Count++
+				} else {
+					rg.partTypes = append(rg.partTypes, FitPartType{Type: t.id, Name: t.name, Count: 1})
+				}
+			}
+			out = append(out, rg)
+		}
+	}
+	slices.SortFunc(out, func(a, b relatedGroup) int {
 		return cmp.Or(cmp.Compare(b.shared, a.shared), slices.Compare(a.name, b.name), compareYear(a.first, b.first), compareYear(a.last, b.last))
 	})
-	out := make([]relatedGroup, len(groups))
-	for i, g := range groups {
-		out[i] = *g
+	return out
+}
+
+// sharedRange is a year range, lo to hi (math.MinInt and math.MaxInt for
+// unbounded), and the fitments shared in every year of it, ascending.
+type sharedRange struct {
+	lo, hi int
+	fits   []int
+}
+
+// splitShared cuts one vehicle's shared spans into the longest year
+// ranges over which the set of fitments shared stays the same, in year
+// order, leaving out years that share none.
+func splitShared(spans []sharedSpan) []sharedRange {
+	// Every range starts at a span's first year or the year after one's
+	// last: within one, each span holds every year or none.
+	var cuts []int
+	for _, sp := range spans {
+		cuts = append(cuts, sp.lo)
+		if sp.hi != math.MaxInt {
+			cuts = append(cuts, sp.hi+1)
+		}
+	}
+	slices.Sort(cuts)
+	cuts = slices.Compact(cuts)
+	var out []sharedRange
+	for i, lo := range cuts {
+		hi := math.MaxInt
+		if i+1 < len(cuts) {
+			hi = cuts[i+1] - 1
+		}
+		var set []int
+		for _, sp := range spans {
+			if sp.lo <= lo && hi <= sp.hi {
+				set = append(set, sp.fit)
+			}
+		}
+		slices.Sort(set)
+		set = slices.Compact(set)
+		switch n := len(out); {
+		case len(set) == 0:
+		case n > 0 && out[n-1].hi == lo-1 && slices.Equal(out[n-1].fits, set):
+			out[n-1].hi = hi
+		default:
+			out = append(out, sharedRange{lo: lo, hi: hi, fits: set})
+		}
 	}
 	return out
 }
@@ -646,31 +761,6 @@ func compareYear(a, b *int) int {
 		return 1
 	}
 	return cmp.Compare(*a, *b)
-}
-
-// vehicleKey identifies a catalog vehicle: its fields in name order, each
-// normalized, or its target.
-func vehicleKey(v CatalogVehicle) string {
-	if v.Entry == nil {
-		return fmt.Sprintf("\x00%d\x00%d\x00%s", v.Make, v.Model, v.Ext)
-	}
-	var b strings.Builder
-	for _, k := range slices.Sorted(maps.Keys(v.Entry)) {
-		val := vocab.Normalize(v.Entry[k])
-		fmt.Fprintf(&b, "%d:%s%d:%s", len(k), k, len(val), val)
-	}
-	return b.String()
-}
-
-func appendYears(b []byte, first, last *int) []byte {
-	for _, y := range []*int{first, last} {
-		if y == nil {
-			b = append(b, '-')
-		} else {
-			b = strconv.AppendInt(append(b, '='), int64(*y), 10)
-		}
-	}
-	return b
 }
 
 // vehicleName is what related vehicles are ordered by after their count:

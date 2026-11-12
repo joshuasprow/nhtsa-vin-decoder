@@ -14,8 +14,8 @@
 #
 # It runs for the library and the packages it links (go list -deps
 # ./cmd/libnitrovin): pkg/stdio, pkg/nitrovin, pkg/contract, pkg/decoder,
-# pkg/vocab, and go.mod for nitrovin-data's; and for the fixture. The main
-# command and the importer are not among them.
+# pkg/vocab, pkg/fitment, and go.mod for nitrovin-data's; and for the
+# fixtures. The main command and the importer are not among them.
 name: C library
 
 on:
@@ -25,6 +25,7 @@ on:
       - pkg/stdio/**
       - pkg/nitrovin/**
       - pkg/contract/**
+      - pkg/fitment/**
       - pkg/decoder/**
       - pkg/vocab/**
       - testdata/vocab/*.jsonl

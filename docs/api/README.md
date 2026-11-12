@@ -405,7 +405,10 @@ exit 2. A malformed flag (`--where` without `=`, a field given twice, a
 `FitRequest` object per stdin line (a VIN, an entry, a spine entry or a
 fitment key as `from`), and the flags fill what a line leaves out: a line's
 own `to`, `side`, `model_year` and `now` beat the flags', and a line
-without one takes the flag's. Output, refusals and exit codes are
+without one takes the flag's. `--part` and `--related` fill a line
+whose `from` is a vehicle and that gives neither, and `--limit` a line
+without `limit`; `--after` continues one answer, so it is a usage error
+beside `-`. Output, refusals and exit codes are
 `translate`'s: one argument prints one `Fit`, several or `-` print JSON
 lines; a refused argument is exit 2 with nothing on stdout (a VIN before
 any data is loaded, a `--part` or `--to` the loaded files refuse after); a
@@ -689,9 +692,14 @@ object. Its inputs shape the answer:
 - **Candidates** are ordered by part type, side and number. Each has
   `fitment` (`type`, `number`, `side`, `note`), `applications` (each
   `vehicle`, `via`, `first`, `last`, `options` verbatim, `unconfirmed`)
-  and `reached`: `direct`, or `redirect` when the vehicle has no fitment of
-  the part type asked for and a redirect lists it under another, with the
-  `redirects` that led there (one hop, never more). The catalog's option
+  and `reached`: `direct`, or `redirect` with the `redirects` that led
+  there (one hop, never more). A redirect is for a catalog vehicle and
+  years: it is followed unless a direct candidate already has an
+  application to that vehicle in years that overlap the redirect's, so
+  one of several `models`, or one range of years, can be reached through a
+  redirect while the others are direct. A fitment reached both ways is
+  `direct`, and a part type in `part_types` is `direct` when any of its
+  candidates is. The catalog's option
   text is the requirement a person settles; it is never interpreted.
 - **The side filter** drops only a fitment whose side excludes the one
   asked for: `left` keeps `left`, `both` and fitments with no side; `right`
@@ -704,14 +712,22 @@ object. Its inputs shape the answer:
   each named into every `to` vocabulary (`to`, as a translation's) or,
   without `to`, as spine entries (`spine`), translated within the
   application's years.
-- **Related vehicles** are each a catalog vehicle and a year range, as
-  applications write them, that share at least one fitment with `from`
-  (the vehicle's own applications aside), with `shared`, the count of
-  shared fitments, and `part_types`, the count per part type. They are
-  ordered by `shared`, most first, then by name and years, and named as a
-  fitment's vehicles are.
+- **Related vehicles** are the catalog vehicles that share at least one
+  fitment with `from` (the vehicle's own applications aside: in its year
+  when one is known, else all of them). Each vehicle's years are cut where
+  the set of fitments it shares changes: a row is a catalog vehicle and
+  the longest year range (`first`, `last`, either open) over which it
+  shares the same fitments, with `shared`, how many it shares in every
+  year of that range, and `part_types`, those per part type. A vehicle
+  whose shared applications all span the same years is one row; years in
+  which it shares nothing are in none. Rows are ordered by `shared`, most
+  first, then by name and years, and named as a fitment's vehicles are,
+  within the row's years.
 - **The answer** (`Fit`): `status`; `catalog` (`name`, `version`,
-  `release`); `vehicle` with a VIN, as a translation's; `models`; the list
+  `release`, `spine`, the part spine a `part` names, and `vehicles`, its
+  vehicle vocabulary or `vpic`: `list` with no `of` leaves the catalog
+  out, so a fit answer is where a caller learns its name for `list`'s
+  `of`); `vehicle` with a VIN, as a translation's; `models`; the list
   the inputs ask for, always present, empty when nothing fits; `total`,
   the count across every page; `next`, present when a page follows; `now`,
   `data_month`, `decoder_version`. Paging is `list`'s: `next` is an opaque

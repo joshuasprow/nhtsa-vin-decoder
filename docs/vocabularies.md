@@ -264,7 +264,9 @@ can name a part type in a parts system's words:
 nitrovin --vocab testdata/vocab --vocab testdata/vocab/fitment fit --part part-types:mirror --side left 1D7RV1GT5AS123456
 echo '{"from":{"model":1850},"model_year":2010,"part":{"vocabulary":"part-codes","entry":{"code":"ROT"}}}' |
   nitrovin --vocab testdata/vocab --vocab testdata/vocab/fitment fit -
-``` The browser neither loads a catalog nor is
+```
+
+The browser neither loads a catalog nor is
 offered the server's, and `serve` never publishes one. In Go, a loaded
 catalog is a `fitment.Reader` ([`pkg/fitment`](../pkg/fitment)), the one
 interface every consumer reads it through (ADR 0017): `ByVehicle`,

@@ -264,7 +264,7 @@ func TestFit(t *testing.T) {
 			if got := fitSummary(f); !slices.Equal(got, c.want) {
 				t.Errorf("%s:\n%s\nwant\n%s", c.request, strings.Join(got, "\n"), strings.Join(c.want, "\n"))
 			}
-			if f.Catalog == nil || *f.Catalog != (contract.FitCatalog{Name: "parts-catalog", Version: "2026.11", Release: "7.02"}) {
+			if f.Catalog == nil || *f.Catalog != (contract.FitCatalog{Name: "parts-catalog", Version: "2026.11", Release: "7.02", Spine: "part-types", Vehicles: "catalog-models"}) {
 				t.Errorf("catalog %+v", f.Catalog)
 			}
 		})
@@ -556,4 +556,182 @@ func TestListCatalog(t *testing.T) {
 			t.Errorf("%+v: %v; want a refusal at %s", c.req, err, c.pointer)
 		}
 	}
+}
+
+// modelsTranslator loads a catalog whose vehicle vocabulary maps two
+// entries, Ram A and Ram B, to one vPIC model (1938), and Other to 1850:
+// a vehicle reaching two catalog models; a rear rotor listed directly for
+// one and through a redirect for the other, and for Ram A through a
+// redirect in later years; and fitments Ram A shares with Other over
+// differing years.
+func modelsTranslator(t *testing.T) *Translator {
+	t.Helper()
+	dir := t.TempDir()
+	write(t, dir, "cm.jsonl",
+		`{"format":1,"kind":"vocabulary","name":"cm","version":"1","subject":"vehicle","fields":["model"]}`,
+		`{"entry":{"model":"Ram A"},"mappings":[{"model":1938}]}`,
+		`{"entry":{"model":"Ram B"},"mappings":[{"model":1938}]}`,
+		`{"entry":{"model":"Other"},"mappings":[{"model":1850}]}`)
+	write(t, dir, "catalog.jsonl",
+		`{"format":1,"kind":"catalog","name":"models","version":"1","spine":"part-types","vehicles":"cm"}`,
+		`{"fitment":{"type":"brake-rotor-rear","number":"R-1"},"applications":[{"vehicle":{"model":"Ram A"},"first":2009,"last":2012,"options":""}]}`,
+		`{"fitment":{"type":"brake-rotor-front","number":"F-1"},"applications":[{"vehicle":{"model":"Ram B"},"first":2009,"last":2012,"options":""},{"vehicle":{"model":"Ram A"},"first":2013,"last":2015,"options":""}]}`,
+		`{"fitment":{"type":"mirror","number":"M-1"},"applications":[{"vehicle":{"model":"Ram A"},"first":2010,"last":2010,"options":""},{"vehicle":{"model":"Other"},"first":2007,"last":2013,"options":""}]}`,
+		`{"fitment":{"type":"mirror","number":"M-2"},"applications":[{"vehicle":{"model":"Ram A"},"first":2010,"last":2010,"options":""},{"vehicle":{"model":"Other"},"first":2008,"last":2013,"options":""}]}`,
+		`{"fitment":{"type":"engine","number":"E-3"},"applications":[{"vehicle":{"model":"Ram A"},"first":2010,"last":2010,"options":""},{"vehicle":{"model":"Other"},"first":2009,"last":2011,"options":""}]}`,
+		`{"fitment":{"type":"mirror","number":"M-4"},"applications":[{"vehicle":{"model":"Ram A"},"first":2010,"last":2010,"options":""},{"vehicle":{"model":"Other"},"first":2009,"last":2010,"options":"early"},{"vehicle":{"model":"Other"},"first":2011,"last":2013,"options":"late"}]}`,
+		`{"redirect":{"vehicle":{"model":"Ram B"},"first":2009,"last":2012,"from":"brake-rotor-rear","to":"brake-rotor-front"}}`,
+		`{"redirect":{"vehicle":{"model":"Ram A"},"first":2013,"last":2015,"from":"brake-rotor-rear","to":"brake-rotor-front"}}`)
+	files, err := vocab.Open("../../testdata/vocab/fitment/part-types.jsonl", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := NewTranslator(embeddedDecoder(t), files...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tr
+}
+
+// TestFitModels: a redirect is for a catalog vehicle and years, followed
+// wherever no direct candidate covers them, so one of several models, or
+// one range of years, is reached through it while the rest are direct;
+// and a related vehicle is a catalog vehicle over the years it shares the
+// same fitments, counting every one.
+func TestFitModels(t *testing.T) {
+	tr := modelsTranslator(t)
+	for _, c := range []struct {
+		name, request string
+		want          []string
+	}{
+		{"two models, one through a redirect", `{"from":{"model":1938},"model_year":2010,"part":{"spine":"part-types","id":"brake-rotor-rear"}}`, []string{
+			"status found",
+			"model Ram A via model:1938",
+			"model Ram B via model:1938",
+			"candidate brake-rotor-front F-1  redirect",
+			`  Ram B 2009-2012 "" via model:1938`,
+			`  redirect Ram B 2009-2012 brake-rotor-rear→brake-rotor-front ""`,
+			"candidate brake-rotor-rear R-1  direct",
+			`  Ram A 2009-2012 "" via model:1938`,
+			"total 2",
+		}},
+		{"no year, later years through a redirect", `{"from":{"vocabulary":"cm","entry":{"model":"Ram A"}},"part":{"spine":"part-types","id":"brake-rotor-rear"}}`, []string{
+			"status found",
+			"model Ram A",
+			"candidate brake-rotor-front F-1  redirect",
+			`  Ram A 2013-2015 "" [model_year]`,
+			`  redirect Ram A 2013-2015 brake-rotor-rear→brake-rotor-front ""`,
+			"candidate brake-rotor-rear R-1  direct",
+			`  Ram A 2009-2012 "" [model_year]`,
+			"total 2",
+		}},
+		{"part types of two models", `{"from":{"model":1938},"model_year":2010}`, []string{
+			"status found",
+			"model Ram A via model:1938",
+			"model Ram B via model:1938",
+			`part-type brake-rotor-front "Brake Rotor, Front" 1 direct`,
+			`part-type brake-rotor-rear "Brake Rotor, Rear" 2 direct`,
+			`part-type engine "Engine" 1 direct`,
+			`part-type mirror "Door Mirror" 3 direct`,
+			"total 4",
+		}},
+		{"related over differing years", `{"from":{"vocabulary":"cm","entry":{"model":"Ram A"}},"model_year":2010,"related":true}`, []string{
+			"status found",
+			"model Ram A",
+			"related Other 2009-2011 4 engine:1,mirror:3 → model:1850 make:467",
+			"related Other 2012-2013 3 mirror:3 → model:1850 make:467",
+			"related Other 2008-2008 2 mirror:2 → model:1850 make:467",
+			"related Other 2007-2007 1 mirror:1 → model:1850 make:467",
+			"total 4",
+		}},
+		{"related in every year", `{"from":{"vocabulary":"cm","entry":{"model":"Ram A"}},"related":true,"part":{"spine":"part-types","id":"brake-rotor-front"}}`, []string{
+			"status found",
+			"model Ram A",
+			"related Ram B 2009-2012 1 brake-rotor-front:1 → model:1938 make:476",
+			"total 1",
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f, err := fit(t, tr, c.request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := fitSummary(f); !slices.Equal(got, c.want) {
+				t.Errorf("%s:\n%s\nwant\n%s", c.request, strings.Join(got, "\n"), strings.Join(c.want, "\n"))
+			}
+		})
+	}
+}
+
+// TestFitPagingEveryKind: candidates, related vehicles and a fitment's
+// vehicles page end to end one at a time, each page's total the whole's,
+// and each kind refuses another kind's cursor.
+func TestFitPagingEveryKind(t *testing.T) {
+	tr := modelsTranslator(t)
+	requests := map[string]string{
+		"candidates": `{"from":{"model":1938},"model_year":2010,"part":{"spine":"part-types","id":"brake-rotor-rear"}`,
+		"related":    `{"from":{"vocabulary":"cm","entry":{"model":"Ram A"}},"model_year":2010,"related":true`,
+		"vehicles":   `{"from":{"fitment":{"type":"brake-rotor-front","number":"F-1"}}`,
+		"part_types": `{"from":{"model":1938},"model_year":2010`,
+	}
+	cursors := map[string]string{}
+	for kind, request := range requests {
+		whole, err := fit(t, tr, request+"}")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := fitSummary(whole)
+		var got []string
+		f, err := fit(t, tr, request+`,"limit":1}`)
+		for page := 0; ; page++ {
+			if err != nil {
+				t.Fatalf("%s page %d: %v", kind, page, err)
+			}
+			if f.Total != whole.Total {
+				t.Fatalf("%s page %d: total %d; want %d", kind, page, f.Total, whole.Total)
+			}
+			lines := fitSummary(f)
+			if page == 0 {
+				got = append(got, lines[:len(lines)-2]...) // status and models, then the item; not total, next
+				cursors[kind] = f.Next
+			} else {
+				got = append(got, itemLines(lines)...)
+			}
+			if f.Next == "" {
+				break
+			}
+			f, err = fit(t, tr, request+`,"limit":1,"after":"`+f.Next+`"}`)
+		}
+		got = append(got, fmt.Sprintf("total %d", whole.Total))
+		if !slices.Equal(got, want) {
+			t.Errorf("%s paged one at a time:\n%s\nwant\n%s", kind, strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+		if whole.Total < 2 {
+			t.Errorf("%s: total %d; the case needs two pages", kind, whole.Total)
+		}
+	}
+	for kind, request := range requests {
+		for other, cursor := range cursors {
+			if other == kind {
+				continue
+			}
+			_, err := fit(t, tr, request+`,"after":"`+cursor+`"}`)
+			if p := contract.AsProblem(err); err == nil || p.Pointer != "/after" {
+				t.Errorf("%s with %s's cursor: %v; want a refusal at /after", kind, other, err)
+			}
+		}
+	}
+}
+
+// itemLines are a later page's summary lines that are its items: without
+// the status, models and fitment it repeats, and the total.
+func itemLines(lines []string) []string {
+	var out []string
+	for _, l := range lines {
+		if strings.HasPrefix(l, "status ") || strings.HasPrefix(l, "model ") || strings.HasPrefix(l, "fitment ") || strings.HasPrefix(l, "total ") || l == "next" {
+			continue
+		}
+		out = append(out, l)
+	}
+	return out
 }

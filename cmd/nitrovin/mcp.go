@@ -192,7 +192,7 @@ func toolHandler(h answer) mcp.ToolHandler {
 		if len(args) == 0 { // arguments are optional in MCP: none is {}
 			args = json.RawMessage("{}")
 		}
-		b, err := h(args)
+		b, err := recovered(h, args)
 		if err != nil {
 			b, err := json.Marshal(contract.AsProblem(err))
 			if err != nil { // a Problem is strings and an int: unreachable
@@ -261,4 +261,16 @@ func fitJSON(t decodeService, args []byte) ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(f)
+}
+
+// recovered is h's answer to args, a panic in it (a fault in nitrovin, or
+// a catalog reader failing on a damaged file) an #internal problem, so
+// the server outlives it.
+func recovered(h answer, args []byte) (b []byte, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			b, err = nil, contract.NewProblem(contract.Internal, "", fmt.Sprint("panic: ", v))
+		}
+	}()
+	return h(args)
 }

@@ -2918,10 +2918,12 @@
       },
       "FitCatalog": {
         "type": "object",
-        "description": "The catalog a fit answered from.",
+        "description": "The catalog a fit answered from, and the files it names: its name is what list's of takes to page its fitment lines, spine the part spine a part names, vehicles its vehicle vocabulary.",
         "required": [
           "name",
-          "version"
+          "version",
+          "spine",
+          "vehicles"
         ],
         "properties": {
           "name": {
@@ -2936,6 +2938,16 @@
             "type": "string",
             "minLength": 1,
             "description": "The publisher's release; absent when the catalog gives none."
+          },
+          "spine": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The declared spine its part types come from: a part's spine."
+          },
+          "vehicles": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The vehicle vocabulary its vehicles are entries of, or vpic."
           }
         },
         "additionalProperties": false

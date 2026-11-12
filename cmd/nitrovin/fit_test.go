@@ -89,6 +89,21 @@ func TestFit(t *testing.T) {
 		t.Errorf("fit -: exit %d, stderr %q, stdout %q; want %q", r.exit, r.stderr, r.stdout, w)
 	}
 
+	// --part, --related and --limit fill a line that leaves them out; a
+	// line's own beat them, and a fitment line takes no part or related.
+	stdin = `{"from":"` + ram2010 + `"}` + "\n" +
+		`{"from":"` + ram2010 + `","related":true,"limit":5}` + "\n" +
+		`{"from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}}}` + "\n"
+	reqs = []contract.FitRequest{
+		{From: contract.FitFrom{VIN: ram2010}, Part: mirror, Limit: 1, Now: clock},
+		{From: contract.FitFrom{VIN: ram2010}, Related: true, Limit: 5, Now: clock},
+		{From: contract.FitFrom{Fitment: &contract.FitmentKey{Type: "brake-rotor-front", Number: "BR-1999"}}, Limit: 1, Now: clock},
+	}
+	r = cli(t, nil, stdin, slices.Concat(vocabArgs, []string{"--part", "part-types:mirror", "--limit", "1", "-"})...)
+	if w := jsonLines(t, fits(t, tr, reqs...)...); r.exit != 0 || r.stderr != "" || r.stdout != w {
+		t.Errorf("fit --part --limit -: exit %d, stderr %q, stdout %q; want %q", r.exit, r.stderr, r.stdout, w)
+	}
+
 	// No catalog loaded: the status no-catalog, exit 0.
 	r = cli(t, nil, "", "--vocab", fixture, "fit", "--now", now, ram2010)
 	if r.exit != 0 || r.stderr != "" || !strings.HasPrefix(r.stdout, `{"status":"no-catalog","models":[],"part_types":[],"total":0,`) {
@@ -135,6 +150,7 @@ func TestFitRefused(t *testing.T) {
 		{"fit", "--limit", "0", ram2010},
 		{"fit", "--to", "", ram2010},
 		{"fit", "--now", "yesterday", ram2010},
+		{"fit", "--after", "WyJjYW5kaWRhdGVzIiwxXQ", "-"},
 	} {
 		usageMistake(t, args...)
 	}

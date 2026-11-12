@@ -549,12 +549,18 @@ type Fit struct {
 	DecoderVersion string    `json:"decoder_version"`
 }
 
-// FitCatalog names the catalog a fit answered from.
+// FitCatalog names the catalog a fit answered from, and the files it
+// names: what a caller asks with, list's of included, learned from any fit
+// answer.
 type FitCatalog struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 	// Release is the publisher's, absent when the catalog gives none.
 	Release string `json:"release,omitempty"`
+	// Spine is the declared spine its part types come from (part's spine);
+	// Vehicles the vehicle vocabulary its vehicles are entries of, or vpic.
+	Spine    string `json:"spine"`
+	Vehicles string `json:"vehicles"`
 }
 
 // CatalogVehicle is a catalog's vehicle as its file writes it: an entry

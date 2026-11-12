@@ -216,6 +216,8 @@ var fitRequests = []struct{ name, label, budget string }{
 	{"Fit/candidates", "candidates (vehicle, year, part type)", "p99 ≤ 5 ms"},
 	{"Fit/part-types", "part types (vehicle, year)", "p99 ≤ 10 ms"},
 	{"Fit/related", "related vehicles", "p99 ≤ 50 ms"},
+	{"Fit/part-types-any-year", "part types, no year", "p99 ≤ 10 ms"},
+	{"Fit/related-any-year", "related vehicles, no year", "p99 ≤ 50 ms"},
 	{"Fit/reverse", "reverse (one fitment key)", "p99 ≤ 1 ms per key"},
 }
 

@@ -448,8 +448,8 @@ func TestMCPVocabSession(t *testing.T) {
 		{tool: "list", args: `{"of":"vpic","where":{"element":15}}`, pointer: "/where/element"},
 
 		{tool: "fit", args: `{"from":"` + ram2010 + `","part":{"spine":"part-types","id":"mirror"},"side":"left","now":"` + now + `"}`},
-		{tool: "fit", args: `{"from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010}`},
-		{tool: "fit", args: `{"from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}},"to":["yard"]}`},
+		{tool: "fit", args: `{"from":{"vocabulary":"catalog-models","entry":{"make":"Dodge","model":"Ram 1500"}},"model_year":2010,"now":"` + now + `"}`},
+		{tool: "fit", args: `{"from":{"fitment":{"type":"brake-rotor-front","number":"BR-1999"}},"to":["yard"],"now":"` + now + `"}`},
 		{tool: "fit", args: `{"from":"` + ram2010 + `","related":true,"now":"` + now + `"}`},
 		{tool: "list", args: `{"of":"parts-catalog","where":{"type":"mirror"}}`},
 		{tool: "fit", args: `{"from":{"model":1938},"part":{"vocabulary":"listing","entry":{"category":"Brake Pads"}}}`, pointer: "/part/vocabulary"},
@@ -639,5 +639,15 @@ func checkCall(t *testing.T, d loaded, c mcpCall, resp message, outputs map[stri
 	}
 	if err := validates(problem, []byte(text)); err != nil {
 		t.Errorf("%s: not a valid Problem: %v", c.args, err)
+	}
+}
+
+// TestMCPRecovers: a panic answering a tool call (a fault in nitrovin, or
+// a catalog reader failing on a damaged file) is an #internal Problem for
+// that call, and the server goes on.
+func TestMCPRecovers(t *testing.T) {
+	b, err := recovered(func([]byte) ([]byte, error) { panic("damaged catalog") }, []byte(`{}`))
+	if p := contract.AsProblem(err); b != nil || p.Type != contract.Internal || !strings.Contains(p.Detail, "damaged catalog") {
+		t.Errorf("%s, %v; want an #internal problem naming the panic", b, err)
 	}
 }

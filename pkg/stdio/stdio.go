@@ -16,6 +16,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 
 	"github.com/joshuasprow/nitrovin/pkg/contract"
@@ -46,28 +47,7 @@ func Reply(t *nitrovin.Translator, line []byte) []byte {
 	id, req, err := contract.ParseStdio(line)
 	r := reply{ID: id}
 	if err == nil {
-		switch req.Op {
-		case contract.OpTranslate:
-			var tr contract.Translation
-			if tr, err = t.Translate(req.Translate); err == nil {
-				r.Translation = &tr
-			}
-		case contract.OpList:
-			var l contract.List
-			if l, err = t.List(req.List); err == nil {
-				r.List = &l
-			}
-		case contract.OpFit:
-			var f contract.Fit
-			if f, err = t.Fit(req.Fit); err == nil {
-				r.Fit = &f
-			}
-		default:
-			var dec contract.Decode
-			if dec, err = t.Decoder().Decode(req.Decode); err == nil {
-				r.Decode = &dec
-			}
-		}
+		r, err = answer(t, req, id)
 	}
 	if err != nil {
 		r.Error = contract.AsProblem(err)
@@ -79,6 +59,41 @@ func Reply(t *nitrovin.Translator, line []byte) []byte {
 		b, _ = json.Marshal(reply{ID: id, Error: contract.AsProblem(err)})
 	}
 	return b
+}
+
+// answer answers one parsed request. A panic answering it (a fault in
+// nitrovin, or a catalog reader failing on a damaged file) is an
+// #internal error for that line alone, so a session outlives it.
+func answer(t *nitrovin.Translator, req contract.StdioRequest, id json.RawMessage) (r reply, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			r, err = reply{ID: id}, contract.NewProblem(contract.Internal, "", fmt.Sprint("panic: ", v))
+		}
+	}()
+	r = reply{ID: id}
+	switch req.Op {
+	case contract.OpTranslate:
+		var tr contract.Translation
+		if tr, err = t.Translate(req.Translate); err == nil {
+			r.Translation = &tr
+		}
+	case contract.OpList:
+		var l contract.List
+		if l, err = t.List(req.List); err == nil {
+			r.List = &l
+		}
+	case contract.OpFit:
+		var f contract.Fit
+		if f, err = t.Fit(req.Fit); err == nil {
+			r.Fit = &f
+		}
+	default:
+		var dec contract.Decode
+		if dec, err = t.Decoder().Decode(req.Decode); err == nil {
+			r.Decode = &dec
+		}
+	}
+	return r, err
 }
 
 // Serve runs one session: it reads lines from r until EOF and, for every
