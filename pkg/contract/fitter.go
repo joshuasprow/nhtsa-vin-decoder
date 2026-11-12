@@ -145,6 +145,9 @@ func (f Fitter) Fit(ctx context.Context, req FitRequest) (Fit, error) {
 		types = f.spineTypes(info)
 	}
 	side := sideOf(req.Side)
+	if kind != fitCandidates {
+		f.readWhole(v)
+	}
 	switch kind {
 	case fitPartTypes:
 		var all []FitPartType
@@ -266,6 +269,64 @@ type reached struct {
 	dataMonth, decoderVersion string
 	// modelIdx remembers modelOf's answers.
 	modelIdx map[*vocab.Vehicle]int
+	// byType and redirects are, when set (whole), the vehicles'
+	// candidates and redirects of every part type, by part type, read once
+	// for a request about every part type: a compiled catalog answers that
+	// from one read of each vehicle's block (ADR 0023), and one lookup per
+	// part type would cost reads for each.
+	whole     bool
+	byType    map[string][]vocab.Candidate
+	redirects map[string][]*vocab.Redirect
+}
+
+// readWhole reads the vehicles' candidates and redirects of every part
+// type, once, for byVehicle and redirect to answer from.
+func (f Fitter) readWhole(v *reached) {
+	v.whole, v.byType, v.redirects = true, map[string][]vocab.Candidate{}, map[string][]*vocab.Redirect{}
+	for _, c := range f.Catalog.ByVehicle("", v.vehicles, v.year, nil) {
+		t := c.Fitment.Key.Type
+		v.byType[t] = append(v.byType[t], c)
+	}
+	for _, rd := range f.Catalog.Redirect("", v.vehicles, v.year) {
+		v.redirects[rd.From] = append(v.redirects[rd.From], rd)
+	}
+}
+
+// byVehicle is the catalog's candidates of part type t for the vehicle,
+// or, given one (by, of the vehicle's), for that one alone.
+func (f Fitter) byVehicle(t string, v *reached, by *vocab.Vehicle) []vocab.Candidate {
+	if !v.whole {
+		vehicles := v.vehicles
+		if by != nil {
+			vehicles = []vocab.Vehicle{*by}
+		}
+		return f.Catalog.ByVehicle(t, vehicles, v.year, nil)
+	}
+	if by == nil {
+		return v.byType[t]
+	}
+	want := catalogVehicle(by)
+	var out []vocab.Candidate
+	for _, c := range v.byType[t] {
+		var apps []*vocab.Application
+		for _, a := range c.Applications {
+			if sameVehicle(catalogVehicle(a.Vehicle), want) {
+				apps = append(apps, a)
+			}
+		}
+		if len(apps) > 0 {
+			out = append(out, vocab.Candidate{Fitment: c.Fitment, Applications: apps})
+		}
+	}
+	return out
+}
+
+// redirect is the catalog's redirects from part type t for the vehicle.
+func (f Fitter) redirect(t string, v *reached) []*vocab.Redirect {
+	if v.whole {
+		return v.redirects[t]
+	}
+	return f.Catalog.Redirect(t, v.vehicles, v.year)
 }
 
 // reach translates a fit's vehicle to the catalog's vehicles, decoding its
@@ -438,16 +499,16 @@ func keeps(want, s vocab.Side) bool {
 // redirect listed for one of its vehicles and years that no direct
 // candidate covers. Reached is direct when any candidate is.
 func (f Fitter) candidates(t partType, v *reached, side vocab.Side) ([]FitCandidate, FitReach) {
-	direct := f.matching(f.Catalog.ByVehicle(t.id, v.vehicles, v.year, nil), t, v, side, nil)
+	direct := f.matching(f.byVehicle(t.id, v, nil), t, v, side, nil)
 	out := direct
-	for _, rd := range f.Catalog.Redirect(t.id, v.vehicles, v.year) {
+	for _, rd := range f.redirect(t.id, v) {
 		if covers(direct, rd) {
 			continue
 		}
 		if len(out) == len(direct) {
 			out = slices.Clone(direct) // what follows never writes into direct
 		}
-		for _, c := range f.matching(f.Catalog.ByVehicle(rd.To, []vocab.Vehicle{*rd.Vehicle}, v.year, nil), t, v, side, rd) {
+		for _, c := range f.matching(f.byVehicle(rd.To, v, rd.Vehicle), t, v, side, rd) {
 			c.Reached = ReachedRedirect
 			c.Redirects = []FitRedirect{fitRedirect(rd)}
 			out = append(out, c)
@@ -673,7 +734,7 @@ func (f Fitter) related(types []partType, v *reached, side vocab.Side) []related
 	var order []*spans
 	var fits []int32 // each shared fitment's part type, an index in types
 	for ti, t := range types {
-		for _, c := range f.Catalog.ByVehicle(t.id, v.vehicles, v.year, nil) {
+		for _, c := range f.byVehicle(t.id, v, nil) {
 			if !keeps(side, c.Fitment.Key.Side) || !slices.ContainsFunc(c.Applications, func(a *vocab.Application) bool {
 				_, ok := a.Check(v.year, v.decoded)
 				return ok

@@ -1,335 +1,888 @@
 package vocab
 
 import (
+	"bufio"
+	"bytes"
 	"cmp"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
-	"math"
 	"slices"
 
 	"github.com/zeebo/blake3"
 )
 
-// Compile writes the one JSON Lines catalog among files as a compiled
-// catalog (ADR 0021) to w, after checking it as `nitrovin vocab check`
-// does: it links files (Link), refusing with Faults, then measures their
-// drift against month m (Drift, and ModelDrift when m is a ModelMonth, as
-// `vocab check` does) and records the catalog's, with m's name,
-// beside the files it was linked against and writer, the nitrovin version
-// writing it. It returns the drift it recorded, about the source. The same
-// files, month and writer give the same bytes.
-func Compile(w io.Writer, m Month, files []*File, writer string) ([]Finding, error) {
-	var cat *File
+// CompileOptions are what Compile is given beyond its catalog and the
+// files beside it.
+type CompileOptions struct {
+	// Scratch holds what compiling sorts and assembles: about twice the
+	// compiled file. It is required.
+	Scratch Scratch
+	// Writer is the nitrovin version compiling, which the file records.
+	Writer string
+}
+
+// Compile writes the JSON Lines catalog src, named name (the path its
+// findings carry), as a compiled catalog (ADR 0021, ADR 0023) to w, after
+// checking it as `nitrovin vocab check` does, against files, the files
+// loaded beside it (its spine and vehicle vocabulary among them): every
+// fault refuses it (Faults), and its drift against month m is measured
+// (Drift, and ModelDrift when m is a ModelMonth) and recorded, with m's
+// name, the files it was linked against and opt.Writer. It returns that
+// drift, about src. The same source, files, month and writer give the same
+// bytes.
+//
+// It streams: src is read once, front to back, and what memory does not
+// hold is sorted in opt.Scratch, so its memory is bounded whatever the
+// catalog's size. The kinds of drift m cannot measure, model-years without
+// vPIC models' years (YearsMonth) and model-qualifier without their model
+// values (ModelMonth), are recorded as skipped.
+func Compile(w io.Writer, m Month, files []*File, src io.Reader, name string, opt CompileOptions) ([]Finding, error) {
+	if opt.Scratch == nil {
+		return nil, errors.New("compile: no scratch storage")
+	}
+	byName := map[string]*File{}
 	for _, f := range files {
-		switch {
-		case f.Kind != KindCatalog:
-		case f.compiled != nil:
-			return nil, fmt.Errorf("%s is compiled already: compile its JSON Lines source", f.Path)
-		case cat != nil:
-			return nil, fmt.Errorf("%s and %s are both catalogs: compile one at a time", cat.Path, f.Path)
-		default:
-			cat = f
+		if f.Kind == KindCatalog {
+			if f.compiled != nil {
+				return nil, fmt.Errorf("%s is compiled already: compile its JSON Lines source", f.Path)
+			}
+			return nil, fmt.Errorf("%s and %s are both catalogs: compile one at a time", f.Path, name)
 		}
+		byName[f.Name] = f
 	}
-	if cat == nil {
-		return nil, fmt.Errorf("no catalog among the files to compile")
+	c := &compiler{
+		name: name, m: m, files: files, byName: byName, scratch: opt.Scratch, opt: opt,
+		vehicleAt: map[string]int32{}, types: map[string]bool{}, qsetOf: map[string]uint32{},
+		byKey: newSorter(opt.Scratch), byVehicle: newSorter(opt.Scratch),
 	}
-	if err := Link(files); err != nil {
+	c.mm, _ = m.(ModelMonth)
+	defer c.close()
+	if err := c.readSource(src); err != nil {
 		return nil, err
 	}
-	measured := Drift(m, files)
-	if mm, ok := m.(ModelMonth); ok {
-		measured = append(measured, ModelDrift(mm, files)...)
+	if err := c.mergeKeys(); err != nil {
+		return nil, err
+	}
+	if faults := append(c.readFaults, c.indexFaults...); len(faults) > 0 {
+		slices.SortStableFunc(faults, func(a, b Finding) int { return cmp.Compare(a.Line, b.Line) })
+		return nil, faults
+	}
+	if faults := c.link.faults; len(faults) > 0 {
+		slices.SortStableFunc(faults, func(a, b Finding) int { return cmp.Compare(a.Line, b.Line) })
+		return nil, faults
+	}
+	if err := c.mergeVehicles(); err != nil {
+		return nil, err
 	}
 	var drift []Finding
-	for _, d := range measured {
-		if d.File == cat.Path {
-			drift = append(drift, d)
-		}
+	for _, g := range c.drift {
+		g.report()
+		drift = append(drift, g.d.out...)
 	}
 	slices.SortStableFunc(drift, func(a, b Finding) int { return cmp.Compare(a.Line, b.Line) })
-	var links []LinkedFile
-	for _, f := range files {
-		if f.Name == cat.Spine || f.Name == cat.Vehicles && cat.Vehicles != Reserved {
-			links = append(links, LinkedFile{Name: f.Name, Version: f.Version, Hash: f.Hash})
-		}
-	}
-	// The spine first.
-	slices.SortStableFunc(links, func(a, b LinkedFile) int {
-		return cmp.Compare(b2i(a.Name != cat.Spine), b2i(b.Name != cat.Spine))
-	})
-	b, err := compileCatalog(cat, Compiled{Format: CompiledFormat, SourceHash: cat.Hash, Links: links, Writer: writer, DriftMonth: m.Name(), Drift: drift})
-	if err != nil {
-		return nil, err
-	}
-	if _, err := w.Write(b); err != nil {
+	if err := c.write(w, drift); err != nil {
 		return nil, err
 	}
 	return drift, nil
 }
 
-func b2i(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
+// sourceBatch is how many bytes of its source Compile reads at a time, or
+// more for a longer line.
+var sourceBatch = 4 << 20
+
+// compiler is one Compile's state.
+type compiler struct {
+	name    string
+	m       Month
+	mm      ModelMonth // m, when it is one
+	files   []*File
+	byName  map[string]*File
+	scratch Scratch
+	opt     CompileOptions
+	hdr     *File // the catalog's header; its lines are never held
+	hash    [32]byte
+
+	link                    *catalogLink
+	drift                   []*catalogDrift // Drift's, and ModelDrift's when mm is set
+	readFaults, indexFaults Faults
+
+	vehicles                          []*Vehicle // a vehicle's id is its index
+	vehicleAt                         map[string]int32
+	types                             map[string]bool // every part type a line names: whether a fitment or redirect does
+	typeID                            map[string]uint32
+	typeNames                         []string          // by id
+	qsetOf                            map[string]uint32 // a set of qualifiers' encoding: its id
+	qsets                             []byte            // every set's encoding, in id order
+	retired                           []Retired         // in line order
+	fitments, applications, redirects int
+
+	// byKey has every fitment by key; byVehicle, per vehicle, its
+	// redirects by part type from, then its fitments by key.
+	byKey, byVehicle *sorter
+	// keyed is the keyed section as written, and pages its pages; wideSec
+	// the wide section, and wide where in it each wide fitment is, by
+	// line.
+	keyed   *spill
+	pages   []keyPage
+	wideSec *spill
+	wide    map[int]span64
+	// heads and bodies are the vehicles' blocks as written, apart;
+	// blocks their lengths, by vehicle.
+	heads, bodies *spill
+	blocks        []block
+
+	buf, key, val, pay []byte // reused encodings
+	ids                []int32
 }
 
-// compileCatalog is f, a linked JSON Lines catalog, as a compiled catalog's
-// bytes, recording meta.
-func compileCatalog(f *File, meta Compiled) ([]byte, error) {
-	x := f.catalog
-	var sec [numSections][]byte
+// close releases the scratch files still open.
+func (c *compiler) close() {
+	for _, s := range []*spill{c.keyed, c.wideSec, c.heads, c.bodies, c.byKey.out, c.byVehicle.out} {
+		if s != nil {
+			s.f.Close()
+		}
+	}
+	c.byKey.out, c.byVehicle.out = nil, nil
+}
 
-	// Part types, every one a line names, in byte order.
-	named := map[string]bool{}
-	for i := range f.Fitments {
-		named[f.Fitments[i].Key.Type] = true
-	}
-	for i := range f.Redirects {
-		named[f.Redirects[i].From], named[f.Redirects[i].To] = true, true
-	}
-	for _, rt := range f.Retired {
-		for _, t := range []string{rt.Key.Type, rt.To.Type} {
-			named[t] = named[t] || false
+// readSource reads src once: its header, then its lines a batch at a
+// time, each batch read in parallel as Read reads a file, then seen in
+// line order (fitment, redirect, retiredLine).
+func (c *compiler) readSource(src io.Reader) error {
+	h := blake3.New()
+	data := make([]byte, 0, sourceBatch)
+	line := 0 // the lines before data
+	for eof := false; !eof; {
+		n, err := io.ReadFull(src, data[len(data):cap(data)])
+		h.Write(data[len(data) : len(data)+n])
+		data = data[:len(data)+n]
+		switch {
+		case err == io.EOF || err == io.ErrUnexpectedEOF:
+			eof = true
+		case err != nil:
+			return Faults{fault(c.name, 0, "%v", errorText(err))}
+		}
+		end := len(data)
+		if !eof {
+			i := bytes.LastIndexByte(data, '\n')
+			if i < 0 { // a line longer than data holds
+				data = slices.Grow(data, cap(data))
+				continue
+			}
+			end = i
+		}
+		if err := c.batch(data[:end], &line); err != nil {
+			return err
+		}
+		if !eof {
+			data = data[:copy(data, data[end+1:])]
 		}
 	}
-	types := slices.Sorted(maps.Keys(named))
-	typeID := make(map[string]uint32, len(types))
-	for i, t := range types {
-		typeID[t] = uint32(i)
+	if c.hdr == nil {
+		return Faults{fault(c.name, 1, "no header: the file is empty")}
 	}
-	ranges := make([][4]span, len(types)) // per type: its rows of fitments, spans, redirectsBy, retired
+	copy(c.hash[:], h.Sum(nil))
+	return nil
+}
 
-	// The string pool, each string once, in the order rows name them.
-	var pool []byte
-	refs := map[string]strRef{}
-	var poolErr error
-	str := func(s string) strRef {
-		if s == "" {
-			return strRef{}
+// batch reads lines, whole lines without the last one's end, after line
+// lines; line becomes the number of the last of them.
+func (c *compiler) batch(lines []byte, line *int) error {
+	for c.hdr == nil {
+		end := lineEnd(lines, 0)
+		text, last := lines[:end], end == len(lines)
+		*line++
+		if !last {
+			lines = lines[end+1:]
 		}
-		if r, ok := refs[s]; ok {
-			return r
+		if !blank(text) {
+			if err := c.header(text, *line); err != nil {
+				return err
+			}
 		}
-		if len(pool)+len(s) > math.MaxUint32 {
-			poolErr = fmt.Errorf("%s: its strings are more than 4 GiB, more than a compiled catalog holds", f.Path)
-			return strRef{}
-		}
-		r := strRef{uint32(len(pool)), uint32(len(s))}
-		pool = append(pool, s...)
-		refs[s] = r
-		return r
-	}
-	putStr := func(b []byte, off int, s string) {
-		r := str(s)
-		binary.LittleEndian.PutUint32(b[off:], r.off)
-		binary.LittleEndian.PutUint32(b[off+4:], r.n)
-	}
-	putYears := func(b []byte, off, flags int, first, last *int) {
-		if first != nil {
-			binary.LittleEndian.PutUint32(b[off:], uint32(int32(*first)))
-			b[flags] |= hasFirst
-		}
-		if last != nil {
-			binary.LittleEndian.PutUint32(b[off+4:], uint32(int32(*last)))
-			b[flags] |= hasLast
+		if last {
+			return nil
 		}
 	}
+	first := *line + 1 // the first line's number
+	var chunks []*chunk
+	slots := 0
+	for start := 0; start <= len(lines); {
+		end := len(lines)
+		if start+chunkSize < len(lines) {
+			if i := bytes.IndexByte(lines[start+chunkSize:], '\n'); i >= 0 {
+				end = start + chunkSize + i
+			}
+		}
+		ch := &chunk{data: lines[start:end], first: slots}
+		ch.lines = bytes.Count(ch.data, []byte("\n")) + 1
+		slots += ch.lines
+		chunks = append(chunks, ch)
+		start = end + 1
+	}
+	*line += slots
+	f := &File{Path: c.name, Kind: KindCatalog, Vehicles: c.hdr.Vehicles, Fitments: make([]Fitment, slots)}
+	inParallel(chunks, func() func(*chunk) {
+		r := newReader(f)
+		return func(ch *chunk) { r.read(ch, first-1, nil) }
+	})
+	for _, ch := range chunks {
+		c.readFaults = append(c.readFaults, ch.faults...)
+		rd, rt := ch.redirects, ch.retired
+		for slot := ch.first; slot < ch.first+ch.lines; slot++ {
+			n := first + slot
+			switch {
+			case f.Fitments[slot].Line == n:
+				c.fitment(&f.Fitments[slot])
+			case len(rd) > 0 && rd[0].Line == n:
+				c.redirect(&rd[0])
+				rd = rd[1:]
+			case len(rt) > 0 && rt[0].Line == n:
+				c.retiredLine(&rt[0])
+				rt = rt[1:]
+			}
+		}
+	}
+	return nil
+}
 
-	// Qualifier sets, each distinct one once, in the order applications
-	// name them.
-	var qsets []byte
-	nq := 0
-	qsetOf := map[string]uint32{}
-	qsetAt := map[*Qualifier]uint32{} // a reader shares one slice among equal ones
-	qset := func(qs []Qualifier) uint32 {
-		if len(qs) == 0 {
-			return 0
+// header reads the catalog's header, on line n, and checks it against the
+// files beside it.
+func (c *compiler) header(text []byte, n int) error {
+	f := &File{Path: c.name}
+	if err := f.header(text); err != nil {
+		return Faults{fault(c.name, n, "%v", err)}
+	}
+	if f.Kind != KindCatalog {
+		return fmt.Errorf("%s is %s, not a catalog: compile a catalog", c.name, f.Kind.noun())
+	}
+	c.hdr = f
+	ext := func(ref string) (*Extension, string) { return resolveExt(c.byName, ref) }
+	c.link = newCatalogLink(f, c.byName, ext)
+	if g, dup := c.byName[f.Name]; dup {
+		c.link.faults = append(c.link.faults, fault(c.name, 1, "/name: %q is also the name of %s", f.Name, g.Path))
+	}
+	var vehicles *File
+	if f.Vehicles != Reserved {
+		vehicles = c.byName[f.Vehicles]
+	}
+	d := newDrifts(c.m, nil)
+	d.f = f
+	c.drift = append(c.drift, d.catalogDrift(vehicles))
+	if c.mm != nil {
+		dm := newDrifts(c.m, c.mm)
+		dm.f = f
+		c.drift = append(c.drift, dm.catalogDrift(vehicles))
+	}
+	return nil
+}
+
+// canon is the catalog's one Vehicle for v, numbered on first sight.
+func (c *compiler) canon(v *Vehicle) *Vehicle {
+	if id, ok := c.vehicleAt[v.key]; ok {
+		return c.vehicles[id]
+	}
+	v.id = int32(len(c.vehicles))
+	c.vehicleAt[v.key] = v.id
+	c.vehicles = append(c.vehicles, v)
+	c.link.vehicle(v)
+	for _, g := range c.drift {
+		g.vehicle(v)
+	}
+	return v
+}
+
+// qset is the id of a set of qualifiers, 0 for none: each distinct set
+// numbered from 1 in the order applications name them.
+func (c *compiler) qset(qs []Qualifier) uint32 {
+	if len(qs) == 0 {
+		return 0
+	}
+	e := &encoder{b: c.buf[:0]}
+	e.uint(uint64(len(qs)))
+	for _, q := range qs {
+		e.int(int64(q.Element))
+		e.uint(uint64(len(q.Values)))
+		for _, v := range q.Values {
+			if v.IsText {
+				e.uint(1)
+				e.str(v.Text)
+			} else {
+				e.uint(0)
+				e.int(int64(v.Attribute))
+			}
 		}
-		if q, ok := qsetAt[&qs[0]]; ok {
-			return q
+	}
+	c.buf = e.b
+	if id, ok := c.qsetOf[string(e.b)]; ok {
+		return id
+	}
+	id := uint32(len(c.qsetOf) + 1)
+	c.qsetOf[string(e.b)] = id
+	c.qsets = append(c.qsets, e.b...)
+	return id
+}
+
+// fitment sees a fitment line: checks it, measures its drift, and adds it
+// to both sorters, whole by key, and per vehicle it names, whole or, when
+// it is wide, as its applications to that vehicle.
+func (c *compiler) fitment(fit *Fitment) {
+	for j := range fit.Applications {
+		a := &fit.Applications[j]
+		a.Vehicle = c.canon(a.Vehicle)
+	}
+	c.link.fitment(fit)
+	c.fitments++
+	c.applications += len(fit.Applications)
+	c.types[fit.Key.Type] = true
+
+	// The record: side, number, line, note, applications.
+	b := append(c.val[:0], byte(fit.Key.Side))
+	b = appendStr(b, fit.Key.Number)
+	b = binary.AppendUvarint(b, uint64(fit.Line))
+	b = appendStr(b, fit.Note)
+	b = binary.AppendUvarint(b, uint64(len(fit.Applications)))
+	ids := c.ids[:0]
+	for j := range fit.Applications {
+		a := &fit.Applications[j]
+		q := c.qset(a.Qualifiers)
+		for _, g := range c.drift {
+			g.application(fit.Line, j, a, qualifierKey{id: q})
 		}
-		e := &encoder{}
-		e.uint(uint64(len(qs)))
-		for _, q := range qs {
-			e.int(int64(q.Element))
-			e.uint(uint64(len(q.Values)))
-			for _, v := range q.Values {
-				if v.IsText {
-					e.uint(1)
-					e.str(v.Text)
-				} else {
-					e.uint(0)
-					e.int(int64(v.Attribute))
+		b = binary.AppendUvarint(b, uint64(a.Vehicle.id))
+		b = appendYears(b, a.First, a.Last)
+		b = binary.AppendUvarint(b, uint64(q))
+		b = appendStr(b, a.Options)
+		ids = append(ids, a.Vehicle.id)
+	}
+	c.val = b
+
+	k := appendOrdered(c.key[:0], fit.Key.Type)
+	k = append(k, byte(fit.Key.Side))
+	k = appendOrdered(k, fit.Key.Number)
+	k = binary.BigEndian.AppendUint32(k, uint32(fit.Line))
+	c.key = k
+	p := appendStr(c.pay[:0], fit.Key.Type)
+	c.byKey.add(k, append(p, b...))
+
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	c.ids = ids
+	wide := len(fit.Applications) > wideApplications
+	for _, id := range ids {
+		vk := binary.BigEndian.AppendUint32(c.buf[:0], uint32(id))
+		vk = append(vk, 1)
+		vk = append(vk, k...)
+		c.buf = vk
+		p = appendStr(p[:0], fit.Key.Type)
+		if !wide {
+			p = append(append(p, recNear), b...)
+		} else {
+			p = append(p, recFar, byte(fit.Key.Side))
+			p = appendStr(p, fit.Key.Number)
+			p = binary.AppendUvarint(p, uint64(fit.Line))
+			own := 0
+			for j := range fit.Applications {
+				if fit.Applications[j].Vehicle.id == id {
+					own++
+				}
+			}
+			p = binary.AppendUvarint(p, uint64(own))
+			for j := range fit.Applications {
+				if a := &fit.Applications[j]; a.Vehicle.id == id {
+					p = binary.AppendUvarint(p, uint64(j))
+					p = appendYears(p, a.First, a.Last)
 				}
 			}
 		}
-		q, ok := qsetOf[string(e.b)]
-		if !ok {
-			nq++
-			q = uint32(nq)
-			qsetOf[string(e.b)] = q
-			qsets = append(qsets, e.b...)
-		}
-		qsetAt[&qs[0]] = q
-		return q
+		c.byVehicle.add(vk, p)
 	}
+	c.pay = p
+}
 
-	// Fitments by rank, and their applications.
-	fw, aw, pw := rowWidth[secFitments], rowWidth[secApps], rowWidth[secPostings]
-	sec[secFitments] = make([]byte, len(x.order)*fw)
-	sec[secApps] = make([]byte, x.applications*aw)
-	type post struct {
-		typ                uint32
-		vehicle, rank, app int32
+// redirect sees a redirect line.
+func (c *compiler) redirect(rd *Redirect) {
+	rd.Vehicle = c.canon(rd.Vehicle)
+	c.link.redirect(rd)
+	for _, g := range c.drift {
+		g.redirect(rd)
 	}
-	posts := make([]post, 0, x.applications)
-	app := 0
-	for rank, i := range x.order {
-		fit := &f.Fitments[i]
-		t := typeID[fit.Key.Type]
-		if ranges[t][0].hi == 0 {
-			ranges[t][0].lo = int32(rank)
-		}
-		ranges[t][0].hi = int32(rank + 1)
-		row := sec[secFitments][rank*fw:]
-		binary.LittleEndian.PutUint32(row[0:], t)
-		putStr(row, 4, fit.Key.Number)
-		putStr(row, 12, fit.Note)
-		binary.LittleEndian.PutUint32(row[20:], uint32(fit.Line))
-		binary.LittleEndian.PutUint32(row[24:], uint32(app))
-		binary.LittleEndian.PutUint32(row[28:], uint32(len(fit.Applications)))
-		row[32] = byte(fit.Key.Side)
-		for j := range fit.Applications {
-			a := &fit.Applications[j]
-			ar := sec[secApps][app*aw:]
-			binary.LittleEndian.PutUint32(ar[0:], uint32(a.Vehicle.id))
-			putYears(ar, 4, 24, a.First, a.Last)
-			putStr(ar, 12, a.Options)
-			binary.LittleEndian.PutUint32(ar[20:], qset(a.Qualifiers))
-			posts = append(posts, post{t, a.Vehicle.id, int32(rank), int32(j)})
-			app++
-		}
-	}
+	c.redirects++
+	c.types[rd.From], c.types[rd.To] = true, true
+	k := binary.BigEndian.AppendUint32(c.key[:0], uint32(rd.Vehicle.id))
+	k = append(k, 0)
+	k = appendOrdered(k, rd.From)
+	k = binary.BigEndian.AppendUint32(k, uint32(rd.Line))
+	c.key = k
+	p := appendStr(c.val[:0], rd.From)
+	p = appendStr(p, rd.To)
+	p = binary.AppendUvarint(p, uint64(rd.Line))
+	p = appendYears(p, rd.First, rd.Last)
+	p = appendStr(p, rd.Options)
+	c.val = p
+	c.byVehicle.add(k, p)
+}
 
-	// Postings by part type (their ranks are in type order already), then
-	// vehicle, rank and application; and a span per type and vehicle.
-	slices.SortStableFunc(posts, func(a, b post) int { return cmp.Or(cmp.Compare(a.typ, b.typ), cmp.Compare(a.vehicle, b.vehicle)) })
-	sec[secPostings] = make([]byte, len(posts)*pw)
-	var spans []byte
-	for i, p := range posts {
-		fit := &f.Fitments[x.order[p.rank]]
-		a := &fit.Applications[p.app]
-		row := sec[secPostings][i*pw:]
-		binary.LittleEndian.PutUint32(row[0:], uint32(p.rank))
-		binary.LittleEndian.PutUint32(row[4:], uint32(p.app))
-		putYears(row, 8, 17, a.First, a.Last)
-		row[16] = byte(fit.Key.Side)
-		t := p.typ
-		n := len(spans) / rowWidth[secSpans]
-		if i > 0 && posts[i-1].vehicle == p.vehicle && posts[i-1].typ == t {
-			binary.LittleEndian.PutUint32(spans[len(spans)-4:], uint32(i+1))
+// retiredLine sees a retired line: held, as a release's few.
+func (c *compiler) retiredLine(rt *Retired) {
+	for _, t := range []string{rt.Key.Type, rt.To.Type} {
+		c.types[t] = c.types[t] || false
+	}
+	c.retired = append(c.retired, *rt)
+}
+
+// mergeKeys writes keyed from the fitments in key order and the retired
+// numbers among them, each fitment with the retired numbers it replaced;
+// and finds the faults only the whole catalog shows (indexLines'): a
+// repeated fitment key, and a retired number repeated, live, or whose
+// successor is no fitment, the last two only when every line read.
+func (c *compiler) mergeKeys() error {
+	c.typeNames = slices.Sorted(maps.Keys(c.types))
+	c.typeID = make(map[string]uint32, len(c.typeNames))
+	for i, t := range c.typeNames {
+		c.typeID[t] = uint32(i)
+	}
+	var err error
+	if c.keyed, err = newSpill(c.scratch); err != nil {
+		return err
+	}
+	if c.wideSec, err = newSpill(c.scratch); err != nil {
+		return err
+	}
+	c.wide = map[int]span64{}
+	rts := c.retired
+	byKey, bySucc := make([]int, len(rts)), make([]int, len(rts))
+	for i := range rts {
+		byKey[i], bySucc[i] = i, i
+	}
+	slices.SortStableFunc(byKey, func(a, b int) int { return compareFitmentKeys(rts[a].Key, rts[b].Key) })
+	slices.SortStableFunc(bySucc, func(a, b int) int { return compareFitmentKeys(rts[a].To, rts[b].To) })
+	dupOf := make([]int, len(rts)) // the line a repeated retired number is first on
+	for i := 1; i < len(byKey); i++ {
+		if rts[byKey[i]].Key == rts[byKey[i-1]].Key {
+			dupOf[byKey[i]] = rts[byKey[i-1]].Line
+			if d := dupOf[byKey[i-1]]; d != 0 {
+				dupOf[byKey[i]] = d
+			}
+		}
+	}
+	live := make([]int, len(rts)) // the live fitment's line
+	missing := make([]bool, len(rts))
+
+	pageFits := 0
+	record := func(fitment bool, k FitmentKey) {
+		if len(c.pages) == 0 || fitment && pageFits == pageFitments {
+			c.pages = append(c.pages, keyPage{typ: c.typeID[k.Type], side: k.Side, number: k.Number, off: c.keyed.size})
+			pageFits = 0
+		}
+		if fitment {
+			pageFits++
+		}
+	}
+	retired := func(rt *Retired) error {
+		record(false, rt.Key)
+		b := append(c.buf[:0], recRetired)
+		b = binary.AppendUvarint(b, uint64(c.typeID[rt.Key.Type]))
+		b = append(b, byte(rt.Key.Side))
+		b = appendStr(b, rt.Key.Number)
+		b = binary.AppendUvarint(b, uint64(rt.Line))
+		b = appendStr(b, rt.Note)
+		b = binary.AppendUvarint(b, uint64(c.typeID[rt.To.Type]))
+		b = append(b, byte(rt.To.Side))
+		b = appendStr(b, rt.To.Number)
+		c.buf = b
+		_, err := c.keyed.Write(b)
+		return err
+	}
+	ri, si := 0, 0
+	var prev FitmentKey
+	prevLine := 0
+	err = c.byKey.each(func(_, payload []byte) error {
+		r := &bcursor{b: payload}
+		typ := r.str()
+		body := r.b
+		side := Side(r.byte())
+		number := r.str()
+		line := int(r.uint())
+		r.str() // note
+		napps := int(r.uint())
+		k := FitmentKey{Type: typ, Number: number, Side: side}
+		for ; ri < len(byKey) && compareFitmentKeys(rts[byKey[ri]].Key, k) <= 0; ri++ {
+			if rts[byKey[ri]].Key == k {
+				live[byKey[ri]] = line
+				continue
+			}
+			if err := retired(&rts[byKey[ri]]); err != nil {
+				return err
+			}
+		}
+		if prevLine > 0 && prev == k {
+			c.indexFaults = append(c.indexFaults, duplicateKey(c.name, line, prevLine))
+		}
+		prev, prevLine = k, line
+		for ; si < len(bySucc) && compareFitmentKeys(rts[bySucc[si]].To, k) < 0; si++ {
+			missing[bySucc[si]] = true
+		}
+		succ := si
+		for ; si < len(bySucc) && rts[bySucc[si]].To == k; si++ {
+		}
+		record(true, k)
+		b := append(c.buf[:0], recFitment)
+		b = binary.AppendUvarint(b, uint64(c.typeID[typ]))
+		b = append(b, body...)
+		var replaced []int
+		for _, i := range bySucc[succ:si] {
+			if dupOf[i] == 0 {
+				replaced = append(replaced, i)
+			}
+		}
+		b = binary.AppendUvarint(b, uint64(len(replaced)))
+		for _, i := range replaced {
+			rt := &rts[i]
+			b = binary.AppendUvarint(b, uint64(rt.Line))
+			b = binary.AppendUvarint(b, uint64(c.typeID[rt.Key.Type]))
+			b = append(b, byte(rt.Key.Side))
+			b = appendStr(b, rt.Key.Number)
+			b = appendStr(b, rt.Note)
+		}
+		c.buf = b
+		if _, err := c.keyed.Write(b); err != nil {
+			return err
+		}
+		if napps > wideApplications {
+			c.wide[line] = span64{c.wideSec.size, int64(len(b))}
+			if _, err := c.wideSec.Write(b); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for ; ri < len(byKey); ri++ {
+		if err := retired(&rts[byKey[ri]]); err != nil {
+			return err
+		}
+	}
+	for ; si < len(bySucc); si++ {
+		missing[bySucc[si]] = true
+	}
+	read := len(c.readFaults) == 0
+	for i := range rts {
+		rt := &rts[i]
+		switch {
+		case dupOf[i] != 0:
+			c.indexFaults = append(c.indexFaults, duplicateRetired(c.name, rt, dupOf[i]))
+			continue
+		case !read:
+			continue // a fitment that did not read is not missing
+		}
+		if live[i] != 0 {
+			c.indexFaults = append(c.indexFaults, liveRetired(c.name, rt, live[i]))
+		}
+		if missing[i] {
+			c.indexFaults = append(c.indexFaults, noSuccessor(c.name, rt))
+		}
+	}
+	if err := c.wideSec.done(); err != nil {
+		return err
+	}
+	return c.keyed.done()
+}
+
+// mergeVehicles writes each vehicle's block, its head to heads and its
+// body to bodies, from its redirects and fitments in order; and finds the
+// redirects no application of their target part type answers.
+func (c *compiler) mergeVehicles() error {
+	var err error
+	if c.heads, err = newSpill(c.scratch); err != nil {
+		return err
+	}
+	if c.bodies, err = newSpill(c.scratch); err != nil {
+		return err
+	}
+	c.blocks = make([]block, 0, len(c.vehicles))
+	var (
+		runs  []typeRun
+		reds  []pendingRedirect
+		cur   = int32(-1)
+		start = int64(0) // the vehicle's body's start in bodies
+	)
+	flush := func() error {
+		b := binary.AppendUvarint(c.buf[:0], uint64(len(runs)))
+		for _, r := range runs {
+			b = binary.AppendUvarint(b, uint64(r.typ))
+			b = binary.AppendUvarint(b, uint64(r.n))
+			b = binary.AppendUvarint(b, uint64(r.bytes))
+		}
+		b = binary.AppendUvarint(b, uint64(len(reds)))
+		for i := range reds {
+			p := &reds[i]
+			b = binary.AppendUvarint(b, uint64(p.rd.Line))
+			b = binary.AppendUvarint(b, uint64(p.from))
+			b = binary.AppendUvarint(b, uint64(p.to))
+			b = appendYears(b, p.rd.First, p.rd.Last)
+			b = appendStr(b, p.rd.Options)
+			if !p.answered {
+				rd := p.rd
+				for _, g := range c.drift {
+					g.unanswered(&rd)
+				}
+			}
+		}
+		c.buf = b
+		if _, err := c.heads.Write(b); err != nil {
+			return err
+		}
+		c.blocks = append(c.blocks, block{head: int64(len(b)), body: c.bodies.size - start})
+		start = c.bodies.size
+		runs, reds = runs[:0], reds[:0]
+		return nil
+	}
+	err = c.byVehicle.each(func(key, payload []byte) error {
+		id := int32(binary.BigEndian.Uint32(key))
+		for cur < id {
+			if cur >= 0 {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+			cur++
+		}
+		r := &bcursor{b: payload}
+		typ := c.typeID[string(r.bytes())]
+		if key[4] == 0 { // a redirect
+			p := pendingRedirect{from: typ, to: c.typeID[string(r.bytes())]}
+			p.rd = Redirect{Line: int(r.uint()), Vehicle: c.vehicles[id], From: c.typeNames[typ], To: c.typeNames[p.to]}
+			p.rd.First, p.rd.Last = r.years()
+			p.rd.Options = r.str()
+			reds = append(reds, p)
+			return nil
+		}
+		if n := len(runs); n == 0 || runs[n-1].typ != typ {
+			runs = append(runs, typeRun{typ: typ})
+		}
+		run := &runs[len(runs)-1]
+		run.n++
+		rec := r.b
+		if rec[0] == recFar {
+			r.byte()
+			r.byte()
+			r.bytes()
+			line := int(r.uint())
+			at, ok := c.wide[line]
+			if !ok {
+				return fmt.Errorf("compile: the wide fitment on line %d is not in wide", line)
+			}
+			rec = binary.AppendUvarint(slices.Clone(rec), uint64(at.off))
+			rec = binary.AppendUvarint(rec, uint64(at.n))
+		}
+		if _, err := c.bodies.Write(rec); err != nil {
+			return err
+		}
+		run.bytes += int64(len(rec))
+		answer(reds, typ, rec, id)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for int(cur) < len(c.vehicles) {
+		if cur >= 0 {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+		cur++
+	}
+	if err := c.heads.done(); err != nil {
+		return err
+	}
+	return c.bodies.done()
+}
+
+// pendingRedirect is a redirect of the vehicle whose block is being
+// written: whether an application of its target part type to the vehicle
+// answers it is known once the block is.
+type pendingRedirect struct {
+	rd       Redirect
+	from, to uint32
+	answered bool
+}
+
+// answer marks the redirects of reds to part type typ that rec, a block
+// record of vehicle id of that type, answers: an application of it to the
+// vehicle in years that overlap the redirect's (catalogIndex.answers).
+func answer(reds []pendingRedirect, typ uint32, rec []byte, id int32) {
+	if !slices.ContainsFunc(reds, func(p pendingRedirect) bool { return p.to == typ && !p.answered }) {
+		return
+	}
+	r := &bcursor{b: rec}
+	kind := r.byte()
+	r.byte()  // side
+	r.bytes() // number
+	r.uint()  // line
+	if kind == recNear {
+		r.bytes() // note
+	}
+	for range r.uint() {
+		v := id
+		if kind == recNear {
+			v = int32(r.uint())
+		} else {
+			r.uint() // its index
+		}
+		first, last := r.years()
+		if kind == recNear {
+			r.uint()
+			r.bytes()
+		}
+		if v != id {
 			continue
 		}
-		if ranges[t][1].hi == 0 {
-			ranges[t][1].lo = int32(n)
+		for i := range reds {
+			p := &reds[i]
+			if p.to == typ && (first == nil || p.rd.Last == nil || *first <= *p.rd.Last) && (p.rd.First == nil || last == nil || *p.rd.First <= *last) {
+				p.answered = true
+			}
 		}
-		ranges[t][1].hi = int32(n + 1)
-		spans = binary.LittleEndian.AppendUint32(spans, t)
-		spans = binary.LittleEndian.AppendUint32(spans, uint32(p.vehicle))
-		spans = binary.LittleEndian.AppendUint32(spans, uint32(i))
-		spans = binary.LittleEndian.AppendUint32(spans, uint32(i+1))
 	}
-	sec[secSpans] = spans
+}
 
-	// Redirects in file order, and by part type from and vehicle.
-	rw := rowWidth[secRedirects]
-	sec[secRedirects] = make([]byte, len(f.Redirects)*rw)
-	by := make([]int32, len(f.Redirects))
-	for i := range f.Redirects {
-		rd := &f.Redirects[i]
-		row := sec[secRedirects][i*rw:]
-		binary.LittleEndian.PutUint32(row[0:], uint32(rd.Line))
-		binary.LittleEndian.PutUint32(row[4:], uint32(rd.Vehicle.id))
-		putYears(row, 8, 32, rd.First, rd.Last)
-		binary.LittleEndian.PutUint32(row[16:], typeID[rd.From])
-		binary.LittleEndian.PutUint32(row[20:], typeID[rd.To])
-		putStr(row, 24, rd.Options)
-		by[i] = int32(i)
+// write writes the compiled file to w, its blake3 found first: the
+// header, the directory, meta and dict, then keyed and each vehicle's
+// block, its head and body put together.
+func (c *compiler) write(w io.Writer, drift []Finding) error {
+	meta, dict := c.meta(drift), c.dict()
+	var offs, lens [numSections]int64
+	lens[secMeta], lens[secDict], lens[secKeyed], lens[secWide] = int64(len(meta)), int64(len(dict)), c.keyed.size, c.wideSec.size
+	lens[secBlocks] = c.heads.size + c.bodies.size
+	size := int64(headerSize + numSections*16)
+	for i := range offs {
+		size = (size + 7) &^ 7
+		offs[i] = size
+		size += lens[i]
 	}
-	slices.SortFunc(by, func(a, b int32) int {
-		ra, rb := &f.Redirects[a], &f.Redirects[b]
-		return cmp.Or(cmp.Compare(typeID[ra.From], typeID[rb.From]), cmp.Compare(ra.Vehicle.id, rb.Vehicle.id), cmp.Compare(a, b))
-	})
-	for i, r := range by {
-		rd := &f.Redirects[r]
-		t := typeID[rd.From]
-		if ranges[t][2].hi == 0 {
-			ranges[t][2].lo = int32(i)
+	put := func(w io.Writer, hash []byte) error {
+		bw := bufio.NewWriterSize(w, 1<<20)
+		b := make([]byte, headerSize+numSections*16)
+		copy(b, compiledMagic)
+		binary.LittleEndian.PutUint32(b[8:], CompiledFormat)
+		binary.LittleEndian.PutUint32(b[12:], numSections)
+		binary.LittleEndian.PutUint64(b[16:], uint64(size))
+		copy(b[32:], hash)
+		for i := range offs {
+			binary.LittleEndian.PutUint64(b[headerSize+i*16:], uint64(offs[i]))
+			binary.LittleEndian.PutUint64(b[headerSize+i*16+8:], uint64(lens[i]))
 		}
-		ranges[t][2].hi = int32(i + 1)
-		sec[secRedirectsBy] = binary.LittleEndian.AppendUint32(sec[secRedirectsBy], t)
-		sec[secRedirectsBy] = binary.LittleEndian.AppendUint32(sec[secRedirectsBy], uint32(rd.Vehicle.id))
-		sec[secRedirectsBy] = binary.LittleEndian.AppendUint32(sec[secRedirectsBy], uint32(r))
-	}
-
-	// Retired numbers in key order.
-	retired := make([]*Retired, len(f.Retired))
-	for i := range f.Retired {
-		retired[i] = &f.Retired[i]
-	}
-	slices.SortFunc(retired, func(a, b *Retired) int { return compareFitmentKeys(a.Key, b.Key) })
-	tw := rowWidth[secRetired]
-	sec[secRetired] = make([]byte, len(retired)*tw)
-	for i, rt := range retired {
-		t := typeID[rt.Key.Type]
-		if ranges[t][3].hi == 0 {
-			ranges[t][3].lo = int32(i)
+		at := int64(len(b))
+		bw.Write(b)
+		pad := func(i int) {
+			bw.Write(make([]byte, offs[i]-at))
+			at = offs[i] + lens[i]
 		}
-		ranges[t][3].hi = int32(i + 1)
-		row := sec[secRetired][i*tw:]
-		binary.LittleEndian.PutUint32(row[0:], uint32(rt.Line))
-		binary.LittleEndian.PutUint32(row[4:], t)
-		putStr(row, 8, rt.Key.Number)
-		binary.LittleEndian.PutUint32(row[16:], typeID[rt.To.Type])
-		putStr(row, 20, rt.To.Number)
-		putStr(row, 28, rt.Note)
-		row[36], row[37] = byte(rt.Key.Side), byte(rt.To.Side)
+		pad(secMeta)
+		bw.Write(meta)
+		pad(secDict)
+		bw.Write(dict)
+		pad(secKeyed)
+		if err := c.keyed.copyTo(bw, 0, c.keyed.size); err != nil {
+			return err
+		}
+		pad(secWide)
+		if err := c.wideSec.copyTo(bw, 0, c.wideSec.size); err != nil {
+			return err
+		}
+		pad(secBlocks)
+		heads := bufio.NewReaderSize(io.NewSectionReader(c.heads.f, 0, c.heads.size), 256<<10)
+		bodies := bufio.NewReaderSize(io.NewSectionReader(c.bodies.f, 0, c.bodies.size), 1<<20)
+		for _, bl := range c.blocks {
+			if _, err := io.CopyN(bw, heads, bl.head); err != nil {
+				return err
+			}
+			if _, err := io.CopyN(bw, bodies, bl.body); err != nil {
+				return err
+			}
+		}
+		return bw.Flush()
 	}
-	if poolErr != nil {
-		return nil, poolErr
+	h := blake3.New()
+	if err := put(h, make([]byte, 32)); err != nil {
+		return err
 	}
-	sec[secStrings] = pool
+	return put(w, h.Sum(nil))
+}
 
-	// The dictionary.
+// meta is the meta section: the catalog's header, the source's hash, the
+// files it was linked against, the writer, the drift and its month, the
+// kinds skipped, and the counts.
+func (c *compiler) meta(drift []Finding) []byte {
+	f := c.hdr
+	e := &encoder{}
+	for _, s := range []string{f.Name, f.Version, f.Release, f.DataMonth, f.Spine, f.Vehicles} {
+		e.str(s)
+	}
+	e.b = append(e.b, c.hash[:]...)
+	var links []*File // the spine first
+	for _, name := range []string{f.Spine, f.Vehicles} {
+		if g := c.byName[name]; g != nil {
+			links = append(links, g)
+		}
+	}
+	e.uint(uint64(len(links)))
+	for _, l := range links {
+		e.str(l.Name)
+		e.str(l.Version)
+		e.b = append(e.b, l.Hash[:]...)
+	}
+	e.str(c.opt.Writer)
+	e.str(c.m.Name())
+	e.uint(uint64(len(drift)))
+	for _, fd := range drift {
+		e.uint(uint64(fd.Line))
+		e.str(string(fd.Drift))
+		e.str(fd.Detail)
+	}
+	skipped := c.skipped()
+	e.uint(uint64(len(skipped)))
+	for _, k := range skipped {
+		e.str(string(k))
+	}
+	for _, n := range []int{c.fitments, c.applications, c.redirects, len(c.retired)} {
+		e.uint(uint64(n))
+	}
+	return e.b
+}
+
+// skipped are the drift kinds c's month cannot measure.
+func (c *compiler) skipped() []DriftKind {
+	var out []DriftKind
+	if _, ok := c.m.(YearsMonth); !ok {
+		out = append(out, DriftModelYears)
+	}
+	if c.mm == nil {
+		out = append(out, DriftModelQualifier)
+	}
+	return out
+}
+
+// dict is the dict section: part types, vehicles with their blocks'
+// lengths, qualifier sets and pages.
+func (c *compiler) dict() []byte {
 	d := &encoder{}
-	d.uint(uint64(len(types)))
-	for i, t := range types {
+	d.uint(uint64(len(c.typeNames)))
+	for _, t := range c.typeNames {
 		d.str(t)
-		d.uint(uint64(b2i(named[t])))
-		for _, r := range ranges[i] {
-			d.uint(uint64(r.lo))
-			d.uint(uint64(r.hi))
-		}
+		d.uint(uint64(b2i(c.types[t])))
 	}
-	// Each vehicle's first naming and how many name it, for its drift at
-	// load.
-	uses := make([]use, len(x.vehicleList))
-	for i := range f.Fitments {
-		fit := &f.Fitments[i]
-		for j := range fit.Applications {
-			uses[fit.Applications[j].Vehicle.id].see(fit.Line, j)
-		}
-	}
-	for i := range f.Redirects {
-		uses[f.Redirects[i].Vehicle.id].see(f.Redirects[i].Line, -1)
-	}
-	d.uint(uint64(len(x.vehicleList)))
-	for _, v := range x.vehicleList {
-		u := uses[v.id]
+	uses := c.drift[0].firsts
+	d.uint(uint64(len(c.vehicles)))
+	for i, v := range c.vehicles {
+		u := uses[i]
 		d.uint(uint64(u.line))
 		d.uint(uint64(u.app + 1))
 		d.uint(uint64(u.n))
@@ -351,57 +904,30 @@ func compileCatalog(f *File, meta Compiled) ([]byte, error) {
 			d.uint(3)
 			d.str(v.Ext)
 		}
+		d.uint(uint64(c.blocks[i].head))
+		d.uint(uint64(c.blocks[i].body))
 	}
-	d.uint(uint64(nq))
-	d.b = append(d.b, qsets...)
-	sec[secDict] = d.b
+	d.uint(uint64(len(c.qsetOf)))
+	d.b = append(d.b, c.qsets...)
+	d.uint(uint64(len(c.pages)))
+	for i, p := range c.pages {
+		end := c.keyed.size
+		if i+1 < len(c.pages) {
+			end = c.pages[i+1].off
+		}
+		d.uint(uint64(p.typ))
+		d.b = append(d.b, byte(p.side))
+		d.str(p.number)
+		d.uint(uint64(end - p.off))
+	}
+	return d.b
+}
 
-	// The meta.
-	e := &encoder{}
-	for _, s := range []string{f.Name, f.Version, f.Release, f.DataMonth, f.Spine, f.Vehicles} {
-		e.str(s)
+func b2i(b bool) int {
+	if b {
+		return 1
 	}
-	e.b = append(e.b, meta.SourceHash[:]...)
-	e.uint(uint64(len(meta.Links)))
-	for _, l := range meta.Links {
-		e.str(l.Name)
-		e.str(l.Version)
-		e.b = append(e.b, l.Hash[:]...)
-	}
-	e.str(meta.Writer)
-	e.str(meta.DriftMonth)
-	e.uint(uint64(len(meta.Drift)))
-	for _, fd := range meta.Drift {
-		e.uint(uint64(fd.Line))
-		e.str(string(fd.Drift))
-		e.str(fd.Detail)
-	}
-	for _, n := range []int{len(f.Fitments), x.applications, len(f.Redirects), len(f.Retired)} {
-		e.uint(uint64(n))
-	}
-	sec[secMeta] = e.b
-
-	// The header, the directory, then each section on an 8-byte boundary.
-	size := headerSize + numSections*16
-	var offs [numSections]int
-	for i, s := range sec {
-		size = (size + 7) &^ 7
-		offs[i] = size
-		size += len(s)
-	}
-	out := make([]byte, size)
-	copy(out, compiledMagic)
-	binary.LittleEndian.PutUint32(out[8:], CompiledFormat)
-	binary.LittleEndian.PutUint32(out[12:], numSections)
-	binary.LittleEndian.PutUint64(out[16:], uint64(size))
-	for i, s := range sec {
-		binary.LittleEndian.PutUint64(out[headerSize+i*16:], uint64(offs[i]))
-		binary.LittleEndian.PutUint64(out[headerSize+i*16+8:], uint64(len(s)))
-		copy(out[offs[i]:], s)
-	}
-	h := blake3.Sum256(out)
-	copy(out[32:], h[:])
-	return out, nil
+	return 0
 }
 
 // encoder writes meta and dict: uvarints, varints and length-prefixed
@@ -410,7 +936,69 @@ type encoder struct{ b []byte }
 
 func (e *encoder) uint(v uint64) { e.b = binary.AppendUvarint(e.b, v) }
 func (e *encoder) int(v int64)   { e.b = binary.AppendVarint(e.b, v) }
-func (e *encoder) str(s string) {
-	e.uint(uint64(len(s)))
-	e.b = append(e.b, s...)
+func (e *encoder) str(s string)  { e.b = appendStr(e.b, s) }
+
+// appendStr appends s, length-prefixed.
+func appendStr(b []byte, s string) []byte {
+	return append(binary.AppendUvarint(b, uint64(len(s))), s...)
+}
+
+// appendYears appends years first and last: their flags, then each set.
+func appendYears(b []byte, first, last *int) []byte {
+	var flags byte
+	if first != nil {
+		flags |= hasFirst
+	}
+	if last != nil {
+		flags |= hasLast
+	}
+	b = append(b, flags)
+	if first != nil {
+		b = binary.AppendVarint(b, int64(*first))
+	}
+	if last != nil {
+		b = binary.AppendVarint(b, int64(*last))
+	}
+	return b
+}
+
+// bcursor reads back the records compiling wrote.
+type bcursor struct{ b []byte }
+
+func (r *bcursor) byte() byte {
+	v := r.b[0]
+	r.b = r.b[1:]
+	return v
+}
+
+func (r *bcursor) uint() uint64 {
+	v, n := binary.Uvarint(r.b)
+	r.b = r.b[n:]
+	return v
+}
+
+func (r *bcursor) int() int64 {
+	v, n := binary.Varint(r.b)
+	r.b = r.b[n:]
+	return v
+}
+
+func (r *bcursor) bytes() []byte {
+	n := r.uint()
+	s := r.b[:n]
+	r.b = r.b[n:]
+	return s
+}
+
+func (r *bcursor) str() string { return string(r.bytes()) }
+
+func (r *bcursor) years() (first, last *int) {
+	flags := r.byte()
+	if flags&hasFirst != 0 {
+		first = new(int(r.int()))
+	}
+	if flags&hasLast != 0 {
+		last = new(int(r.int()))
+	}
+	return first, last
 }

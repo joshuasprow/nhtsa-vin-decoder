@@ -1669,7 +1669,8 @@
                     "writer",
                     "drift_month",
                     "drift_month_differs",
-                    "links_differ"
+                    "links_differ",
+                    "skipped_drift"
                   ],
                   "properties": {
                     "format": {
@@ -1699,6 +1700,15 @@
                     "links_differ": {
                       "type": "boolean",
                       "description": "True when its spine or vehicle vocabulary, as loaded, is not the file it was compiled against (another blake3). Its vehicle drift is measured at load against the vehicle vocabulary loaded; nitrovin vocab check checks the rest again."
+                    },
+                    "skipped_drift": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "uniqueItems": true,
+                      "description": "The drift kinds its compiling did not measure, because the month it had could not (ADR 0023): empty from nitrovin vocab compile; model-years and model-qualifier from a compile in a browser, whose spine bundle carries no model years or model values. nitrovin vocab check measures them all."
                     }
                   },
                   "additionalProperties": false

@@ -37,11 +37,14 @@ import (
 // Reader reads one loaded catalog. Implementations never change once
 // loaded and are safe for concurrent use.
 type Reader interface {
-	// ByVehicle returns the candidates for part type partType: each
-	// fitment with an application to one of vehicles (the catalog's own;
-	// see Vehicles) whose years hold year, nil for any year, and whose
-	// side is *side, nil for any side, with those applications. They come
-	// ordered by side, then number.
+	// ByVehicle returns the candidates for part type partType, "" for
+	// every part type: each fitment with an application to one of vehicles
+	// (the catalog's own; see Vehicles) whose years hold year, nil for any
+	// year, and whose side is *side, nil for any side, with those
+	// applications. They come ordered by part type, side, then number. A
+	// request about every part type of a vehicle, its part types or its
+	// related vehicles, asks once with "", which a compiled catalog
+	// answers from one read of the vehicle's block (ADR 0023).
 	ByVehicle(partType string, vehicles []vocab.Vehicle, year *int, side *vocab.Side) []vocab.Candidate
 	// ByNumber returns the fitment with that part type, number and side,
 	// directly, or through the retired number it replaced, which retired
@@ -51,11 +54,11 @@ type Reader interface {
 	// replaced, in file order, none when there are none: a shelf row
 	// under a retired number joins its successor (ADR 0019).
 	RetiredTo(k vocab.FitmentKey) []*vocab.Retired
-	// Redirect returns the redirects from part type partType for one of
-	// vehicles (as ByVehicle takes them) whose years hold year (nil: any),
-	// in file order, each once: each names the part type the catalog lists
-	// partType under for its vehicle. A request follows one hop at most
-	// (ADR 0016).
+	// Redirect returns the redirects from part type partType, "" for every
+	// part type, for one of vehicles (as ByVehicle takes them) whose years
+	// hold year (nil: any), in file order, each once: each names the part
+	// type the catalog lists its From under for its vehicle. A request
+	// follows one hop at most (ADR 0016).
 	Redirect(partType string, vehicles []vocab.Vehicle, year *int) []*vocab.Redirect
 	// Fitments pages through the catalog's fitments in key order (part
 	// type, side, number): those of part type partType, "" for every type,

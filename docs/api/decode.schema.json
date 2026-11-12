@@ -378,14 +378,15 @@
               "compiled": {
                 "type": "object",
                 "description": "A compiled catalog's record of its compiling (ADR 0021); absent for a JSON Lines file. Its drift is the drift its compiling stored, but for its vehicle drift, measured at load against the vehicle vocabulary loaded.",
-                "required": ["format", "source_blake3", "writer", "drift_month", "drift_month_differs", "links_differ"],
+                "required": ["format", "source_blake3", "writer", "drift_month", "drift_month_differs", "links_differ", "skipped_drift"],
                 "properties": {
                   "format": { "type": "integer", "minimum": 1, "description": "Its compiled format version." },
                   "source_blake3": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "The hex blake3 hash of the JSON Lines catalog it was compiled from." },
                   "writer": { "type": "string", "minLength": 1, "description": "The nitrovin version that compiled it." },
                   "drift_month": { "type": "string", "pattern": "^[0-9]{4}_(0[1-9]|1[0-2])$", "description": "The data month its drift counts were measured against when it was compiled; its vehicle drift is measured at load, against the vehicle vocabulary loaded." },
                   "drift_month_differs": { "type": "boolean", "description": "True when drift_month is not the loaded data month: the drift counts may be out of date, and nitrovin vocab check measures them again." },
-                  "links_differ": { "type": "boolean", "description": "True when its spine or vehicle vocabulary, as loaded, is not the file it was compiled against (another blake3). Its vehicle drift is measured at load against the vehicle vocabulary loaded; nitrovin vocab check checks the rest again." }
+                  "links_differ": { "type": "boolean", "description": "True when its spine or vehicle vocabulary, as loaded, is not the file it was compiled against (another blake3). Its vehicle drift is measured at load against the vehicle vocabulary loaded; nitrovin vocab check checks the rest again." },
+                  "skipped_drift": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true, "description": "The drift kinds its compiling did not measure, because the month it had could not (ADR 0023): empty from nitrovin vocab compile; model-years and model-qualifier from a compile in a browser, whose spine bundle carries no model years or model values. nitrovin vocab check measures them all." }
                 },
                 "additionalProperties": false
               },

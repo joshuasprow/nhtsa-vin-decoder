@@ -19,8 +19,12 @@ import (
 // most 5 ms for candidates, 10 ms for part types, 50 ms for related and
 // 1 ms per key for reverse. Like the load benchmark, it reports its numbers
 // for comparison and holds none of them: each request kind reports p50-ns
-// and p99-ns, timed per request, and items, the answers' average total. A
-// request that errors or answers anything but found fails it.
+// and p99-ns, timed per request, and items, the answers' average total;
+// on the compiled form, also its reads per request, reads-p50, reads-p99
+// and reads-max, against ADR 0023's budget (candidates at most 10, part
+// types 20, related 100, reverse 2 per key), which a test in package
+// nitrovin holds in CI. A request that errors or answers anything but
+// found fails it.
 //
 // The requests cycle through fitBenchCases different fitments, each read
 // from the generator writeCatalog uses, so every one is answered found and
@@ -50,7 +54,7 @@ func BenchmarkFit(b *testing.B) {
 	}
 	for _, form := range forms {
 		b.Run(form.name, func(b *testing.B) {
-			tr, err := loadTranslator(form.paths)
+			tr, counter, err := counted(form)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -65,7 +69,7 @@ func BenchmarkFit(b *testing.B) {
 				{"related-any-year", relatedAnyYear},
 				{"reverse", reverse},
 			} {
-				b.Run(k.name, func(b *testing.B) { measureFit(b, tr, k.reqs) })
+				b.Run(k.name, func(b *testing.B) { measureFit(b, tr, k.reqs, counter) })
 			}
 		})
 	}
@@ -93,17 +97,26 @@ func fitBenchFitments() []int {
 
 // measureFit runs reqs in turn under b.Loop, failing on an error or an
 // answer not found, and reports p50-ns and p99-ns, timed per request, and
-// items, the answers' average total.
-func measureFit(b *testing.B, tr *nitrovin.Translator, reqs []contract.FitRequest) {
+// items, the answers' average total; and when c is not nil, the reads
+// through it per request.
+func measureFit(b *testing.B, tr *nitrovin.Translator, reqs []contract.FitRequest, c *countingReader) {
 	b.Helper()
 	h := new(histogram)
+	var rs reads
 	ops, items := 0, 0
 	b.ReportAllocs()
 	for b.Loop() {
 		n := ops % len(reqs)
+		var before int64
+		if c != nil {
+			before = c.n.Load()
+		}
 		t := time.Now()
 		fit, err := tr.Fit(context.Background(), reqs[n])
 		h.record(time.Since(t))
+		if c != nil {
+			rs = append(rs, c.n.Load()-before)
+		}
 		if err != nil {
 			b.Fatalf("request %d: %v", n, err)
 		}
@@ -116,6 +129,7 @@ func measureFit(b *testing.B, tr *nitrovin.Translator, reqs []contract.FitReques
 	b.ReportMetric(h.quantile(0.50), "p50-ns")
 	b.ReportMetric(h.quantile(0.99), "p99-ns")
 	b.ReportMetric(float64(items)/float64(ops), "items")
+	rs.report(b)
 }
 
 // catalogVehicles are the catalog-scale fixture's vehicle entries, by

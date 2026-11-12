@@ -2,14 +2,15 @@ package vocab
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/joshuasprow/nitrovin/pkg/nitrovin"
@@ -94,12 +95,17 @@ var compiledOnce struct {
 func compiledPath(b *testing.B) string {
 	dir := catalogDir(b)
 	compiledOnce.Do(func() {
-		var buf bytes.Buffer
-		if compiledOnce.err = compileCatalog(&buf, dir); compiledOnce.err != nil {
+		compiledOnce.path = filepath.Join(filepath.Dir(dir), "catalog.compiled")
+		f, err := os.Create(compiledOnce.path)
+		if err != nil {
+			compiledOnce.err = err
 			return
 		}
-		compiledOnce.path = filepath.Join(filepath.Dir(dir), "catalog.compiled")
-		compiledOnce.err = os.WriteFile(compiledOnce.path, buf.Bytes(), 0o644)
+		if compiledOnce.err = compileCatalog(f, dir); compiledOnce.err == nil {
+			compiledOnce.err = f.Close()
+		} else {
+			f.Close()
+		}
 	})
 	if compiledOnce.err != nil {
 		b.Fatal(compiledOnce.err)
@@ -107,19 +113,89 @@ func compiledPath(b *testing.B) string {
 	return compiledOnce.path
 }
 
-// compileCatalog compiles the fixture in dir to w: the embedded Decoder's
-// month, vocab.Open and vocab.Compile.
+// compileCatalog compiles the fixture in dir to w as `nitrovin vocab
+// compile` does: the embedded Decoder's month, vocab.OpenCompile, and
+// vocab.Compile streaming the catalog, sorting in a temporary directory.
 func compileCatalog(w io.Writer, dir string) error {
 	d, err := nitrovin.Embedded()
 	if err != nil {
 		return err
 	}
-	files, err := vocab.Open(dir)
+	files, source, err := vocab.OpenCompile(dir)
 	if err != nil {
 		return err
 	}
-	_, err = vocab.Compile(w, d.Month(), files, nitrovin.Version())
+	src, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	scratch, err := os.MkdirTemp("", "nitrovin-bench-scratch-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(scratch)
+	_, err = vocab.Compile(w, d.Month(), files, src, source, vocab.CompileOptions{Scratch: vocab.DirScratch(scratch), Writer: nitrovin.Version()})
 	return err
+}
+
+// countingReader counts the reads through it: what a compiled catalog
+// costs per request where a read is dear, as in a browser (ADR 0023).
+type countingReader struct {
+	r io.ReaderAt
+	n atomic.Int64
+}
+
+func (c *countingReader) ReadAt(p []byte, off int64) (int, error) {
+	c.n.Add(1)
+	return c.r.ReadAt(p, off)
+}
+
+// counted loads form as loadTranslator does, its compiled catalog, if it
+// is one, opened through a countingReader, which it returns; nil for JSON
+// Lines.
+func counted(form catalogForm) (*nitrovin.Translator, *countingReader, error) {
+	if form.name != "compiled" {
+		tr, err := loadTranslator(form.paths)
+		return tr, nil, err
+	}
+	d, err := nitrovin.Embedded()
+	if err != nil {
+		return nil, nil, err
+	}
+	files, err := vocab.Open(form.paths[:len(form.paths)-1]...)
+	if err != nil {
+		return nil, nil, err
+	}
+	f, err := os.Open(form.catalogFile)
+	if err != nil {
+		return nil, nil, err
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+	c := &countingReader{r: f}
+	cf, err := vocab.OpenCompiled(form.catalogFile, c, fi.Size())
+	if err != nil {
+		return nil, nil, err
+	}
+	tr, err := nitrovin.NewTranslator(d, append(files, cf)...)
+	return tr, c, err
+}
+
+// reads are the reads of each request a benchmark made.
+type reads []int64
+
+// report reports reads-p50, reads-p99 and reads-max.
+func (r reads) report(b *testing.B) {
+	if len(r) == 0 {
+		return
+	}
+	slices.Sort(r)
+	b.ReportMetric(float64(r[(len(r)-1)/2]), "reads-p50")
+	b.ReportMetric(float64(r[(len(r)-1)*99/100]), "reads-p99")
+	b.ReportMetric(float64(r[len(r)-1]), "reads-max")
 }
 
 // catalogForm is one form of the fixture's catalog: the paths --vocab
@@ -284,18 +360,34 @@ func BenchmarkLoadCatalog(b *testing.B) {
 }
 
 // BenchmarkCompileCatalog compiles the catalog-scale fixture as `nitrovin
-// vocab compile` does: load it, check it, measure its drift and write the
-// compiled file. Compiling has no budget (ADR 0021); it is recorded.
+// vocab compile` does: stream it, check it, measure its drift and write
+// the compiled file, reporting its size and a compiling process's peak
+// RSS. Compile time has no budget (ADR 0021); it is recorded. Its peak has
+// ADR 0023's: at most 256 MiB.
 func BenchmarkCompileCatalog(b *testing.B) {
 	dir := catalogDir(b)
-	var buf bytes.Buffer
+	var w countingWriter
 	for b.Loop() {
-		buf.Reset()
-		if err := compileCatalog(&buf, dir); err != nil {
+		w = 0
+		if err := compileCatalog(&w, dir); err != nil {
 			b.Fatal(err)
 		}
 	}
-	b.ReportMetric(float64(buf.Len())/1e6, "file-MB")
+	b.StopTimer()
+	peak, err := childPeakRSS(compileEnv, dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportMetric(float64(w)/1e6, "file-MB")
+	b.ReportMetric(peak/1e6, "peak-RSS-MB")
+}
+
+// countingWriter counts the bytes written to it, and keeps none.
+type countingWriter int64
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	*w += countingWriter(len(p))
+	return len(p), nil
 }
 
 // catalogQueries is how many different questions each lookup benchmark
@@ -308,18 +400,21 @@ const catalogQueries = 4096
 //
 //   - by-vehicle: a part type, a vehicle and a year, the candidates of a
 //     fit request (ADR 0018: at most 5 ms p99);
-//   - summary: every part type for a vehicle and a year, the lookups of a
-//     part-type summary (at most 10 ms p99);
+//   - summary: every part type for a vehicle and a year, asked once (part
+//     type ""), the lookup of a part-type summary (at most 10 ms p99);
 //   - by-number: a fitment key, the lookup of a reverse request (at most
 //     1 ms per key);
 //   - redirect: a part type, a vehicle and a year;
 //   - page: 1,000 fitments of a part type after a key, a list page.
+//
+// The compiled form also reports its reads per lookup (ADR 0023: a
+// 1,000-fitment page at most 8).
 func BenchmarkCatalogReader(b *testing.B) {
 	vehicles := func(i int) []vocab.Vehicle { return []vocab.Vehicle{catalogOnce.vehicles[catalogVehicleOf(i, 0)]} }
 	at := func(k int) int { return k * 7919 % catalogFitments } // the fitment question k is about
 	for _, form := range catalogForms(b) {
 		b.Run(form.name, func(b *testing.B) {
-			tr, err := loadTranslator(form.paths)
+			tr, counter, err := counted(form)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -335,6 +430,7 @@ func BenchmarkCatalogReader(b *testing.B) {
 					return nil
 				}
 			}
+			measure := func(b *testing.B, f func() error) { measureReads(b, f, counter) }
 			b.Run("by-vehicle", func(b *testing.B) {
 				measure(b, cycle(func(i int) int {
 					return len(cat.ByVehicle(catalogTypeOf(i), vehicles(i), new(catalogFirstOf(i, 0)), nil))
@@ -342,11 +438,7 @@ func BenchmarkCatalogReader(b *testing.B) {
 			})
 			b.Run("summary", func(b *testing.B) {
 				measure(b, cycle(func(i int) int {
-					n := 0
-					for t := range catalogTypes {
-						n += len(cat.ByVehicle(fmt.Sprintf("%03d", t+1), vehicles(i), new(catalogFirstOf(i, 0)), nil))
-					}
-					return n
+					return len(cat.ByVehicle("", vehicles(i), new(catalogFirstOf(i, 0)), nil))
 				}))
 			})
 			b.Run("by-number", func(b *testing.B) {

@@ -723,6 +723,10 @@ type catalogIndex struct {
 	// redirects holds per part type redirected from and vehicle the
 	// redirects' indexes in Redirects, ascending.
 	redirects map[typeVehicle][]int32
+	// types are the part types fitments have, and redirectTypes those
+	// redirects are from, each in byte order: every part type, to
+	// ByVehicle and Redirect.
+	types, redirectTypes []string
 	// retired finds a retired key's index in Retired; retiredTo, per
 	// fitment key, the indexes of the retired numbers it replaced.
 	retired   map[FitmentKey]int32
@@ -823,7 +827,7 @@ func (f *File) indexLines(read bool) Faults {
 	for k := 1; k < len(x.order); k++ {
 		prev, fit := &f.Fitments[x.order[k-1]], &f.Fitments[x.order[k]]
 		if prev.Key == fit.Key {
-			faults = append(faults, fault(f.Path, fit.Line, "/fitment: duplicate fitment key: line %d has it too", prev.Line))
+			faults = append(faults, duplicateKey(f.Path, fit.Line, prev.Line))
 		}
 	}
 
@@ -867,6 +871,14 @@ func (f *File) indexLines(read bool) Faults {
 		rd := &f.Redirects[i]
 		k := typeVehicle{rd.From, rd.Vehicle.id}
 		x.redirects[k] = append(x.redirects[k], int32(i))
+		x.redirectTypes = append(x.redirectTypes, rd.From)
+	}
+	slices.Sort(x.redirectTypes)
+	x.redirectTypes = slices.Compact(x.redirectTypes)
+	for _, i := range x.order {
+		if t := f.Fitments[i].Key.Type; len(x.types) == 0 || x.types[len(x.types)-1] != t {
+			x.types = append(x.types, t)
+		}
 	}
 
 	x.retired = make(map[FitmentKey]int32, len(f.Retired))
@@ -874,7 +886,7 @@ func (f *File) indexLines(read bool) Faults {
 	for i := range f.Retired {
 		rt := &f.Retired[i]
 		if j, dup := x.retired[rt.Key]; dup {
-			faults = append(faults, fault(f.Path, rt.Line, "/retired: duplicate retired number: line %d retires it too", f.Retired[j].Line))
+			faults = append(faults, duplicateRetired(f.Path, rt, f.Retired[j].Line))
 			continue
 		}
 		x.retired[rt.Key] = int32(i)
@@ -883,13 +895,33 @@ func (f *File) indexLines(read bool) Faults {
 			continue // a fitment that did not read is not missing
 		}
 		if live := f.fitment(rt.Key); live != nil {
-			faults = append(faults, fault(f.Path, rt.Line, "/retired: %s is a live fitment, on line %d", rt.Key, live.Line))
+			faults = append(faults, liveRetired(f.Path, rt, live.Line))
 		}
 		if f.fitment(rt.To) == nil {
-			faults = append(faults, fault(f.Path, rt.Line, "/to: no fitment %s in the file: a retired number points at a fitment", rt.To))
+			faults = append(faults, noSuccessor(f.Path, rt))
 		}
 	}
 	return faults
+}
+
+// The faults only a whole catalog shows, about the file at path: a
+// fitment key on line that line first has too; a retired number retired
+// again, first on line first; a retired number that is a live fitment's,
+// on line live; and one whose successor is no fitment.
+func duplicateKey(path string, line, first int) Finding {
+	return fault(path, line, "/fitment: duplicate fitment key: line %d has it too", first)
+}
+
+func duplicateRetired(path string, rt *Retired, first int) Finding {
+	return fault(path, rt.Line, "/retired: duplicate retired number: line %d retires it too", first)
+}
+
+func liveRetired(path string, rt *Retired, live int) Finding {
+	return fault(path, rt.Line, "/retired: %s is a live fitment, on line %d", rt.Key, live)
+}
+
+func noSuccessor(path string, rt *Retired) Finding {
+	return fault(path, rt.Line, "/to: no fitment %s in the file: a retired number points at a fitment", rt.To)
 }
 
 // fitment finds the fitment with key k, nil when there is none.
@@ -929,27 +961,34 @@ type Candidate struct {
 	Applications []*Application
 }
 
-// ByVehicle returns the fitments of part type partType with an application
-// to one of vehicles whose years hold year (nil: any year), and of side
-// *side (nil: any side), each with its matching applications. Candidates
-// come in key order: side, then number. The vehicles are the catalog's
-// own, as its lines name them; turning a request's VIN or another
-// vocabulary's entry into them is a translation's work, not the
-// catalog's. Qualifiers are not checked: that takes a decode.
+// ByVehicle returns the fitments of part type partType ("" for every part
+// type) with an application to one of vehicles whose years hold year (nil:
+// any year), and of side *side (nil: any side), each with its matching
+// applications. Candidates come in key order: part type, side, then
+// number. The vehicles are the catalog's own, as its lines name them;
+// turning a request's VIN or another vocabulary's entry into them is a
+// translation's work, not the catalog's. Qualifiers are not checked: that
+// takes a decode.
 func (c *Catalog) ByVehicle(partType string, vehicles []Vehicle, year *int, side *Side) []Candidate {
 	if cc := c.f.compiled; cc != nil {
 		return cc.byVehicle(c, partType, vehicles, year, side)
 	}
 	x := c.f.catalog
+	types := []string{partType}
+	if partType == "" {
+		types = x.types
+	}
 	var ps []posting
 	for i := range vehicles {
 		id, ok := c.vehicleID(&vehicles[i])
 		if !ok {
 			continue
 		}
-		if s, ok := x.byVehicle[typeVehicle{partType, id}]; ok {
-			sp := x.spans[s]
-			ps = append(ps, x.postings[sp.lo:sp.hi]...)
+		for _, t := range types { // in key order, as ranks are
+			if s, ok := x.byVehicle[typeVehicle{t, id}]; ok {
+				sp := x.spans[s]
+				ps = append(ps, x.postings[sp.lo:sp.hi]...)
+			}
 		}
 	}
 	if len(vehicles) > 1 {
@@ -1026,21 +1065,28 @@ func (c *Catalog) RetiredTo(k FitmentKey) []*Retired {
 	return out
 }
 
-// Redirect returns the redirects from part type partType for one of
-// vehicles (the catalog's own, as ByVehicle takes them) whose years hold
-// year (nil: any year), in file order, each once: each names the part
-// type the catalog lists partType under for its vehicle.
+// Redirect returns the redirects from part type partType ("" for every
+// part type) for one of vehicles (the catalog's own, as ByVehicle takes
+// them) whose years hold year (nil: any year), in file order, each once:
+// each names the part type the catalog lists its From under for its
+// vehicle.
 func (c *Catalog) Redirect(partType string, vehicles []Vehicle, year *int) []*Redirect {
 	if cc := c.f.compiled; cc != nil {
 		return cc.redirect(c, partType, vehicles, year)
 	}
+	types := []string{partType}
+	if partType == "" {
+		types = c.f.catalog.redirectTypes
+	}
 	var idx []int32
 	for i := range vehicles {
 		if id, ok := c.vehicleID(&vehicles[i]); ok {
-			idx = append(idx, c.f.catalog.redirects[typeVehicle{partType, id}]...)
+			for _, t := range types {
+				idx = append(idx, c.f.catalog.redirects[typeVehicle{t, id}]...)
+			}
 		}
 	}
-	if len(vehicles) > 1 {
+	if len(vehicles) > 1 || partType == "" {
 		slices.Sort(idx)
 		idx = slices.Compact(idx)
 	}

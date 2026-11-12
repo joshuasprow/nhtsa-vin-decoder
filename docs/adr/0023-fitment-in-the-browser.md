@@ -23,6 +23,9 @@ It amends four ADRs:
 format half is measured in Go on the catalog-scale fixture. The browser half is
 measured in current stable Chrome, Safari and Firefox. If either half misses, the
 work stops and a person decides whether to change the design or the budget.
+The format half is met (2026-11-12,
+[#262](https://github.com/joshuasprow/nitrovin/issues/262); see Measured); the
+browser half waits on its own ticket.
 
 ## Who it is for
 
@@ -135,6 +138,70 @@ The reads come from the layout:
 The read budgets are set so reads at 0.25 ms take at most half of each request's
 budget, leaving the rest for wasm compute. Browsers can't run in CI, so CI holds
 the read counts and the release notes record the browser numbers.
+
+## Measured
+
+### The format half
+
+Compiled format 2 and the streaming compiler, measured by `bench/vocab` on the
+catalog-scale fixture on one core (`GOMAXPROCS=1`, Apple M5 Pro, page cache warm),
+reads counted through a wrapped `io.ReaderAt`, and
+[recorded on #260](https://github.com/joshuasprow/nitrovin/issues/260):
+
+| Request | Reads, p99 / most | Read budget | Server p99 | ADR 0018 budget |
+| --- | ---: | ---: | ---: | ---: |
+| candidates | 3 / 3 | 10 | 117 µs | 5 ms |
+| part types | 2 / 2 | 20 | 557 µs | 10 ms |
+| part types, no year | 2 / 2 | 20 | 1.7 ms | 10 ms |
+| related vehicles | 2 / 2 | 100 | 647 µs | 50 ms |
+| related vehicles, no year | 2 / 2 | 100 | 2.2 ms | 50 ms |
+| reverse, one key | 1 / 1 | 2 | 90 µs | 1 ms |
+| a 1,000-fitment page | 1 / 1 | 8 | 479 µs | |
+
+| | Format 2 | Budget |
+| --- | ---: | ---: |
+| Open and ready | 5.1 ms | 1 s (ADR 0021) |
+| Retained heap | 2.7 MB | 256 MiB (ADR 0021) |
+| Peak while opening | 19 MB | 512 MiB (ADR 0021) |
+| File | 342 MB | 500 MB |
+| Compile | 3.9 s | recorded |
+| Compile peak | 169 MB | 256 MiB |
+
+At 0.25 ms a read, the worst request spends under 1 ms reading. Format 1 on the
+same fixture: 33 reads for candidates, 5,625 for part types and 11,620 with no
+year, 3,366 and 7,650 for related vehicles, and 29 for reverse.
+
+What was built, where the text above leaves room:
+
+- **A vehicle's block is its head and its body.** The head lists its part
+  types, each with its count and its bytes in the body, and its redirects; the
+  body holds a copy of every fitment with an application to the vehicle, whole,
+  by part type, side and number. One part type is two reads, the head and that
+  type's run; every part type is one read of the whole block.
+- **`fitment.Reader` asks for every part type at once.** `ByVehicle` and
+  `Redirect` take part type `""` for all of them, and `fit` asks that way, once,
+  for part types and related vehicles, rather than once per part type of the
+  spine. A JSON Lines catalog answers `""` too.
+- **Related vehicles are read, not stored.** Each copy in a block carries every
+  application of its fitment, so related vehicles come from the block alone; no
+  table per vehicle was needed.
+- **Wide fitments are not copied whole.** A fitment of more than 16
+  applications would cost the file the square of its applications if every
+  vehicle's block held it: its blocks hold its key, its applications to that
+  vehicle and where it lies in a section of only such fitments, read together
+  when within 256 KiB. The fixture has none. A catalog in its shape with one
+  fitment in 200 of 24 applications measured at most 9 reads, at full scale; CI's
+  `TestReadBudget` holds the budget on a fortieth of it.
+- **Sparse indexes in memory.** Every fitment is also stored once in key order,
+  in pages of 64: the dictionary holds each page's first key, so a number is one
+  read (two through a retired number), and a 1,000-fitment page is one.
+- **The compiler holds retired numbers.** It streams fitments and redirects
+  through two external sorts, by key and by vehicle, in runs of 16 MiB, and
+  holds a release's retired numbers in memory to check them against the keys.
+- **Skipped drift follows the month.** A compile records `model-years` as skipped
+  when its month knows no model years, and `model-qualifier` when it knows no
+  model values, so the browser's compile records both without being told.
+  `/v1/info`'s `compiled` says so as `skipped_drift`.
 
 ## Considered options
 

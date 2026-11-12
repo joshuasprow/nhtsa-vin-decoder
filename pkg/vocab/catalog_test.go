@@ -3,6 +3,7 @@ package vocab
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -45,7 +46,8 @@ func openFiles(t testing.TB, files []file) (string, []*File, error) {
 
 // TestCatalogFaults refuses one catalog per fault class, each at the line
 // it is on: every fault ADR 0017 lists, and the schema's rules a catalog
-// line can break.
+// line can break. Compile, streaming the catalog beside the other files,
+// refuses it with the same fault.
 func TestCatalogFaults(t *testing.T) {
 	app := func(vehicle, rest string) string {
 		return `{"fitment":{"type":"pads","number":"P1"},"applications":[{"vehicle":` + vehicle + `,"options":""` + rest + `}]}`
@@ -130,6 +132,23 @@ func TestCatalogFaults(t *testing.T) {
 			f := faults[0]
 			if f.File != filepath.Join(dir, tc.file) || f.Line != tc.line || f.Severity != SeverityFault || !strings.Contains(f.Detail, tc.detail) {
 				t.Errorf("fault %+v; want %s:%d, a fault naming %q", f, tc.file, tc.line, tc.detail)
+			}
+			if tc.file != "c.jsonl" || len(tc.files) > 3 {
+				return // a fault about another file, or a second catalog
+			}
+			var others []string
+			for _, g := range tc.files {
+				if g.name != "c.jsonl" {
+					others = append(others, filepath.Join(dir, g.name))
+				}
+			}
+			beside, err := Open(others...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = compileSource(t, io.Discard, month{}, beside, filepath.Join(dir, "c.jsonl"))
+			if got, ok := errors.AsType[Faults](err); !ok || !slices.Equal(got, faults) {
+				t.Errorf("Compile: %v; want %v", err, faults)
 			}
 		})
 	}

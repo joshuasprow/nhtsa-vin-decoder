@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +13,28 @@ import (
 	"github.com/joshuasprow/nitrovin/pkg/contract"
 	"github.com/joshuasprow/nitrovin/pkg/vocab"
 )
+
+// compileCatalog compiles the JSON Lines catalog among files to w, as
+// `nitrovin vocab compile` does: streamed from its file, beside the rest,
+// sorting in a temporary directory.
+func compileCatalog(t *testing.T, w io.Writer, m vocab.Month, files []*vocab.File) ([]vocab.Finding, error) {
+	t.Helper()
+	var beside []*vocab.File
+	source := ""
+	for _, f := range files {
+		if f.Kind == vocab.KindCatalog {
+			source = f.Path
+			continue
+		}
+		beside = append(beside, f)
+	}
+	src, err := os.Open(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	return vocab.Compile(w, m, beside, src, source, vocab.CompileOptions{Scratch: vocab.DirScratch(t.TempDir()), Writer: Version()})
+}
 
 // compiledTwin is tr with its catalog compiled (ADR 0021) against tr's
 // data month and loaded beside the same files, its stock files included.
@@ -23,7 +46,7 @@ func compiledTwin(t *testing.T, tr *Translator) *Translator {
 	}
 	files := append(tr.core.Set.Files(), cat.File())
 	var b bytes.Buffer
-	if _, err := vocab.Compile(&b, tr.d.month, files, Version()); err != nil {
+	if _, err := compileCatalog(t, &b, tr.d.month, files); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "catalog.compiled")

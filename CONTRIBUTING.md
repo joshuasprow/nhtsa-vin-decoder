@@ -361,7 +361,11 @@ refuses each stock fault and measures orphans and personal-looking fields.
 On a compiled catalog, `TestCompiledAnswersAsJSONLines` asks `RetiredTo`
 of every key, `TestFitCompiled` fits the synthetic stock against both
 forms alike, and `TestVocabCompile` checks the stock's orphan and fits
-with it through the CLI.
+with it through the CLI. `TestReadBudget` (`pkg/nitrovin`) counts each fit
+request's reads of a compiled catalog through its `io.ReaderAt` and fails
+past [ADR 0023](docs/adr/0023-fitment-in-the-browser.md)'s budget;
+`TestCatalogFaults` refuses each fault through the streaming compiler as
+through `Open`, and `FuzzOpenCompiled` feeds the reader damaged files.
 
 `testdata/vocab/stock/live/` reads the same three sources through
 connectors ([ADR 0020](docs/adr/0020-request-time-stock-the-postgres-connector.md)):
@@ -777,22 +781,25 @@ temporary directory, as JSON Lines and compiled (ADR 0021), and reports
 each file's size, the heap the load retains and a loading process's peak
 RSS: against 15 s on one core, 1.5 GiB peak and a 500 MB file for JSON
 Lines, and 1 s, 512 MiB peak and 256 MiB retained for the compiled form.
-On the reference machine, on one core, JSON Lines measured 2.7 s, 900 MB
-peak, 322 MB retained and a 330 MB file; compiled, 3.1 ms, 16 MB peak,
-2.1 MB retained and a 184 MB file. `BenchmarkCompileCatalog` records how
-long `vocab compile` takes on it (3.9 s), and `BenchmarkCatalogReader`
-times `fitment.Reader`'s lookups in both forms, p50 and p99.
+On the reference machine, on one core, JSON Lines measured 2.9 s, 909 MB
+peak, 324 MB retained and a 330 MB file; compiled (format 2), 5.1 ms,
+19 MB peak, 2.7 MB retained and a 342 MB file. `BenchmarkCompileCatalog`
+records how long `vocab compile` takes on it (3.9 s) and its peak RSS
+(169 MB, against ADR 0023's 256 MiB), and `BenchmarkCatalogReader` times
+`fitment.Reader`'s lookups in both forms, p50 and p99, with the compiled
+form's reads per lookup (a 1,000-fitment page is one).
 `BenchmarkFit` asks `fit` of that catalog on one core, in both forms,
 cycling through 64 vehicles and fitment keys: candidates, part types and
 related vehicles (each in a year and, the expensive path, with none) and
 reverse, each reporting p50, p99 and its answers' average `total`
 (`items`), against ADR 0018's p99 budget of 5 ms, 10 ms, 50 ms and 1 ms
-per key. On the reference machine, p99, JSON Lines measured 12 µs; 332 µs,
-and 1.5 ms with no year; 397 µs, and 10 ms with no year; and 16 µs. The
-compiled form measured 37 µs; 2.6 ms, and 5.8 ms with no year; 1.5 ms,
-and 4.7 ms with no year; and 38 µs: slower by its reads, but without the
-garbage collection of a loaded catalog's heap that makes JSON Lines'
-no-year tail. `release.yml`'s bench job runs them on its runner, and
+per key, and on the compiled form its reads per request, against ADR
+0023's 10, 20, 100 and 2. On the reference machine, p99, JSON Lines
+measured 26 µs; 385 µs, and 6.0 ms with no year; 492 µs, and 9.4 ms with
+no year; and 31 µs. The compiled form measured 117 µs; 557 µs, and 1.7 ms
+with no year; 647 µs, and 2.2 ms with no year; and 90 µs, in 3, 2, 2 and
+1 reads: slower by its reads, but without the garbage collection of a
+loaded catalog's heap that makes JSON Lines' no-year tail. `release.yml`'s bench job runs them on its runner, and
 `bench/vocab/notes` turns the output into the table the release notes end
 with, beside the budgets, which are stated for the reference machine (an
 Apple M5 Pro). Nothing gates on it: runner timings are too noisy, and a

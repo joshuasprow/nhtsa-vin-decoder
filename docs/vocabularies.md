@@ -292,7 +292,13 @@ A catalog at a parts system's scale takes seconds and hundreds of MB to load
 as JSON Lines. `nitrovin vocab compile` checks it as `vocab check` does and
 writes it as a compiled catalog (ADR 0021): one indexed file that opens in
 milliseconds with a few MB, read in place, answering exactly as its source.
-Compile at image build, with the binary that will serve it:
+It is compiled format 2 ([ADR 0023](adr/0023-fitment-in-the-browser.md)),
+clustered by vehicle: a vehicle's part types, candidates and related
+vehicles are one or two reads of the file, so it answers as quickly read by
+byte range from a browser's store as from a disk. Compiling streams the
+catalog: it reads it once, sorts in a temporary directory, and peaks at
+under 256 MiB whatever its size. Compile at image build, with the binary
+that will serve it:
 
 ```sh
 nitrovin vocab compile -o catalog.compiled testdata/vocab/fitment   # the catalog, its spine and vehicles
@@ -301,14 +307,19 @@ nitrovin --vocab testdata/vocab/fitment/part-types.jsonl --vocab testdata/vocab/
 ```
 
 ```json
-{"format":1,"source_blake3":"…","writer":"v…","drift_month":"2026_10","drift_month_differs":false,"links_differ":false}
+{"format":2,"source_blake3":"…","writer":"v…","drift_month":"2026_10","drift_month_differs":false,"links_differ":false,"skipped_drift":[]}
 ```
 
 A fault refuses the compile, and nothing is written; drift is written to
-stderr and stored in the file, `model-qualifier` included. `--vocab` recognises the file by its magic
-(name it itself: a directory loads only its `*.jsonl`) and refuses a
-compiled format the release cannot read, and a spine or vehicle vocabulary
-that is not loaded or lacks a part type or vehicle it was compiled with.
+stderr and stored in the file, `model-qualifier` included. `skipped_drift`
+lists the drift kinds a compile could not measure: none from `vocab
+compile`, `model-years` and `model-qualifier` from a compile in a browser,
+whose spine bundle carries no model years or model values. `--vocab`
+recognises the file by its magic (name it itself: a directory loads only
+its `*.jsonl`) and refuses a compiled format the release cannot read
+(format 1, from v0.3.5, is refused with a message to compile it again),
+and a spine or vehicle vocabulary that is not loaded or lacks a part type
+or vehicle it was compiled with.
 Loading it does not measure drift again in full: `/v1/info` shows the stored
 drift, the month it was measured against, and `drift_month_differs` when
 that is not the loaded month. Its `vehicle` drift alone is measured at load,

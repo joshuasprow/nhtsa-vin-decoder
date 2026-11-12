@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"flag"
 	"os"
@@ -46,13 +45,14 @@ func vocabSetup(fs *flag.FlagSet) func(*env, []string) error {
 		if err != nil {
 			return err
 		}
-		files, err := vocab.Open(args[1:]...)
 		if args[0] == "compile" {
+			files, source, err := vocab.OpenCompile(args[1:]...)
 			if err == nil {
-				err = compile(e, d, files, *out)
+				err = compile(e, d, files, source, *out)
 			}
 			return writeFaults(e, err)
 		}
+		files, err := vocab.Open(args[1:]...)
 		for i := 0; err == nil && i < len(files); i++ {
 			files[i], err = files[i].Expand()
 		}
@@ -91,21 +91,29 @@ func writeFaults(e *env, err error) error {
 	return errFindings
 }
 
-// compile compiles the one catalog among files, checked against d's data
-// month, to path: written beside it and renamed into place, so a reader
-// never sees half a file. Its drift goes to stderr, as a load's does.
-func compile(e *env, d *nitrovin.Decoder, files []*vocab.File, path string) error {
-	var b bytes.Buffer
-	drift, err := vocab.Compile(&b, d.Month(), files, nitrovin.Version())
+// compile compiles the JSON Lines catalog at source, checked beside files
+// against d's data month, to path: streamed (ADR 0023), sorting in a
+// temporary directory, written beside path and renamed into place, so a
+// reader never sees half a file. Its drift goes to stderr, as a load's
+// does.
+func compile(e *env, d *nitrovin.Decoder, files []*vocab.File, source, path string) error {
+	src, err := os.Open(source)
 	if err != nil {
 		return err
 	}
+	defer src.Close()
+	scratch, err := os.MkdirTemp("", "nitrovin-compile-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(scratch)
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(b.Bytes()); err != nil {
+	drift, err := vocab.Compile(tmp, d.Month(), files, src, source, vocab.CompileOptions{Scratch: vocab.DirScratch(scratch), Writer: nitrovin.Version()})
+	if err != nil {
 		tmp.Close()
 		return err
 	}
