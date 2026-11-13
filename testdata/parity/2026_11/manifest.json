@@ -1,0 +1,14 @@
+{
+  "month": "2026_11",
+  "dump_bytes": 70331920,
+  "dump_sha256": "9a1deb13f952c673a813b639bae9be92e7881cd4afdc8f274332d8cf3cd49f61",
+  "oracle": "freshened",
+  "now": "2026-11-13T20:44:34Z",
+  "server": "17.11 (Debian 17.11-1.pgdg13+2)",
+  "collate": "C",
+  "ctype": "en_US.utf8",
+  "corpus_sha256": "b47bf4e172b5c6d11738086dcbdd685e4177946944d7d5e164c13a1401040569",
+  "vin_count": 641,
+  "answer_rows": 26735,
+  "answer_key_sha256": "c9842bbbb5a8bbee0916a3a03dd612ccd77c581804320cb07a1be67a2dcfb89e"
+}

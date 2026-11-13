@@ -2148,16 +2148,9 @@ Aspiration : TC",2016-10-19 13:48:45.523,6807,OtherEngineInfo,string,Pattern,Pat
 52,JHLYF6H8000000000,2022,,Vehicle Descriptor,JHLYF6H8*00,,,"",196,JHLYF6H8*00,,,VehicleDescriptor,string,Decoding,Corrections,
 53,2BVJ00C0000000000,2023,Exterior/Truck,Bed Type,Not Applicable,,,,3,0,2019-12-21 20:26:30.583,,BedType,lookup,Pattern,Default,
 53,2BVJ00C0000000000,2023,Exterior/Truck,Cab Type,Not Applicable,,,,4,0,2019-12-21 20:26:30.583,,BodyCabType,lookup,Pattern,Default,
-53,2BVJ00C0000000000,2023,Exterior/Body,Body Class,Motorcycle - Unenclosed Three Wheeled or Open Autocycle [1 Rear Wheel],1999772,26272,J**[A-E],5,103,2023-11-06 12:05:56.883,2409,BodyClass,lookup,Pattern,Pattern,f
-53,2BVJ00C0000000000,2023,Engine,Displacement (CC),991,1999821,26272,[JNR]**C,11,991,2023-11-06 12:05:56.883,2409,DisplacementCC,decimal,Pattern,Pattern,f
-53,2BVJ00C0000000000,2023,Engine,Displacement (CI),60.4745303978796934,1999821,26272,[JNR]**C,12,60.4745303978796934,,2409,DisplacementCI,decimal,Pattern,Conversion 1: 991 / 16.387064 ,
-53,2BVJ00C0000000000,2023,Engine,Displacement (L),0.99100000000000000000,1999821,26272,[JNR]**C,13,0.99100000000000000000,,2409,DisplacementL,decimal,Pattern,Conversion 3: 991 / 1000.,
-53,2BVJ00C0000000000,2023,Engine,Engine Model,991 ETC,1999835,26272,J**C,18,991 ETC,2023-11-06 12:05:56.883,2409,EngineModel,string,Pattern,Pattern,f
-53,2BVJ00C0000000000,2023,Engine,Fuel Type - Primary,Gasoline,1999867,26272,[JNR]**[A-E],24,4,2023-11-06 12:05:56.883,2409,FuelTypePrimary,lookup,Pattern,Pattern,f
 53,2BVJ00C0000000000,2023,Exterior/Dimension,Gross Vehicle Weight Rating From,"Class 1A: 3,000 lb or less (1,360 kg or less)",,,,25,10,2019-12-21 20:26:30.583,,GVWR,lookup,Pattern,Default,
-53,2BVJ00C0000000000,2023,General,Make,CAN-AM,1999880,26272,J**[A-E],26,591,,,Make,lookup,"WMI, Pattern",pattern - model,
-53,2BVJ00C0000000000,2023,General,Manufacturer Name,BOMBARDIER RECREATIONAL PRODUCTS INC ,,,2BV,27,1134,,2409,Manufacturer,lookup,WMI,Manu. Name,
-53,2BVJ00C0000000000,2023,General,Model,Spyder,1999880,26272,J**[A-E],28,3472,2023-11-06 12:05:56.883,2409,Model,lookup,Pattern,Pattern,f
+53,2BVJ00C0000000000,2023,General,Make,CAN-AM,,,2BV,26,591,2015-06-09 14:17:25.937,2409,Make,lookup,"WMI, Pattern",Make,
+53,2BVJ00C0000000000,2023,General,Manufacturer Name,BOMBARDIER RECREATIONAL PRODUCTS INC,,,2BV,27,1134,,2409,Manufacturer,lookup,WMI,Manu. Name,
 53,2BVJ00C0000000000,2023,General,Model Year,2023,,,2023,29,2023,,,ModelYear,int,"WMI, Input",ModelYear,
 53,2BVJ00C0000000000,2023,General,Vehicle Type,MOTORCYCLE,,,2BV,39,1,2015-06-09 14:17:25.937,2409,VehicleType,lookup,WMI,VehType,
 53,2BVJ00C0000000000,2023,Active Safety System/Maintaining Safe Distance,Adaptive Cruise Control (ACC),Not Applicable,,,,81,0,2019-12-21 20:26:30.583,,AdaptiveCruiseControl,lookup,Pattern,Default,
@@ -2168,16 +2161,14 @@ Aspiration : TC",2016-10-19 13:48:45.523,6807,OtherEngineInfo,string,Pattern,Pat
 53,2BVJ00C0000000000,2023,Active Safety System/Lane and Side Assist,Lane Keeping Assistance (LKA),Not Applicable,,,,103,0,2019-12-21 20:26:30.583,,LaneKeepSystem,lookup,Pattern,Default,
 53,2BVJ00C0000000000,2023,Active Safety System/Backing Up and Parking,Backup Camera,Not Applicable,,,,104,0,2019-12-21 20:26:30.583,,RearVisibilitySystem,lookup,Pattern,Default,
 53,2BVJ00C0000000000,2023,Active Safety System/Backing Up and Parking,Parking Assist,Not Applicable,,,,105,0,2019-12-21 20:26:30.583,,ParkAssist,lookup,Pattern,Default,
-53,2BVJ00C0000000000,2023,Exterior/Wheel Tire,Number of Wheels,3,2000062,26272,J**[A-E],115,3,2023-11-06 12:05:56.883,2409,Wheels,int,Pattern,Pattern,f
 53,2BVJ00C0000000000,2023,Exterior/Trailer,Trailer Type Connection,Not Applicable,,,,116,0,2019-12-21 20:26:30.583,,TrailerType,lookup,Pattern,Default,
 53,2BVJ00C0000000000,2023,Exterior/Trailer,Trailer Body Type,Not Applicable,,,,117,0,2019-12-21 20:26:30.583,,TrailerBodyType,lookup,Pattern,Default,
-53,2BVJ00C0000000000,2023,,Suggested VIN,2BVJ!!C!0!!000000,,,"",142,2BVJ!!C!0!!000000,,,SuggestedVIN,string,Decoding,Corrections,
-53,2BVJ00C0000000000,2023,,Error Code,"1,5,12,14,400",,,"",143,"1,5,12,14,400",,,ErrorCode,lookup,Decoding,Corrections,
-53,2BVJ00C0000000000,2023,,Possible Values,(5:ABCDEFGHJKLMNPRSTUVWX)(6:ABCDEHJKLMNPRSTUVWX)(8:12345678)(11:V),,,"",144,(5:ABCDEFGHJKLMNPRSTUVWX)(6:ABCDEHJKLMNPRSTUVWX)(8:12345678)(11:V),,,PossibleValues,string,Decoding,Corrections,
+53,2BVJ00C0000000000,2023,,Suggested VIN,2BVJ00C00!0000000,,,"",142,2BVJ00C00!0000000,,,SuggestedVIN,string,Decoding,Corrections,
+53,2BVJ00C0000000000,2023,,Error Code,"1,8,12,400",,,"",143,"1,8,12,400",,,ErrorCode,lookup,Decoding,Corrections,
+53,2BVJ00C0000000000,2023,,Possible Values,"",,,"",144,"",,,PossibleValues,string,Decoding,Corrections,
 53,2BVJ00C0000000000,2023,Exterior/Bus,Bus Floor Configuration Type,Not Applicable,,,,148,0,2019-12-21 20:26:30.583,,BusFloorConfigType,lookup,Pattern,Default,
 53,2BVJ00C0000000000,2023,Exterior/Bus,Bus Type,Not Applicable,,,,149,0,2019-12-21 20:26:30.583,,BusType,lookup,Pattern,Default,
-53,2BVJ00C0000000000,2023,Exterior/Motorcycle,Motorcycle Chassis Type,Reverse Trike,2042141,26272,J**[A-E],153,4,2024-03-20 13:01:05.77,2409,MotorcycleChassisType,lookup,Pattern,Pattern,f
-53,2BVJ00C0000000000,2023,,Additional Error Text,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 5,6,8,11. Invalid character(s): 10:0.",,,"",156,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 5,6,8,11. Invalid character(s): 10:0.",,,AdditionalErrorText,string,Decoding,Corrections,
+53,2BVJ00C0000000000,2023,,Additional Error Text,Invalid character(s): 10:0.,,,"",156,Invalid character(s): 10:0.,,,AdditionalErrorText,string,Decoding,Corrections,
 53,2BVJ00C0000000000,2023,Active Safety System/Forward Collision Prevention,Dynamic Brake Support (DBS),Not Applicable,,,,170,0,2019-12-21 20:26:30.583,,DynamicBrakeSupport,lookup,Pattern,Default,
 53,2BVJ00C0000000000,2023,Active Safety System/Forward Collision Prevention,Pedestrian Automatic Emergency Braking (PAEB),Not Applicable,,,,171,0,2019-12-21 20:26:30.583,,PedestrianAutomaticEmergencyBraking,lookup,Pattern,Default,
 53,2BVJ00C0000000000,2023,Active Safety System,Auto-Reverse System for Windows and Sunroofs,Not Applicable,,,,172,0,2019-12-21 20:26:30.583,,AutoReverseSystem,lookup,Pattern,Default,
@@ -2189,7 +2180,7 @@ Aspiration : TC",2016-10-19 13:48:45.523,6807,OtherEngineInfo,string,Pattern,Pat
 53,2BVJ00C0000000000,2023,Active Safety System/Lighting Technologies,Semiautomatic Headlamp Beam Switching,Not Applicable,,,,179,0,2019-12-21 20:26:30.583,,SemiautomaticHeadlampBeamSwitching,lookup,Pattern,Default,
 53,2BVJ00C0000000000,2023,Active Safety System/Lighting Technologies,Adaptive Driving Beam (ADB),Not Applicable,,,,180,0,2019-12-21 20:26:30.583,,AdaptiveDrivingBeam,lookup,Pattern,Default,
 53,2BVJ00C0000000000,2023,Active Safety System/Backing Up and Parking,Rear Cross Traffic Alert,Not Applicable,,,,183,0,2019-12-21 20:26:30.583,,RearCrossTrafficAlert,lookup,Pattern,Default,
-53,2BVJ00C0000000000,2023,,Error Text,"1 - Check Digit (9th position) does not calculate properly; 5 - VIN has errors in few positions; 12 - Model Year Warning - Model Year entered for decoding with VIN does not match the model year based on the 10th position in VIN.; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.; 400 - Invalid Characters Present",,,"",191,"1 - Check Digit (9th position) does not calculate properly; 5 - VIN has errors in few positions; 12 - Model Year Warning - Model Year entered for decoding with VIN does not match the model year based on the 10th position in VIN.; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.; 400 - Invalid Characters Present",,,ErrorText,string,Decoding,Corrections,
+53,2BVJ00C0000000000,2023,,Error Text,1 - Check Digit (9th position) does not calculate properly; 8 - No detailed data available currently; 12 - Model Year Warning - Model Year entered for decoding with VIN does not match the model year based on the 10th position in VIN.; 400 - Invalid Characters Present,,,"",191,1 - Check Digit (9th position) does not calculate properly; 8 - No detailed data available currently; 12 - Model Year Warning - Model Year entered for decoding with VIN does not match the model year based on the 10th position in VIN.; 400 - Invalid Characters Present,,,ErrorText,string,Decoding,Corrections,
 53,2BVJ00C0000000000,2023,,Vehicle Descriptor,2BVJ00C0*00,,,"",196,2BVJ00C0*00,,,VehicleDescriptor,string,Decoding,Corrections,
 54,1M1MDA00000000000,2024,Exterior/Truck,Cab Type,MDHD: CBE (Cab Behind Engine),2083156,27003,MD[AB],4,7,2024-06-07 09:09:58.683,2167,BodyCabType,lookup,Pattern,Pattern,
 54,1M1MDA00000000000,2024,Engine,Displacement (CC),6700.0,2083341,27003,**A,11,6700.0,,2167,DisplacementCC,decimal,Pattern,Conversion 4: 6.7 * 1000,
@@ -2858,16 +2849,17 @@ Aspiration : TC",2016-10-19 13:48:45.523,6807,OtherEngineInfo,string,Pattern,Pat
 74,1GTW7NFH5PA077131,,General,Trim,LS EXT,2077636,24089,*7N,38,LS EXT,2024-05-24 13:59:37.853,2064,Trim,string,Pattern,Pattern,
 74,1GTW7NFH5PA077131,,General,Vehicle Type,TRUCK,,,1GT,39,3,2016-04-15 15:44:14.957,2064,VehicleType,lookup,WMI,VehType,
 74,1GTW7NFH5PA077131,,Mechanical/Brake,Brake System Type,Hydraulic,1772406,24089,[036YWZ]7,42,2,2022-04-06 16:33:03.67,2064,BrakeSystemType,lookup,Pattern,Pattern,
+74,1GTW7NFH5PA077131,,Exterior/Dimension,Curb Weight (pounds),5991,13607,4138,"",54,5991,2026-10-13 13:01:41.24,,CurbWeightLB,int,Pattern,Vehicle Specs,f
 74,1GTW7NFH5PA077131,,Passive Safety System/Air Bag Location,Front Air Bag Locations,1st Row (Driver and Passenger),1772445,24089,*7[ABEFGHL-V9]F,65,3,2022-04-06 17:10:03.84,2064,AirBagLocFront,lookup,Pattern,Pattern,
 74,1GTW7NFH5PA077131,,Passive Safety System,Seat Belt Type,Manual,1772446,24089,*7[ABEFGHL-V9]F,79,1,2022-04-06 17:10:04.013,2064,SeatBeltsAll,lookup,Pattern,Pattern,
-74,1GTW7NFH5PA077131,,Active Safety System,Antilock Braking System (ABS),Standard,13607,4138,"",86,1,2024-01-30 14:32:42.907,,ABS,lookup,Pattern,Vehicle Specs,f
-74,1GTW7NFH5PA077131,,Active Safety System/Lane and Side Assist,Blind Spot Warning (BSW),Optional,13607,4138,"",88,3,2024-01-30 14:32:42.94,,BlindSpotMon,lookup,Pattern,Vehicle Specs,f
-74,1GTW7NFH5PA077131,,Active Safety System,Electronic Stability Control (ESC),Standard,13607,4138,"",99,1,2024-01-30 14:32:42.957,,ESC,lookup,Pattern,Vehicle Specs,f
-74,1GTW7NFH5PA077131,,Active Safety System,Traction Control,Standard,13607,4138,"",100,1,2024-01-30 14:32:42.97,,TractionControl,lookup,Pattern,Vehicle Specs,f
-74,1GTW7NFH5PA077131,,Active Safety System/Forward Collision Prevention,Forward Collision Warning (FCW),Optional,13607,4138,"",101,3,2024-01-30 14:32:42.987,,ForwardCollisionWarning,lookup,Pattern,Vehicle Specs,f
-74,1GTW7NFH5PA077131,,Active Safety System/Lane and Side Assist,Lane Departure Warning (LDW),Optional,13607,4138,"",102,3,2024-01-30 14:32:43.003,,LaneDepartureWarning,lookup,Pattern,Vehicle Specs,f
-74,1GTW7NFH5PA077131,,Active Safety System/Backing Up and Parking,Backup Camera,Standard,13607,4138,"",104,1,2024-01-30 14:32:43.017,,RearVisibilitySystem,lookup,Pattern,Vehicle Specs,f
-74,1GTW7NFH5PA077131,,Active Safety System/Backing Up and Parking,Parking Assist,Optional,13607,4138,"",105,3,2024-01-30 14:32:43.03,,ParkAssist,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System,Antilock Braking System (ABS),Standard,13607,4138,"",86,1,2026-10-13 13:01:41.243,,ABS,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System/Lane and Side Assist,Blind Spot Warning (BSW),Optional,13607,4138,"",88,3,2026-10-13 13:01:41.25,,BlindSpotMon,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System,Electronic Stability Control (ESC),Standard,13607,4138,"",99,1,2026-10-13 13:01:41.257,,ESC,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System,Traction Control,Standard,13607,4138,"",100,1,2026-10-13 13:01:41.263,,TractionControl,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System/Forward Collision Prevention,Forward Collision Warning (FCW),Optional,13607,4138,"",101,3,2026-10-13 13:01:41.27,,ForwardCollisionWarning,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System/Lane and Side Assist,Lane Departure Warning (LDW),Optional,13607,4138,"",102,3,2026-10-13 13:01:41.287,,LaneDepartureWarning,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System/Backing Up and Parking,Backup Camera,Standard,13607,4138,"",104,1,2026-10-13 13:01:41.3,,RearVisibilitySystem,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System/Backing Up and Parking,Parking Assist,Optional,13607,4138,"",105,3,2026-10-13 13:01:41.303,,ParkAssist,lookup,Pattern,Vehicle Specs,f
 74,1GTW7NFH5PA077131,,Passive Safety System/Air Bag Location,Side Air Bag Locations,1st Row (Driver and Passenger),1772447,24089,*7[ABEFGHL-V9]F,107,3,2022-04-06 17:10:04.03,2064,AirBagLocSide,lookup,Pattern,Pattern,
 74,1GTW7NFH5PA077131,,General,Note,"Body Style: Cargo Van/Four (4) Door Cab/Utility, Passenger Van",1772403,24089,[WZ]7,114,"Body Style: Cargo Van/Four (4) Door Cab/Utility, Passenger Van",2022-04-06 16:31:17.583,2064,Note,string,Pattern,Pattern,
 74,1GTW7NFH5PA077131,,Exterior/Trailer,Trailer Type Connection,Not Applicable,,,,116,0,2019-12-21 20:26:30.583,,TrailerType,lookup,Pattern,Default,
@@ -2882,12 +2874,12 @@ Aspiration : TC",2016-10-19 13:48:45.523,6807,OtherEngineInfo,string,Pattern,Pat
 74,1GTW7NFH5PA077131,,Exterior/Motorcycle,Motorcycle Suspension Type,Not Applicable,,,,152,0,2019-12-21 20:26:30.583,,MotorcycleSuspensionType,lookup,Pattern,Default,
 74,1GTW7NFH5PA077131,,Exterior/Motorcycle,Motorcycle Chassis Type,Not Applicable,,,,153,0,2019-12-21 20:26:30.583,,MotorcycleChassisType,lookup,Pattern,Default,
 74,1GTW7NFH5PA077131,,,Additional Error Text,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 8,11. The Model Year decoded for this VIN may be incorrect. If you know the Model year, please enter it and decode again to get more accurate information.",,,"",156,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 8,11. The Model Year decoded for this VIN may be incorrect. If you know the Model year, please enter it and decode again to get more accurate information.",,,AdditionalErrorText,string,Decoding,Corrections,
-74,1GTW7NFH5PA077131,,Active Safety System,Tire Pressure Monitoring System (TPMS) Type,Direct,13607,4138,"",168,1,2024-01-30 14:32:43.047,,TPMS,lookup,Pattern,Vehicle Specs,f
-74,1GTW7NFH5PA077131,,Active Safety System/911 Notification,Automatic Crash Notification (ACN)/Advanced Automatic Crash Notification (AACN),Standard,13607,4138,"",174,1,2024-01-30 14:32:43.217,,CAN_AACN,lookup,Pattern,Vehicle Specs,f
-74,1GTW7NFH5PA077131,,Active Safety System,Event Data Recorder (EDR),Standard,13607,4138,"",175,1,2024-01-30 14:32:43.23,,EDR,lookup,Pattern,Vehicle Specs,f
-74,1GTW7NFH5PA077131,,Active Safety System,Keyless Ignition,Standard,13607,4138,"",176,1,2024-01-30 14:32:43.243,,KeylessIgnition,lookup,Pattern,Vehicle Specs,f
-74,1GTW7NFH5PA077131,,Active Safety System/Lighting Technologies,Daytime Running Light (DRL),Standard,13607,4138,"",177,1,2024-01-30 14:32:43.26,,DaytimeRunningLight,lookup,Pattern,Vehicle Specs,f
-74,1GTW7NFH5PA077131,,Active Safety System/Lighting Technologies,Headlamp Light Source,Halogen,13607,4138,"",178,1,2024-01-30 14:32:43.27,,LowerBeamHeadlampLightSource,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System,Tire Pressure Monitoring System (TPMS) Type,Direct,13607,4138,"",168,1,2026-10-13 13:01:41.31,,TPMS,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System/911 Notification,Automatic Crash Notification (ACN)/Advanced Automatic Crash Notification (AACN),Standard,13607,4138,"",174,1,2026-10-13 13:01:41.317,,CAN_AACN,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System,Event Data Recorder (EDR),Standard,13607,4138,"",175,1,2026-10-13 13:01:41.323,,EDR,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System,Keyless Ignition,Standard,13607,4138,"",176,1,2026-10-13 13:01:41.33,,KeylessIgnition,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System/Lighting Technologies,Daytime Running Light (DRL),Standard,13607,4138,"",177,1,2026-10-13 13:01:41.333,,DaytimeRunningLight,lookup,Pattern,Vehicle Specs,f
+74,1GTW7NFH5PA077131,,Active Safety System/Lighting Technologies,Headlamp Light Source,Halogen,13607,4138,"",178,1,2026-10-13 13:01:41.34,,LowerBeamHeadlampLightSource,lookup,Pattern,Vehicle Specs,f
 74,1GTW7NFH5PA077131,,,Error Text,"1 - Check Digit (9th position) does not calculate properly; 5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,"",191,"1 - Check Digit (9th position) does not calculate properly; 5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,ErrorText,string,Decoding,Corrections,
 74,1GTW7NFH5PA077131,,,Vehicle Descriptor,1GTW7NFH*PA,,,"",196,1GTW7NFH*PA,,,VehicleDescriptor,string,Decoding,Corrections,
 75,1GT289EF0P9P77111,,Exterior/Body,Body Class,Pickup,1773113,24100,[012][89],5,60,2022-04-07 11:30:29.88,2064,BodyClass,lookup,Pattern,Pattern,
@@ -2900,15 +2892,17 @@ Aspiration : TC",2016-10-19 13:48:45.523,6807,OtherEngineInfo,string,Pattern,Pat
 75,1GT289EF0P9P77111,,General,Model Year,2023,,,***X*|Y,29,2023,,,ModelYear,int,"WMI, Input",ModelYear,
 75,1GT289EF0P9P77111,,General,Vehicle Type,TRUCK,,,1GT,39,3,2016-04-15 15:44:14.957,2064,VehicleType,lookup,WMI,VehType,
 75,1GT289EF0P9P77111,,Mechanical/Brake,Brake System Type,Hydraulic,1773094,24100,[0-5][89]*E,42,2,2022-04-07 11:21:35.27,2064,BrakeSystemType,lookup,Pattern,Pattern,
+75,1GT289EF0P9P77111,,Exterior/Dimension,Curb Weight (pounds),8300,14781,4624,"",54,8300,2026-10-13 12:58:09.623,,CurbWeightLB,int,Pattern,Vehicle Specs,f
 75,1GT289EF0P9P77111,,Passive Safety System/Air Bag Location,Curtain Air Bag Locations,All Rows,1773095,24100,[0-5][89]*E,55,6,2022-04-07 11:21:35.27,2064,AirBagLocCurtain,lookup,Pattern,Pattern,
 75,1GT289EF0P9P77111,,Passive Safety System/Air Bag Location,Front Air Bag Locations,1st Row (Driver and Passenger),1773096,24100,[0-5][89]*E,65,3,2022-04-07 11:21:35.27,2064,AirBagLocFront,lookup,Pattern,Pattern,
 75,1GT289EF0P9P77111,,Passive Safety System,Seat Belt Type,Manual,1773097,24100,[0-5][89]*E,79,1,2022-04-07 11:21:35.27,2064,SeatBeltsAll,lookup,Pattern,Pattern,
-75,1GT289EF0P9P77111,,Active Safety System,Antilock Braking System (ABS),Standard,14781,4624,"",86,1,2024-01-31 16:16:57.59,,ABS,lookup,Pattern,Vehicle Specs,f
-75,1GT289EF0P9P77111,,Active Safety System,Electronic Stability Control (ESC),Standard,14781,4624,"",99,1,2024-01-31 16:16:57.6,,ESC,lookup,Pattern,Vehicle Specs,f
-75,1GT289EF0P9P77111,,Active Safety System,Traction Control,Standard,14781,4624,"",100,1,2024-01-31 16:16:57.613,,TractionControl,lookup,Pattern,Vehicle Specs,f
-75,1GT289EF0P9P77111,,Active Safety System/Forward Collision Prevention,Forward Collision Warning (FCW),Optional,14781,4624,"",101,3,2024-01-31 16:16:57.627,,ForwardCollisionWarning,lookup,Pattern,Vehicle Specs,f
-75,1GT289EF0P9P77111,,Active Safety System/Backing Up and Parking,Backup Camera,Standard,14781,4624,"",104,1,2024-01-31 16:16:57.64,,RearVisibilitySystem,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System,Antilock Braking System (ABS),Standard,14781,4624,"",86,1,2026-10-13 12:58:09.63,,ABS,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System,Electronic Stability Control (ESC),Standard,14781,4624,"",99,1,2026-10-13 12:58:09.637,,ESC,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System,Traction Control,Standard,14781,4624,"",100,1,2026-10-13 12:58:09.643,,TractionControl,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System/Forward Collision Prevention,Forward Collision Warning (FCW),Optional,14781,4624,"",101,3,2026-10-13 12:58:09.65,,ForwardCollisionWarning,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System/Backing Up and Parking,Backup Camera,Standard,14781,4624,"",104,1,2026-10-13 12:58:09.657,,RearVisibilitySystem,lookup,Pattern,Vehicle Specs,f
 75,1GT289EF0P9P77111,,Passive Safety System/Air Bag Location,Side Air Bag Locations,1st Row (Driver and Passenger),1773098,24100,[0-5][89]*E,107,3,2022-04-07 11:21:35.27,2064,AirBagLocSide,lookup,Pattern,Pattern,
+75,1GT289EF0P9P77111,,General,Note,"Curb Weight: 5,937 to 8,300 lbs",14781,4624,"",114,"Curb Weight: 5,937 to 8,300 lbs",2026-10-13 12:58:09.66,,Note,string,Pattern,Vehicle Specs,f
 75,1GT289EF0P9P77111,,Exterior/Trailer,Trailer Type Connection,Not Applicable,,,,116,0,2019-12-21 20:26:30.583,,TrailerType,lookup,Pattern,Default,
 75,1GT289EF0P9P77111,,Exterior/Trailer,Trailer Body Type,Not Applicable,,,,117,0,2019-12-21 20:26:30.583,,TrailerBodyType,lookup,Pattern,Default,
 75,1GT289EF0P9P77111,,Passive Safety System,Other Restraint System Info,AY0 - Active Manual Belts,1773099,24100,[0-5][89]*E,121,AY0 - Active Manual Belts,2022-04-07 11:21:35.27,2064,OtherRestraintSystemInfo,string,Pattern,Pattern,
@@ -2921,15 +2915,15 @@ Aspiration : TC",2016-10-19 13:48:45.523,6807,OtherEngineInfo,string,Pattern,Pat
 75,1GT289EF0P9P77111,,Exterior/Motorcycle,Motorcycle Suspension Type,Not Applicable,,,,152,0,2019-12-21 20:26:30.583,,MotorcycleSuspensionType,lookup,Pattern,Default,
 75,1GT289EF0P9P77111,,Exterior/Motorcycle,Motorcycle Chassis Type,Not Applicable,,,,153,0,2019-12-21 20:26:30.583,,MotorcycleChassisType,lookup,Pattern,Default,
 75,1GT289EF0P9P77111,,,Additional Error Text,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 8,11. The Model Year decoded for this VIN may be incorrect. If you know the Model year, please enter it and decode again to get more accurate information.",,,"",156,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 8,11. The Model Year decoded for this VIN may be incorrect. If you know the Model year, please enter it and decode again to get more accurate information.",,,AdditionalErrorText,string,Decoding,Corrections,
-75,1GT289EF0P9P77111,,Active Safety System,Tire Pressure Monitoring System (TPMS) Type,Direct,14781,4624,"",168,1,2024-01-31 16:16:57.653,,TPMS,lookup,Pattern,Vehicle Specs,f
-75,1GT289EF0P9P77111,,Active Safety System,Auto-Reverse System for Windows and Sunroofs,Optional,14781,4624,"",172,3,2024-01-31 16:16:57.667,,AutoReverseSystem,lookup,Pattern,Vehicle Specs,f
-75,1GT289EF0P9P77111,,Active Safety System/911 Notification,Automatic Crash Notification (ACN)/Advanced Automatic Crash Notification (AACN),Standard,14781,4624,"",174,1,2024-01-31 16:16:57.68,,CAN_AACN,lookup,Pattern,Vehicle Specs,f
-75,1GT289EF0P9P77111,,Active Safety System,Event Data Recorder (EDR),Standard,14781,4624,"",175,1,2024-01-31 16:16:57.69,,EDR,lookup,Pattern,Vehicle Specs,f
-75,1GT289EF0P9P77111,,Active Safety System,Keyless Ignition,Standard,14781,4624,"",176,1,2024-01-31 16:16:57.913,,KeylessIgnition,lookup,Pattern,Vehicle Specs,f
-75,1GT289EF0P9P77111,,Active Safety System/Lighting Technologies,Daytime Running Light (DRL),Standard,14781,4624,"",177,1,2024-01-31 16:16:57.927,,DaytimeRunningLight,lookup,Pattern,Vehicle Specs,f
-75,1GT289EF0P9P77111,,Active Safety System/Lighting Technologies,Headlamp Light Source,LED,14781,4624,"",178,3,2024-01-31 16:16:57.94,,LowerBeamHeadlampLightSource,lookup,Pattern,Vehicle Specs,f
-75,1GT289EF0P9P77111,,Active Safety System/Lighting Technologies,Semiautomatic Headlamp Beam Switching,Optional,14781,4624,"",179,3,2024-01-31 16:16:57.953,,SemiautomaticHeadlampBeamSwitching,lookup,Pattern,Vehicle Specs,f
-75,1GT289EF0P9P77111,,Active Safety System/Lighting Technologies,Adaptive Driving Beam (ADB),Standard,14781,4624,"",180,1,2024-01-31 16:16:57.967,,AdaptiveDrivingBeam,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System,Tire Pressure Monitoring System (TPMS) Type,Direct,14781,4624,"",168,1,2026-10-13 12:58:09.667,,TPMS,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System,Auto-Reverse System for Windows and Sunroofs,Optional,14781,4624,"",172,3,2026-10-13 12:58:09.683,,AutoReverseSystem,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System/911 Notification,Automatic Crash Notification (ACN)/Advanced Automatic Crash Notification (AACN),Standard,14781,4624,"",174,1,2026-10-13 12:58:09.69,,CAN_AACN,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System,Event Data Recorder (EDR),Standard,14781,4624,"",175,1,2026-10-13 12:58:09.697,,EDR,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System,Keyless Ignition,Standard,14781,4624,"",176,1,2026-10-13 12:58:09.703,,KeylessIgnition,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System/Lighting Technologies,Daytime Running Light (DRL),Standard,14781,4624,"",177,1,2026-10-13 12:58:09.71,,DaytimeRunningLight,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System/Lighting Technologies,Headlamp Light Source,LED,14781,4624,"",178,3,2026-10-13 12:58:09.717,,LowerBeamHeadlampLightSource,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System/Lighting Technologies,Semiautomatic Headlamp Beam Switching,Optional,14781,4624,"",179,3,2026-10-13 12:58:09.72,,SemiautomaticHeadlampBeamSwitching,lookup,Pattern,Vehicle Specs,f
+75,1GT289EF0P9P77111,,Active Safety System/Lighting Technologies,Adaptive Driving Beam (ADB),Standard,14781,4624,"",180,1,2026-10-13 12:58:09.727,,AdaptiveDrivingBeam,lookup,Pattern,Vehicle Specs,f
 75,1GT289EF0P9P77111,,,Error Text,"5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,"",191,"5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,ErrorText,string,Decoding,Corrections,
 75,1GT289EF0P9P77111,,,Vehicle Descriptor,1GT289EF*P9,,,"",196,1GT289EF*P9,,,VehicleDescriptor,string,Decoding,Corrections,
 76,1GD67LHF3RA077111,,Exterior/Body,Body Class,Van,1922814,25410,*7[EFL-P9],5,9,2023-05-09 13:20:48.817,2081,BodyClass,lookup,Pattern,Pattern,
@@ -4530,6 +4524,7 @@ Rear Side Curtain Air bag - Rear Outer positions",2015-10-26 09:41:57.303,2094,O
 123,1FMAAAAA4WG111111,,,Additional Error Text,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 4,5,6,7,8.",,,"",156,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 4,5,6,7,8.",,,AdditionalErrorText,string,Decoding,Corrections,
 123,1FMAAAAA4WG111111,,,Error Text,"5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,"",191,"5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,ErrorText,string,Decoding,Corrections,
 123,1FMAAAAA4WG111111,,,Vehicle Descriptor,1FMAAAAA*WG,,,"",196,1FMAAAAA*WG,,,VehicleDescriptor,string,Decoding,Corrections,
+123,1FMAAAAA4WG111111,,General,Plant Address,"12600 South Torrence Avenue, Chicago, IL 60633, USA",2361996,29359,*****|*G,204,"12600 South Torrence Avenue, Chicago, IL 60633, USA",2026-10-26 14:58:15.66,2047,PlantAddress,string,Pattern,Pattern,
 124,1FTAAAAA4FE111111,,Exterior/Dimension,Gross Vehicle Weight Rating From,"Class 1A: 3,000 lb or less (1,360 kg or less)",816010,12240,A,25,10,2016-09-02 12:00:38.163,2048,GVWR,lookup,Pattern,Pattern,
 124,1FTAAAAA4FE111111,,General,Make,FORD,,,1FT,26,460,2015-03-23 14:12:52.59,2048,Make,lookup,"WMI, Pattern",Make,
 124,1FTAAAAA4FE111111,,General,Manufacturer Name,FORD MOTOR COMPANY,,,1FT,27,976,,2048,Manufacturer,lookup,WMI,Manu. Name,
@@ -5194,6 +5189,7 @@ Rear Side Curtain Air bag - Rear Outer positions",2015-10-26 09:41:57.303,2094,O
 146,1GBAAAAA2WF111111,,,Additional Error Text,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 4,7,8. Incomplete Vehicle Warning - Please be advised that the vehicle may have been altered and may not be an accurate representation of the vehicle in its ",,,"",156,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 4,7,8. Incomplete Vehicle Warning - Please be advised that the vehicle may have been altered and may not be an accurate representation of the vehicle in its ",,,AdditionalErrorText,string,Decoding,Corrections,
 146,1GBAAAAA2WF111111,,,Error Text,"5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,"",191,"5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,ErrorText,string,Decoding,Corrections,
 146,1GBAAAAA2WF111111,,,Vehicle Descriptor,1GBAAAAA*WF,,,"",196,1GBAAAAA*WF,,,VehicleDescriptor,string,Decoding,Corrections,
+146,1GBAAAAA2WF111111,,General,Plant Address,"3100 Van Slyke Rd, Flint, MI 48507",2362859,29715,*****|*F,204,"3100 Van Slyke Rd, Flint, MI 48507",2026-10-30 11:46:54.26,2079,PlantAddress,string,Pattern,Pattern,
 147,1GDABAAA8SA111111,,Engine,Engine Number of Cylinders,4,401011,9405,*[B-U]**[AB],9,4,2016-02-19 14:31:38.173,2081,EngineCylinders,int,Pattern,Pattern,
 147,1GDABAAA8SA111111,,Engine,Displacement (CC),2200.0,401012,9405,*[B-U]**[AB],11,2200.0,,2081,DisplacementCC,decimal,Pattern,Conversion 4: 2.2 * 1000,
 147,1GDABAAA8SA111111,,Engine,Displacement (CI),134.2522370084110247,401012,9405,*[B-U]**[AB],12,134.2522370084110247,,2081,DisplacementCI,decimal,Pattern,Conversion 7: 2.2 / 0.016387064 ,
@@ -6972,12 +6968,12 @@ Rear Side Curtain Air bag - Rear Outer positions",2015-10-26 09:41:57.303,2094,O
 204,2BXAAAAA8WV111111,,Exterior/Truck,Bed Type,Not Applicable,,,,3,0,2019-12-21 20:26:30.583,,BedType,lookup,Pattern,Default,
 204,2BXAAAAA8WV111111,,Exterior/Truck,Cab Type,Not Applicable,,,,4,0,2019-12-21 20:26:30.583,,BodyCabType,lookup,Pattern,Default,
 204,2BXAAAAA8WV111111,,Exterior/Dimension,Gross Vehicle Weight Rating From,"Class 1A: 3,000 lb or less (1,360 kg or less)",,,,25,10,2019-12-21 20:26:30.583,,GVWR,lookup,Pattern,Default,
-204,2BXAAAAA8WV111111,,General,Manufacturer Name,BOMBARDIER RECREATIONAL PRODUCTS INC ,,,2BX,27,1134,,2410,Manufacturer,lookup,WMI,Manu. Name,
+204,2BXAAAAA8WV111111,,General,Manufacturer Name,BOMBARDIER RECREATIONAL PRODUCTS INC,,,2BX,27,1134,,2410,Manufacturer,lookup,WMI,Manu. Name,
 204,2BXAAAAA8WV111111,,General,Model Year,2028,,,***X*|Y,29,2028,,,ModelYear,int,"WMI, Input",ModelYear,
-204,2BXAAAAA8WV111111,,General,Plant City,VALCOURT,2155673,27747,*****|*V,31,VALCOURT,2024-12-16 11:38:11.007,2410,PlantCity,string,Pattern,Pattern,
+204,2BXAAAAA8WV111111,,General,Plant City,VALCOURT,2362731,29783,*****|*V,31,VALCOURT,2026-10-29 11:05:21.777,2410,PlantCity,string,Pattern,Pattern,
 204,2BXAAAAA8WV111111,,General,Vehicle Type,MOTORCYCLE,,,2BX,39,1,2022-08-15 10:41:47.967,2410,VehicleType,lookup,WMI,VehType,
-204,2BXAAAAA8WV111111,,General,Plant Country,CANADA,2155674,27747,*****|*V,75,1,2024-12-16 11:38:11.027,2410,PlantCountry,lookup,Pattern,Pattern,
-204,2BXAAAAA8WV111111,,General,Plant State,QUEBEC,2155675,27747,*****|*V,77,QUEBEC,2024-12-16 11:38:11.05,2410,PlantState,string,Pattern,Pattern,
+204,2BXAAAAA8WV111111,,General,Plant Country,CANADA,2362732,29783,*****|*V,75,1,2026-10-29 11:05:21.85,2410,PlantCountry,lookup,Pattern,Pattern,
+204,2BXAAAAA8WV111111,,General,Plant State,QUEBEC,2362733,29783,*****|*V,77,QUEBEC,2026-10-29 11:05:21.89,2410,PlantState,string,Pattern,Pattern,
 204,2BXAAAAA8WV111111,,Active Safety System/Maintaining Safe Distance,Adaptive Cruise Control (ACC),Not Applicable,,,,81,0,2019-12-21 20:26:30.583,,AdaptiveCruiseControl,lookup,Pattern,Default,
 204,2BXAAAAA8WV111111,,Active Safety System/Forward Collision Prevention,Crash Imminent Braking (CIB),Not Applicable,,,,87,0,2019-12-21 20:26:30.583,,CIB,lookup,Pattern,Default,
 204,2BXAAAAA8WV111111,,Active Safety System/Lane and Side Assist,Blind Spot Warning (BSW),Not Applicable,,,,88,0,2019-12-21 20:26:30.583,,BlindSpotMon,lookup,Pattern,Default,
@@ -6990,7 +6986,7 @@ Rear Side Curtain Air bag - Rear Outer positions",2015-10-26 09:41:57.303,2094,O
 204,2BXAAAAA8WV111111,,Exterior/Trailer,Trailer Body Type,Not Applicable,,,,117,0,2019-12-21 20:26:30.583,,TrailerBodyType,lookup,Pattern,Default,
 204,2BXAAAAA8WV111111,,,Suggested VIN,2BX!!!!!8WV111111,,,"",142,2BX!!!!!8WV111111,,,SuggestedVIN,string,Decoding,Corrections,
 204,2BXAAAAA8WV111111,,,Error Code,"5,14",,,"",143,"5,14",,,ErrorCode,lookup,Decoding,Corrections,
-204,2BXAAAAA8WV111111,,,Possible Values,(4:BNR)(5:BDEKLM)(6:CD)(7:DE)(8:124),,,"",144,(4:BNR)(5:BDEKLM)(6:CD)(7:DE)(8:124),,,PossibleValues,string,Decoding,Corrections,
+204,2BXAAAAA8WV111111,,,Possible Values,(4:BNR)(5:BDEKL)(6:D)(7:D)(8:124),,,"",144,(4:BNR)(5:BDEKL)(6:D)(7:D)(8:124),,,PossibleValues,string,Decoding,Corrections,
 204,2BXAAAAA8WV111111,,Exterior/Bus,Bus Floor Configuration Type,Not Applicable,,,,148,0,2019-12-21 20:26:30.583,,BusFloorConfigType,lookup,Pattern,Default,
 204,2BXAAAAA8WV111111,,Exterior/Bus,Bus Type,Not Applicable,,,,149,0,2019-12-21 20:26:30.583,,BusType,lookup,Pattern,Default,
 204,2BXAAAAA8WV111111,,,Additional Error Text,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 4,5,6,7,8. The Model Year decoded for this VIN may be incorrect. If you know the Model year, please enter it and decode again to get more accurate informatio",,,"",156,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 4,5,6,7,8. The Model Year decoded for this VIN may be incorrect. If you know the Model year, please enter it and decode again to get more accurate informatio",,,AdditionalErrorText,string,Decoding,Corrections,
@@ -7007,6 +7003,7 @@ Rear Side Curtain Air bag - Rear Outer positions",2015-10-26 09:41:57.303,2094,O
 204,2BXAAAAA8WV111111,,Active Safety System/Backing Up and Parking,Rear Cross Traffic Alert,Not Applicable,,,,183,0,2019-12-21 20:26:30.583,,RearCrossTrafficAlert,lookup,Pattern,Default,
 204,2BXAAAAA8WV111111,,,Error Text,"5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,"",191,"5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,ErrorText,string,Decoding,Corrections,
 204,2BXAAAAA8WV111111,,,Vehicle Descriptor,2BXAAAAA*WV,,,"",196,2BXAAAAA*WV,,,VehicleDescriptor,string,Decoding,Corrections,
+204,2BXAAAAA8WV111111,,General,Plant Address,"565 de la Montagne, Valcourt, Quebec, Canada",2362734,29783,*****|*V,204,"565 de la Montagne, Valcourt, Quebec, Canada",2026-10-29 11:05:21.903,2410,PlantAddress,string,Pattern,Pattern,
 205,JT8AAAAZ1TA111111,,Exterior/Truck,Bed Type,Not Applicable,,,,3,0,2019-12-21 20:26:30.583,,BedType,lookup,Pattern,Default,
 205,JT8AAAAZ1TA111111,,Exterior/Truck,Cab Type,Not Applicable,,,,4,0,2019-12-21 20:26:30.583,,BodyCabType,lookup,Pattern,Default,
 205,JT8AAAAZ1TA111111,,General,Make,LEXUS,233845,5554,****Z,26,515,,,Make,lookup,"WMI, Pattern",pattern - model,
@@ -11802,7 +11799,6 @@ MPI",2016-12-06 13:41:27.83,4332,OtherEngineInfo,string,Pattern,Pattern,
 310,7H4AAAAA5M3111111,,General,Plant State,ONTARIO,1599991,22186,*****|*3,77,ONTARIO,2020-09-23 10:54:11.017,11817,PlantState,string,Pattern,Pattern,
 310,7H4AAAAA5M3111111,,General,Note,Cab Type: Day CAB  ,1600023,22186,***A,114,"Cab Type: Day CAB
 ",2020-09-23 12:20:37.173,11817,Note,string,Pattern,Pattern,
-310,7H4AAAAA5M3111111,,General,Note,"Hino Motors Canada, Ltd. 6975 Creditview Road Mississauga, Ontario, L5N 8E9",1599992,22186,*****|*3,114,"Hino Motors Canada, Ltd. 6975 Creditview Road Mississauga, Ontario, L5N 8E9",2020-09-23 10:54:11.017,11817,Note,string,Pattern,Pattern,
 310,7H4AAAAA5M3111111,,Exterior/Trailer,Trailer Type Connection,Not Applicable,,,,116,0,2019-12-21 20:26:30.583,,TrailerType,lookup,Pattern,Default,
 310,7H4AAAAA5M3111111,,Exterior/Trailer,Trailer Body Type,Not Applicable,,,,117,0,2019-12-21 20:26:30.583,,TrailerBodyType,lookup,Pattern,Default,
 310,7H4AAAAA5M3111111,,,Suggested VIN,7H4!!!A!5M3111111,,,"",142,7H4!!!A!5M3111111,,,SuggestedVIN,string,Decoding,Corrections,
@@ -11816,6 +11812,7 @@ MPI",2016-12-06 13:41:27.83,4332,OtherEngineInfo,string,Pattern,Pattern,
 310,7H4AAAAA5M3111111,,,Additional Error Text,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 4,5,6,8. The Model Year decoded for this VIN may be incorrect. If you know the Model year, please enter it and decode again to get more accurate information.",,,"",156,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 4,5,6,8. The Model Year decoded for this VIN may be incorrect. If you know the Model year, please enter it and decode again to get more accurate information.",,,AdditionalErrorText,string,Decoding,Corrections,
 310,7H4AAAAA5M3111111,,,Error Text,"5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,"",191,"5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,ErrorText,string,Decoding,Corrections,
 310,7H4AAAAA5M3111111,,,Vehicle Descriptor,7H4AAAAA*M3,,,"",196,7H4AAAAA*M3,,,VehicleDescriptor,string,Decoding,Corrections,
+310,7H4AAAAA5M3111111,,General,Plant Address,"6975 Creditview Road Mississauga, Ontario, L5N 8E9",2362673,22186,*****|*3,204,"6975 Creditview Road Mississauga, Ontario, L5N 8E9",2026-10-29 09:48:20.953,11817,PlantAddress,string,Pattern,Pattern,
 311,4B9AAAAA6WA221111,,Mechanical/Battery,Battery Type,Not Applicable,,,,2,0,2019-12-21 20:26:30.583,,BatteryType,lookup,Pattern,Default,
 311,4B9AAAAA6WA221111,,Exterior/Truck,Bed Type,Not Applicable,,,,3,0,2019-12-21 20:26:30.583,,BedType,lookup,Pattern,Default,
 311,4B9AAAAA6WA221111,,Exterior/Truck,Cab Type,Not Applicable,,,,4,0,2019-12-21 20:26:30.583,,BodyCabType,lookup,Pattern,Default,
@@ -13590,7 +13587,6 @@ MPI",2016-12-06 13:41:27.83,4332,OtherEngineInfo,string,Pattern,Pattern,
 344,5RE16F3Q7M8,,Interior,Steering Location,Not Applicable,,,,36,0,2019-12-21 20:26:30.583,,SteeringLocation,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Mechanical/Transmission,Transmission Style,Not Applicable,,,,37,0,2019-12-21 20:26:30.583,,TransmissionStyle,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,General,Vehicle Type,TRAILER,,,5RE,39,6,2022-03-18 14:31:01.747,8180,VehicleType,lookup,WMI,VehType,
-344,5RE16F3Q7M8,,Mechanical/Drivetrain,Axles,3,1166290,15716,***#,41,TBD,2017-04-19 16:10:15.31,,Axles,int,Pattern,Formula Pattern,
 344,5RE16F3Q7M8,,Passive Safety System/Air Bag Location,Curtain Air Bag Locations,Not Applicable,,,,55,0,2019-12-21 20:26:30.583,,AirBagLocCurtain,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Passive Safety System/Air Bag Location,Seat Cushion Air Bag Locations,Not Applicable,,,,56,0,2019-12-21 20:26:30.583,,AirBagLocSeatCushion,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Engine,Valve Train Design,Not Applicable,,,,62,0,2019-12-21 20:26:30.583,,ValveTrainDesign,lookup,Pattern,Default,
@@ -13618,15 +13614,15 @@ MPI",2016-12-06 13:41:27.83,4332,OtherEngineInfo,string,Pattern,Pattern,
 344,5RE16F3Q7M8,,Engine,Electrification Level,Not Applicable,,,,126,0,2019-12-21 20:26:30.583,,ElectrificationLevel,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Mechanical/Battery/Charger,Charger Level,Not Applicable,,,,127,0,2019-12-21 20:26:30.583,,ChargerLevel,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Engine,Turbo,Not Applicable,,,,135,0,2019-12-21 20:26:30.583,,Turbo,lookup,Pattern,Default,
-344,5RE16F3Q7M8,,,Suggested VIN,5RE!!!3!7M!,,,"",142,5RE!!!3!7M!,,,SuggestedVIN,string,Decoding,Corrections,
-344,5RE16F3Q7M8,,,Error Code,"5,6,14,400",,,"",143,"5,6,14,400",,,ErrorCode,lookup,Decoding,Corrections,
-344,5RE16F3Q7M8,,,Possible Values,(4:CFST)(5:ABCDEFGHJKLMNPRTUVWXYZ)(6:0123456789)(8:345678H)(11:LS),,,"",144,(4:CFST)(5:ABCDEFGHJKLMNPRTUVWXYZ)(6:0123456789)(8:345678H)(11:LS),,,PossibleValues,string,Decoding,Corrections,
+344,5RE16F3Q7M8,,,Suggested VIN,5RE16F3!7M8,,,"",142,5RE16F3!7M8,,,SuggestedVIN,string,Decoding,Corrections,
+344,5RE16F3Q7M8,,,Error Code,"6,8,400",,,"",143,"6,8,400",,,ErrorCode,lookup,Decoding,Corrections,
+344,5RE16F3Q7M8,,,Possible Values,"",,,"",144,"",,,PossibleValues,string,Decoding,Corrections,
 344,5RE16F3Q7M8,,Exterior/Bus,Bus Floor Configuration Type,Not Applicable,,,,148,0,2019-12-21 20:26:30.583,,BusFloorConfigType,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Exterior/Bus,Bus Type,Not Applicable,,,,149,0,2019-12-21 20:26:30.583,,BusType,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Exterior/Motorcycle,Custom Motorcycle Type,Not Applicable,,,,151,0,2019-12-21 20:26:30.583,,CustomMotorcycleType,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Exterior/Motorcycle,Motorcycle Suspension Type,Not Applicable,,,,152,0,2019-12-21 20:26:30.583,,MotorcycleSuspensionType,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Exterior/Motorcycle,Motorcycle Chassis Type,Not Applicable,,,,153,0,2019-12-21 20:26:30.583,,MotorcycleChassisType,lookup,Pattern,Default,
-344,5RE16F3Q7M8,,,Additional Error Text,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 4,5,6,8,11. Invalid character(s): 8:Q. The Model Year decoded for this VIN may be incorrect. If you know the Model year, please enter it and decode again to ",,,"",156,"The error positions are indicated by ! in Suggested VIN. In the Possible values section, each pair of parenthesis indicate information about each error position in VIN . The Numeric value before the : indicates the position in error and the values after the : indicate the possible values that are allowed in this position Unused position(s): 4,5,6,8,11. Invalid character(s): 8:Q. The Model Year decoded for this VIN may be incorrect. If you know the Model year, please enter it and decode again to ",,,AdditionalErrorText,string,Decoding,Corrections,
+344,5RE16F3Q7M8,,,Additional Error Text,"Invalid character(s): 8:Q. The Model Year decoded for this VIN may be incorrect. If you know the Model year, please enter it and decode again to get more accurate information.",,,"",156,"Invalid character(s): 8:Q. The Model Year decoded for this VIN may be incorrect. If you know the Model year, please enter it and decode again to get more accurate information.",,,AdditionalErrorText,string,Decoding,Corrections,
 344,5RE16F3Q7M8,,Active Safety System,Tire Pressure Monitoring System (TPMS) Type,Not Applicable,,,,168,0,2019-12-21 20:26:30.583,,TPMS,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Active Safety System/Forward Collision Prevention,Dynamic Brake Support (DBS),Not Applicable,,,,170,0,2019-12-21 20:26:30.583,,DynamicBrakeSupport,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Active Safety System/Forward Collision Prevention,Pedestrian Automatic Emergency Braking (PAEB),Not Applicable,,,,171,0,2019-12-21 20:26:30.583,,PedestrianAutomaticEmergencyBraking,lookup,Pattern,Default,
@@ -13640,7 +13636,7 @@ MPI",2016-12-06 13:41:27.83,4332,OtherEngineInfo,string,Pattern,Pattern,
 344,5RE16F3Q7M8,,Active Safety System/Lighting Technologies,Semiautomatic Headlamp Beam Switching,Not Applicable,,,,179,0,2019-12-21 20:26:30.583,,SemiautomaticHeadlampBeamSwitching,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Active Safety System/Lighting Technologies,Adaptive Driving Beam (ADB),Not Applicable,,,,180,0,2019-12-21 20:26:30.583,,AdaptiveDrivingBeam,lookup,Pattern,Default,
 344,5RE16F3Q7M8,,Active Safety System/Backing Up and Parking,Rear Cross Traffic Alert,Not Applicable,,,,183,0,2019-12-21 20:26:30.583,,RearCrossTrafficAlert,lookup,Pattern,Default,
-344,5RE16F3Q7M8,,,Error Text,"5 - VIN has errors in few positions; 6 - Incomplete VIN; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.; 400 - Invalid Characters Present",,,"",191,"5 - VIN has errors in few positions; 6 - Incomplete VIN; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.; 400 - Invalid Characters Present",,,ErrorText,string,Decoding,Corrections,
+344,5RE16F3Q7M8,,,Error Text,6 - Incomplete VIN; 8 - No detailed data available currently; 400 - Invalid Characters Present,,,"",191,6 - Incomplete VIN; 8 - No detailed data available currently; 400 - Invalid Characters Present,,,ErrorText,string,Decoding,Corrections,
 344,5RE16F3Q7M8,,,Vehicle Descriptor,5RE16F3Q*M8,,,"",196,5RE16F3Q*M8,,,VehicleDescriptor,string,Decoding,Corrections,
 345,ZKU2I5NH180,,,Suggested VIN,ZKU2!5NH180,,,"",142,ZKU2!5NH180,,,SuggestedVIN,string,Decoding,Corrections,
 345,ZKU2I5NH180,,,Error Code,"6,7,400",,,"",143,"6,7,400",,,ErrorCode,lookup,Decoding,Corrections,
@@ -17303,7 +17299,6 @@ DCVP, VVT, E85 Max, E0-E100, Aluminum",2015-04-14 08:19:34.957,2053,OtherEngineI
 423,YSTCOE000WA111111,,General,Manufacturer Name,COMING THROUGH SWEDEN AB,,,YST,27,9374,,3790,Manufacturer,lookup,WMI,Manu. Name,
 423,YSTCOE000WA111111,,General,Model Year,2028,,,***X*|Y,29,2028,,,ModelYear,int,"WMI, Input",ModelYear,
 423,YSTCOE000WA111111,,General,Vehicle Type,MOTORCYCLE,,,YST,39,1,2020-01-10 15:01:33.673,3790,VehicleType,lookup,WMI,VehType,
-423,YSTCOE000WA111111,,General,Plant Country,SWEDEN,242196,5713,*****|*A,75,23,2015-07-15 08:55:58.847,3790,PlantCountry,lookup,Pattern,Pattern,f
 423,YSTCOE000WA111111,,Active Safety System/Maintaining Safe Distance,Adaptive Cruise Control (ACC),Not Applicable,,,,81,0,2019-12-21 20:26:30.583,,AdaptiveCruiseControl,lookup,Pattern,Default,
 423,YSTCOE000WA111111,,Active Safety System/Forward Collision Prevention,Crash Imminent Braking (CIB),Not Applicable,,,,87,0,2019-12-21 20:26:30.583,,CIB,lookup,Pattern,Default,
 423,YSTCOE000WA111111,,Active Safety System/Lane and Side Assist,Blind Spot Warning (BSW),Not Applicable,,,,88,0,2019-12-21 20:26:30.583,,BlindSpotMon,lookup,Pattern,Default,
@@ -17312,11 +17307,10 @@ DCVP, VVT, E85 Max, E0-E100, Aluminum",2015-04-14 08:19:34.957,2053,OtherEngineI
 423,YSTCOE000WA111111,,Active Safety System/Lane and Side Assist,Lane Keeping Assistance (LKA),Not Applicable,,,,103,0,2019-12-21 20:26:30.583,,LaneKeepSystem,lookup,Pattern,Default,
 423,YSTCOE000WA111111,,Active Safety System/Backing Up and Parking,Backup Camera,Not Applicable,,,,104,0,2019-12-21 20:26:30.583,,RearVisibilitySystem,lookup,Pattern,Default,
 423,YSTCOE000WA111111,,Active Safety System/Backing Up and Parking,Parking Assist,Not Applicable,,,,105,0,2019-12-21 20:26:30.583,,ParkAssist,lookup,Pattern,Default,
-423,YSTCOE000WA111111,,General,Note,"VIN positions 7 & 8 combined defines the version of the vehicle. If 0 in 7th position and 1 in 8th position, then the Version is 01.  If 0 in 7th position and 2 in 8th position, then the Version is 02 and so on.",321611,5713,[TCS][OP][WNE][0-9][0-9],114,"VIN positions 7 & 8 combined defines the version of the vehicle. If 0 in 7th position and 1 in 8th position, then the Version is 01.  If 0 in 7th position and 2 in 8th position, then the Version is 02 and so on.",2015-08-07 11:34:54.89,3790,Note,string,Pattern,Pattern,f
 423,YSTCOE000WA111111,,Exterior/Trailer,Trailer Type Connection,Not Applicable,,,,116,0,2019-12-21 20:26:30.583,,TrailerType,lookup,Pattern,Default,
 423,YSTCOE000WA111111,,Exterior/Trailer,Trailer Body Type,Not Applicable,,,,117,0,2019-12-21 20:26:30.583,,TrailerBodyType,lookup,Pattern,Default,
 423,YSTCOE000WA111111,,,Suggested VIN,YSTC!E000WA111111,,,"",142,YSTC!E000WA111111,,,SuggestedVIN,string,Decoding,Corrections,
-423,YSTCOE000WA111111,,,Error Code,"1,400",,,"",143,"1,400",,,ErrorCode,lookup,Decoding,Corrections,
+423,YSTCOE000WA111111,,,Error Code,"1,8,400",,,"",143,"1,8,400",,,ErrorCode,lookup,Decoding,Corrections,
 423,YSTCOE000WA111111,,,Possible Values,"",,,"",144,"",,,PossibleValues,string,Decoding,Corrections,
 423,YSTCOE000WA111111,,Exterior/Bus,Bus Floor Configuration Type,Not Applicable,,,,148,0,2019-12-21 20:26:30.583,,BusFloorConfigType,lookup,Pattern,Default,
 423,YSTCOE000WA111111,,Exterior/Bus,Bus Type,Not Applicable,,,,149,0,2019-12-21 20:26:30.583,,BusType,lookup,Pattern,Default,
@@ -17332,7 +17326,7 @@ DCVP, VVT, E85 Max, E0-E100, Aluminum",2015-04-14 08:19:34.957,2053,OtherEngineI
 423,YSTCOE000WA111111,,Active Safety System/Lighting Technologies,Semiautomatic Headlamp Beam Switching,Not Applicable,,,,179,0,2019-12-21 20:26:30.583,,SemiautomaticHeadlampBeamSwitching,lookup,Pattern,Default,
 423,YSTCOE000WA111111,,Active Safety System/Lighting Technologies,Adaptive Driving Beam (ADB),Not Applicable,,,,180,0,2019-12-21 20:26:30.583,,AdaptiveDrivingBeam,lookup,Pattern,Default,
 423,YSTCOE000WA111111,,Active Safety System/Backing Up and Parking,Rear Cross Traffic Alert,Not Applicable,,,,183,0,2019-12-21 20:26:30.583,,RearCrossTrafficAlert,lookup,Pattern,Default,
-423,YSTCOE000WA111111,,,Error Text,1 - Check Digit (9th position) does not calculate properly; 400 - Invalid Characters Present,,,"",191,1 - Check Digit (9th position) does not calculate properly; 400 - Invalid Characters Present,,,ErrorText,string,Decoding,Corrections,
+423,YSTCOE000WA111111,,,Error Text,1 - Check Digit (9th position) does not calculate properly; 8 - No detailed data available currently; 400 - Invalid Characters Present,,,"",191,1 - Check Digit (9th position) does not calculate properly; 8 - No detailed data available currently; 400 - Invalid Characters Present,,,ErrorText,string,Decoding,Corrections,
 423,YSTCOE000WA111111,,,Vehicle Descriptor,YSTCOE00*WA,,,"",196,YSTCOE00*WA,,,VehicleDescriptor,string,Decoding,Corrections,
 424,4S9AGAAAXWA099111,,Exterior/Truck,Bed Type,Not Applicable,,,,3,0,2019-12-21 20:26:30.583,,BedType,lookup,Pattern,Default,
 424,4S9AGAAAXWA099111,,Exterior/Truck,Cab Type,Not Applicable,,,,4,0,2019-12-21 20:26:30.583,,BodyCabType,lookup,Pattern,Default,
@@ -19363,7 +19357,7 @@ DCVP, VVT, E85 Max, E0-E100, Aluminum",2015-04-14 08:19:34.957,2053,OtherEngineI
 473,16SA1AAAXWA111111,,General,Make,ROYALS,518171,5333,**A,26,4818,,,Make,lookup,"WMI, Pattern",pattern - model,
 473,16SA1AAAXWA111111,,General,Manufacturer Name,CARRIAGE INC.,,,16S,27,4720,,3579,Manufacturer,lookup,WMI,Manu. Name,
 473,16SA1AAAXWA111111,,General,Model,Royals,518171,5333,**A,28,10629,2016-03-09 16:19:04.43,3579,Model,lookup,Pattern,Pattern,f
-473,16SA1AAAXWA111111,,General,Model Year,2028,,,***X*|Y,29,2028,,,ModelYear,int,"WMI, Input",ModelYear,
+473,16SA1AAAXWA111111,,General,Model Year,1998,,,***X*|Y,29,1998,,,ModelYear,int,"WMI, Input",ModelYear,
 473,16SA1AAAXWA111111,,Interior,Steering Location,Not Applicable,,,,36,0,2019-12-21 20:26:30.583,,SteeringLocation,lookup,Pattern,Default,
 473,16SA1AAAXWA111111,,Mechanical/Transmission,Transmission Style,Not Applicable,,,,37,0,2019-12-21 20:26:30.583,,TransmissionStyle,lookup,Pattern,Default,
 473,16SA1AAAXWA111111,,General,Vehicle Type,TRAILER,,,16S,39,6,2015-07-09 15:09:51.21,3579,VehicleType,lookup,WMI,VehType,
@@ -22435,7 +22429,6 @@ DCVP, VVT, E85 Max, E0-E100, Aluminum",2015-04-14 08:19:34.957,2053,OtherEngineI
 540,7T0M6TGCURDSNZTHF,,Active Safety System/Backing Up and Parking,Backup Camera,Not Applicable,,,,104,0,2019-12-21 20:26:30.583,,RearVisibilitySystem,lookup,Pattern,Default,
 540,7T0M6TGCURDSNZTHF,,Active Safety System/Backing Up and Parking,Parking Assist,Not Applicable,,,,105,0,2019-12-21 20:26:30.583,,ParkAssist,lookup,Pattern,Default,
 540,7T0M6TGCURDSNZTHF,,Passive Safety System/Air Bag Location,Side Air Bag Locations,Not Applicable,,,,107,0,2019-12-21 20:26:30.583,,AirBagLocSide,lookup,Pattern,Default,
-540,7T0M6TGCURDSNZTHF,,General,Note,"Brinkley Way East Goshen, IN 46528",1827665,24522,*****|*[D-J],114,"Brinkley Way East Goshen, IN 46528",2022-10-26 16:01:52.9,13264,Note,string,Pattern,Pattern,f
 540,7T0M6TGCURDSNZTHF,,Engine,Cooling Type,Not Applicable,,,,122,0,2019-12-21 20:26:30.583,,CoolingType,lookup,Pattern,Default,
 540,7T0M6TGCURDSNZTHF,,Engine,Electrification Level,Not Applicable,,,,126,0,2019-12-21 20:26:30.583,,ElectrificationLevel,lookup,Pattern,Default,
 540,7T0M6TGCURDSNZTHF,,Mechanical/Battery/Charger,Charger Level,Not Applicable,,,,127,0,2019-12-21 20:26:30.583,,ChargerLevel,lookup,Pattern,Default,
@@ -22464,6 +22457,7 @@ DCVP, VVT, E85 Max, E0-E100, Aluminum",2015-04-14 08:19:34.957,2053,OtherEngineI
 540,7T0M6TGCURDSNZTHF,,Active Safety System/Backing Up and Parking,Rear Cross Traffic Alert,Not Applicable,,,,183,0,2019-12-21 20:26:30.583,,RearCrossTrafficAlert,lookup,Pattern,Default,
 540,7T0M6TGCURDSNZTHF,,,Error Text,"1 - Check Digit (9th position) does not calculate properly; 5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.; 400 - Invalid Characters Present",,,"",191,"1 - Check Digit (9th position) does not calculate properly; 5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.; 400 - Invalid Characters Present",,,ErrorText,string,Decoding,Corrections,
 540,7T0M6TGCURDSNZTHF,,,Vehicle Descriptor,7T0M6TGC*RD,,,"",196,7T0M6TGC*RD,,,VehicleDescriptor,string,Decoding,Corrections,
+540,7T0M6TGCURDSNZTHF,,General,Plant Address,"Brinkley Way East Goshen, IN 46528",2359420,24522,*****|*[D-J],204,"Brinkley Way East Goshen, IN 46528",2026-10-20 12:25:34.557,13264,PlantAddress,string,Pattern,Pattern,f
 541,NMTKHMBX3JR111111,,Exterior/Truck,Bed Type,Not Applicable,,,,3,0,2019-12-21 20:26:30.583,,BedType,lookup,Pattern,Default,
 541,NMTKHMBX3JR111111,,Exterior/Truck,Cab Type,Not Applicable,,,,4,0,2019-12-21 20:26:30.583,,BodyCabType,lookup,Pattern,Default,
 541,NMTKHMBX3JR111111,,Exterior/Body,Body Class,Crossover Utility Vehicle [CUV],1161864,15603,KHMBX|*R,5,8,2020-07-07 16:49:45.44,8094,BodyClass,lookup,Pattern,Pattern,
@@ -23254,7 +23248,6 @@ DCVP, VVT, E85 Max, E0-E100, Aluminum",2015-04-14 08:19:34.957,2053,OtherEngineI
 555,7T0AAAAA0SA111111,,Active Safety System/Backing Up and Parking,Backup Camera,Not Applicable,,,,104,0,2019-12-21 20:26:30.583,,RearVisibilitySystem,lookup,Pattern,Default,
 555,7T0AAAAA0SA111111,,Active Safety System/Backing Up and Parking,Parking Assist,Not Applicable,,,,105,0,2019-12-21 20:26:30.583,,ParkAssist,lookup,Pattern,Default,
 555,7T0AAAAA0SA111111,,Passive Safety System/Air Bag Location,Side Air Bag Locations,Not Applicable,,,,107,0,2019-12-21 20:26:30.583,,AirBagLocSide,lookup,Pattern,Default,
-555,7T0AAAAA0SA111111,,General,Note,"1655 Brinkley Way East Goshen, IN 46528",1827650,24522,*****|*A,114,"1655 Brinkley Way East Goshen, IN 46528",2022-10-26 11:26:10.373,13264,Note,string,Pattern,Pattern,f
 555,7T0AAAAA0SA111111,,Engine,Cooling Type,Not Applicable,,,,122,0,2019-12-21 20:26:30.583,,CoolingType,lookup,Pattern,Default,
 555,7T0AAAAA0SA111111,,Engine,Electrification Level,Not Applicable,,,,126,0,2019-12-21 20:26:30.583,,ElectrificationLevel,lookup,Pattern,Default,
 555,7T0AAAAA0SA111111,,Mechanical/Battery/Charger,Charger Level,Not Applicable,,,,127,0,2019-12-21 20:26:30.583,,ChargerLevel,lookup,Pattern,Default,
@@ -23283,6 +23276,7 @@ DCVP, VVT, E85 Max, E0-E100, Aluminum",2015-04-14 08:19:34.957,2053,OtherEngineI
 555,7T0AAAAA0SA111111,,Active Safety System/Backing Up and Parking,Rear Cross Traffic Alert,Not Applicable,,,,183,0,2019-12-21 20:26:30.583,,RearCrossTrafficAlert,lookup,Pattern,Default,
 555,7T0AAAAA0SA111111,,,Error Text,"5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,"",191,"5 - VIN has errors in few positions; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,ErrorText,string,Decoding,Corrections,
 555,7T0AAAAA0SA111111,,,Vehicle Descriptor,7T0AAAAA*SA,,,"",196,7T0AAAAA*SA,,,VehicleDescriptor,string,Decoding,Corrections,
+555,7T0AAAAA0SA111111,,General,Plant Address,"1655 Brinkley Way East Goshen, IN 46528",2359422,24522,*****|*A,204,"1655 Brinkley Way East Goshen, IN 46528",2026-10-20 12:26:03.323,13264,PlantAddress,string,Pattern,Pattern,f
 556,4C9AA1119WA376111,,Exterior/Truck,Bed Type,Not Applicable,,,,3,0,2019-12-21 20:26:30.583,,BedType,lookup,Pattern,Default,
 556,4C9AA1119WA376111,,Exterior/Truck,Cab Type,Not Applicable,,,,4,0,2019-12-21 20:26:30.583,,BodyCabType,lookup,Pattern,Default,
 556,4C9AA1119WA376111,,Exterior/Body,Body Class,Motorcycle - Custom,1514056,4404,A,5,94,2019-11-25 11:18:12.937,2798,BodyClass,lookup,Pattern,Pattern,
@@ -24401,7 +24395,6 @@ DCVP, VVT, E85 Max, E0-E100, Aluminum",2015-04-14 08:19:34.957,2053,OtherEngineI
 583,YSTCPE001WA111111,,General,Manufacturer Name,COMING THROUGH SWEDEN AB,,,YST,27,9374,,3790,Manufacturer,lookup,WMI,Manu. Name,
 583,YSTCPE001WA111111,,General,Model Year,2028,,,***X*|Y,29,2028,,,ModelYear,int,"WMI, Input",ModelYear,
 583,YSTCPE001WA111111,,General,Vehicle Type,MOTORCYCLE,,,YST,39,1,2020-01-10 15:01:33.673,3790,VehicleType,lookup,WMI,VehType,
-583,YSTCPE001WA111111,,General,Plant Country,SWEDEN,242196,5713,*****|*A,75,23,2015-07-15 08:55:58.847,3790,PlantCountry,lookup,Pattern,Pattern,f
 583,YSTCPE001WA111111,,Active Safety System/Maintaining Safe Distance,Adaptive Cruise Control (ACC),Not Applicable,,,,81,0,2019-12-21 20:26:30.583,,AdaptiveCruiseControl,lookup,Pattern,Default,
 583,YSTCPE001WA111111,,Active Safety System/Forward Collision Prevention,Crash Imminent Braking (CIB),Not Applicable,,,,87,0,2019-12-21 20:26:30.583,,CIB,lookup,Pattern,Default,
 583,YSTCPE001WA111111,,Active Safety System/Lane and Side Assist,Blind Spot Warning (BSW),Not Applicable,,,,88,0,2019-12-21 20:26:30.583,,BlindSpotMon,lookup,Pattern,Default,
@@ -24410,11 +24403,10 @@ DCVP, VVT, E85 Max, E0-E100, Aluminum",2015-04-14 08:19:34.957,2053,OtherEngineI
 583,YSTCPE001WA111111,,Active Safety System/Lane and Side Assist,Lane Keeping Assistance (LKA),Not Applicable,,,,103,0,2019-12-21 20:26:30.583,,LaneKeepSystem,lookup,Pattern,Default,
 583,YSTCPE001WA111111,,Active Safety System/Backing Up and Parking,Backup Camera,Not Applicable,,,,104,0,2019-12-21 20:26:30.583,,RearVisibilitySystem,lookup,Pattern,Default,
 583,YSTCPE001WA111111,,Active Safety System/Backing Up and Parking,Parking Assist,Not Applicable,,,,105,0,2019-12-21 20:26:30.583,,ParkAssist,lookup,Pattern,Default,
-583,YSTCPE001WA111111,,General,Note,"VIN positions 7 & 8 combined defines the version of the vehicle. If 0 in 7th position and 1 in 8th position, then the Version is 01.  If 0 in 7th position and 2 in 8th position, then the Version is 02 and so on.",321611,5713,[TCS][OP][WNE][0-9][0-9],114,"VIN positions 7 & 8 combined defines the version of the vehicle. If 0 in 7th position and 1 in 8th position, then the Version is 01.  If 0 in 7th position and 2 in 8th position, then the Version is 02 and so on.",2015-08-07 11:34:54.89,3790,Note,string,Pattern,Pattern,f
 583,YSTCPE001WA111111,,Exterior/Trailer,Trailer Type Connection,Not Applicable,,,,116,0,2019-12-21 20:26:30.583,,TrailerType,lookup,Pattern,Default,
 583,YSTCPE001WA111111,,Exterior/Trailer,Trailer Body Type,Not Applicable,,,,117,0,2019-12-21 20:26:30.583,,TrailerBodyType,lookup,Pattern,Default,
 583,YSTCPE001WA111111,,,Suggested VIN,"",,,"",142,"",,,SuggestedVIN,string,Decoding,Corrections,
-583,YSTCPE001WA111111,,,Error Code,"0,14",,,"",143,"0,14",,,ErrorCode,lookup,Decoding,Corrections,
+583,YSTCPE001WA111111,,,Error Code,8,,,"",143,8,,,ErrorCode,lookup,Decoding,Corrections,
 583,YSTCPE001WA111111,,,Possible Values,"",,,"",144,"",,,PossibleValues,string,Decoding,Corrections,
 583,YSTCPE001WA111111,,Exterior/Bus,Bus Floor Configuration Type,Not Applicable,,,,148,0,2019-12-21 20:26:30.583,,BusFloorConfigType,lookup,Pattern,Default,
 583,YSTCPE001WA111111,,Exterior/Bus,Bus Type,Not Applicable,,,,149,0,2019-12-21 20:26:30.583,,BusType,lookup,Pattern,Default,
@@ -24430,7 +24422,7 @@ DCVP, VVT, E85 Max, E0-E100, Aluminum",2015-04-14 08:19:34.957,2053,OtherEngineI
 583,YSTCPE001WA111111,,Active Safety System/Lighting Technologies,Semiautomatic Headlamp Beam Switching,Not Applicable,,,,179,0,2019-12-21 20:26:30.583,,SemiautomaticHeadlampBeamSwitching,lookup,Pattern,Default,
 583,YSTCPE001WA111111,,Active Safety System/Lighting Technologies,Adaptive Driving Beam (ADB),Not Applicable,,,,180,0,2019-12-21 20:26:30.583,,AdaptiveDrivingBeam,lookup,Pattern,Default,
 583,YSTCPE001WA111111,,Active Safety System/Backing Up and Parking,Rear Cross Traffic Alert,Not Applicable,,,,183,0,2019-12-21 20:26:30.583,,RearCrossTrafficAlert,lookup,Pattern,Default,
-583,YSTCPE001WA111111,,,Error Text,"0 - VIN decoded clean. Check Digit (9th position) is correct; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,"",191,"0 - VIN decoded clean. Check Digit (9th position) is correct; 14 - Unable to provide information for some of the characters in the VIN, based on the manufacturer submission.",,,ErrorText,string,Decoding,Corrections,
+583,YSTCPE001WA111111,,,Error Text,8 - No detailed data available currently,,,"",191,8 - No detailed data available currently,,,ErrorText,string,Decoding,Corrections,
 583,YSTCPE001WA111111,,,Vehicle Descriptor,YSTCPE00*WA,,,"",196,YSTCPE00*WA,,,VehicleDescriptor,string,Decoding,Corrections,
 584,JH4UB1F52HA111111,,Exterior/Truck,Bed Type,Not Applicable,,,,3,0,2019-12-21 20:26:30.583,,BedType,lookup,Pattern,Default,
 584,JH4UB1F52HA111111,,Exterior/Truck,Cab Type,Not Applicable,,,,4,0,2019-12-21 20:26:30.583,,BodyCabType,lookup,Pattern,Default,
@@ -25736,20 +25728,16 @@ DCVP, VVT, E85 Max, E0-E100, Aluminum",2015-04-14 08:19:34.957,2053,OtherEngineI
 612,JHLYF6H8000000000,,,Vehicle Descriptor,JHLYF6H8*00,,,"",196,JHLYF6H8*00,,,VehicleDescriptor,string,Decoding,Corrections,
 613,2BVJ00C0000000000,,Exterior/Truck,Bed Type,Not Applicable,,,,3,0,2019-12-21 20:26:30.583,,BedType,lookup,Pattern,Default,
 613,2BVJ00C0000000000,,Exterior/Truck,Cab Type,Not Applicable,,,,4,0,2019-12-21 20:26:30.583,,BodyCabType,lookup,Pattern,Default,
-613,2BVJ00C0000000000,,Exterior/Body,Body Class,Motorcycle - Unenclosed Three Wheeled or Open Autocycle [1 Rear Wheel],1999772,26272,J**[A-E],5,103,2023-11-06 12:05:56.883,2409,BodyClass,lookup,Pattern,Pattern,f
-613,2BVJ00C0000000000,,Engine,Engine Number of Cylinders,2,1831359,24562,[JNR]**C,9,2,2022-08-16 15:45:36.987,2409,EngineCylinders,int,Pattern,Pattern,f
-613,2BVJ00C0000000000,,Engine,Displacement (CC),991,2117373,27348,[JNR]**C,11,991,2024-08-27 16:40:23.103,2409,DisplacementCC,decimal,Pattern,Pattern,f
-613,2BVJ00C0000000000,,Engine,Displacement (CI),60.4745303978796934,2117373,27348,[JNR]**C,12,60.4745303978796934,,2409,DisplacementCI,decimal,Pattern,Conversion 1: 991 / 16.387064 ,
-613,2BVJ00C0000000000,,Engine,Displacement (L),0.99100000000000000000,2117373,27348,[JNR]**C,13,0.99100000000000000000,,2409,DisplacementL,decimal,Pattern,Conversion 3: 991 / 1000.,
-613,2BVJ00C0000000000,,Engine,Engine Model,991 ETC,2117430,27348,J**C,18,991 ETC,2024-08-27 16:40:23.103,2409,EngineModel,string,Pattern,Pattern,f
-613,2BVJ00C0000000000,,Engine,Fuel Type - Primary,Gasoline,2117449,27348,[JNR]**[A-E],24,4,2024-08-27 16:40:23.103,2409,FuelTypePrimary,lookup,Pattern,Pattern,f
+613,2BVJ00C0000000000,,Exterior/Body,Body Class,Motorcycle - Unenclosed Three Wheeled or Open Autocycle [1 Rear Wheel],1884145,25045,[JNR]**[A-E],5,103,2024-03-20 14:32:55.733,2409,BodyClass,lookup,Pattern,Pattern,f
+613,2BVJ00C0000000000,,Engine,Displacement (CC),991,1884165,25045,[JNR]**C,11,991,2024-03-20 14:37:09.097,2409,DisplacementCC,decimal,Pattern,Pattern,f
+613,2BVJ00C0000000000,,Engine,Displacement (CI),60.4745303978796934,1884165,25045,[JNR]**C,12,60.4745303978796934,,2409,DisplacementCI,decimal,Pattern,Conversion 1: 991 / 16.387064 ,
+613,2BVJ00C0000000000,,Engine,Displacement (L),0.99100000000000000000,1884165,25045,[JNR]**C,13,0.99100000000000000000,,2409,DisplacementL,decimal,Pattern,Conversion 3: 991 / 1000.,
+613,2BVJ00C0000000000,,Engine,Engine Model,991 ETC,1884166,25045,[JNR]**C,18,991 ETC,2024-03-20 14:37:09.097,2409,EngineModel,string,Pattern,Pattern,f
+613,2BVJ00C0000000000,,Engine,Fuel Type - Primary,Gasoline,1884146,25045,[JNR]**[A-E],24,4,2024-03-20 14:32:55.733,2409,FuelTypePrimary,lookup,Pattern,Pattern,f
 613,2BVJ00C0000000000,,Exterior/Dimension,Gross Vehicle Weight Rating From,"Class 1A: 3,000 lb or less (1,360 kg or less)",,,,25,10,2019-12-21 20:26:30.583,,GVWR,lookup,Pattern,Default,
-613,2BVJ00C0000000000,,General,Make,CAN-AM,1999880,26272,J**[A-E],26,591,,,Make,lookup,"WMI, Pattern",pattern - model,
-613,2BVJ00C0000000000,,General,Manufacturer Name,BOMBARDIER RECREATIONAL PRODUCTS INC ,,,2BV,27,1134,,2409,Manufacturer,lookup,WMI,Manu. Name,
-613,2BVJ00C0000000000,,General,Model,Spyder,1999880,26272,J**[A-E],28,3472,2023-11-06 12:05:56.883,2409,Model,lookup,Pattern,Pattern,f
+613,2BVJ00C0000000000,,General,Make,CAN-AM,,,2BV,26,591,2015-06-09 14:17:25.937,2409,Make,lookup,"WMI, Pattern",Make,
+613,2BVJ00C0000000000,,General,Manufacturer Name,BOMBARDIER RECREATIONAL PRODUCTS INC,,,2BV,27,1134,,2409,Manufacturer,lookup,WMI,Manu. Name,
 613,2BVJ00C0000000000,,General,Vehicle Type,MOTORCYCLE,,,2BV,39,1,2015-06-09 14:17:25.937,2409,VehicleType,lookup,WMI,VehType,
-613,2BVJ00C0000000000,,Engine,Engine Configuration,V-Shaped,1831466,24562,[JNR]**C,64,2,2022-08-16 15:45:36.987,2409,EngineConfiguration,lookup,Pattern,Pattern,f
-613,2BVJ00C0000000000,,Engine,Engine Brake (hp) From,98,1831467,24562,[JNR]**C,71,98,2022-08-16 15:45:36.987,2409,EngineHP,decimal,Pattern,Pattern,f
 613,2BVJ00C0000000000,,Active Safety System/Maintaining Safe Distance,Adaptive Cruise Control (ACC),Not Applicable,,,,81,0,2019-12-21 20:26:30.583,,AdaptiveCruiseControl,lookup,Pattern,Default,
 613,2BVJ00C0000000000,,Active Safety System/Forward Collision Prevention,Crash Imminent Braking (CIB),Not Applicable,,,,87,0,2019-12-21 20:26:30.583,,CIB,lookup,Pattern,Default,
 613,2BVJ00C0000000000,,Active Safety System/Lane and Side Assist,Blind Spot Warning (BSW),Not Applicable,,,,88,0,2019-12-21 20:26:30.583,,BlindSpotMon,lookup,Pattern,Default,

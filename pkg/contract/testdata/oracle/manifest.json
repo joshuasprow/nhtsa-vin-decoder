@@ -1,9 +1,9 @@
 {
-  "month": "2026_10",
-  "dump_bytes": 71394797,
-  "dump_sha256": "373e6a8701f60a38e9fab9079d83c8947a75753e76720c116d8ba329ee03d2c1",
+  "month": "2026_11",
+  "dump_bytes": 70331920,
+  "dump_sha256": "9a1deb13f952c673a813b639bae9be92e7881cd4afdc8f274332d8cf3cd49f61",
   "oracle": "freshened",
-  "now": "2026-11-12T09:30:57Z",
+  "now": "2026-11-13T20:44:34Z",
   "vins": "testdata/oracle/sample-vins.tsv",
   "vins_sha256": "e0fc857f61099c117c905a750cb4958559194e7948a341748380bb5fc461799d",
   "vin_count": 28,
@@ -12,5 +12,5 @@
   "server": "17.11 (Debian 17.11-1.pgdg13+2)",
   "collate": "C",
   "ctype": "en_US.utf8",
-  "cut_from": "testdata/parity/2026_10/answer-key.csv"
+  "cut_from": "testdata/parity/2026_11/answer-key.csv"
 }
