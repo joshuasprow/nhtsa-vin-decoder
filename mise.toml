@@ -15,6 +15,10 @@
 #   checks the installed wrangler against package.json.
 # - The Go language floor: go.mod's `go 1.27`, for `go install`. The toolchain
 #   is the go pin here.
+# - Node 22, for corgi in the README's benchmarks (scripts/bench.sh corgi):
+#   bench/decode/mise.toml, with its own mise.lock, which mise reads in that
+#   directory only. corgi v2's better-sqlite3 9 has no build for the node
+#   here.
 # - Python, for the C library's smoke test (libnitrovin.yml): its version in
 #   actions/setup-python, which picks the interpreter matching each runner's
 #   architecture, as the library under test must.
@@ -45,7 +49,8 @@
 # Bump: edit a version here, then
 #   mise lock --platform macos-arm64,macos-x64,linux-x64,linux-arm64,windows-x64
 # and commit both files. Every Monday tools.yml lists newer releases (these,
-# wrangler, postgres:17 and htmx) in one issue; it never bumps.
+# bench/decode's Node 22, wrangler, postgres:17 and htmx) in one issue; it
+# never bumps.
 
 [tools]
 go = "1.27.3"

@@ -23,13 +23,16 @@
 # mise refuses the download for its checksum.
 #
 # outdated asks mise (`mise outdated --bump`: the newest release, majors
-# included), the npm registry for wrangler, for htmx (vendored in
-# pkg/ui/static, its version pkg/ui/ui.go's htmxVersion) and for axe-core
-# (vendored in cmd/nitrovin/testdata for TestForm's audits, its version
+# included; for bench/decode/mise.toml's node, corgi's, `mise latest
+# node@<major>`: the newest of its major, which corgi v2 needs), the npm
+# registry for wrangler, for htmx (vendored in pkg/ui/static, its version
+# pkg/ui/ui.go's htmxVersion) and for axe-core (vendored in
+# cmd/nitrovin/testdata for TestForm's audits, its version
 # cmd/nitrovin/browser_test.go's axeVersion), and Docker Hub for
 # postgres:17's digest (with `docker buildx imagetools`). It reports and
 # never bumps: a bump is an edit of mise.toml and `mise lock` (mise.toml's
-# header), or for htmx and axe-core a new file, version and hash.
+# header; bench/decode/mise.toml's likewise), or for htmx and axe-core a new
+# file, version and hash.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -114,6 +117,11 @@ cmd_outdated() {
   cd "$ROOT"
   rows=$(mise outdated --bump --json --no-global |
     jq -r 'to_entries[] | .value | select(.latest != null and .latest != .requested) | "| \(.name) | \(.requested) | \(.latest) |"')
+
+  pinned=$(mise -C bench/decode ls --local --json node | jq -r '.[0].requested_version // empty')
+  [ -n "$pinned" ] || die "no node pin in bench/decode/mise.toml"
+  latest=$(mise latest "node@${pinned%%.*}")
+  [ "$latest" = "$pinned" ] || rows+=$'\n'"| node ${pinned%%.*} (bench/decode/mise.toml, corgi) | $pinned | $latest |"
 
   pinned=$(jq -r '.devDependencies.wrangler' "$WORKER/package.json")
   latest=$(npm view wrangler version)
