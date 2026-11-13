@@ -15,8 +15,8 @@
 #   scripts/bench.sh ultravin <work> <workers> random|sorted
 #                                                 ultravin's examples/throughput, its headline command
 #   scripts/bench.sh corgi <work> v2|v3 [sample|random]
-#                                                 corgi in Node 22 (bench/decode/corgi.mjs), over the
-#                                                 sample (default) or the corpus
+#                                                 corgi (bench/decode/corgi.mjs) in bench/decode/mise.toml's
+#                                                 Node 22, over the sample (default) or the corpus
 #   scripts/bench.sh postgres <work>              NHTSA spvindecode over the sample: scripts/oracle.sh decode stock
 #   scripts/bench.sh mssql-up <dir>               start SQL Server 2022 (linux/amd64) and restore
 #                                                 <dir>/vPICList_lite_<month>.bak
@@ -35,6 +35,7 @@
 # MSSQL_CONTAINER (default nitrovin-bench-mssql). Before each trial the script waits
 # up to BENCH_WAIT seconds (300) for a one-minute load average at most BENCH_MAX_LOAD
 # (4), and records the load and the busiest processes either way.
+# corgi needs mise: its Node is bench/decode/mise.toml's pin, not the checkout's.
 #
 # Clock: nitrovin and ultravin decode at 2026-09-01T00:00:00Z, ultravin's
 # headline clock; corgi and the SQL procedures have none to freeze.
@@ -177,15 +178,23 @@ cmd_ultravin() {
         commit: $commit}' <<<"$result")" "$host"
 }
 
-# corgi v3 is fast enough for the whole corpus (input random), the rate the
-# README compares; on the sample, which fits in cache, it reads faster.
+# corgi runs in bench/decode, on the Node its mise.toml pins (22: corgi v2's
+# better-sqlite3 9 has no build for later Node), installed from its mise.lock;
+# every other row keeps the checkout's. corgi v3 is fast enough for the whole
+# corpus (input random), the rate the README compares; on the sample, which
+# fits in cache, it reads faster.
+in_bench() { mise -C "$ROOT/bench/decode" exec -- "$@"; }
+
 cmd_corgi() {
-  local work="${1:?work}" engine="${2:?v2|v3}" in="${3:-sample}" host result file
-  case "$(node --version)" in v22.*) ;; *) die "corgi needs Node 22 (mise exec node@22 -- $0 corgi …)" ;; esac
-  [ -d "$ROOT/bench/decode/node_modules" ] || (cd "$ROOT/bench/decode" && npm ci --no-audit --no-fund)
+  local work="${1:?work}" engine="${2:?v2|v3}" in="${3:-sample}" host result file node
+  work=$(cd "$work" && pwd) # node's working directory is bench/decode
+  mise -C "$ROOT/bench/decode" install --locked node >&2
+  node=$(in_bench node --version)
+  case "$node" in v22.*) ;; *) die "corgi needs Node 22, bench/decode/mise.toml's pin; mise runs $node there" ;; esac
+  [ -d "$ROOT/bench/decode/node_modules" ] || in_bench npm ci --no-audit --no-fund
   case "$in" in sample) file="$work/sample.txt" ;; *) file=$(input "$work" "$in") ;; esac
   host=$(quiet)
-  result=$(node --max-old-space-size=8192 "$ROOT/bench/decode/corgi.mjs" "$engine" "$file")
+  result=$(in_bench node --max-old-space-size=8192 corgi.mjs "$engine" "$file")
   record "$work" "corgi-$engine" "{\"workers\":1,\"input\":\"$in\"}" "$result" "$host"
 }
 

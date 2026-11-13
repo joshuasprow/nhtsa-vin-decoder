@@ -4,7 +4,8 @@
 # - tools, on a pull request that touches the pins, a workflow or wrangler's
 #   pin: on Linux x64 and macOS arm64 (each its own mise.lock entries), every
 #   pinned tool installed afresh with `mise install --locked`, no cache, then
-#   `scripts/tools.sh check`: each tool on PATH reports exactly its pin. Then
+#   `scripts/tools.sh check`: each tool on PATH reports exactly its pin, and
+#   corgi's held Node (bench/decode/mise.toml) is docs/benchmarks.json's. Then
 #   `scripts/tools.sh refuse`: a copy of mise.lock with one checksum changed
 #   must make `mise install --locked` fail.
 # - outdated, every Monday or by hand: the pins with a newer release upstream
@@ -25,6 +26,9 @@ on:
       - scripts/oracle.sh
       - deploy/cloudflare/worker/package.json
       - deploy/cloudflare/worker/package-lock.json
+      # corgi's held Node, which check holds to the one benchmarks.json records.
+      - bench/decode/mise.toml
+      - docs/benchmarks.json
   schedule:
     - cron: "23 7 * * 1"
   workflow_dispatch:

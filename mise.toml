@@ -15,6 +15,12 @@
 #   checks the installed wrangler against package.json.
 # - The Go language floor: go.mod's `go 1.27`, for `go install`. The toolchain
 #   is the go pin here.
+# - Node 22, for corgi in the README's benchmarks (scripts/bench.sh corgi):
+#   bench/decode/mise.toml, with its own mise.lock, which mise reads in that
+#   directory and below. corgi v2's better-sqlite3 9 has no build for the
+#   node here. It is held at the Node docs/benchmarks.json's corgi rows
+#   record, not bumped with these (scripts/tools.sh check holds the two
+#   equal).
 # - Python, for the C library's smoke test (libnitrovin.yml): its version in
 #   actions/setup-python, which picks the interpreter matching each runner's
 #   architecture, as the library under test must.

@@ -16,7 +16,8 @@
 # (`npm ci` in deploy/cloudflare/worker), where wrangler's pin lives. A pin
 # must be an exact version: a range would let two machines differ. check also
 # requires every postgres:17 service image and scripts/oracle.sh's default to
-# name one digest.
+# name one digest, and bench/decode/mise.toml's node, corgi's, held off the
+# weekly list, to be the one Node docs/benchmarks.json's corgi trials record.
 #
 # refuse installs into a scratch directory of its own (mise's data and cache
 # there too, so nothing installed already can answer) and fails unless
@@ -104,6 +105,15 @@ cmd_check() {
   printf '%-38s %s\n' "postgres (image)" "${refs//$'\n'/ }"
   if [ "$(grep -c . <<<"$refs")" -ne 1 ] || [[ $refs != postgres:17@sha256:* ]]; then
     echo "tools: the workflows and scripts/oracle.sh must name one postgres:17@sha256:<digest>, not: ${refs//$'\n'/ }" >&2
+    fail=1
+  fi
+
+  # corgi's held Node: read, not run (scripts/bench.sh corgi installs it).
+  want=$(mise -C bench/decode ls --local --json node | "$jq" -r '.[0].requested_version // empty')
+  got=$("$jq" -r '[.rows[] | select(.row | startswith("corgi")) | .trials[].result.node] | unique | join(" ")' docs/benchmarks.json)
+  printf '%-38s %-9s %-9s %s\n' "node (bench/decode, corgi)" "${want:-?}" "${got:-?}" "docs/benchmarks.json"
+  if [ -z "$want" ] || [ "$got" != "v$want" ]; then
+    echo "tools: bench/decode/mise.toml pins node ${want:-nothing}, docs/benchmarks.json's corgi rows record ${got:-no node}: re-run them on the pin (bench/decode/mise.toml)" >&2
     fail=1
   fi
   return "$fail"
