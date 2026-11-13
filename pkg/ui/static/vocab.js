@@ -2,10 +2,11 @@
 // registers the Service Worker (worker.js), says what state it is in,
 // swaps the worker's panel (the merged catalog, with the browser's files)
 // over the server's catalog in the dialog, and hands the files the visitor
-// picks or drops, and EPA's vocabulary on a click, to the worker by
-// postMessage, and the targets the visitor ticks too. A catalog picked on
-// its own is compiled in a dedicated worker it starts (compile.js,
-// ADR 0023), the File handed over and read in place. Without this script
+// picks or drops, EPA's vocabulary on a click and the demo set on another,
+// to the worker by postMessage, and the targets the visitor ticks too. A
+// catalog picked on its own, and the demo set's, is compiled in a
+// dedicated worker it starts (compile.js, ADR 0023), the File handed over
+// and read in place. Without this script
 // the dialog says that loading files needs JavaScript; everything else
 // works.
 //
@@ -284,7 +285,8 @@
 
   // load hands files to the worker as one batch: [{name, read}], read
   // giving each file's bytes, which go by postMessage (transferred, never
-  // copied to a request). what names the batch in the status line.
+  // copied to a request). what names the batch in the status line. It
+  // resolves with how the load went, {ok, message}.
   const load = async (what, picked) => {
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     tell('Reading ' + what + '…');
@@ -311,6 +313,7 @@
     if (ready()) await showFiles();
     tell(done.ok ? done.message : 'Nothing was loaded: ' + done.message);
     if (done.ok) await redraw();
+    return done;
   };
   const failed = (err) => tell('Nothing was loaded: ' + (err && err.message ? err.message : err));
 
@@ -340,15 +343,17 @@
   // catalog (ADR 0023), in a dedicated worker this page starts
   // (compile.js), which reads the File in place: the page says how far it
   // is and that the tab must stay open. Once it is stored the Service
-  // Worker opens the files again.
+  // Worker opens the files again. It resolves with how the compile went,
+  // {ok, message}.
   const compile = async (file) => {
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     const keep = ' Keep this tab open until it is done.';
     tell('Compiling ' + file.name + '…' + keep);
     const c = await ask({ op: 'compiler' }, 5000);
     if (!c || c.refused) {
-      tell('Nothing was compiled: ' + (c ? c.refused : 'the translator in this browser did not answer. Reload the page, then try again.'));
-      return;
+      const message = c ? c.refused : 'the translator in this browser did not answer. Reload the page, then try again.';
+      tell('Nothing was compiled: ' + message);
+      return { ok: false, message };
     }
     compiling = true;
     window.addEventListener('beforeunload', stay);
@@ -373,6 +378,7 @@
     if (ready()) await showFiles();
     tell(done.ok ? done.message : 'Nothing was compiled: ' + done.message);
     if (done.ok) await redraw();
+    return done;
   };
 
   // loadFiles loads the files of list in the dialog, where a load is
@@ -460,6 +466,22 @@
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   });
 
+  // fetchAsset is one of this release's assets, url, as an ArrayBuffer;
+  // what names it in the error that says why it could not be had.
+  const fetchAsset = async (url, what) => {
+    let r;
+    try {
+      r = await fetch(url);
+    } catch {
+      throw new Error(what + ' could not be downloaded: this server could not be reached, and this browser may be offline.');
+    }
+    if (r.ok) return r.arrayBuffer();
+    const server = r.headers.get('Nitrovin-Release');
+    throw new Error(what + ' could not be downloaded: this server answered HTTP ' + r.status + (server && server !== release
+      ? ', as it now runs another release of nitrovin than this page. Update the translator in this browser (Update now, or close every nitrovin tab), then try again.'
+      : '. Reload the page and try again.'));
+  };
+
   // EPA's vocabulary, from this release's assets: one click.
   document.addEventListener('click', (e) => {
     const button = e.target.closest && e.target.closest('#load-epa');
@@ -468,21 +490,58 @@
       tell('Nothing was loaded: ' + why());
       return;
     }
-    load("EPA's vocabulary", [{
-      name: button.dataset.file,
-      read: async () => {
-        let r;
-        try {
-          r = await fetch(button.dataset.url);
-        } catch {
-          throw new Error("EPA's vocabulary could not be downloaded: this server could not be reached, and this browser may be offline.");
-        }
-        if (r.ok) return r.arrayBuffer();
-        const server = r.headers.get('Nitrovin-Release');
-        throw new Error("EPA's vocabulary could not be downloaded: this server answered HTTP " + r.status + (server && server !== release
-          ? ', as it now runs another release of nitrovin than this page. Update the translator in this browser (Update now, or close every nitrovin tab), then try again.'
-          : '. Reload the page and try again.'));
-      },
-    }]).catch(failed);
+    load("EPA's vocabulary", [{ name: button.dataset.file, read: () => fetchAsset(button.dataset.url, "EPA's vocabulary") }]).catch(failed);
+  });
+
+  // loadDemo loads the demo set (pkg/ui's demo.go) from this release's
+  // assets, demo being the panel's {files: [{name, file, kind, url}],
+  // remove: [name]}: every file is fetched first; the demo files this
+  // browser holds from before (remove) go; then its vocabularies load as
+  // one batch, its catalog compiles here as a catalog picked on its own
+  // does, and its shelf and yard load as one batch, the yard's VINs alone
+  // going to the server to be decoded. A step that fails stops it, said.
+  const loadDemo = async (demo) => {
+    const t0 = performance.now();
+    tell('Reading the demo set…');
+    const got = await Promise.all(demo.files.map(async (f) => ({ ...f, data: await fetchAsset(f.url, 'The demo set') })));
+    if (demo.remove.length > 0) {
+      tell('Removing the demo this browser holds…');
+      const r = await fetch('/ui/files/remove', { method: 'POST', headers: { 'HX-Request': 'true' }, body: new URLSearchParams(demo.remove.map((n) => ['name', n])) });
+      if (!r.ok) {
+        // A refusal is the panel, naming the files that link to the demo's.
+        if (r.status === 409) htmx.swap('#browser-files', await r.text(), { swapStyle: 'innerHTML' });
+        tell('Nothing was loaded: the demo this browser holds could not be removed first' + (r.status === 409 ? ' (above).' : ': HTTP ' + r.status + '.'));
+        return;
+      }
+    }
+    const picked = (kinds) => got.filter((f) => kinds.includes(f.kind)).map((f) => ({ name: f.file, read: async () => f.data }));
+    const catalog = got.find((f) => f.kind === 'catalog');
+    const steps = [
+      () => load("the demo set's vocabularies", picked(['spine', 'vocabulary', 'extension-set'])),
+      () => compile(new File([catalog.data], catalog.file, { type: 'application/jsonl' })),
+      () => load("the demo set's shelf and yard", picked(['stock'])),
+    ];
+    const said = [];
+    for (const step of steps) {
+      const done = await step();
+      if (!done.ok) return;
+      said.push(done.message);
+    }
+    section.dataset.demoMs = String(Math.round(performance.now() - t0));
+    tell('Loaded the demo set in ' + ((performance.now() - t0) / 1000).toFixed(1) + ' s. ' + said.join(' ') + ' Its examples are on the fit page.');
+  };
+  document.addEventListener('click', (e) => {
+    const button = e.target.closest && e.target.closest('#load-demo');
+    if (!button) return;
+    if (!ready()) {
+      tell('Nothing was loaded: ' + why());
+      return;
+    }
+    if (compiling) {
+      tell('Nothing was loaded: a catalog is compiling in this tab. Wait until it is done, then load the demo again.');
+      return;
+    }
+    button.disabled = true;
+    loadDemo(JSON.parse(button.dataset.demo)).catch(failed).finally(() => { button.disabled = false; });
   });
 })();

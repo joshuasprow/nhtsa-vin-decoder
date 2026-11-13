@@ -28,8 +28,9 @@ import (
 // naming a browser file, opened where the file is not, says where it
 // lives. /ui/files is the worker's panel, which fills the dialog: the
 // merged catalog (vPIC, the server's files and the browser's) with the
-// browser's files' storage, drift and removal, and the one-click load of
-// EPA's vocabulary; /ui/files/remove drops browser files. Both are the
+// browser's files' storage, drift and removal, and the one-click loads of
+// the demo set (demo.go) and EPA's vocabulary; /ui/files/remove drops
+// browser files. Both are the
 // worker's alone, which the server answers by saying so. /sw.js is the
 // worker itself, the only response whose CSP allows WebAssembly.
 
@@ -103,8 +104,11 @@ func (h *Handler) notHere(names []string, catalog []contract.CatalogEntry) error
 	}
 	for _, n := range names {
 		if !slices.ContainsFunc(catalog, func(c contract.CatalogEntry) bool { return c.Name == n }) {
-			return &pageError{Status: http.StatusNotFound, Message: fmt.Sprintf(
-				"Nothing named %q is loaded on this nitrovin. A file loaded into a browser stays in that browser: open this link in the browser that holds it.", n)}
+			msg := fmt.Sprintf("Nothing named %q is loaded on this nitrovin. A file loaded into a browser stays in that browser: open this link in the browser that holds it.", n)
+			if h.demoOffered() && theDemo().file(n) != nil {
+				msg += " " + n + " is a file of the demo set. " + demoLoadText
+			}
+			return &pageError{Status: http.StatusNotFound, Message: msg}
 		}
 	}
 	return nil
@@ -499,10 +503,11 @@ func (h *Handler) entries(r *http.Request) (view, error) {
 }
 
 // filesPanel is /ui/files, which fills the page's dialog: the merged
-// catalog with the browser's files' removal, a remove it refused, and
-// EPA's vocabulary to load.
+// catalog with the browser's files' removal, a remove it refused, the
+// demo set and EPA's vocabulary to load.
 type filesPanel struct {
 	Catalog   catalogTable
+	Demo      *demoView
 	Offer     *offerView
 	DataMonth string
 	Release   string
@@ -531,7 +536,7 @@ func (h *Handler) panel() (filesPanel, error) {
 	if err != nil {
 		return filesPanel{}, err
 	}
-	p := filesPanel{Catalog: catalogTable{Rows: h.rows(cat), Manage: true}, DataMonth: h.lib.Month(), Release: Release(h.lib.Info()), ServerCatalog: h.lib.ServerCatalog()}
+	p := filesPanel{Catalog: catalogTable{Rows: h.rows(cat), Manage: true}, Demo: h.demoPanel(), DataMonth: h.lib.Month(), Release: Release(h.lib.Info()), ServerCatalog: h.lib.ServerCatalog()}
 	if o := h.offered(); o != nil {
 		p.Offer = &offerView{Offer: o}
 		for _, f := range h.lib.Files() {

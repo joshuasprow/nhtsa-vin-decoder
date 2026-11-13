@@ -1,0 +1,12 @@
+{"format":1,"kind":"stock","name":"demo-yard-stock","version":"2026.11-demo","source":"yard","as_of":"2026-11-12"}
+{"id":"DEMO-Y-01","location":"demo-north","vin":"1FTEW1EG7FFA12345","fields":{"stock_number":"DEMO-Y-01","color":"demo: white","row":"D-1"}}
+{"id":"DEMO-Y-02","location":"demo-south","vin":"1FTEW1CG3FFA12345","fields":{"stock_number":"DEMO-Y-02","color":"demo: blue","row":"D-1"}}
+{"id":"DEMO-Y-03","location":"demo-north","vin":"1GCVKREC6EZ123456","fields":{"stock_number":"DEMO-Y-03","color":"demo: red","row":"D-2"}}
+{"id":"DEMO-Y-04","location":"demo-south","vin":"1C6RR7LT6FS512345","fields":{"stock_number":"DEMO-Y-04","color":"demo: black","row":"D-2"}}
+{"id":"DEMO-Y-05","location":"demo-north","vin":"19XFC2F52GE012345","fields":{"stock_number":"DEMO-Y-05","color":"demo: silver","row":"D-3"}}
+{"id":"DEMO-Y-06","location":"demo-south","vin":"2HKRW2H53KH612345","fields":{"stock_number":"DEMO-Y-06","color":"demo: grey","row":"D-3"}}
+{"id":"DEMO-Y-07","location":"demo-north","vin":"4T1B11HK7JU512345","fields":{"stock_number":"DEMO-Y-07","color":"demo: white","row":"D-4"}}
+{"id":"DEMO-Y-08","location":"demo-south","vin":"2T3W1RFV8KW012345","fields":{"stock_number":"DEMO-Y-08","color":"demo: green","row":"D-4"}}
+{"id":"DEMO-Y-09","location":"demo-north","vin":"2T3BFREV7HW512345","fields":{"stock_number":"DEMO-Y-09","color":"demo: red","row":"D-5"}}
+{"id":"DEMO-Y-10","location":"demo-south","vehicle":{"make":"Volkswagen","model":"Type 2"},"year":1974,"fields":{"stock_number":"DEMO-Y-10","color":"demo: orange","row":"D-5"}}
+{"id":"DEMO-Y-11","location":"demo-north","vehicle":{"make":"Studebaker","model":"Champion"},"year":1950,"fields":{"stock_number":"DEMO-Y-11","color":"demo: cream","row":"D-6"}}

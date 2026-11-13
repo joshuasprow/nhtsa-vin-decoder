@@ -12,7 +12,10 @@
 # 0013) built for js/wasm and run in the same Chrome against the server's
 # answers (TestWorker), and the page's dialog with JavaScript and without,
 # audited by axe, each finding of the browser prototype's review a step
-# (TestVocabPage); and the packages it runs built for js/wasm. The
+# (TestVocabPage); the demo set (pkg/ui/demo) checked against the
+# embedded month (TestDemoCheck), loaded in one click in the same Chrome
+# (TestWorkerDemo) and answering as a server does on the same files
+# (TestLibraryDemoFit); and the packages it runs built for js/wasm. The
 # same decodes on the engine's output, and the CLI's decodes of the answer
 # key, need an artifact: import.yml's artifact job runs them.
 name: Contract
@@ -43,8 +46,10 @@ on:
       - .github/workflows/contract.yml
       - "!**/*.md"
       # Re-included after the exclusion (order matters): TestFormREADME
-      # holds the README's install, MCP and verify text to the form's.
+      # holds the README's install, MCP and verify text to the form's, and
+      # TestDemoWalkthrough the demo set's walkthrough to its list.
       - README.md
+      - docs/vocabularies.md
 
 permissions:
   contents: read
@@ -95,6 +100,8 @@ jobs:
             "pkg/nitrovin "{TestCatalogLoads,TestCatalogDrift}
             "cmd/nitrovin "{TestVocabCheck,TestVocabLoad,TestServeVocabularies,TestVocabCheckCatalog,TestTranslate,TestTranslateRefused,TestList,TestListRefused}
             "cmd/nitrovin "{TestStdioOps,TestMCPVocabSession,TestWorker,TestWorkerCatalog,TestWorkerCatalogParts,TestWorkerStock,TestVocabPage,TestVocabTranslate,TestVocabPartTargets}
+            "cmd/nitrovin "{TestDemoCheck,TestWorkerDemo}
+            "pkg/ui "{TestLibraryDemoFit,TestDemoPanel,TestDemoWalkthrough}
             "cmd/nitrovin-epa "{TestBuild,TestEntry,TestCuratedLoadsClean}
           )
           status=0

@@ -36,7 +36,7 @@ over stdio, an MCP server for AI assistants, a Go module and a C library.
 [nitrovin.app](https://nitrovin.app) runs the latest release's server for
 anyone: one page that decodes a VIN and draws its translation as a map,
 where your own vocabularies (or EPA's, in one click) load into your browser and translate
-there without being uploaded, the `/v1` API (CORS open) and MCP at
+there without being uploaded, and a one-click demo set shows fitment and stock there, the `/v1` API (CORS open) and MCP at
 `https://nitrovin.app/mcp`, rate-limited per IP.
 
 **Status: v0.x prereleases.** v0 means the release pipeline is not yet
@@ -497,6 +497,14 @@ under `/ui/r/<release>/` ([docs/vocabularies.md](docs/vocabularies.md)).
 Release builds include the worker, and EPA's vocabulary (below) as a
 one-click load into the browser; a `go install` build serves the page
 without them, and says so.
+
+The **demo set** in [`pkg/ui/demo`](pkg/ui/demo) is a small, invented
+catalog of popular vPIC models with its part and vehicle vocabularies, an
+extension set, a shelf and a yard, every number and stock row made up.
+With the worker, the dialog offers it as one **Load the demo**, which
+compiles its catalog in your browser, and the fit page then offers a
+request for each feature; `nitrovin --vocab pkg/ui/demo serve` serves the
+same files ([The demo set](docs/vocabularies.md#the-demo-set)).
 
 Each data release also carries `epa-vehicles.jsonl`, a vocabulary of the
 names EPA's fuel-economy data

@@ -102,7 +102,7 @@ text `TestFormREADME` holds to the form's.
   `pkg/contract`, `pkg/nitrovin`, `pkg/decoder`, `pkg/vocab`, `pkg/ui`,
   `cmd/nitrovin`, `cmd/nitrovin-epa`, `testdata/vocab/`, `docs/api`'s four
   schema documents, `README.md`, `go.mod`, `go.sum`. The tests that run
-  the vocabulary fixture or the EPA sample against the embedded month must
+  the vocabulary fixture, the demo set or the EPA sample against the embedded month must
   pass, not skip: on the refresh's bump PR they fail it, naming the month,
   if the new month breaks them ([the fixture](#vocabularies)).
 - `import.yml`, **Tests**, on `pkg/`, `cmd/`, `go.mod`, `go.sum`,
@@ -438,6 +438,41 @@ drift. Every data
 month publishes the vocabulary: the monthly refresh builds it against the
 new month and its data release carries `epa-vehicles.jsonl` (below).
 
+### The demo set
+
+[`pkg/ui/demo/`](pkg/ui/demo) is the demo set
+([#278](https://github.com/joshuasprow/nitrovin/issues/278)): seven
+hand-authored, invented files named `demo-*` (a part spine, a part
+vocabulary, a vehicle vocabulary of popular vPIC models, an extension set,
+a catalog, a shelf and a yard), and `demo-examples.json`, the requests that
+show each feature, each with the user stories of #278 it shows. They are
+not fixtures: no test but the demo's own reads them, and they stay small
+(15 kB) because `pkg/ui` embeds them, so the server publishes them and the
+module knows its list. Every number, location and field value in them says
+it is invented (`DEMO-`, `demo-north`, `demo: …`), and no field name looks
+personal.
+
+To change it, edit the files and the list together. The list is the fit
+page's examples while the demo's catalog answers it, and
+[The demo set](docs/vocabularies.md#the-demo-set) walks through the same
+requests in the same order (`TestDemoWalkthrough` holds the two alike).
+`TestLibraryDemoFit` (`pkg/ui`) loads the set as Load the demo does and
+asks every request of the list, and a sweep over its vehicles, VINs, part
+types, part codes, fitments, sides and stock, of the browser's `Library`
+and of a server's translator on the same files, byte for byte, and holds
+each request to what its stories promise (`demoPromises`): a story the list
+names must have a promise there, and every promise a request. Its VINs are
+synthetic, with valid check digits, built on real patterns so they decode
+to the intended model (`nitrovin decode --shape nitrovin <vin>` shows
+which).
+
+`TestDemoCheck` (`cmd/nitrovin`) runs `nitrovin vocab check pkg/ui/demo`
+on the embedded month, which must find nothing (the set has no deliberate
+drift), compiles its catalog, and decodes each VIN to the model, year and
+drive type its stories rest on. `contract.yml` requires it, so a month that
+retires one of the set's vPIC ids or qualifier values fails the refresh's
+bump PR: fix the set, never skip.
+
 ## The surfaces
 
 `cmd/nitrovin` is the binary. Each command lives in its own file and
@@ -673,7 +708,10 @@ waiting for the old release's tabs to close, with Update now, which hands
 the page to the new worker and reloads), swaps the worker's panel
 (`/ui/files`: the merged catalog, each file marked by where it lives, with
 its drift) over the
-server's catalog, and hands picked or dropped files, EPA's on a click, and each
+server's catalog, and hands picked or dropped files, EPA's on a click, the
+demo set on another (its vocabularies as one batch, its catalog compiled as
+a picked one is, then its shelf and yard, the files of an older demo
+removed first), and each
 target ticked or cleared to it by `postMessage`, never in a request,
 giving up on a load after a minute without progress, and saying in words
 why a load cannot be taken. After a load or a
@@ -793,6 +831,18 @@ memory, and checks the dialog's first opening drops a compile's leftovers.
 With a 2,000-row shelf and a 3,000-VIN yard loaded, the module stays within
 64 MiB, and the fit page and the panel after a start of the module read the
 catalog only as a fit does.
+
+`TestWorkerDemo` (`workerdemo_test.go`) clicks Load the demo against a
+server that loaded nothing, as nitrovin.app: without JavaScript the dialog
+says the demo needs it, and a link to one of its requests says how to load
+it; with it, the catalog compiles in the browser, the fit page offers the
+demo's list of requests, and each, clicked, shows what its user stories
+promise and is the server's page on the same files (`serve --vocab
+pkg/ui/demo`), at a phone's width too, audited by axe. A demo file of
+another version makes the offer a refresh, which reloads it; it survives a
+reload, Remove the demo removes every file of it, and the only bodies the
+server ever gets are the yard's VINs, in decode batches. It logs the
+module's retained memory with the demo loaded.
 
 `cmd/libnitrovin` is the C library (`-buildmode=c-shared`, no data).
 `scripts/libnitrovin.sh <dir> [<goos>/<goarch>…]` builds it for all six

@@ -68,6 +68,9 @@ type fitPage struct {
 	// NoCatalog says, before anything is asked, that no catalog is loaded
 	// here; "" when one is.
 	NoCatalog string
+	// Demo marks a page the demo set's catalog answers, which says its
+	// data is invented.
+	Demo bool
 	// Result is the answer, nil before anything is asked and for a
 	// refusal.
 	Result                    *fitResult
@@ -353,8 +356,12 @@ func (h *Handler) fit(r *http.Request) (view, error) {
 	c := h.newFitControls(cat, raw, q, stock)
 	page.Controls = c
 	catalogName := catalogOf(info)
+	page.Demo = isDemoCatalog(info)
 	if catalogName == "" {
 		page.NoCatalog = noCatalogText
+		if h.demoOffered() {
+			page.NoCatalog += " " + demoLoadText
+		}
 	}
 	refuse := func(err error) (view, error) {
 		var field, detail string
@@ -375,7 +382,11 @@ func (h *Handler) fit(r *http.Request) (view, error) {
 		return strings.HasPrefix(k, "from.") && k != "from.vocabulary"
 	})
 	if !asked {
-		if malformed == nil && catalogName != "" {
+		switch {
+		case malformed != nil || catalogName == "":
+		case page.Demo:
+			c.Examples = demoExamples(info, cat)
+		default:
 			c.Examples = h.fitExamples(r.Context(), catalogName, stock)
 		}
 		if malformed != nil {
@@ -403,6 +414,9 @@ func (h *Handler) fit(r *http.Request) (view, error) {
 	res, err := h.newFitResult(req, q, answer, cat, info, stock)
 	if err != nil {
 		return view{}, err
+	}
+	if res.Status == contract.FitNoCatalog && h.demoOffered() {
+		res.Sentence += " " + demoLoadText
 	}
 	page.Result = res
 	v.title = res.Heading

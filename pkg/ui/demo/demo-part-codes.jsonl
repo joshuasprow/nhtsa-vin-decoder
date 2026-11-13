@@ -1,0 +1,8 @@
+{"format":1,"kind":"vocabulary","name":"demo-part-codes","version":"2026.11-demo","subject":"part","fields":["code"],"spine":"demo-part-types"}
+{"entry":{"code":"DEMO-ALT"},"mappings":[{"id":"alternator"}],"note":"demo: an invented parts system's code"}
+{"entry":{"code":"DEMO-ROT"},"mappings":[{"id":"brake-rotor-front"},{"id":"brake-rotor-rear"}],"note":"demo: one code files every brake rotor"}
+{"entry":{"code":"DEMO-LMP"},"mappings":[{"id":"headlamp"},{"id":"fog-lamp"}],"note":"demo: one code files every lamp"}
+{"entry":{"code":"DEMO-MIR"},"mappings":[{"id":"mirror"}]}
+{"entry":{"code":"DEMO-STR"},"mappings":[{"id":"starter"}]}
+{"entry":{"code":"DEMO-4X4"},"mappings":[{"id":"transfer-case"}]}
+{"entry":{"code":"DEMO-SEAT"},"mappings":[],"note":"demo: listed, not yet placed on the spine"}

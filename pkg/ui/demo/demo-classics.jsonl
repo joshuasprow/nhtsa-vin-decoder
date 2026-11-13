@@ -1,0 +1,4 @@
+{"format":1,"kind":"extension-set","name":"demo-classics","version":"2026.11-demo"}
+{"id":"studebaker","make_name":"Studebaker"}
+{"id":"studebaker-champion","make":"ext:demo-classics/studebaker","name":"Champion"}
+{"id":"vw-type-2","make":482,"name":"Type 2"}

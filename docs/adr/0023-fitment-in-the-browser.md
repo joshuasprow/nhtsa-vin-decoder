@@ -666,3 +666,13 @@ page starts, as decided, and a Service Worker's events stay short.
   4. stock files in the browser.
 - The map's open question on the `/ui` pages for fitment is settled for pages; MCP
   already has `fit`.
+- **The demo set** ([#278](https://github.com/joshuasprow/nitrovin/issues/278))
+  follows this ADR as it is. The Vocabularies dialog offers it beside EPA's
+  vocabulary (ADR 0013) as one "Load the demo": its vocabularies load as one
+  batch, its catalog compiles in the browser as a picked one does, and its
+  shelf and yard load beside it, the yard's VINs alone reaching the server.
+  One catalog per nitrovin holds: the offer is refused, in words, while the
+  server or the browser holds another catalog, and Remove the demo removes
+  all its files together. The server loads no demo; `serve --vocab
+  pkg/ui/demo` serves the same files. With the demo loaded, Chrome retained
+  19.8 MiB of Go heap and 53.4 MiB of WebAssembly memory, within 64 MiB.

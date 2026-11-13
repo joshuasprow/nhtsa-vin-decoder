@@ -226,7 +226,7 @@ vocab.js holds the worker in control to. */}}
 </div>
 <p>A vocabulary is one system's names for vehicles or parts. Load yours; it stays in this browser.</p>
 <p id="browser-status" role="status" aria-live="polite">{{if .Worker -}}
-Loading your own files needs JavaScript. Your files never leave this browser. Translating through vPIC and this server's files works without it.
+Loading your own files needs JavaScript. Your files never leave this browser. Translating through vPIC and this server's files works without it.{{if .Demo}} The demo set loads into this browser in one click, so it needs JavaScript too.{{end}}
 {{- else -}}
 This nitrovin was built without its browser translator (scripts/sw.sh builds it; release builds include it), so it cannot load your own files. Translation through vPIC and this server's own files works.
 {{- end}}</p>

@@ -185,11 +185,13 @@ type StoredFile struct {
 	// left out.
 	Drift []contract.DriftCount
 	// Catalog marks the browser's compiled catalog, Fitments its count
-	// of fitments, and Skipped the drift kinds its compile could not
-	// measure (ADR 0023: model-years, model-qualifier in a browser).
+	// of fitments, Skipped the drift kinds its compile could not measure
+	// (ADR 0023: model-years, model-qualifier in a browser), and Source
+	// the blake3 in hex of the JSON Lines it was compiled from.
 	Catalog  bool
 	Fitments int
 	Skipped  []string
+	Source   string
 	// Holds is a stock file's shelf or yard, and StockCatalog a shelf's
 	// catalog.
 	Holds, StockCatalog string
@@ -581,6 +583,7 @@ func (l *Library) list(s *shelf, hs []*held) []StoredFile {
 				for _, k := range cc.Skipped {
 					out[i].Skipped = append(out[i].Skipped, string(k))
 				}
+				out[i].Source = hex.EncodeToString(cc.SourceHash[:])
 			}
 		}
 		if h.catalog && h.fault != "" && l.serverCatalog == "" {

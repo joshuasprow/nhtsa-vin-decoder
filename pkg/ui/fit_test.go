@@ -517,12 +517,13 @@ func TestNavigation(t *testing.T) {
 
 // TestBrowserFit: the Service Worker answers the fit page with the same
 // handler, over the browser's Library, which holds no catalog: no-catalog,
-// in words, and no link to /v1, which is the server's.
+// in words, with how to load the demo set, and no link to /v1, which is
+// the server's.
 func TestBrowserFit(t *testing.T) {
 	l := open(t, server(t, "yard"), newDisk())
 	h := NewInBrowser(l, BrowserConfig{}, log.New(io.Discard, "", 0))
 	body := getFit(t, h, "/ui/fit?from.model=1938&model_year=2010", 200)
-	if got := statusOf(t, body); got != noCatalogText {
+	if got := statusOf(t, body); got != noCatalogText+" "+demoLoadText {
 		t.Errorf("the browser's fit: %q", got)
 	}
 	if strings.Contains(body, `href="/v1/fit`) {
