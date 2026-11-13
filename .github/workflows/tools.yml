@@ -4,12 +4,12 @@
 # - tools, on a pull request that touches the pins, a workflow or wrangler's
 #   pin: on Linux x64 and macOS arm64 (each its own mise.lock entries), every
 #   pinned tool installed afresh with `mise install --locked`, no cache, then
-#   `scripts/tools.sh check`: each tool on PATH reports exactly its pin. Then
+#   `scripts/tools.sh check`: each tool on PATH reports exactly its pin, and
+#   corgi's held Node (bench/decode/mise.toml) is docs/benchmarks.json's. Then
 #   `scripts/tools.sh refuse`: a copy of mise.lock with one checksum changed
 #   must make `mise install --locked` fail.
 # - outdated, every Monday or by hand: the pins with a newer release upstream
-#   (`scripts/tools.sh outdated`; bench/decode/mise.toml's Node 22 against
-#   the newest 22.x), as one open issue, "Tools: newer releases
+#   (`scripts/tools.sh outdated`), as one open issue, "Tools: newer releases
 #   upstream", whose body each run rewrites; closed when every pin is current.
 #   It never bumps: a bump is a pull request (mise.toml's header).
 name: Tools
@@ -26,6 +26,9 @@ on:
       - scripts/oracle.sh
       - deploy/cloudflare/worker/package.json
       - deploy/cloudflare/worker/package-lock.json
+      # corgi's held Node, which check holds to the one benchmarks.json records.
+      - bench/decode/mise.toml
+      - docs/benchmarks.json
   schedule:
     - cron: "23 7 * * 1"
   workflow_dispatch:
@@ -91,7 +94,7 @@ jobs:
               cat "$RUNNER_TEMP/rows.md"
               echo
               # shellcheck disable=SC2016 # Markdown code spans, not expansions
-              echo 'Bump in a pull request: edit `mise.toml`, run `mise lock --platform macos-arm64,macos-x64,linux-x64,linux-arm64,windows-x64` and commit both files (Node 22, for corgi, likewise in `bench/decode`); wrangler is `npm install -E wrangler@<version>` in `deploy/cloudflare/worker`; postgres:17 is its digest in the workflows and `scripts/oracle.sh`; htmx is `dist/htmx.min.js` of `npm pack htmx.org@<version>` as `pkg/ui/static/htmx.min.js`, with `htmxVersion` in `pkg/ui/ui.go` and the hash in `TestHTMXPin`; axe-core is `axe.min.js` of `npm pack axe-core@<version>` as `cmd/nitrovin/testdata/axe.min.js`, with `axeVersion` and `axeSHA256` in `cmd/nitrovin/browser_test.go`.'
+              echo 'Bump in a pull request: edit `mise.toml`, run `mise lock --platform macos-arm64,macos-x64,linux-x64,linux-arm64,windows-x64` and commit both files; wrangler is `npm install -E wrangler@<version>` in `deploy/cloudflare/worker`; postgres:17 is its digest in the workflows and `scripts/oracle.sh`; htmx is `dist/htmx.min.js` of `npm pack htmx.org@<version>` as `pkg/ui/static/htmx.min.js`, with `htmxVersion` in `pkg/ui/ui.go` and the hash in `TestHTMXPin`; axe-core is `axe.min.js` of `npm pack axe-core@<version>` as `cmd/nitrovin/testdata/axe.min.js`, with `axeVersion` and `axeSHA256` in `cmd/nitrovin/browser_test.go`.'
             } >"$RUNNER_TEMP/body.md"
             cat "$RUNNER_TEMP/body.md" >>"$GITHUB_STEP_SUMMARY"
             if [ -n "$issue" ]; then
