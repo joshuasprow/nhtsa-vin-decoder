@@ -2,9 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"html"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -36,6 +36,43 @@ func demoExamples(t *testing.T) []demoExample {
 	return out
 }
 
+// demoTab is the fit page's tab that offers href, a request of the demo's
+// list: the one whose form asks its from, a VIN, a vehicle vocabulary's
+// entry, a vPIC id or an extension, or a fitment's key.
+func demoTab(t *testing.T, href string) string {
+	t.Helper()
+	i := strings.IndexByte(href, '?')
+	if i < 0 {
+		t.Fatalf("%s: no query", href)
+	}
+	q, err := url.ParseQuery(href[i+1:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	switch {
+	case q.Has("from.vin"):
+		return "vin"
+	case q.Has("from.vocabulary"):
+		return "entry"
+	case q.Has("from.make"), q.Has("from.model"), q.Has("from.ext"):
+		return "id"
+	case q.Has("from.fitment.type"), q.Has("from.fitment.number"):
+		return "fitment"
+	}
+	t.Fatalf("%s: no from the fit page asks", href)
+	return ""
+}
+
+// demoOf is the request of the demo's list that shows story.
+func demoOf(t *testing.T, examples []demoExample, story int) demoExample {
+	t.Helper()
+	i := slices.IndexFunc(examples, func(e demoExample) bool { return slices.Contains(e.Stories, story) })
+	if i < 0 {
+		t.Fatalf("no request of the demo's list shows story %d", story)
+	}
+	return examples[i]
+}
+
 // demoPageShows is what the page of the demo's request that shows a user
 // story of #278 says, in words, so a visitor sees what the story promises.
 var demoPageShows = map[int][]string{
@@ -65,7 +102,8 @@ var demoPageShows = map[int][]string{
 // dialog says the demo needs it, and a link to one of its requests says
 // how to load it. "Load the demo" loads it in one click, its catalog
 // compiled in the browser; the fit page then offers its list of requests,
-// and each, clicked, shows what its user stories promise, as the server
+// each tab the ones its own form asks, every tab at least one, and each,
+// clicked from its tab, shows what its user stories promise, as the server
 // draws it from the same files (`serve --vocab pkg/ui/demo`), at a
 // phone's width too. It survives a reload, Remove the demo removes every
 // file of it, and the only requests that ever carried a body to the
@@ -126,33 +164,40 @@ func TestWorkerDemo(t *testing.T) {
 	tb.do(chromedp.Click(chromedp.CSS("#load-epa")))
 	tb.waitPrefix("#load-status", "Loaded ")
 
-	// The fit page offers the demo's list, and each request shows what
-	// its stories promise, as the server draws it on the same files.
+	// The fit page offers the demo's list, each tab the requests its own
+	// form asks, and each request shows what its stories promise, as the
+	// server draws it on the same files.
 	same := vocabServer(t, nil, demoDir, epaPath)
 	v1 := regexp.MustCompile(`<p class="hint"><a href="/v1/fit[^"]*"[^>]*>The same request on /v1</a></p>`)
 	tb.closeVocabularies()
+	for _, tab := range []string{"vin", "entry", "id", "fitment"} {
+		var want []string
+		for _, e := range examples {
+			if demoTab(t, e.Href) == tab {
+				want = append(want, e.Href)
+			}
+		}
+		tb.do(chromedp.Navigate(srv.URL + "/ui/fit?tab=" + tab))
+		tb.ticked()
+		hrefs := eval[[]string](tb, `[...document.querySelectorAll("#fit-controls a.example")].map(a => a.getAttribute("href"))`)
+		if len(hrefs) == 0 || !slices.Equal(hrefs, want) {
+			t.Fatalf("the fit page's %s tab's examples:\n%s\nwant the demo's requests of that tab:\n%s", tab, strings.Join(hrefs, "\n"), strings.Join(want, "\n"))
+		}
+	}
 	tb.do(chromedp.Navigate(srv.URL + "/ui/fit"))
 	tb.ticked()
-	var hrefs, want []string
-	for _, e := range examples {
-		want = append(want, e.Href)
-	}
-	hrefs = eval[[]string](tb, `[...document.querySelectorAll("#fit-controls a.example")].map(a => a.getAttribute("href"))`)
-	if !slices.Equal(hrefs, want) {
-		t.Fatalf("the fit page's examples:\n%s\nwant the demo's list:\n%s", strings.Join(hrefs, "\n"), strings.Join(want, "\n"))
-	}
 	bare := eval[string](tb, `fetch("/ui/fit", {headers: {"HX-Request": "true"}}).then(r => r.text())`)
 	if w := mainOf(t, same, srv.URL, "/ui/fit", true); bare != w {
 		t.Errorf("the worker's fit page differs from the server's\nworker: %s\nserver: %s", bare, w)
 	}
 	covered := map[int]bool{}
-	for i, e := range examples {
-		tb.do(chromedp.Navigate(srv.URL + "/ui/fit"))
+	for _, e := range examples {
+		tb.do(chromedp.Navigate(srv.URL + "/ui/fit?tab=" + demoTab(t, e.Href)))
 		tb.ticked()
-		tb.do(chromedp.Click(chromedp.CSS(fmt.Sprintf("#fit-controls li:nth-child(%d) a.example", i+1))))
+		tb.do(chromedp.Click(chromedp.CSS(`#fit-controls a.example[href="` + e.Href + `"]`)))
 		tb.until(e.Label, `location.pathname + location.search === `+jsString(e.Href)+` && document.getElementById("result") !== null`)
 		words := strings.Join(strings.Fields(html.UnescapeString(tag.ReplaceAllString(tb.html("#ui-main"), " "))), " ")
-		if e.Href != examples[len(examples)-1].Href && !strings.Contains(words, "The demo set is loaded: every part number, location, stock row and field value in it is invented.") {
+		if strings.HasPrefix(e.Href, "/ui/fit?") && !strings.Contains(words, "The demo set is loaded: every part number, location, stock row and field value in it is invented.") {
 			t.Errorf("%s: the page does not say the demo's data is invented", e.Href)
 		}
 		for _, story := range e.Stories {
@@ -176,7 +221,7 @@ func TestWorkerDemo(t *testing.T) {
 	}
 
 	// A phone's width: the candidates with their stock read there.
-	tb.do(chromedp.Navigate(srv.URL + examples[10].Href))
+	tb.do(chromedp.Navigate(srv.URL + demoOf(t, examples, 16).Href))
 	tb.wait(`#result[data-kind="candidates"]`)
 	tb.do(chromedp.EmulateViewport(390, 844))
 	if !eval[bool](tb, `document.documentElement.scrollWidth <= innerWidth`) {
@@ -186,7 +231,7 @@ func TestWorkerDemo(t *testing.T) {
 	tb.do(chromedp.EmulateViewport(1280, 900))
 
 	// What the module holds with the demo loaded.
-	timing := tb.timeFetch(examples[8].Href + pinned).Timing
+	timing := tb.timeFetch(demoOf(t, examples, 14).Href + pinned).Timing
 	memory, heap := timingDesc(timing, "memory"), timingDesc(timing, "heap")
 	t.Logf("retained with the demo loaded: Go heap %.1f MiB, WebAssembly memory %.1f MiB", float64(heap)/(1<<20), float64(memory)/(1<<20))
 	if memory == 0 || memory > 64<<20 {

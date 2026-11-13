@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -179,9 +180,12 @@ func query(t *testing.T, u string) url.Values {
 }
 
 // TestFitPageEmpty: before anything is asked, the page has its tabs and
-// form, each tab a link with its own form, and examples from the
-// catalog's first fitment, each a fit with an answer; without a catalog
-// it says so, as a sentence, and offers none.
+// form, each tab a link with its own form, and each tab examples of its
+// own from the catalog's first fitment, each a fit with an answer: the
+// entry tab its first vehicle, the fitment tab the fitment; the VIN tab,
+// a catalog naming no VIN, and the vPIC id tab, the catalog's vehicles
+// being entries, none. Without a catalog it says so, as a sentence, and
+// offers none.
 func TestFitPageEmpty(t *testing.T) {
 	h := fitHandler(t)
 	body := getFit(t, h, "/ui/fit", 200)
@@ -199,17 +203,33 @@ func TestFitPageEmpty(t *testing.T) {
 			t.Errorf("GET /ui/fit: lacks %s\n%s", want, body)
 		}
 	}
-	examples := hrefs(section(t, body, `<ul class="examples"`, "</ul>"))
-	want := []string{
-		"/ui/fit?from.entry.make=Dodge&from.entry.model=Ram+1500&from.vocabulary=catalog-models&model_year=2009",
-		"/ui/fit?from.fitment.number=BR-2001&from.fitment.type=brake-rotor-front&stock=shelf&stock=yard",
+	if strings.Contains(body, `class="examples"`) {
+		t.Errorf("the VIN tab offers examples, a catalog naming no VIN\n%s", body)
 	}
-	if strings.Join(examples, "\n") != strings.Join(want, "\n") {
-		t.Errorf("examples %q; want %q", examples, want)
-	}
-	for _, e := range examples {
-		if b := getFit(t, h, e, 200); statusOf(t, b) == "" || !strings.Contains(b, `data-status="found"`) {
-			t.Errorf("example %s: no answer found\n%s", e, b)
+	ram := "/ui/fit?from.entry.make=Dodge&from.entry.model=Ram+1500&from.vocabulary=catalog-models&model_year=2009"
+	for _, c := range []struct {
+		tab  string
+		want []string
+	}{
+		{"/ui/fit?tab=vin", nil},
+		{"/ui/fit?tab=entry", []string{ram}},
+		{"/ui/fit?from.vocabulary=catalog-models", []string{ram}},
+		// Another vocabulary selected: the example is catalog-models'.
+		{"/ui/fit?from.vocabulary=yard", nil},
+		{"/ui/fit?tab=id", nil},
+		{"/ui/fit?tab=fitment", []string{"/ui/fit?from.fitment.number=BR-2001&from.fitment.type=brake-rotor-front&stock=shelf&stock=yard"}},
+	} {
+		var examples []string
+		if b := getFit(t, h, c.tab, 200); strings.Contains(b, `<ul class="examples"`) {
+			examples = hrefs(section(t, b, `<ul class="examples"`, "</ul>"))
+		}
+		if !slices.Equal(examples, c.want) {
+			t.Errorf("%s: examples %q; want %q", c.tab, examples, c.want)
+		}
+		for _, e := range examples {
+			if b := getFit(t, h, e, 200); statusOf(t, b) == "" || !strings.Contains(b, `data-status="found"`) {
+				t.Errorf("example %s: no answer found\n%s", e, b)
+			}
 		}
 	}
 
@@ -613,15 +633,15 @@ func TestFitPageExamplesAskNoStock(t *testing.T) {
 		b.f.Stock[i] = countedSource{src, &lookups}
 	}
 	h := New(b, log.New(io.Discard, "", 0))
-	body := getFit(t, h, "/ui/fit", 200)
+	body := getFit(t, h, "/ui/fit?tab=fitment", 200)
 	if n := lookups.Load(); n != 0 {
 		t.Errorf("the empty page asked the stock sources %d times", n)
 	}
 	examples := hrefs(section(t, body, `<ul class="examples"`, "</ul>"))
-	if len(examples) != 2 || strings.Join(query(t, examples[1])["stock"], ",") != "shelf,yard" {
+	if len(examples) != 1 || strings.Join(query(t, examples[0])["stock"], ",") != "shelf,yard" {
 		t.Fatalf("examples %q", examples)
 	}
-	getFit(t, h, examples[1], 200)
+	getFit(t, h, examples[0], 200)
 	if lookups.Load() == 0 {
 		t.Errorf("the fitment example asked no stock")
 	}

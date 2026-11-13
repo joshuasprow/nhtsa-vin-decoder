@@ -982,8 +982,13 @@ ids fails before a release ships it.
 **A walkthrough.** With the demo loaded, the fit page's examples (Try
 one) are these requests, kept with the demo set in
 [`demo-examples.json`](../pkg/ui/demo/demo-examples.json), one for each
-thing to see. Each is a link on the page, and the same query on `/v1/fit`
-(the last, a translation, on `/v1/translate`):
+thing to see. Each tab lists the requests its own form asks, as the
+translate page's tabs do: a request whose from is a VIN on the VIN tab,
+and so on, with its part, related vehicles and stock. Each is a link on
+the page, and the same query on `/v1/fit` (the entry tab's last, a
+translation, on `/v1/translate`).
+
+On the **VIN** tab:
 
 1. `/ui/fit?from.vin=1FTEW1EG7FFA12345`: a 2015 F-150 with four-wheel drive,
    from its VIN: its part types, each with its count of fitments.
@@ -995,37 +1000,48 @@ thing to see. Each is a link on the page, and the same query on `/v1/fit`
    back with Drive Type not checked (`unconfirmed`).
 4. `/ui/fit?from.vin=1FTEW1CG3FFA12345&part.spine=demo-part-types&part.id=brake-rotor-front`:
    a two-wheel-drive F-150: the 4WD rotor's qualifier rules it out.
-5. `/ui/fit?from.vocabulary=demo-vehicles&from.entry.make=Toyota&from.entry.model=Camry&model_year=2018&part.spine=demo-part-types&part.id=fog-lamp&side=left`:
-   the side filter keeps the left fog lamp and the one for both sides.
-6. `/ui/fit?from.vin=1GCVKREC6EZ123456&part.spine=demo-part-types&part.id=brake-rotor-rear`:
+5. `/ui/fit?from.vin=1GCVKREC6EZ123456&part.spine=demo-part-types&part.id=brake-rotor-rear`:
    a 2014 Silverado's rear rotors, listed under the front: fit follows
    the redirect and says so.
-7. `/ui/fit?from.fitment.type=alternator&from.fitment.number=DEMO-0901`: a
-   retired number lands on its successor, `DEMO-1001`.
-8. `/ui/fit?from.fitment.type=alternator&from.fitment.number=DEMO-5001`: a
-   fitment's vehicles and years, a Camry and a RAV4.
-9. `/ui/fit?from.vocabulary=demo-vehicles&from.entry.make=Honda&from.entry.model=Civic&model_year=2018&related=true&stock=yard`:
-   related vehicles, the CR-V sharing the Civic's alternator and starter,
-   with the yard's count of each.
-10. `/ui/fit?from.vin=2HKRW2H53KH612345&part.vocabulary=demo-part-codes&part.entry.code=DEMO-ROT`:
-    a part by a parts system's code, translated onto both rotors.
-11. `/ui/fit?from.vin=1FTEW1EG7FFA12345&part.spine=demo-part-types&part.id=alternator&stock=shelf`:
-    shelf stock with its locations; `DEMO-S-02`, filed under the retired
-    `DEMO-0901`, under its successor, marked; and the shelf's release
-    `DEMO-1` marked as another than the catalog's (`catalog_mismatch`).
-12. `/ui/fit?from.vin=4T1B11HK7JU512345&part.spine=demo-part-types&part.id=alternator&stock=yard`:
-    the yard's vehicles the part would come off, matched by their VINs.
-13. `/ui/fit?from.vin=1FTEW1EG7FFA12345&part.spine=demo-part-types&part.id=brake-rotor-front&stock=shelf&stock=yard&location=demo-north`:
-    stock at one location.
-14. `/ui/fit?from.ext=ext:demo-classics/vw-type-2&model_year=1974`: a
-    vehicle vPIC lacks, minted by the extension set, with its parts.
-15. `/ui/fit?from.vin=1C6RR7LT6FS512345`: a 2015 Ram 1500, which vPIC
+6. `/ui/fit?from.vin=2HKRW2H53KH612345&part.vocabulary=demo-part-codes&part.entry.code=DEMO-ROT`:
+   a part by a parts system's code, translated onto both rotors.
+7. `/ui/fit?from.vin=1FTEW1EG7FFA12345&part.spine=demo-part-types&part.id=alternator&stock=shelf`:
+   shelf stock with its locations; `DEMO-S-02`, filed under the retired
+   `DEMO-0901`, under its successor, marked; and the shelf's release
+   `DEMO-1` marked as another than the catalog's (`catalog_mismatch`).
+8. `/ui/fit?from.vin=4T1B11HK7JU512345&part.spine=demo-part-types&part.id=alternator&stock=yard`:
+   the yard's vehicles the part would come off, matched by their VINs.
+9. `/ui/fit?from.vin=1FTEW1EG7FFA12345&part.spine=demo-part-types&part.id=brake-rotor-front&stock=shelf&stock=yard&location=demo-north`:
+   stock at one location.
+10. `/ui/fit?from.vin=1C6RR7LT6FS512345`: a 2015 Ram 1500, which vPIC
     decodes to make Ram, model 1500, and the vehicle vocabulary maps to the
     catalog's `Dodge Ram 1500`.
-16. `/?from.vocabulary=demo-vehicles&from.entry.make=Chevrolet&from.entry.model=Silverado+1500&model_year=2011&to=epa-vehicles`:
-    the catalog's Silverado 1500 in [EPA's vocabulary](#epas-vocabulary),
-    loaded beside it (the page offers only the requests whose files are
-    loaded).
+
+On the **Year, make and model** tab, entries of `demo-vehicles`:
+
+1. `/ui/fit?from.vocabulary=demo-vehicles&from.entry.make=Toyota&from.entry.model=Camry&model_year=2018&part.spine=demo-part-types&part.id=fog-lamp&side=left`:
+   the side filter keeps the left fog lamp and the one for both sides.
+2. `/ui/fit?from.vocabulary=demo-vehicles&from.entry.make=Honda&from.entry.model=Civic&model_year=2018&related=true&stock=yard`:
+   related vehicles, the CR-V sharing the Civic's alternator and starter,
+   with the yard's count of each.
+3. `/?from.vocabulary=demo-vehicles&from.entry.make=Chevrolet&from.entry.model=Silverado+1500&model_year=2011&to=epa-vehicles`:
+   the catalog's Silverado 1500 in [EPA's vocabulary](#epas-vocabulary),
+   loaded beside it (the page offers only the requests whose files are
+   loaded). It is a translation, on the translate page, but its from is
+   an entry of `demo-vehicles`, what this tab asks for, so it is listed
+   here: a catalog's vehicle in another vocabulary's names.
+
+On the **vPIC id** tab:
+
+1. `/ui/fit?from.ext=ext:demo-classics/vw-type-2&model_year=1974`: a
+   vehicle vPIC lacks, minted by the extension set, with its parts.
+
+On the **Fitment** tab:
+
+1. `/ui/fit?from.fitment.type=alternator&from.fitment.number=DEMO-0901`: a
+   retired number lands on its successor, `DEMO-1001`.
+2. `/ui/fit?from.fitment.type=alternator&from.fitment.number=DEMO-5001`: a
+   fitment's vehicles and years, a Camry and a RAV4.
 
 A link to one of them names the demo's files, so it answers in a browser
 that holds the demo; elsewhere, where the demo can load (no catalog on the

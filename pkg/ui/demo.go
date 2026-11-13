@@ -35,9 +35,10 @@ import (
 // every file of it at once.
 //
 // demo/demo-examples.json is the list of requests that show each feature,
-// each with the user stories of #278 it shows: the fit page offers them
-// as its examples while the demo's catalog answers it, and
-// docs/vocabularies.md walks through the same list.
+// each with the user stories of #278 it shows, grouped by the fit page's
+// tab its from is asked on: the fit page offers each tab its own as its
+// examples while the demo's catalog answers it, and docs/vocabularies.md
+// walks through the same list, tab by tab.
 
 //go:embed demo
 var demoFS embed.FS
@@ -190,7 +191,7 @@ func isDemoCatalog(info contract.Info) bool {
 // each whose files are loaded, among cat (the vocabularies, extension sets
 // and spines) or info's files (the catalog and stock), with the kinds of
 // stock it asks for. A request of another page than the fit page loads
-// whole (Elsewhere).
+// whole (Elsewhere). The fit page keeps the current tab's (ownExamples).
 func demoExamples(info contract.Info, cat []contract.CatalogEntry) []example {
 	loaded := map[string]bool{}
 	for _, f := range info.Vocabularies {

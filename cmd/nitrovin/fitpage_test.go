@@ -185,7 +185,9 @@ func fitInBrowser(t *testing.T, path, base string, log *requestLog, js bool) {
 		tb.audit(name)
 	}
 
-	// An example: the 2009 Ram's part types.
+	// An example, on the entry tab, which offers the entries alone: the
+	// 2009 Ram's part types.
+	step("the entry tab", `#fit-tab-entry`, `a.example`, "/ui/fit?tab=entry")
 	ram := "/ui/fit?from.entry.make=Dodge&from.entry.model=Ram+1500&from.vocabulary=catalog-models&model_year=2009"
 	step("an example", `a.example[href="`+ram+`"]`, `#result[data-kind="part-types"]`, ram)
 	// Picking the mirror: its candidates, with stock.
