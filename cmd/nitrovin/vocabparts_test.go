@@ -183,6 +183,7 @@ func partTargetsJSOn(t *testing.T, path, base string, wire *wireLog, paths []str
 
 	// A target cleared stays cleared through a reload and a cold start.
 	tb.waitState("ready")
+	tb.ticked()
 	tb.do(chromedp.Click(chromedp.CSS(partsForm + `input[value="shelf"]`)))
 	cleared := selection{"bins": {"bin-labels"}, "parts": {"listing"}}
 	waitSelection(tb, "clearing shelf", cleared)
@@ -193,10 +194,12 @@ func partTargetsJSOn(t *testing.T, path, base string, wire *wireLog, paths []str
 	// shelf's example goes to listing, ticked on its spine, by htmx.
 	const shelfExample = "/?from.entry.category=Brake+Pads&from.vocabulary=shelf&to=listing"
 	tb.open(binsTab)
+	tb.ticked()
 	if got, want := exampleHrefs(tb, "#controls"), []string{"/?from.entry.category=Brake+Pads&from.vocabulary=bin-labels&to=bin-labels"}; !slices.Equal(got, want) {
 		t.Errorf("JS on, the bins tab: examples %q; want %q", got, want)
 	}
 	tb.open(partsTab)
+	tb.ticked()
 	eval[bool](tb, `window.stayed = true`)
 	if got, want := exampleHrefs(tb, "#controls"), []string{listingExample, shelfExample}; !slices.Equal(got, want) {
 		t.Errorf("JS on, the parts tab: examples\n%q\nwant\n%q", got, want)
@@ -216,6 +219,7 @@ func partTargetsJSOn(t *testing.T, path, base string, wire *wireLog, paths []str
 	// A removed file drops out, and its spine's tab with it.
 	tb.open(partsTab)
 	tb.waitState("ready")
+	tb.ticked()
 	tb.do(chromedp.Click(chromedp.CSS(partsForm + `input[value="shelf"]`)))
 	waitSelection(tb, "ticking shelf", loaded)
 	tb.vocabularies()
