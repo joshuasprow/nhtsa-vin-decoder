@@ -559,11 +559,12 @@ func (c *fitControls) ownExamples(exs []example, vocabulary string) []example {
 }
 
 // fitExamples are fits to try on the catalog named, from the tab given:
-// on the fitment tab its first fitment's vehicles; on the entry and the
-// id tab the part types of that fitment's first vehicle, in its first
-// year, which ownExamples keeps on the one its vehicle is asked on; on
-// the VIN tab none, a catalog naming no VIN. A catalog that cannot be
-// read for them is logged, and offers none.
+// on the fitment tab its first fitment's vehicles; on the tab the
+// fitment's first vehicle is asked on, the entry tab for an entry of the
+// catalog's vehicle vocabulary and the id tab for a vPIC make, model or
+// extension, that vehicle's part types in its first year; on any other
+// tab none, the VIN tab's among them, a catalog naming no VIN. A catalog
+// that cannot be read for them is logged, and offers none.
 func (h *Handler) fitExamples(ctx context.Context, catalog string, stock []string, tab string) []example {
 	if tab == fitTabVIN {
 		return nil
@@ -591,31 +592,39 @@ func (h *Handler) fitExamples(ctx context.Context, catalog string, stock []strin
 		}
 		return []example{{Label: label, Hint: "a fitment of " + catalog + ": its vehicles", Href: fitPath + "?" + fitmentQuery(key, nil, stock).Encode()}}
 	}
-	// The fitment's answer names the catalog's vehicle vocabulary: asked
-	// without stock, so drawing the page never waits on a stock source.
-	req, err := contract.ParseFitQuery(fitmentQuery(key, nil, nil))
-	if err != nil {
-		return skip(err)
-	}
-	req.Limit = 1
-	fit, err := h.p.Fit(ctx, req)
-	if err != nil {
-		return skip(err)
-	}
-	if fit.Catalog == nil {
-		return nil
-	}
 	app := line.Applications[0]
-	vq := vehicleQuery(app.Vehicle, fit.Catalog.Vehicles)
-	hint := "a vehicle of " + fit.Catalog.Name + ": its part types"
+	if (app.Vehicle.Entry != nil) != (tab == fitTabEntry) {
+		return nil // the vehicle is asked on the other tab
+	}
+	vehicles := ""
+	if app.Vehicle.Entry != nil {
+		// An entry names its vocabulary, the catalog's vehicle vocabulary,
+		// which the fitment's answer names: asked without stock, so drawing
+		// the page never waits on a stock source.
+		req, err := contract.ParseFitQuery(fitmentQuery(key, nil, nil))
+		if err != nil {
+			return skip(err)
+		}
+		req.Limit = 1
+		fit, err := h.p.Fit(ctx, req)
+		if err != nil {
+			return skip(err)
+		}
+		if fit.Catalog == nil {
+			return nil
+		}
+		vehicles = fit.Catalog.Vehicles
+	}
+	vq := vehicleQuery(app.Vehicle, vehicles)
+	hint := "a vehicle of " + catalog + ": its part types"
 	if y := app.First; y.Valid || app.Last.Valid {
 		if !y.Valid {
 			y = app.Last
 		}
 		vq.Set("model_year", strconv.Itoa(int(y.V)))
-		hint = "a vehicle of " + fit.Catalog.Name + ", model year " + strconv.Itoa(int(y.V)) + ": its part types"
+		hint = "a vehicle of " + catalog + ", model year " + strconv.Itoa(int(y.V)) + ": its part types"
 	}
-	return []example{{Label: vehicleText(app.Vehicle, fit.Catalog.Vehicles, nil), Hint: hint, Href: fitPath + "?" + vq.Encode()}}
+	return []example{{Label: vehicleText(app.Vehicle, vehicles, nil), Hint: hint, Href: fitPath + "?" + vq.Encode()}}
 }
 
 // vehicleQuery is the query of a fit from v, a catalog's vehicle, an

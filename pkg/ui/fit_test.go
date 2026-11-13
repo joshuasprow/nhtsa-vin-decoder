@@ -623,23 +623,52 @@ func (c countedSource) Yard(ctx context.Context, lists []stock.YardQuery, p stoc
 	return c.Source.Yard(ctx, lists, p)
 }
 
-// TestFitPageExamplesAskNoStock: drawing the empty page, its examples
-// among it, asks no stock source, which may be slow or unreachable; the
-// fitment example's link still asks for every kind loaded.
+// countedFits is fitBackend counting its fits.
+type countedFits struct {
+	fitBackend
+	fits *atomic.Int32
+}
+
+func (c countedFits) Fit(ctx context.Context, req contract.FitRequest) (contract.Fit, error) {
+	c.fits.Add(1)
+	return c.fitBackend.Fit(ctx, req)
+}
+
+// TestFitPageExamplesAskNoStock: drawing an empty tab, its examples among
+// it, asks no stock source, which may be slow or unreachable: the entry
+// tab, whose example asks the catalog for its vehicle vocabulary, and
+// the fitment tab, whose example's link still asks for every kind
+// loaded. The id tab, which the catalog's vehicles (entries) are not
+// asked on, asks the catalog for no fit.
 func TestFitPageExamplesAskNoStock(t *testing.T) {
 	b := newFitBackend(t, ".", "fitment", "stock")
-	var lookups atomic.Int32
+	var lookups, fits atomic.Int32
 	for i, src := range b.f.Stock {
 		b.f.Stock[i] = countedSource{src, &lookups}
 	}
-	h := New(b, log.New(io.Discard, "", 0))
-	body := getFit(t, h, "/ui/fit?tab=fitment", 200)
-	if n := lookups.Load(); n != 0 {
-		t.Errorf("the empty page asked the stock sources %d times", n)
+	h := New(countedFits{b, &fits}, log.New(io.Discard, "", 0))
+	examplesOf := func(target string) []string {
+		t.Helper()
+		before := lookups.Load()
+		body := getFit(t, h, target, 200)
+		if n := lookups.Load() - before; n != 0 {
+			t.Errorf("%s asked the stock sources %d times", target, n)
+		}
+		if !strings.Contains(body, `<ul class="examples"`) {
+			return nil
+		}
+		return hrefs(section(t, body, `<ul class="examples"`, "</ul>"))
 	}
-	examples := hrefs(section(t, body, `<ul class="examples"`, "</ul>"))
+	if examples := examplesOf("/ui/fit?tab=entry"); len(examples) != 1 || fits.Load() == 0 {
+		t.Fatalf("the entry tab: examples %q, after %d fits; want the vehicle's, after a fit", examples, fits.Load())
+	}
+	fits.Store(0)
+	if examples := examplesOf("/ui/fit?tab=id"); len(examples) != 0 || fits.Load() != 0 {
+		t.Errorf("the id tab: examples %q, after %d fits; want none, after none", examples, fits.Load())
+	}
+	examples := examplesOf("/ui/fit?tab=fitment")
 	if len(examples) != 1 || strings.Join(query(t, examples[0])["stock"], ",") != "shelf,yard" {
-		t.Fatalf("examples %q", examples)
+		t.Fatalf("the fitment tab: examples %q", examples)
 	}
 	getFit(t, h, examples[0], 200)
 	if lookups.Load() == 0 {
