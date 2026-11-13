@@ -675,4 +675,4 @@ page starts, as decided, and a Service Worker's events stay short.
   server or the browser holds another catalog, and Remove the demo removes
   all its files together. The server loads no demo; `serve --vocab
   pkg/ui/demo` serves the same files. With the demo loaded, Chrome retained
-  19.8 MiB of Go heap and 53.4 MiB of WebAssembly memory, within 64 MiB.
+  19.9 MiB of Go heap and 53.4 MiB of WebAssembly memory, within 64 MiB.

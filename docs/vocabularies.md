@@ -982,7 +982,8 @@ ids fails before a release ships it.
 **A walkthrough.** With the demo loaded, the fit page's examples (Try
 one) are these requests, kept with the demo set in
 [`demo-examples.json`](../pkg/ui/demo/demo-examples.json), one for each
-thing to see. Each is a link on the page, and the same query on `/v1/fit`:
+thing to see. Each is a link on the page, and the same query on `/v1/fit`
+(the last, a translation, on `/v1/translate`):
 
 1. `/ui/fit?from.vin=1FTEW1EG7FFA12345`: a 2015 F-150 with four-wheel drive,
    from its VIN: its part types, each with its count of fitments.
@@ -1027,7 +1028,8 @@ thing to see. Each is a link on the page, and the same query on `/v1/fit`:
     loaded).
 
 A link to one of them names the demo's files, so it answers in a browser
-that holds the demo; anywhere else the page says how to load it.
+that holds the demo; elsewhere, where the demo can load (no catalog on the
+server, no file of a demo name), the page says how to load it.
 
 ## Keeping a vocabulary private
 

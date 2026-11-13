@@ -469,7 +469,11 @@ which).
 `TestDemoCheck` (`cmd/nitrovin`) runs `nitrovin vocab check pkg/ui/demo`
 on the embedded month, which must find nothing (the set has no deliberate
 drift), compiles its catalog, and decodes each VIN to the model, year and
-drive type its stories rest on. `contract.yml` requires it, so a month that
+drive type its stories rest on. `TestDemoHints` holds the pages' word on
+loading the demo (a fit with no catalog, a link naming a demo file, the
+dialog without JavaScript) to where it can load: not beside a server's
+catalog or a file of a demo name, which make the panel refuse it, by the
+same rule (`demoServerRefusal`). `contract.yml` requires them, so a month that
 retires one of the set's vPIC ids or qualifier values fails the refresh's
 bump PR: fix the set, never skip.
 

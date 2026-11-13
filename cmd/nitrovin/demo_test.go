@@ -2,8 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
+
+	"github.com/joshuasprow/nitrovin/pkg/ui"
 )
 
 // demoDir is the demo set (pkg/ui/demo, #278), which `nitrovin serve
@@ -74,6 +80,55 @@ func TestDemoCheck(t *testing.T) {
 		if model != want.model || str("Model Year") != want.year || str("Drive Type") != want.drive || str("Error Code") != "0" {
 			t.Errorf("%s decodes to model %d, %s, drive %q, error code %s; the demo needs model %d, %s, drive %q",
 				vin, model, str("Model Year"), str("Drive Type"), str("Error Code"), want.model, want.year, want.drive)
+		}
+	}
+}
+
+// TestDemoHints: a server with the worker's module tells a visitor to load
+// the demo set only where it can load: on a server with no catalog and no
+// file of a demo name, a fit with no catalog, a link naming a demo file and
+// the dialog without JavaScript say how; beside a server's catalog, or a
+// file named like a demo file, which make the panel refuse the demo, none
+// of them does.
+func TestDemoHints(t *testing.T) {
+	fixtureData(t)
+	module := ui.Worker{Module: []byte("\x00asm"), Exec: []byte("// wasm_exec.js")}
+	const (
+		load   = "open Vocabularies and Load the demo"
+		noJS   = "The demo set loads into this browser in one click, so it needs JavaScript too."
+		noFit  = "/ui/fit?from.vin=1FTEW1EG7FFA12345"
+		byName = "/ui/fit?from.vocabulary=demo-vehicles&from.entry.make=Ford&from.entry.model=F150&model_year=2015"
+	)
+	for _, c := range []struct {
+		name  string
+		paths []string
+		hints bool
+	}{
+		{"nothing loaded", nil, true},
+		{"a catalog on the server", []string{fitmentFixture}, false},
+		{"a file of a demo name on the server", []string{filepath.Join(demoDir, "demo-part-types.jsonl")}, false},
+	} {
+		h := vocabServer(t, &module, c.paths...)
+		page := func(target string, status int) string {
+			t.Helper()
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, httptest.NewRequest("GET", target, nil))
+			if w.Code != status {
+				t.Fatalf("%s, %s: HTTP %d; want %d\n%s", c.name, target, w.Code, status, w.Body)
+			}
+			return text(w.Body.String())
+		}
+		says := map[string]bool{
+			"the dialog":           strings.Contains(page("/", http.StatusOK), noJS),
+			"a link naming a file": strings.Contains(page(byName, http.StatusNotFound), load),
+		}
+		if !slices.Contains(c.paths, fitmentFixture) {
+			says["a fit with no catalog"] = strings.Contains(page(noFit, http.StatusOK), load)
+		}
+		for where, said := range says {
+			if said != c.hints {
+				t.Errorf("%s: %s says how to load the demo: %v; want %v", c.name, where, said, c.hints)
+			}
 		}
 	}
 }

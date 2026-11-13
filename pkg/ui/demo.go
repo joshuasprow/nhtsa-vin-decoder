@@ -137,6 +137,42 @@ func (d *demoSet) file(name string) *demoFile {
 // with the worker's module, which publishes it, and in the browser.
 func (h *Handler) demoOffered() bool { return h.worker != nil || h.lib != nil }
 
+// demoServerRefusal is why the demo set cannot load beside a server whose
+// files are files, in words, "" when it can: the server has a catalog (one
+// catalog per nitrovin), or a file named like one of the demo's (one name
+// is one file). The panel refuses the offer with it, and no page tells a
+// visitor to load the demo while it is not "".
+func demoServerRefusal(files []contract.VocabularyFile) string {
+	for _, f := range files {
+		if f.Kind == string(vocab.KindCatalog) {
+			return fmt.Sprintf("The demo brings its own catalog, and this server has one, %s: one catalog per nitrovin, so the demo cannot load here.", f.Name)
+		}
+	}
+	for _, f := range files {
+		if theDemo().file(f.Name) != nil {
+			return fmt.Sprintf("This server loaded %s, named like a file of the demo's: one name is one file (ADR 0011), so the demo cannot load here.", f.Name)
+		}
+	}
+	return ""
+}
+
+// serverFiles are the server's files as the handler knows them: its own
+// on the server; in the browser, the ones the server gave the worker, its
+// catalog among them.
+func (h *Handler) serverFiles() []contract.VocabularyFile {
+	if h.lib != nil {
+		return h.lib.info.Vocabularies
+	}
+	return h.info().Vocabularies
+}
+
+// demoLoadable reports whether the demo set can load here: it is offered
+// and the server's files refuse it no reason (demoServerRefusal). Only
+// then does a page tell a visitor to load it.
+func (h *Handler) demoLoadable() bool {
+	return h.demoOffered() && demoServerRefusal(h.serverFiles()) == ""
+}
+
 // demoLoadText is what a page says of the demo where a request needs it:
 // how to load it.
 const demoLoadText = "This nitrovin offers a demo set to load into your browser in one click: open Vocabularies and Load the demo."
@@ -234,15 +270,8 @@ func (h *Handler) demoPanel() *demoView {
 		load.Files = append(load.Files, demoLoadFile{Name: f.Name, File: f.FileName, Kind: f.Kind,
 			URL: FilePath(info, contract.VocabularyFile{Name: f.Name, Blake3: f.Blake3})})
 	}
-	if c := h.lib.ServerCatalog(); c != "" {
-		v.Refused = fmt.Sprintf("The demo brings its own catalog, and this server has one, %s: one catalog per nitrovin, so the demo cannot load here.", c)
+	if v.Refused = demoServerRefusal(h.serverFiles()); v.Refused != "" {
 		return v
-	}
-	for _, f := range h.lib.Server() {
-		if d.file(f.Name) != nil {
-			v.Refused = fmt.Sprintf("This server loaded %s, named like a file of the demo's: one name is one file (ADR 0011), so the demo cannot load here.", f.Name)
-			return v
-		}
 	}
 	held := 0
 	for _, f := range h.lib.Files() {

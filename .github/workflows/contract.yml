@@ -100,7 +100,7 @@ jobs:
             "pkg/nitrovin "{TestCatalogLoads,TestCatalogDrift}
             "cmd/nitrovin "{TestVocabCheck,TestVocabLoad,TestServeVocabularies,TestVocabCheckCatalog,TestTranslate,TestTranslateRefused,TestList,TestListRefused}
             "cmd/nitrovin "{TestStdioOps,TestMCPVocabSession,TestWorker,TestWorkerCatalog,TestWorkerCatalogParts,TestWorkerStock,TestVocabPage,TestVocabTranslate,TestVocabPartTargets}
-            "cmd/nitrovin "{TestDemoCheck,TestWorkerDemo}
+            "cmd/nitrovin "{TestDemoCheck,TestDemoHints,TestWorkerDemo}
             "pkg/ui "{TestLibraryDemoFit,TestDemoPanel,TestDemoWalkthrough}
             "cmd/nitrovin-epa "{TestBuild,TestEntry,TestCuratedLoadsClean}
           )

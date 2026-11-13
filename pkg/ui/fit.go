@@ -359,7 +359,7 @@ func (h *Handler) fit(r *http.Request) (view, error) {
 	page.Demo = isDemoCatalog(info)
 	if catalogName == "" {
 		page.NoCatalog = noCatalogText
-		if h.demoOffered() {
+		if h.demoLoadable() {
 			page.NoCatalog += " " + demoLoadText
 		}
 	}
@@ -415,7 +415,7 @@ func (h *Handler) fit(r *http.Request) (view, error) {
 	if err != nil {
 		return view{}, err
 	}
-	if res.Status == contract.FitNoCatalog && h.demoOffered() {
+	if res.Status == contract.FitNoCatalog && h.demoLoadable() {
 		res.Sentence += " " + demoLoadText
 	}
 	page.Result = res

@@ -395,12 +395,30 @@ func TestDemoPanel(t *testing.T) {
 		t.Errorf("after removing the demo: %q", got)
 	}
 
-	// A server with a catalog refuses it.
+	// A server with a catalog refuses it, and so does one with a file of
+	// a demo name; neither page tells the visitor to load it.
 	withCatalog := newDecoderServer(t, d, "part-types", "catalog-models")
 	withCatalog.serve(t, "catalog", fitmentFile(t, "catalog"))
 	lc := openWith(t, withCatalog, newDisk())
-	if p := demoPanelOf(t, lc); !strings.Contains(p, "The demo brings its own catalog, and this server has one, catalog: one catalog per nitrovin, so the demo cannot load here.") {
+	if p := demoPanelOf(t, lc); !strings.Contains(p, "The demo brings its own catalog, and this server has one, catalog: one catalog per nitrovin, so the demo cannot load here.") || strings.Contains(p, `id="load-demo"`) {
 		t.Errorf("with a catalog on the server, the panel:\n%s", p)
+	}
+	named := newDecoderServer(t, d)
+	named.serve(t, "demo-part-types", theDemo().file("demo-part-types").data)
+	ln := openWith(t, named, newDisk())
+	if p := demoPanelOf(t, ln); !strings.Contains(p, "This server loaded demo-part-types, named like a file of the demo&#39;s: one name is one file (ADR 0011), so the demo cannot load here.") || strings.Contains(p, `id="load-demo"`) {
+		t.Errorf("with a file of a demo name on the server, the panel:\n%s", p)
+	}
+	for _, refused := range []*Library{lc, ln} {
+		h := NewInBrowser(refused, BrowserConfig{Info: refused.Info()}, log.New(io.Discard, "", 0))
+		if h.demoLoadable() {
+			t.Errorf("a refused demo is loadable beside %v", refused.info.Vocabularies)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", "/ui/fit?from.model=1938&model_year=2010", nil))
+		if body := w.Body.String(); w.Code != http.StatusOK || strings.Contains(body, demoLoadText) {
+			t.Errorf("beside %v, a fit page says how to load the demo:\n%s", refused.info.Vocabularies, body)
+		}
 	}
 }
 

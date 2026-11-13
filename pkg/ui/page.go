@@ -736,7 +736,8 @@ func (h *Handler) translate(req contract.TranslateRequest, dec *contract.VINDeco
 type vocabDialog struct {
 	Catalog catalogTable
 	Worker  bool
-	// Demo says the demo set is offered, which needs JavaScript too.
+	// Demo says the demo set can load here (demoLoadable), which needs
+	// JavaScript too.
 	Demo    bool
 	Release string
 }
@@ -748,5 +749,5 @@ func (h *Handler) newVocabDialog(info contract.Info) (vocabDialog, error) {
 	if err != nil {
 		return vocabDialog{}, err
 	}
-	return vocabDialog{Catalog: catalogTable{Rows: h.rows(cat)}, Worker: h.worker != nil || h.lib != nil, Demo: h.demoOffered(), Release: Release(info)}, nil
+	return vocabDialog{Catalog: catalogTable{Rows: h.rows(cat)}, Worker: h.worker != nil || h.lib != nil, Demo: h.demoLoadable(), Release: Release(info)}, nil
 }

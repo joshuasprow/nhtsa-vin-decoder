@@ -105,7 +105,7 @@ func (h *Handler) notHere(names []string, catalog []contract.CatalogEntry) error
 	for _, n := range names {
 		if !slices.ContainsFunc(catalog, func(c contract.CatalogEntry) bool { return c.Name == n }) {
 			msg := fmt.Sprintf("Nothing named %q is loaded on this nitrovin. A file loaded into a browser stays in that browser: open this link in the browser that holds it.", n)
-			if h.demoOffered() && theDemo().file(n) != nil {
+			if theDemo().file(n) != nil && h.demoLoadable() {
 				msg += " " + n + " is a file of the demo set. " + demoLoadText
 			}
 			return &pageError{Status: http.StatusNotFound, Message: msg}
