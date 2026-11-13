@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -385,9 +386,9 @@ func (h *Handler) fit(r *http.Request) (view, error) {
 		switch {
 		case malformed != nil || catalogName == "":
 		case page.Demo:
-			c.Examples = demoExamples(info, cat)
+			c.Examples = c.ownExamples(demoExamples(info, cat), q.Get("from.vocabulary"))
 		default:
-			c.Examples = h.fitExamples(r.Context(), catalogName, stock)
+			c.Examples = c.ownExamples(h.fitExamples(r.Context(), catalogName, stock, c.Tab), q.Get("from.vocabulary"))
 		}
 		if malformed != nil {
 			return refuse(contract.NewProblem(contract.InvalidRequest, "", "the query string is malformed: "+malformed.Error()))
@@ -496,18 +497,7 @@ func (h *Handler) newFitControls(cat []contract.CatalogEntry, raw, q url.Values,
 		}
 	}
 	slices.SortFunc(c.Vocabularies, func(a, b contract.CatalogEntry) int { return strings.Compare(a.Name, b.Name) })
-	switch {
-	case raw.Has("from.vin"):
-		c.Tab = fitTabVIN
-	case raw.Has("from.vocabulary"):
-		c.Tab = fitTabEntry
-	case raw.Has("from.make"), raw.Has("from.model"), raw.Has("from.ext"):
-		c.Tab = fitTabID
-	case raw.Has("from.fitment.type"), raw.Has("from.fitment.number"), raw.Has("from.fitment.side"):
-		c.Tab = fitTabFitment
-	default:
-		c.Tab = raw.Get(tabParam)
-	}
+	c.Tab = cmp.Or(fitTab(raw), raw.Get(tabParam))
 	c.Tabs = []tab{{Key: fitTabVIN, Label: "VIN", Href: fitPath}}
 	if len(c.Vocabularies) > 0 {
 		c.Tabs = append(c.Tabs, tab{Key: fitTabEntry, Label: "Year, make and model", Href: fitPath + "?" + tabParam + "=" + fitTabEntry})
@@ -534,11 +524,51 @@ func (h *Handler) newFitControls(cat []contract.CatalogEntry, raw, q url.Values,
 	return c
 }
 
-// fitExamples are fits to try on the catalog named: its first fitment's
-// vehicles, and the part types of that fitment's first vehicle, in its
-// first year. A catalog that cannot be read for them is logged, and
-// offers none.
-func (h *Handler) fitExamples(ctx context.Context, catalog string, stock []string) []example {
+// fitTab is the tab whose form asks q's from, "" for a query without
+// one: a VIN's, a vocabulary's entry's, a vPIC make's, model's or an
+// extension's, or a fitment key's.
+func fitTab(q url.Values) string {
+	switch {
+	case q.Has("from.vin"):
+		return fitTabVIN
+	case q.Has("from.vocabulary"):
+		return fitTabEntry
+	case q.Has("from.make"), q.Has("from.model"), q.Has("from.ext"):
+		return fitTabID
+	case q.Has("from.fitment.type"), q.Has("from.fitment.number"), q.Has("from.fitment.side"):
+		return fitTabFitment
+	}
+	return ""
+}
+
+// ownExamples are those of exs the current tab's form asks, as the
+// translate page offers a tab its own: each whose from is the tab's
+// (fitTab), with its part, related and stock, and on the entry tab an
+// entry of vocabulary, the one the query selects, when it selects one.
+// A link to another page counts by its from too: the demo's translation
+// asks from an entry.
+func (c *fitControls) ownExamples(exs []example, vocabulary string) []example {
+	return slices.DeleteFunc(exs, func(e example) bool {
+		u, err := url.Parse(e.Href)
+		if err != nil {
+			return true
+		}
+		q := u.Query()
+		return fitTab(q) != c.Tab || vocabulary != "" && q.Get("from.vocabulary") != vocabulary
+	})
+}
+
+// fitExamples are fits to try on the catalog named, from the tab given:
+// on the fitment tab its first fitment's vehicles; on the tab the
+// fitment's first vehicle is asked on, the entry tab for an entry of the
+// catalog's vehicle vocabulary and the id tab for a vPIC make, model or
+// extension, that vehicle's part types in its first year; on any other
+// tab none, the VIN tab's among them, a catalog naming no VIN. A catalog
+// that cannot be read for them is logged, and offers none.
+func (h *Handler) fitExamples(ctx context.Context, catalog string, stock []string, tab string) []example {
+	if tab == fitTabVIN {
+		return nil
+	}
 	skip := func(err error) []example {
 		h.log.Printf("ui: the fit page's examples from %s: %v", catalog, err)
 		return nil
@@ -555,40 +585,46 @@ func (h *Handler) fitExamples(ctx context.Context, catalog string, stock []strin
 		return skip(fmt.Errorf("its first entry is no fitment line: %T", l.Entries[0]))
 	}
 	key := line.Fitment
-	fq := fitmentQuery(key, nil, stock)
-	// The fitment's answer names the catalog's vehicle vocabulary: asked
-	// without stock, which only the example's link asks for, so drawing
-	// the page never waits on a stock source.
-	req, err := contract.ParseFitQuery(fitmentQuery(key, nil, nil))
-	if err != nil {
-		return skip(err)
+	if tab == fitTabFitment {
+		label := key.Type + " " + key.Number
+		if key.Side != "" {
+			label += ", " + key.Side
+		}
+		return []example{{Label: label, Hint: "a fitment of " + catalog + ": its vehicles", Href: fitPath + "?" + fitmentQuery(key, nil, stock).Encode()}}
 	}
-	req.Limit = 1
-	fit, err := h.p.Fit(ctx, req)
-	if err != nil {
-		return skip(err)
-	}
-	if fit.Catalog == nil {
-		return nil
-	}
-	var out []example
 	app := line.Applications[0]
-	vq := vehicleQuery(app.Vehicle, fit.Catalog.Vehicles)
-	hint := "a vehicle of " + fit.Catalog.Name + ": its part types"
+	if (app.Vehicle.Entry != nil) != (tab == fitTabEntry) {
+		return nil // the vehicle is asked on the other tab
+	}
+	vehicles := ""
+	if app.Vehicle.Entry != nil {
+		// An entry names its vocabulary, the catalog's vehicle vocabulary,
+		// which the fitment's answer names: asked without stock, so drawing
+		// the page never waits on a stock source.
+		req, err := contract.ParseFitQuery(fitmentQuery(key, nil, nil))
+		if err != nil {
+			return skip(err)
+		}
+		req.Limit = 1
+		fit, err := h.p.Fit(ctx, req)
+		if err != nil {
+			return skip(err)
+		}
+		if fit.Catalog == nil {
+			return nil
+		}
+		vehicles = fit.Catalog.Vehicles
+	}
+	vq := vehicleQuery(app.Vehicle, vehicles)
+	hint := "a vehicle of " + catalog + ": its part types"
 	if y := app.First; y.Valid || app.Last.Valid {
 		if !y.Valid {
 			y = app.Last
 		}
 		vq.Set("model_year", strconv.Itoa(int(y.V)))
-		hint = "a vehicle of " + fit.Catalog.Name + ", model year " + strconv.Itoa(int(y.V)) + ": its part types"
+		hint = "a vehicle of " + catalog + ", model year " + strconv.Itoa(int(y.V)) + ": its part types"
 	}
-	out = append(out, example{Label: vehicleText(app.Vehicle, fit.Catalog.Vehicles, nil), Hint: hint, Href: fitPath + "?" + vq.Encode()})
-	label := key.Type + " " + key.Number
-	if key.Side != "" {
-		label += ", " + key.Side
-	}
-	out = append(out, example{Label: label, Hint: "a fitment of " + fit.Catalog.Name + ": its vehicles", Href: fitPath + "?" + fq.Encode()})
-	return out
+	return []example{{Label: vehicleText(app.Vehicle, vehicles, nil), Hint: hint, Href: fitPath + "?" + vq.Encode()}}
 }
 
 // vehicleQuery is the query of a fit from v, a catalog's vehicle, an

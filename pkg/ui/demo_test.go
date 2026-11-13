@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -418,6 +419,122 @@ func TestDemoPanel(t *testing.T) {
 		h.ServeHTTP(w, httptest.NewRequest("GET", "/ui/fit?from.model=1938&model_year=2010", nil))
 		if body := w.Body.String(); w.Code != http.StatusOK || strings.Contains(body, demoLoadText) {
 			t.Errorf("beside %v, a fit page says how to load the demo:\n%s", refused.info.Vocabularies, body)
+		}
+	}
+}
+
+// demoPages is `nitrovin serve --vocab pkg/ui/demo` as its pages answer
+// from it: the fit page asks no decode, spine bundle or file of it.
+type demoPages struct{ *nitrovin.Translator }
+
+func (demoPages) Decode(contract.Request) (contract.Decode, error) {
+	return contract.Decode{}, errors.New("the fit page decodes through fit")
+}
+func (demoPages) ErrorTexts() map[int]string { return nil }
+func (demoPages) SpineBundle() ([]byte, error) {
+	return nil, errors.New("the fit page publishes no spine")
+}
+func (demoPages) File(string) ([]byte, error) {
+	return nil, errors.New("the fit page publishes no file")
+}
+
+// fitTabAsks are the from parameters each tab of the fit page asks for
+// in its form, a name ending in "." standing for every parameter under
+// it, and the one each request of the tab must name, "" for any.
+var fitTabAsks = map[string]struct {
+	asks []string
+	must string
+}{
+	"vin":     {asks: []string{"from.vin"}, must: "from.vin"},
+	"entry":   {asks: []string{"from.vocabulary", "from.entry."}, must: "from.vocabulary"},
+	"id":      {asks: []string{"from.make", "from.model", "from.ext"}},
+	"fitment": {asks: []string{"from.fitment.type", "from.fitment.number", "from.fitment.side"}},
+}
+
+// asksOnly reports whether q, a request's query, names a from and only
+// what tab's form asks for.
+func asksOnly(q url.Values, tab string) bool {
+	a := fitTabAsks[tab]
+	if a.must != "" && !q.Has(a.must) {
+		return false
+	}
+	from := 0
+	for k := range q {
+		if !strings.HasPrefix(k, "from.") {
+			continue
+		}
+		from++
+		if !slices.ContainsFunc(a.asks, func(p string) bool { return k == p || strings.HasSuffix(p, ".") && strings.HasPrefix(k, p) }) {
+			return false
+		}
+	}
+	return from > 0
+}
+
+// TestDemoFitTabs: with the demo loaded, on the server (`serve --vocab
+// pkg/ui/demo`) and in the browser (Load the demo), each tab of the fit
+// page offers the requests its own form asks, a VIN's on the VIN tab, an
+// entry's on the entry tab, a vPIC id's or an extension's on the id tab
+// and a fitment's on the fitment tab, each with its part, related and
+// stock, and the translation into EPA's names with the entries; every
+// tab at least one, and every request of the demo's list on one tab. The
+// entry tab with a vocabulary selected offers that vocabulary's alone.
+func TestDemoFitTabs(t *testing.T) {
+	d := embedded(t)
+	l := openWith(t, newDecoderServer(t, d), newDisk())
+	if _, err := l.Load([]Picked{{FileName: "epa-vehicles.jsonl", Data: mustRead(t, epaSample)}}, quiet); err != nil {
+		t.Fatal(err)
+	}
+	loadDemo(t, l)
+	quietLog := log.New(io.Discard, "", 0)
+	for _, c := range []struct {
+		name string
+		h    *Handler
+	}{
+		{"server", New(demoPages{demoServer(t, d)}, quietLog)},
+		{"browser", NewInBrowser(l, BrowserConfig{Info: l.Info()}, quietLog)},
+	} {
+		examplesOf := func(target string) []string {
+			status, _, body := response(t, c.h, "GET", target, nil)
+			if status != http.StatusOK {
+				t.Fatalf("%s, GET %s: %d\n%s", c.name, target, status, body)
+			}
+			if !strings.Contains(body, `id="fit-demo"`) {
+				t.Errorf("%s, %s: the page does not say the demo is loaded", c.name, target)
+			}
+			if !strings.Contains(body, `<ul class="examples"`) {
+				return nil
+			}
+			return hrefs(section(t, body, `<ul class="examples"`, "</ul>"))
+		}
+		on := map[string]string{}
+		for _, tab := range []string{"vin", "entry", "id", "fitment"} {
+			examples := examplesOf("/ui/fit?tab=" + tab)
+			if len(examples) == 0 {
+				t.Errorf("%s, the %s tab: no example", c.name, tab)
+			}
+			for _, e := range examples {
+				if !asksOnly(query(t, e), tab) {
+					t.Errorf("%s, the %s tab offers %s", c.name, tab, e)
+				}
+				if other, ok := on[e]; ok {
+					t.Errorf("%s: %s is on the %s tab and the %s", c.name, e, other, tab)
+				}
+				on[e] = tab
+			}
+			t.Logf("%s, the %s tab: %q", c.name, tab, examples)
+		}
+		for _, e := range theDemo().examples {
+			if on[e.Href] == "" {
+				t.Errorf("%s: %s, of stories %v, is on no tab", c.name, e.Href, e.Stories)
+			}
+		}
+		entries := examplesOf("/ui/fit?tab=entry")
+		if got := examplesOf("/ui/fit?from.vocabulary=demo-vehicles"); !slices.Equal(got, entries) {
+			t.Errorf("%s, demo-vehicles selected: %q; want the entry tab's %q", c.name, got, entries)
+		}
+		if got := examplesOf("/ui/fit?from.vocabulary=epa-vehicles"); len(got) != 0 {
+			t.Errorf("%s, epa-vehicles selected: %q; want none, the demo's entries being demo-vehicles'", c.name, got)
 		}
 	}
 }
