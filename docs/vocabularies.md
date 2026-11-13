@@ -797,7 +797,8 @@ that load. Release builds also offer [EPA's vocabulary](#epas-vocabulary)
 of their data month as a one-click load: `serve` publishes it, byte for
 byte as nitrovin-data's release has it, at
 `/ui/r/<release>/vocab/<blake3>/epa-vehicles.jsonl`, and the browser keeps
-it like a file of yours. A catalog picked on its own is compiled in the
+it like a file of yours. Every build with the worker offers [the demo
+set](#the-demo-set) the same way, publishing each of its files there. A catalog picked on its own is compiled in the
 browser instead, while the server has none, and the worker then answers
 the fit page (`/ui/fit`) from it
 ([ADR 0023](adr/0023-fitment-in-the-browser.md)). Stock files load in the
@@ -936,6 +937,99 @@ EOF
 The VIN's four-wheel drive narrows the 2015 Ram to EPA's `1500 4WD`; the
 yard's `Chevy Silverado`, a name with no decode to check qualifiers
 against, reaches every EPA name mapped to vPIC's Silverado for 2004.
+
+## The demo set
+
+The **demo set** is a small, invented catalog and the files around it, so
+fitment, stock and translation can be seen without files of your own:
+[`pkg/ui/demo/`](../pkg/ui/demo), every file named `demo-*` (15 kB in all).
+It is built around popular vPIC models of the pinned data month (a Ford
+F-150, a Chevrolet Silverado 1500, a Ram 1500, a Honda Civic and CR-V, a
+Toyota Camry and RAV4) and two vehicles vPIC lacks. Every number
+(`DEMO-…`), location (`demo-north`, `demo-south`), stock row and field
+value in it is made up, and says so.
+
+| File | Kind | What it shows |
+| --- | --- | --- |
+| `demo-part-types` | `spine` | the part types |
+| `demo-part-codes` | `vocabulary` (part) | an invented parts system's codes on that spine (`DEMO-ROT` files every rotor) |
+| `demo-vehicles` | `vocabulary` (vehicle) | the catalog's vehicles, mapped onto vPIC: `F150` is vPIC's `F-150`, `Silverado 1500` its `Silverado` of Series 1500, the Ram 1500 a Dodge to 2012 and a Ram from 2013 |
+| `demo-classics` | `extension-set` | a Studebaker Champion and a Volkswagen Type 2, which vPIC lacks |
+| `demo-catalog` | `catalog` | 46 fitments, release `DEMO-2`: qualified applications, sides, a redirect and a retired number |
+| `demo-shelf` | `stock` (shelf) | numbered parts, one under a retired number and one with none, of release `DEMO-1` |
+| `demo-yard-stock` | `stock` (yard) | whole vehicles, nine by VIN and two by the catalog's vehicle |
+
+**In a browser**, the Vocabularies dialog of any `serve` with the browser
+translator (release builds, and nitrovin.app) offers it as one **Load the
+demo**: the vocabularies load as one batch, the catalog compiles in the
+browser as a catalog you pick does, and the shelf and the yard load
+beside it, the yard's VINs alone going to the server to be decoded. It
+loads in well under a second. One catalog per nitrovin holds: while the
+server or the browser holds another catalog, the dialog says so instead.
+**Remove the demo** removes every file of it; after a new release whose
+demo differs, the dialog offers **Refresh the demo**. **On a server**, it
+loads like any directory, for `/v1/fit`, stdio and MCP over the same data:
+
+```sh
+nitrovin --vocab pkg/ui/demo serve       # then open localhost:8080/ui/fit
+nitrovin --vocab pkg/ui/demo fit --part demo-part-types:alternator --stock shelf 1FTEW1EG7FFA12345
+```
+
+`nitrovin vocab check pkg/ui/demo` finds nothing in it on the pinned month,
+and CI holds it there (`TestDemoCheck`), so a month that drops one of its
+ids fails before a release ships it.
+
+**A walkthrough.** With the demo loaded, the fit page's examples (Try
+one) are these requests, kept with the demo set in
+[`demo-examples.json`](../pkg/ui/demo/demo-examples.json), one for each
+thing to see. Each is a link on the page, and the same query on `/v1/fit`
+(the last, a translation, on `/v1/translate`):
+
+1. `/ui/fit?from.vin=1FTEW1EG7FFA12345`: a 2015 F-150 with four-wheel drive,
+   from its VIN: its part types, each with its count of fitments.
+2. `/ui/fit?from.vin=1FTEW1EG7FFA12345&part.spine=demo-part-types&part.id=alternator`:
+   its three alternators, each with the catalog's own option text, verbatim
+   (`3.5L V6 EcoBoost (VIN G, 8th digit)`): a person settles which.
+3. `/ui/fit?from.vin=2HKRW2H53KH612345&part.spine=demo-part-types&part.id=transfer-case`:
+   a 2019 CR-V, whose VIN carries no drive type, so the AWD fitment comes
+   back with Drive Type not checked (`unconfirmed`).
+4. `/ui/fit?from.vin=1FTEW1CG3FFA12345&part.spine=demo-part-types&part.id=brake-rotor-front`:
+   a two-wheel-drive F-150: the 4WD rotor's qualifier rules it out.
+5. `/ui/fit?from.vocabulary=demo-vehicles&from.entry.make=Toyota&from.entry.model=Camry&model_year=2018&part.spine=demo-part-types&part.id=fog-lamp&side=left`:
+   the side filter keeps the left fog lamp and the one for both sides.
+6. `/ui/fit?from.vin=1GCVKREC6EZ123456&part.spine=demo-part-types&part.id=brake-rotor-rear`:
+   a 2014 Silverado's rear rotors, listed under the front: fit follows
+   the redirect and says so.
+7. `/ui/fit?from.fitment.type=alternator&from.fitment.number=DEMO-0901`: a
+   retired number lands on its successor, `DEMO-1001`.
+8. `/ui/fit?from.fitment.type=alternator&from.fitment.number=DEMO-5001`: a
+   fitment's vehicles and years, a Camry and a RAV4.
+9. `/ui/fit?from.vocabulary=demo-vehicles&from.entry.make=Honda&from.entry.model=Civic&model_year=2018&related=true&stock=yard`:
+   related vehicles, the CR-V sharing the Civic's alternator and starter,
+   with the yard's count of each.
+10. `/ui/fit?from.vin=2HKRW2H53KH612345&part.vocabulary=demo-part-codes&part.entry.code=DEMO-ROT`:
+    a part by a parts system's code, translated onto both rotors.
+11. `/ui/fit?from.vin=1FTEW1EG7FFA12345&part.spine=demo-part-types&part.id=alternator&stock=shelf`:
+    shelf stock with its locations; `DEMO-S-02`, filed under the retired
+    `DEMO-0901`, under its successor, marked; and the shelf's release
+    `DEMO-1` marked as another than the catalog's (`catalog_mismatch`).
+12. `/ui/fit?from.vin=4T1B11HK7JU512345&part.spine=demo-part-types&part.id=alternator&stock=yard`:
+    the yard's vehicles the part would come off, matched by their VINs.
+13. `/ui/fit?from.vin=1FTEW1EG7FFA12345&part.spine=demo-part-types&part.id=brake-rotor-front&stock=shelf&stock=yard&location=demo-north`:
+    stock at one location.
+14. `/ui/fit?from.ext=ext:demo-classics/vw-type-2&model_year=1974`: a
+    vehicle vPIC lacks, minted by the extension set, with its parts.
+15. `/ui/fit?from.vin=1C6RR7LT6FS512345`: a 2015 Ram 1500, which vPIC
+    decodes to make Ram, model 1500, and the vehicle vocabulary maps to the
+    catalog's `Dodge Ram 1500`.
+16. `/?from.vocabulary=demo-vehicles&from.entry.make=Chevrolet&from.entry.model=Silverado+1500&model_year=2011&to=epa-vehicles`:
+    the catalog's Silverado 1500 in [EPA's vocabulary](#epas-vocabulary),
+    loaded beside it (the page offers only the requests whose files are
+    loaded).
+
+A link to one of them names the demo's files, so it answers in a browser
+that holds the demo; elsewhere, where the demo can load (no catalog on the
+server, no file of a demo name), the page says how to load it.
 
 ## Keeping a vocabulary private
 

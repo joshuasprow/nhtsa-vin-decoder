@@ -1,0 +1,49 @@
+{"format":1,"kind":"catalog","name":"demo-catalog","version":"2026.11-demo","release":"DEMO-2","spine":"demo-part-types","vehicles":"demo-vehicles"}
+{"fitment":{"type":"alternator","number":"DEMO-1001"},"note":"demo: 200 A","applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2017,"options":"3.5L V6 EcoBoost (VIN G, 8th digit)"}]}
+{"fitment":{"type":"alternator","number":"DEMO-1002"},"note":"demo: 200 A","applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2020,"options":"5.0L V8 (VIN F, 8th digit)"}]}
+{"fitment":{"type":"alternator","number":"DEMO-1003"},"note":"demo: 240 A","applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2020,"options":"2.7L V6 EcoBoost (VIN P, 8th digit), w/ start-stop"}]}
+{"fitment":{"type":"alternator","number":"DEMO-2001"},"applications":[{"vehicle":{"make":"Chevrolet","model":"Silverado 1500"},"first":2014,"last":2018,"options":"4.3L V6, 5.3L V8"}]}
+{"fitment":{"type":"alternator","number":"DEMO-3001"},"applications":[{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2009,"last":2012,"options":"5.7L V8"}]}
+{"fitment":{"type":"alternator","number":"DEMO-3002"},"applications":[{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2013,"last":2018,"options":"5.7L V8, w/o start-stop"}]}
+{"fitment":{"type":"alternator","number":"DEMO-4001"},"applications":[{"vehicle":{"make":"Honda","model":"Civic"},"first":2016,"last":2021,"options":"1.5L turbo"},{"vehicle":{"make":"Honda","model":"CR-V"},"first":2017,"last":2022,"options":"1.5L turbo"}]}
+{"fitment":{"type":"alternator","number":"DEMO-4002"},"applications":[{"vehicle":{"make":"Honda","model":"Civic"},"first":2016,"last":2021,"options":"2.0L"}]}
+{"fitment":{"type":"alternator","number":"DEMO-5001"},"applications":[{"vehicle":{"make":"Toyota","model":"Camry"},"first":2018,"last":2022,"options":"2.5L 4-cyl"},{"vehicle":{"make":"Toyota","model":"RAV4"},"first":2019,"last":2022,"options":"2.5L 4-cyl"}]}
+{"fitment":{"type":"alternator","number":"DEMO-6001"},"applications":[{"vehicle":{"make":"Toyota","model":"RAV4"},"first":2013,"last":2018,"options":"2.5L 4-cyl"}]}
+{"fitment":{"type":"brake-rotor-front","number":"DEMO-1101"},"applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2020,"options":"2WD","qualifiers":{"15":[4,7]}}]}
+{"fitment":{"type":"brake-rotor-front","number":"DEMO-1102"},"applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2020,"options":"4WD","qualifiers":{"15":[2]}}]}
+{"fitment":{"type":"brake-rotor-front","number":"DEMO-2101"},"applications":[{"vehicle":{"make":"Chevrolet","model":"Silverado 1500"},"first":2014,"last":2018,"options":""}]}
+{"fitment":{"type":"brake-rotor-front","number":"DEMO-3101"},"applications":[{"vehicle":{"make":"Dodge","model":"Ram 1500"},"first":2009,"last":2018,"options":""}]}
+{"fitment":{"type":"brake-rotor-front","number":"DEMO-4101"},"applications":[{"vehicle":{"make":"Honda","model":"Civic"},"first":2016,"last":2021,"options":"Sport, Touring"}]}
+{"fitment":{"type":"brake-rotor-front","number":"DEMO-4102"},"applications":[{"vehicle":{"make":"Honda","model":"Civic"},"first":2016,"last":2021,"options":"LX, EX"}]}
+{"fitment":{"type":"brake-rotor-front","number":"DEMO-4103"},"applications":[{"vehicle":{"make":"Honda","model":"CR-V"},"first":2017,"last":2022,"options":""}]}
+{"fitment":{"type":"brake-rotor-front","number":"DEMO-5101"},"applications":[{"vehicle":{"make":"Toyota","model":"Camry"},"first":2018,"last":2022,"options":""}]}
+{"fitment":{"type":"brake-rotor-front","number":"DEMO-6101"},"applications":[{"vehicle":{"make":"Toyota","model":"RAV4"},"first":2013,"last":2018,"options":""}]}
+{"fitment":{"type":"brake-rotor-front","number":"DEMO-6102"},"applications":[{"vehicle":{"make":"Toyota","model":"RAV4"},"first":2019,"last":2022,"options":""}]}
+{"fitment":{"type":"brake-rotor-front","number":"DEMO-7101"},"applications":[{"vehicle":{"make":"Volkswagen","model":"Type 2"},"first":1971,"last":1979,"options":"front disc brakes"}]}
+{"fitment":{"type":"brake-rotor-rear","number":"DEMO-1111"},"applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2020,"options":""}]}
+{"fitment":{"type":"brake-rotor-rear","number":"DEMO-4111"},"applications":[{"vehicle":{"make":"Honda","model":"CR-V"},"first":2017,"last":2022,"options":""}]}
+{"fitment":{"type":"brake-rotor-rear","number":"DEMO-5111"},"applications":[{"vehicle":{"make":"Toyota","model":"Camry"},"first":2018,"last":2022,"options":""},{"vehicle":{"make":"Toyota","model":"RAV4"},"first":2019,"last":2022,"options":""}]}
+{"fitment":{"type":"fog-lamp","number":"DEMO-1401","side":"both"},"applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2017,"options":"w/ fog lamp prep"}]}
+{"fitment":{"type":"fog-lamp","number":"DEMO-5301","side":"both"},"note":"demo: fits either side","applications":[{"vehicle":{"make":"Toyota","model":"Camry"},"first":2018,"last":2020,"options":"SE, XSE: halogen"}]}
+{"fitment":{"type":"fog-lamp","number":"DEMO-5302","side":"left"},"applications":[{"vehicle":{"make":"Toyota","model":"Camry"},"first":2018,"last":2020,"options":"XLE: LED"}]}
+{"fitment":{"type":"fog-lamp","number":"DEMO-5302","side":"right"},"applications":[{"vehicle":{"make":"Toyota","model":"Camry"},"first":2018,"last":2020,"options":"XLE: LED"}]}
+{"fitment":{"type":"headlamp","number":"DEMO-1501","side":"left"},"applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2017,"options":"halogen"}]}
+{"fitment":{"type":"headlamp","number":"DEMO-1501","side":"right"},"applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2017,"options":"halogen"}]}
+{"fitment":{"type":"headlamp","number":"DEMO-5201","side":"left"},"applications":[{"vehicle":{"make":"Toyota","model":"Camry"},"first":2018,"last":2020,"options":"LED, w/o adaptive front lighting"}]}
+{"fitment":{"type":"headlamp","number":"DEMO-5201","side":"right"},"applications":[{"vehicle":{"make":"Toyota","model":"Camry"},"first":2018,"last":2020,"options":"LED, w/o adaptive front lighting"}]}
+{"fitment":{"type":"headlamp","number":"DEMO-8101","side":"both"},"applications":[{"vehicle":{"make":"Studebaker","model":"Champion"},"first":1947,"last":1952,"options":"7-inch sealed beam"}]}
+{"fitment":{"type":"mirror","number":"DEMO-1301","side":"left"},"applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2020,"options":"power, heated"}]}
+{"fitment":{"type":"mirror","number":"DEMO-1301","side":"right"},"applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2020,"options":"power, heated"}]}
+{"fitment":{"type":"mirror","number":"DEMO-7201","side":"left"},"applications":[{"vehicle":{"make":"Volkswagen","model":"Type 2"},"first":1968,"last":1979,"options":"chrome, manual"}]}
+{"fitment":{"type":"mirror","number":"DEMO-7201","side":"right"},"applications":[{"vehicle":{"make":"Volkswagen","model":"Type 2"},"first":1968,"last":1979,"options":"chrome, manual"}]}
+{"fitment":{"type":"starter","number":"DEMO-1601"},"applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2020,"options":""}]}
+{"fitment":{"type":"starter","number":"DEMO-4201"},"applications":[{"vehicle":{"make":"Honda","model":"Civic"},"first":2016,"last":2021,"options":"1.5L turbo"},{"vehicle":{"make":"Honda","model":"CR-V"},"first":2017,"last":2022,"options":"1.5L turbo"}]}
+{"fitment":{"type":"starter","number":"DEMO-5501"},"applications":[{"vehicle":{"make":"Toyota","model":"Camry"},"first":2018,"last":2022,"options":"2.5L 4-cyl"},{"vehicle":{"make":"Toyota","model":"RAV4"},"first":2019,"last":2022,"options":"2.5L 4-cyl"}]}
+{"fitment":{"type":"starter","number":"DEMO-8001"},"applications":[{"vehicle":{"make":"Studebaker","model":"Champion"},"first":1947,"last":1952,"options":"6-cyl"}]}
+{"fitment":{"type":"transfer-case","number":"DEMO-1201"},"applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2020,"options":"4WD, electronic shift on the fly","qualifiers":{"15":[2]}}]}
+{"fitment":{"type":"transfer-case","number":"DEMO-1202"},"applications":[{"vehicle":{"make":"Ford","model":"F150"},"first":2015,"last":2020,"options":"4WD, manual shift, floor lever","qualifiers":{"15":[2]}}]}
+{"fitment":{"type":"transfer-case","number":"DEMO-2201"},"applications":[{"vehicle":{"make":"Chevrolet","model":"Silverado 1500"},"first":2014,"last":2018,"options":"4WD","qualifiers":{"15":[2]}}]}
+{"fitment":{"type":"transfer-case","number":"DEMO-4301"},"applications":[{"vehicle":{"make":"Honda","model":"CR-V"},"first":2017,"last":2022,"options":"AWD","qualifiers":{"15":[3]}}]}
+{"fitment":{"type":"transfer-case","number":"DEMO-6201"},"applications":[{"vehicle":{"make":"Toyota","model":"RAV4"},"first":2016,"last":2018,"options":"AWD","qualifiers":{"15":[2,3]}}]}
+{"redirect":{"vehicle":{"make":"Chevrolet","model":"Silverado 1500"},"first":2014,"last":2018,"from":"brake-rotor-rear","to":"brake-rotor-front","options":"demo: rear rotors are listed with the front"}}
+{"retired":{"type":"alternator","number":"DEMO-0901"},"to":{"type":"alternator","number":"DEMO-1001"},"note":"demo: DEMO-1 → DEMO-2"}

@@ -48,10 +48,10 @@ Manage, the worker's panel, adds a Remove to each of the browser's files. */}}
 {{- end}}
 
 {{/* files is the worker's panel, which fills the dialog: a refused
-remove, the loader and EPA's vocabulary to load, then the merged catalog
-with Remove on the browser's files. vocab.js fills storage-usage, and says
-how a load went in #load-status, just above the panel, which a swap never
-replaces. */}}
+remove, the loader, the demo set and EPA's vocabulary to load, then the
+merged catalog with Remove on the browser's files. vocab.js fills
+storage-usage, and says how a load went in #load-status, just above the
+panel, which a swap never replaces. */}}
 {{define "files" -}}
 {{with .Refusal}}<div class="refusal" role="alert">
 <p>{{.Error}} Remove them too?</p>
@@ -72,6 +72,16 @@ replaces. */}}
 {{- else}}Stock files load here too: a shelf beside the catalog this browser holds, and a yard, whose VINs alone go to this server, once, to be decoded.{{end}}
 Connectors run on a server. A stock row's fields are shown as they are on every fit page that lists it, so a stock file supplies no personal data: no names, contact details or identity numbers of owners, sellers, customers or staff, and nothing it would not show a customer, such as cost. Field names that look personal are reported as drift, but nitrovin cannot tell what a field holds.</p>
 </div>
+{{with .Demo}}<div class="offer demo">
+{{if .Refused}}<p id="demo-refused">{{.Refused}}</p>
+{{else if .Held}}<p>The demo set, {{.Version}}, is kept in this browser: try its examples on the <a href="/ui/fit">fit page</a>. Every number, location and stock row in it is invented.</p>
+<form method="post" action="/ui/files/remove" hx-post="/ui/files/remove" hx-target="#browser-files" class="inline">
+{{range .Names}}<input type="hidden" name="name" value="{{.}}">{{end}}
+<button type="submit" id="remove-demo">Remove the demo</button>
+</form>
+{{else}}<button type="button" id="load-demo" data-demo="{{.Load}}" aria-describedby="load-demo-hint">{{if .Stale}}Refresh the demo{{else}}Load the demo{{end}}</button>
+<p id="load-demo-hint" class="hint">The demo set, {{.Version}}, {{.SizeText}}: a small catalog of popular vehicles with its part and vehicle vocabularies, an extension set, a shelf and a yard, all invented: every number, location and stock row is made up. Its catalog compiles here, in this browser, and only the yard's VINs go to this server, to be decoded; the fit page then offers a request for each feature.{{with .Stale}} It replaces the demo files this browser holds: {{range $i, $n := .}}{{if $i}}, {{end}}{{$n}}{{end}}.{{end}}</p>
+{{end}}</div>{{end}}
 {{with .Offer}}<div class="offer">
 {{if .Held}}<p>EPA's vocabulary, {{.Name}} {{.Version}}, is kept in this browser.</p>
 {{else}}<button type="button" id="load-epa" data-url="{{.URL}}" data-file="{{.Name}}.jsonl" aria-describedby="load-epa-hint">Load EPA's vocabulary</button>

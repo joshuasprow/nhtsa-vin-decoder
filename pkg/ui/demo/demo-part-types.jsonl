@@ -1,0 +1,9 @@
+{"format":1,"kind":"spine","name":"demo-part-types","version":"2026.11-demo"}
+{"id":"alternator","name":"Alternator"}
+{"id":"brake-rotor-front","name":"Brake Rotor, Front"}
+{"id":"brake-rotor-rear","name":"Brake Rotor, Rear"}
+{"id":"fog-lamp","name":"Fog Lamp"}
+{"id":"headlamp","name":"Headlamp Assembly"}
+{"id":"mirror","name":"Door Mirror"}
+{"id":"starter","name":"Starter Motor"}
+{"id":"transfer-case","name":"Transfer Case"}

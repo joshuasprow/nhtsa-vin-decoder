@@ -6,6 +6,7 @@ examples and the answer's links are boosted the same way. */}}
 {{define "fit" -}}
 <h1>Fit parts</h1>
 <p>Give a vehicle to see the part types the loaded catalog fits it with, then a part type's candidates, or a fitment's number to see the vehicles it fits. This page's query is <code>/v1/fit</code>'s, so a link to it and the API call say the same thing.</p>
+{{if .Demo}}<p class="hint" id="fit-demo">The demo set is loaded: every part number, location, stock row and field value in it is invented.</p>{{end}}
 {{template "fit-controls" .Controls}}
 {{with .Result}}{{template "fit-result" .}}{{else}}{{with .NoCatalog}}<p class="status-sentence" id="fit-status">{{.}}</p>{{end}}{{end}}
 {{template "page-footer" .}}
@@ -46,7 +47,7 @@ examples to try. */}}
 </form>
 {{if .Examples}}<p class="try">Try one:</p>
 <ul class="examples" hx-boost="true" hx-target="#ui-main">
-{{range .Examples}}<li><a class="example" href="{{.Href}}">{{.Label}}</a> <span class="hint">{{.Hint}}</span></li>
+{{range .Examples}}<li><a class="example" href="{{.Href}}"{{if .Elsewhere}} hx-boost="false"{{end}}>{{.Label}}</a> <span class="hint">{{.Hint}}</span></li>
 {{end}}</ul>{{end}}
 </section>
 {{- end}}

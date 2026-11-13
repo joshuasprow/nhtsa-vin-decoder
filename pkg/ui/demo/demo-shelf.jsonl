@@ -1,0 +1,11 @@
+{"format":1,"kind":"stock","name":"demo-shelf","version":"2026.11-demo","source":"shelf","as_of":"2026-11-12","catalog":"demo-catalog","release":"DEMO-1"}
+{"id":"DEMO-S-01","location":"demo-north","type":"alternator","number":"DEMO-1001","fields":{"stock_number":"DEMO-S-01","condition":"demo: used, grade A"}}
+{"id":"DEMO-S-02","location":"demo-south","type":"alternator","number":"DEMO-0901","fields":{"stock_number":"DEMO-S-02","condition":"demo: used, grade B; tagged with its old number"}}
+{"id":"DEMO-S-03","location":"demo-north","type":"brake-rotor-front","number":"DEMO-1102","fields":{"stock_number":"DEMO-S-03","condition":"demo: new"}}
+{"id":"DEMO-S-04","location":"demo-south","type":"brake-rotor-front","number":"DEMO-1102","fields":{"stock_number":"DEMO-S-04","condition":"demo: used, grade A"}}
+{"id":"DEMO-S-05","location":"demo-north","type":"mirror","number":"DEMO-1301","side":"left","fields":{"stock_number":"DEMO-S-05","condition":"demo: used, grade B"}}
+{"id":"DEMO-S-06","location":"demo-south","type":"alternator","number":"DEMO-4001","fields":{"stock_number":"DEMO-S-06","condition":"demo: used, grade A"}}
+{"id":"DEMO-S-07","location":"demo-north","type":"alternator","number":"DEMO-5001","fields":{"stock_number":"DEMO-S-07","condition":"demo: used, grade A"}}
+{"id":"DEMO-S-08","location":"demo-south","type":"transfer-case","number":"DEMO-4301","fields":{"stock_number":"DEMO-S-08","condition":"demo: used, grade C"}}
+{"id":"DEMO-S-09","location":"demo-north","type":"fog-lamp","number":"DEMO-5301","side":"both","fields":{"stock_number":"DEMO-S-09","condition":"demo: new"}}
+{"id":"DEMO-S-10","location":"demo-south","part":{"spine":"demo-part-types","id":"headlamp"},"vehicle":{"make":"Studebaker","model":"Champion"},"year":1950,"fields":{"stock_number":"DEMO-S-10","condition":"demo: used, no number: tag reads 'headlamp'"}}

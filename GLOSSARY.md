@@ -482,3 +482,12 @@ _Avoid_: version conflict, stale stock
 A stock row's field whose name has a word `email`, `phone`, `name`, `address` or
 `license`: drift, a nudge that a source supplies no personal data.
 _Avoid_: PII detection (nitrovin cannot see what a field holds)
+
+**Demo set**:
+The invented catalog and the files around it that `pkg/ui/demo` holds, each
+named `demo-*` (a part spine, a part vocabulary, a vehicle vocabulary of popular
+vPIC models, an extension set, a shelf and a yard), with its list of requests
+that show each feature. The Vocabularies dialog loads it into a browser in one
+click ("Load the demo"), and `serve --vocab pkg/ui/demo` serves it. It is not a
+fixture: no test but its own reads it.
+_Avoid_: sample data, fixture, example catalog

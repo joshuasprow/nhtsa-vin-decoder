@@ -29,8 +29,8 @@
 // immutable for a year: a new release is a new URL. So are what a Service
 // Worker needs of the server to translate in the browser: the data
 // month's spine bundle (SpinePath), each file the server loaded
-// (FilePath), and EPA's vocabulary, which the page offers to load into
-// the browser (Offer).
+// (FilePath), and EPA's vocabulary and the demo set (demo.go), which the
+// page offers to load into the browser (Offer).
 package ui
 
 import (
@@ -461,6 +461,9 @@ func (h *Handler) published(info contract.Info, name string, missing *pageError)
 	}
 	if o := h.offered(); o != nil && fileName == o.Name && hash == o.Blake3 {
 		return "application/jsonl", func() ([]byte, error) { return h.worker.EPA, nil }, nil
+	}
+	if b := demoPublished(fileName, hash); h.worker != nil && b != nil {
+		return "application/jsonl", func() ([]byte, error) { return b, nil }, nil
 	}
 	for _, f := range info.Vocabularies {
 		if f.Name != fileName {
