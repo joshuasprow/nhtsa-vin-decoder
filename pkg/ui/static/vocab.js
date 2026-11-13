@@ -24,7 +24,9 @@
 // visitor's files wait for the update), unsupported (no Service Workers),
 // and failed. An update waiting for the old worker's pages to close is
 // said beside the state (data-update="waiting"), with Update now, which
-// hands the page to it at once and reloads.
+// hands the page to it at once and reloads. #browser's data-ticked is
+// set once the page's first tick of the visitor's selection is done,
+// whether it ticked anything or not.
 'use strict';
 
 (() => {
@@ -234,7 +236,9 @@
     }
     relink();
   };
-  tick(location.pathname + location.search).catch(() => {});
+  // data-ticked on #browser marks the end of the page's first tick,
+  // whatever came of it: the forms hold what the page will show.
+  tick(location.pathname + location.search).catch(() => {}).finally(() => { section.dataset.ticked = ''; });
   document.addEventListener('htmx:afterSettle', (e) => {
     if (e.detail.target && e.detail.target.id === 'ui-main') tick((e.detail.pathInfo && e.detail.pathInfo.requestPath) || location.href).catch(() => {});
   });

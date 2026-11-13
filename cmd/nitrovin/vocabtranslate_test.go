@@ -132,9 +132,11 @@ func selectionJSOn(t *testing.T, path, base string, wire *wireLog) {
 	stay := func(target string) {
 		tb.t.Helper()
 		tb.open(target)
+		tb.ticked()
 		eval[bool](tb, `window.stayed = true`)
 	}
 	tb.open(vinTab)
+	tb.ticked()
 	if got := exampleHrefs(tb, "#controls"); !slices.Equal(got, []string{vinExample, teslaExample, ramExample}) {
 		t.Errorf("no file in the browser: examples %q", got)
 	}
@@ -191,6 +193,7 @@ func selectionJSOn(t *testing.T, path, base string, wire *wireLog) {
 	// goes to what is ticked, the parts spine's untouched.
 	stay(vinTab)
 	tb.waitState("ready")
+	tb.ticked()
 	tb.do(chromedp.Click(chromedp.CSS(`#controls input[name=to][value="yard"]`)))
 	cleared := selection{"parts": {"listing"}, "vpic": {"epa-vehicles"}}
 	waitSelection(tb, "clearing yard", cleared)
@@ -202,6 +205,7 @@ func selectionJSOn(t *testing.T, path, base string, wire *wireLog) {
 	checkTicked(tb, "a translation", cleared)
 	tb.open(entryTab)
 	tb.waitState("ready")
+	tb.ticked()
 	tb.do(chromedp.Click(chromedp.CSS(`#controls input[name=to][value="yard"]`)))
 	waitSelection(tb, "ticking yard", all)
 
@@ -347,6 +351,7 @@ func checkTicked(tb *tab, step string, want selection) {
 	tb.open(vinTab)
 	for _, href := range tabHrefs(tb) {
 		tb.open(href)
+		tb.ticked()
 		for _, f := range targetsOffered(tb, "#controls") {
 			if !slices.Equal(f.Ticked, want[f.Spine]) {
 				tb.t.Errorf("%s: the form %s ticks %q; want %q", step, f.Form, f.Ticked, want[f.Spine])
@@ -356,6 +361,15 @@ func checkTicked(tb *tab, step string, want selection) {
 	if got := storedSelection(tb); fmt.Sprint(got) != fmt.Sprint(want) {
 		tb.t.Errorf("%s: IndexedDB keeps the selection %v; want %v", step, got, want)
 	}
+}
+
+// ticked waits for the page's first tick of the visitor's selection to
+// be done (#browser's data-ticked), whatever came of it: the forms are
+// ticked once the worker answers, so a box read or clicked before then
+// is the page's as drawn, and the tick lands on it afterwards.
+func (tb *tab) ticked() {
+	tb.t.Helper()
+	tb.wait("#browser[data-ticked]")
 }
 
 // offered is the targets a tab's form offers, by name: the form's tab's
